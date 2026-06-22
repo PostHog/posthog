@@ -2512,7 +2512,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
@@ -4885,7 +4887,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -7302,7 +7306,9 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * End a running experiment without shipping a variant.

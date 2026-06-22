@@ -309,6 +309,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = RevenueAnalyticsMRRQueryRunner(
                 team=self.team,
                 query=query,
+                user=self.user,
             )
 
             response = runner.calculate()

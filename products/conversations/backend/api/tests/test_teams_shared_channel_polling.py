@@ -16,9 +16,14 @@ from products.conversations.backend.support_teams import (
     refresh_graph_token,
     store_teams_service_url,
 )
-from products.conversations.backend.tasks import poll_team_shared_channels, poll_teams_shared_channels
+from products.conversations.backend.tasks import (
+    _sync_shared_channel_thread_replies,
+    poll_team_shared_channels,
+    poll_teams_shared_channels,
+)
 from products.conversations.backend.teams import (
     graph_message_to_activity,
+    graph_reply_to_activity,
     parse_teams_root_message_id,
     post_teams_channel_message_via_graph,
     resolve_shared_channel_team_id,
@@ -38,11 +43,12 @@ def _graph_message(
     user_id: str | None = "aad-user-1",
     deleted: bool = False,
     reply_to_id: str | None = None,
+    created_at: str = "2024-01-01T12:00:00Z",
 ) -> dict[str, Any]:
     msg: dict[str, Any] = {
         "id": msg_id,
         "messageType": message_type,
-        "createdDateTime": "2024-01-01T12:00:00Z",
+        "createdDateTime": created_at,
         "body": {"contentType": "html", "content": content},
     }
     if deleted:
@@ -91,6 +97,29 @@ class TestGraphMessageToActivity(BaseTest):
         self.assertEqual(activity["channelData"]["channel"]["id"], CHANNEL_ID)
 
 
+class TestGraphReplyToActivity(BaseTest):
+    @parameterized.expand(
+        [
+            ("normal_reply", _graph_message(reply_to_id="root-1"), True),
+            ("deleted_reply", _graph_message(reply_to_id="root-1", deleted=True), False),
+            ("app_authored", _graph_message(reply_to_id="root-1", user_id=None), False),
+            # The /replies endpoint is already scoped to the root thread, so a replyToId
+            # that differs from the root (nested quote-reply) is still ingested.
+            ("nested_reply_to_id", _graph_message(reply_to_id="other-root"), True),
+            ("empty_body", _graph_message(reply_to_id="root-1", content="   "), False),
+        ]
+    )
+    def test_mapping(self, _name: str, msg: dict, should_map: bool) -> None:
+        activity = graph_reply_to_activity(msg, CHANNEL_ID, "root-1", TRUSTED_SERVICE_URL)
+        if not should_map:
+            self.assertIsNone(activity)
+            return
+        assert activity is not None
+        self.assertEqual(activity["id"], msg["id"])
+        self.assertEqual(activity["conversation"]["id"], f"{CHANNEL_ID};messageid=root-1")
+
+
+@patch("products.conversations.backend.tasks._sync_shared_channel_thread_replies")
 @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
 @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
 @patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
@@ -250,7 +279,7 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_confirmation_card_posted_via_graph_for_polled_ticket(
-        self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock
+        self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock, *_: Any
     ) -> None:
         mock_get.side_effect = [
             _channel_verify_resp(),
@@ -267,6 +296,232 @@ class TestPollSharedChannel(BaseTest):
         mock_post.assert_called_once()
         url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
         self.assertIn(f"/teams/{TEAMS_TEAM_ID}/channels/{CHANNEL_ID}/messages/m2/replies", url)
+
+
+@patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
+@patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
+@patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
+class TestPollSharedChannelThreadReplies(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {
+                    "team_id": TEAMS_TEAM_ID,
+                    "team_name": "Group",
+                    "channel_id": CHANNEL_ID,
+                    "channel_name": "shared",
+                    "membership_type": "shared",
+                },
+            ],
+        }
+        self.team.save()
+        TeamConversationsTeamsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "teams_tenant_id": "tenant-abc",
+                "teams_graph_access_token": "graph-tok",
+                "teams_graph_refresh_token": "graph-ref",
+            },
+        )
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_thread_reply_ingested_from_graph_replies(self, mock_get: MagicMock, *_: Any) -> None:
+        from datetime import UTC, datetime
+
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [_graph_message(msg_id="root-1")], "@odata.deltaLink": "DELTA2"}),
+            _resp(json_data={"value": []}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        ticket = Ticket.objects.filter(team=self.team).get()
+        self.assertEqual(ticket.teams_conversation_id, f"{CHANNEL_ID};messageid=root-1")
+        ticket.teams_thread_replies_synced_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-1",
+                            reply_to_id="root-1",
+                            content="<p>follow up question</p>",
+                            created_at="2024-06-01T12:00:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        from posthog.models.comment import Comment
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+        reply_comment = Comment.objects.filter(team=self.team, item_id=str(ticket.id)).order_by("created_at").last()
+        assert isinstance(reply_comment.item_context, dict)
+        self.assertEqual(reply_comment.item_context.get("teams_graph_message_id"), "reply-1")
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.teams_thread_replies_synced_at)
+
+    def _prime_and_create_root_ticket(self, mock_get: MagicMock) -> Ticket:
+        """Prime the channel, create a single root-message ticket, and reset its
+        reply watermark to a fixed early time (the empty post-creation sweep otherwise
+        stamps it with ``now()``, which would skip fixed-timestamp test replies)."""
+        from datetime import UTC, datetime
+
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [_graph_message(msg_id="root-1")], "@odata.deltaLink": "DELTA2"}),
+            _resp(json_data={"value": []}),
+        ]
+        poll_team_shared_channels(self.team.id)
+        ticket = Ticket.objects.filter(team=self.team).get()
+        ticket.teams_thread_replies_synced_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
+        return ticket
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_with_mismatched_reply_to_id_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-nested",
+                            reply_to_id="some-other-message",
+                            content="<p>nested quote reply</p>",
+                            created_at="2024-06-01T12:00:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_within_watermark_lookback_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
+        from datetime import UTC, datetime
+
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+        # Watermark slightly ahead of the reply's createdDateTime: without the lookback
+        # buffer the reply would be skipped as "already synced".
+        ticket.teams_thread_replies_synced_at = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-skew",
+                            reply_to_id="root-1",
+                            content="<p>arrived a touch before the watermark</p>",
+                            created_at="2024-06-01T11:58:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_dedupe_holds_across_runs(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+
+        reply_page = {
+            "value": [
+                _graph_message(
+                    msg_id="reply-dupe",
+                    reply_to_id="root-1",
+                    content="<p>same reply twice</p>",
+                    created_at="2024-06-01T12:00:00Z",
+                )
+            ]
+        }
+        for delta in ("DELTA3", "DELTA4"):
+            mock_get.side_effect = [
+                _resp(json_data={"value": [], "@odata.deltaLink": delta}),
+                _resp(json_data=reply_page),
+            ]
+            poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL", 0)
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_delta_surfaced_ticket_synced_outside_round_robin(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+        conversation_id = ticket.teams_conversation_id
+        assert conversation_id is not None
+
+        reply_page = _resp(
+            json_data={
+                "value": [
+                    _graph_message(
+                        msg_id="reply-delta",
+                        reply_to_id="root-1",
+                        content="<p>surfaced by delta</p>",
+                        created_at="2024-06-01T12:00:00Z",
+                    )
+                ]
+            }
+        )
+
+        # Round-robin selection is empty (max=0): without the surfaced id nothing syncs.
+        mock_get.side_effect = None
+        mock_get.return_value = reply_page
+        _sync_shared_channel_thread_replies(
+            team=self.team,
+            tenant_id="tenant-abc",
+            token="graph-token",
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            service_url=TRUSTED_SERVICE_URL,
+        )
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 1)
+
+        # Passing the surfaced conversation id pulls the reply despite the empty window.
+        _sync_shared_channel_thread_replies(
+            team=self.team,
+            tenant_id="tenant-abc",
+            token="graph-token",
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            service_url=TRUSTED_SERVICE_URL,
+            surfaced_conversation_ids={conversation_id},
+        )
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
 
 
 class TestStoreTeamsServiceUrl(BaseTest):
@@ -380,7 +635,7 @@ class TestSharedChannelGraphSend(BaseTest):
 
     @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
     def test_graph_send_posts_reply_to_thread(self, mock_post: MagicMock) -> None:
-        status = post_teams_channel_message_via_graph(
+        status, _message_id = post_teams_channel_message_via_graph(
             team=self.team,
             teams_team_id=TEAMS_TEAM_ID,
             channel_id=CHANNEL_ID,
@@ -394,7 +649,7 @@ class TestSharedChannelGraphSend(BaseTest):
 
     @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=403))
     def test_graph_send_returns_status_on_error(self, _mock_post: MagicMock) -> None:
-        status = post_teams_channel_message_via_graph(
+        status, message_id = post_teams_channel_message_via_graph(
             team=self.team,
             teams_team_id=TEAMS_TEAM_ID,
             channel_id=CHANNEL_ID,
@@ -402,6 +657,7 @@ class TestSharedChannelGraphSend(BaseTest):
             token="tok",
         )
         self.assertEqual(status, 403)
+        self.assertIsNone(message_id)
 
 
 class TestPollFanout(BaseTest):

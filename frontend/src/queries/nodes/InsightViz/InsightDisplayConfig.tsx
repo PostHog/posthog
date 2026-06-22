@@ -23,6 +23,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LegendPositionFilter } from 'scenes/insights/EditorFilters/LegendPositionFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import {
@@ -120,6 +121,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
+    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     // The slope graph shows the first vs last interval, so it keeps the group-by interval picker but
     // drops the options that need the points between them (compare, smoothing, multiple axes,
     // alert/annotation overlays, statistical analysis).
@@ -246,10 +248,33 @@ export function InsightDisplayConfig(): JSX.Element {
                                   ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                   ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                   ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
-                                  ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                  ...(supportsPercentStackView
+                                      ? [
+                                            {
+                                                label: () => (
+                                                    <PercentStackViewFilter
+                                                        // On a pie chart the percentage is rendered through the
+                                                        // series value labels, so it has no effect while those
+                                                        // labels are hidden.
+                                                        disabledReason={
+                                                            display === ChartDisplayType.ActionsPie &&
+                                                            showValuesOnSeries === false
+                                                                ? "Enable 'Show values on series' to use this option"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                ),
+                                            },
+                                        ]
+                                      : []),
                                   ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                   ...(hasLegend || showFunnelLegendConfig
                                       ? [{ label: () => <ShowLegendFilter /> }]
+                                      : []),
+                                  // The in-chart quill legend supports placement; the legacy side
+                                  // legend doesn't, so only offer it for trends line/area/cumulative.
+                                  ...(quillLegendEnabled && isTrends && isLineDisplay && showLegend
+                                      ? [{ label: () => <LegendPositionFilter /> }]
                                       : []),
                                   ...(display === ChartDisplayType.ActionsPie
                                       ? [{ label: () => <ShowPieTotalFilter /> }]

@@ -1952,6 +1952,20 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-canvas-partial-update": {
+        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update canvas code",
+        "title": "Update canvas code",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "desktop-file-system-create": {
         "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
@@ -3614,6 +3628,20 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-reports-bulk-set-state": {
+        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze signal reports in bulk",
+        "title": "Dismiss or snooze signal reports in bulk",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
@@ -3643,7 +3671,7 @@
         }
     },
     "inbox-reports-set-state": {
-        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "description": "Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal: pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
