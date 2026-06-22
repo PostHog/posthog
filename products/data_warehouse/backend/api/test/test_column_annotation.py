@@ -1,8 +1,13 @@
 from posthog.test.base import APIBaseTest
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestWarehouseColumnAnnotation(APIBaseTest):
@@ -95,3 +100,40 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
             {"table": str(other_table.id), "column_name": "x", "description": "should fail"},
         )
         assert response.status_code == 400, response.json()
+
+    def test_cannot_annotate_table_user_is_denied(self):
+        # A user with general warehouse-table write access but an explicit "none" on this specific table
+        # must not be able to create an annotation for it.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        member = self._create_user("member@posthog.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        # General editor access to the resource, but denied on this one table.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+
+        self.client.force_login(member)
+        response = self.client.post(
+            self._url(),
+            {"table": str(self.table.id), "column_name": "status", "description": "should be denied"},
+        )
+        assert response.status_code == 403, response.json()
+        assert not WarehouseColumnAnnotation.objects.for_team(self.team.pk).filter(table=self.table).exists()

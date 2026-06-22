@@ -3,6 +3,7 @@ from typing import Any
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -100,6 +101,11 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         return queryset.order_by(self.ordering)
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        # The team-scoped table field stops cross-team PKs, but not a table the user is explicitly
+        # denied within this team. Object-level editor access is required before annotating it.
+        table = serializer.validated_data["table"]
+        if not self.user_access_control.check_access_level_for_object(table, required_level="editor"):
+            raise PermissionDenied("You do not have permission to annotate this warehouse table.")
         serializer.save(
             team_id=self.team_id,
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
