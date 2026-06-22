@@ -11348,6 +11348,8 @@ export namespace Schemas {
       affected: number;
       /** Total number of users */
       total: number;
+      /** Maximum allowed audience size for batch triggers for this team. */
+      limit: number;
     }
 
     /**
