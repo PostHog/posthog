@@ -435,6 +435,7 @@ EVENTS_COLUMNS = """
     distinct_id,
     elements_chain,
     created_at,
+    captured_at,
     toString(person_id) as person_id,
     person_created_at,
     person_properties,
@@ -464,6 +465,7 @@ EXPECTED_DUCKLAKE_EVENTS_COLUMNS = {
     "distinct_id",
     "elements_chain",
     "created_at",
+    "captured_at",
     "person_id",
     "person_created_at",
     "person_properties",
@@ -595,6 +597,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
     distinct_id VARCHAR,
     elements_chain VARCHAR,
     created_at TIMESTAMPTZ,
+    captured_at TIMESTAMPTZ,
     person_id VARCHAR,
     person_created_at TIMESTAMPTZ,
     person_properties VARCHAR,
@@ -1474,7 +1477,9 @@ def register_files_with_duckling(
         context.log.info(f"Registering {len(files)} file(s) with DuckLake from {s3_glob}")
         for s3_path in files:
             conn.execute(
-                psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
                     psql.Literal(alias),
                     psql.Literal(s3_path),
                 )
@@ -1739,7 +1744,9 @@ def register_persons_files_with_duckling(
         context.log.info(f"Registering {len(files)} persons file(s) with DuckLake from {s3_glob}")
         for s3_path in files:
             conn.execute(
-                psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
                     psql.Literal(alias),
                     psql.Literal(s3_path),
                 )
