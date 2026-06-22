@@ -1,0 +1,119 @@
+import time
+from typing import Any
+
+from structlog import get_logger
+
+from posthog.schema import EndpointRunRequest, HogQLQuery
+
+from posthog.ducklake.client import execute_ducklake_query
+from posthog.models import Team
+from posthog.ph_client import ph_scoped_capture
+
+from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.services.strategies import strategy_for
+
+logger = get_logger(__name__)
+
+SHADOW_EVENT = "ducklake_endpoint_exec_shadow"
+
+
+def build_ducklake_hogql_query(
+    endpoint: Endpoint, version: EndpointVersion, team: Team, data: EndpointRunRequest
+) -> HogQLQuery:
+    """Build the HogQL query an endpoint would run against DuckLake, applying the same
+    inline-variable overrides as the live DuckLake serving path."""
+    strategy = strategy_for(endpoint, version, team)
+    query = version.query.copy()
+    plan = strategy.build_inline_plan(query, data)
+
+    hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
+    if plan.variables_override and hogql_query.variables:
+        for override in plan.variables_override:
+            if hogql_query.variables.get(override.variableId):
+                hogql_query.variables[override.variableId] = override
+    return hogql_query
+
+
+def run_ducklake_shadow_comparison(
+    *,
+    team_id: int,
+    endpoint_id: str,
+    version_id: str,
+    variables: dict[str, Any] | None,
+    execution_type: str,
+    clickhouse_cached: bool,
+    clickhouse_ms: float,
+    clickhouse_row_count: int | None,
+) -> None:
+    """Re-run an endpoint's HogQL against DuckLake and emit a comparison event.
+
+    Runs in a Celery worker off the request path — it must never raise into the caller.
+    The ClickHouse timing is measured by the request; here we measure only the DuckLake
+    query so both numbers are query-execution wall-clock (see the timing note in the
+    dispatching service). `clickhouse_cached` lets analysis drop CH cache hits, which
+    never executed a query and would skew the comparison.
+    """
+    try:
+        team = Team.objects.get(pk=team_id)
+        endpoint = Endpoint.objects.get(pk=endpoint_id, team_id=team_id)
+        version = EndpointVersion.objects.get(pk=version_id, endpoint=endpoint)
+    except (Team.DoesNotExist, Endpoint.DoesNotExist, EndpointVersion.DoesNotExist):
+        logger.info(
+            "ducklake_shadow_skip_missing_entity",
+            team_id=team_id,
+            endpoint_id=endpoint_id,
+            version_id=version_id,
+        )
+        return
+
+    data = EndpointRunRequest(variables=variables)
+
+    ducklake_ms: float | None = None
+    ducklake_row_count: int | None = None
+    ducklake_error: str | None = None
+    try:
+        hogql_query = build_ducklake_hogql_query(endpoint, version, team, data)
+        _start = time.monotonic()
+        result = execute_ducklake_query(
+            team_id,
+            query=hogql_query,
+            organization_id=str(team.organization_id),
+            team=team,
+        )
+        ducklake_ms = (time.monotonic() - _start) * 1000
+        ducklake_row_count = len(result.results)
+    except Exception as e:
+        ducklake_error = f"{type(e).__name__}: {e}"
+        logger.warning(
+            "ducklake_shadow_query_failed",
+            endpoint_name=endpoint.name,
+            team_id=team_id,
+            error=ducklake_error,
+        )
+
+    row_count_match: bool | None = None
+    if ducklake_row_count is not None and clickhouse_row_count is not None:
+        row_count_match = ducklake_row_count == clickhouse_row_count
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(team.uuid),
+            event=SHADOW_EVENT,
+            properties={
+                "team_id": team_id,
+                "organization_id": str(team.organization_id),
+                "endpoint_name": endpoint.name,
+                "endpoint_version": version.version,
+                "query_kind": "hogql",
+                "execution_type": execution_type,
+                "clickhouse_cached": clickhouse_cached,
+                "clickhouse_ms": clickhouse_ms,
+                "ducklake_ms": ducklake_ms,
+                "clickhouse_row_count": clickhouse_row_count,
+                "ducklake_row_count": ducklake_row_count,
+                "row_count_match": row_count_match,
+                "ducklake_error": ducklake_error,
+                "has_variables": bool(variables),
+            },
+            groups={"organization": str(team.organization_id), "project": str(team_id)},
+        )

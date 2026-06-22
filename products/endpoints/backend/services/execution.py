@@ -83,8 +83,10 @@ from products.endpoints.backend.metrics import (
     query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.services.ducklake_shadow import build_ducklake_hogql_query
 from products.endpoints.backend.services.pagination import EndpointPagination
 from products.endpoints.backend.services.strategies import EndpointQueryStrategy, strategy_for
+from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
 
 from common.hogvm.python.utils import HogVMException
 
@@ -419,6 +421,62 @@ class EndpointExecutionService(PydanticModelMixin):
             logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team.pk)
         return server is not None
 
+    def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
+        """Whether to run a non-blocking DuckLake shadow of this execution for timing
+        comparison. Independent of `_should_use_ducklake` (which serves from DuckLake)."""
+        if version is None or version.query.get("kind") != "HogQLQuery":
+            return False
+
+        ff_result = posthoganalytics.feature_enabled(
+            "endpoints-ducklake-shadow-execution",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if not ff_result:
+            return False
+        return get_duckgres_server_for_organization(str(self.team.organization_id)) is not None
+
+    def _maybe_shadow_ducklake(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
+        *,
+        execution_type: ExecutionType,
+        clickhouse_ms: float,
+        clickhouse_cached: bool,
+        clickhouse_row_count: int | None,
+    ) -> None:
+        """Fire-and-forget: re-run this endpoint against DuckLake in a worker and emit a
+        ClickHouse-vs-DuckLake timing comparison event. Never affects the user response."""
+        # Only shadow executions ClickHouse actually served; the DuckLake path can't shadow itself.
+        if execution_type not in ("inline", "materialized", "materialized_fallback"):
+            return
+        if not self._should_shadow_ducklake(endpoint, version):
+            return
+        try:
+            shadow_compare_ducklake_execution.delay(
+                team_id=self.team.pk,
+                endpoint_id=str(endpoint.id),
+                version_id=str(version.id),
+                variables=data.variables,
+                execution_type=execution_type,
+                clickhouse_cached=clickhouse_cached,
+                clickhouse_ms=clickhouse_ms,
+                clickhouse_row_count=clickhouse_row_count,
+            )
+        except Exception:
+            logger.warning("Failed to dispatch DuckLake shadow comparison", endpoint_name=endpoint.name)
+
     # ------------------------------------------------------------------
     # Top-level entry point
     # ------------------------------------------------------------------
@@ -478,7 +536,9 @@ class EndpointExecutionService(PydanticModelMixin):
         error_label: str | None = None
         _start_time = time.monotonic()
         _duration = 0.0
+        _ch_query_ms = 0.0
 
+        _ch_query_start = time.monotonic()
         try:
             result: Response | None = None
             if use_materialized:
@@ -519,6 +579,9 @@ class EndpointExecutionService(PydanticModelMixin):
                     limit=limit,
                     offset=offset,
                 )
+            # Query-execution wall-clock only (excludes request validation/serialization),
+            # so it compares fairly against the DuckLake shadow's query timing.
+            _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             execution_status = "user_error"
@@ -602,6 +665,16 @@ class EndpointExecutionService(PydanticModelMixin):
             ),
         )
         self._track_last_executed(endpoint, version_obj)
+
+        self._maybe_shadow_ducklake(
+            endpoint,
+            data,
+            version_obj,
+            execution_type=execution_type,
+            clickhouse_ms=_ch_query_ms,
+            clickhouse_cached=cache_outcome == "hit",
+            clickhouse_row_count=result_row_count,
+        )
 
         if isinstance(result.data, dict):
             result.data["name"] = endpoint.name
@@ -917,14 +990,7 @@ class EndpointExecutionService(PydanticModelMixin):
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
-            strategy = strategy_for(endpoint, version, self.team)
-            plan = strategy.build_inline_plan(query, data)
-
-            hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
-            if plan.variables_override and hogql_query.variables:
-                for override in plan.variables_override:
-                    if hogql_query.variables.get(override.variableId):
-                        hogql_query.variables[override.variableId] = override
+            hogql_query = build_ducklake_hogql_query(endpoint, version, self.team, data)
 
             result = execute_ducklake_query(
                 self.team.pk,

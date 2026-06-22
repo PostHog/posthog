@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from django.utils import timezone
 
@@ -9,10 +10,35 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.services.ducklake_shadow import run_ducklake_shadow_comparison
 
 logger = get_logger(__name__)
 
 STALE_THRESHOLD_DAYS = 30
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def shadow_compare_ducklake_execution(
+    team_id: int,
+    endpoint_id: str,
+    version_id: str,
+    variables: dict[str, Any] | None,
+    execution_type: str,
+    clickhouse_cached: bool,
+    clickhouse_ms: float,
+    clickhouse_row_count: int | None,
+) -> None:
+    run_ducklake_shadow_comparison(
+        team_id=team_id,
+        endpoint_id=endpoint_id,
+        version_id=version_id,
+        variables=variables,
+        execution_type=execution_type,
+        clickhouse_cached=clickhouse_cached,
+        clickhouse_ms=clickhouse_ms,
+        clickhouse_row_count=clickhouse_row_count,
+    )
 
 
 @shared_task(ignore_result=True)
