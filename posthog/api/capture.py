@@ -288,6 +288,8 @@ def prepare_capture_internal_batch(
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
     """
+    if not event_source:
+        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
     if not token:
         raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
     if not events:
@@ -390,6 +392,38 @@ def capture_batch_internal(
     and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
     to the capture-rs /s/ endpoint.
 
+    event.options reference (typed options replacing legacy $-prefixed properties):
+    ┌─────────────────────────┬────────────────────────────┬──────────────┐
+    │ options key             │ replaces legacy property   │ default      │
+    ├─────────────────────────┼────────────────────────────┼──────────────┤
+    │ cookieless_mode         │ $cookieless_mode           │ None/omitted │
+    │ disable_skew_correction │ $ignore_sent_at            │ None/omitted │
+    │                         │ (alias: disable_skew_      │              │
+    │                         │  adjustment)               │              │
+    │ product_tour_id         │ $product_tour_id           │ None/omitted │
+    │ process_person_profile  │ $process_person_profile    │ see below    │
+    └─────────────────────────┴────────────────────────────┴──────────────┘
+
+    Additional top-level event fields (also extracted from properties):
+    ┌─────────────────────────┬────────────────────────────┬──────────────┐
+    │ event field             │ replaces legacy property   │ default      │
+    ├─────────────────────────┼────────────────────────────┼──────────────┤
+    │ session_id              │ $session_id                │ None/omitted │
+    │ window_id               │ $window_id                 │ None/omitted │
+    └─────────────────────────┴────────────────────────────┴──────────────┘
+
+    When both a typed key AND its legacy $-property are present, the typed key wins
+    (a warning metric ``capture_v1_internal_option_conflict`` is emitted).  The legacy
+    property is always stripped from ``properties`` regardless.
+
+    process_person_profile interaction:
+        The batch-level ``process_person_profile`` param acts as a SAFETY RAIL.  When
+        False (default), it forces ``options.process_person_profile = False`` for EVERY
+        event in the batch — even if the event's own options dict says True (a warning
+        is logged on conflict).  Only when the batch-level param is True does the
+        per-event ``options.process_person_profile`` value get respected as-is.  This
+        prevents accidental expensive person profile updates from internal tooling.
+
     Args:
         events: list of event dicts to capture. Each MUST include:
             - ``event`` (str): event name
@@ -397,22 +431,19 @@ def capture_batch_internal(
             - ``properties`` (dict): event properties (required; can be empty)
             Optional per-event fields:
             - ``timestamp`` (str | datetime): defaults to now UTC if absent
-            - ``options`` (dict): typed options — keys: ``cookieless_mode``,
-              ``disable_skew_correction``, ``product_tour_id``, ``process_person_profile``.
-              Prefer this over stuffing ``$``-prefixed keys into properties.
-            - ``session_id``, ``window_id`` (str): top-level fields; legacy
-              ``$session_id``/``$window_id`` in properties are also recognized and stripped
+            - ``options`` (dict): typed options per table above
+            - ``session_id``, ``window_id`` (str): top-level fields per table above
             - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
         token: API token to submit events on behalf of (required; overrides individual
             event tokens)
         event_source: observability tag indicating the internal module/codepath submitting
-            the events (required).  Callers MUST supply this so Prometheus metrics can
-            identify which call site is submitting events and detect (ab)usive new callers.
+            the events (REQUIRED — validated; raises CaptureInternalError if empty).
+            Callers MUST supply this so Prometheus metrics can identify which call site
+            is submitting events and detect (ab)usive new callers.
         historical_migration: if True, routes events to the historical ingestion path
             in capture-rs (separate Kafka topic/consumer group)
-        process_person_profile: if True, process person profiles per event/team config.
-            If False (default), explicitly disables person processing for all events in
-            the batch — avoids expensive person profile updates from internal tooling.
+        process_person_profile: batch-level safety rail (default: False).  See
+            "process_person_profile interaction" above.
         max_attempts: application-level retry budget for per-event ``retry`` results from
             capture-rs (default: 4). Does not affect transport-level 5xx retries.
         timeout: HTTP request timeout in seconds (default: 2)
@@ -423,10 +454,10 @@ def capture_batch_internal(
         ``.ok``, ``.dropped``, ``.retried``, ``.unaccounted`` lists for fine-grained handling.
 
     Raises:
-        CaptureInternalError: on client-side validation failures (missing token, empty batch,
-            replay event names, unknown option keys) or HTTP/transport errors.  The exception
-            carries a ``.status_code`` attribute (the HTTP status from capture-rs, or 0 for
-            client-side/transport errors).
+        CaptureInternalError: on client-side validation failures (missing/empty event_source,
+            missing token, empty batch, replay event names, unknown option keys) or
+            HTTP/transport errors.  The exception carries a ``.status_code`` attribute
+            (the HTTP status from capture-rs, or 0 for client-side/transport errors).
     """
     payload, uuids = prepare_capture_internal_batch(
         events,
@@ -607,6 +638,8 @@ def capture_internal(
     posthoganalytics SDK integration handles that separately.
 
     Wraps the event into a 1-element batch and delegates to capture_batch_internal.
+    See capture_batch_internal's docstring for the full event.options reference table
+    and the process_person_profile batch-level interaction.
 
     Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT SUPPORTED
     and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
@@ -616,27 +649,27 @@ def capture_internal(
         token: API token to submit the event on behalf of (required)
         event_name: the name of the event to be published (required)
         event_source: observability tag indicating the internal module/codepath submitting
-            the event (required).  Callers MUST supply this so Prometheus metrics can
-            identify which call site is submitting events and detect (ab)usive new callers.
+            the event (REQUIRED — validated; raises CaptureInternalError if empty).
+            Callers MUST supply this so Prometheus metrics can identify which call site
+            is submitting events and detect (ab)usive new callers.
         distinct_id: the distinct ID for the event (required)
         timestamp: the timestamp of the event (optional; will be set to now UTC if absent).
             Accepts datetime objects or ISO8601 strings.
         properties: event properties to submit with the event (optional; can be empty).
-            Legacy ``$``-prefixed keys that map to typed options (``$session_id``,
-            ``$window_id``, ``$cookieless_mode``, ``$ignore_sent_at``, ``$product_tour_id``,
-            ``$process_person_profile``) are automatically extracted and stripped.
-        options: typed event options dict (optional). Valid keys: ``cookieless_mode``,
-            ``disable_skew_correction``, ``product_tour_id``, ``process_person_profile``.
-            Prefer this over stuffing ``$``-prefixed keys into properties.
+            Legacy ``$``-prefixed keys that map to typed options are automatically
+            extracted and stripped — see the options table in capture_batch_internal.
+        options: typed event options dict (optional).  See the options reference table in
+            capture_batch_internal for valid keys, legacy equivalents, and defaults.
         session_id: session ID (optional). Preferred over ``$session_id`` in properties.
         window_id: window ID (optional). Preferred over ``$window_id`` in properties.
         event_uuid: optional deterministic UUID to assign to the event (default: capture-rs
             assigns a fresh UUIDv7).  Use when the caller needs a stable, queryable event
             UUID — e.g. to link back to the event from an admin UI.  Must be a parseable
             UUID string.
-        process_person_profile: if TRUE, process the person profile for the event according
-            to the caller's settings.  If FALSE (default), disable person processing for
-            this event — avoids expensive person profile updates from internal tooling.
+        process_person_profile: batch-level safety rail (default: False).  When False,
+            forces person processing OFF regardless of per-event options.  When True,
+            per-event options.process_person_profile is respected.  See
+            capture_batch_internal docstring for the full interaction.
         historical_migration: if True, routes to the historical ingestion path in
             capture-rs (separate Kafka topic/consumer group).
         timeout: HTTP request timeout in seconds (default: 2)
@@ -647,10 +680,10 @@ def capture_internal(
         check ``.succeeded()`` instead.
 
     Raises:
-        CaptureInternalError: on client-side validation failures (missing token, replay
-            event names, etc.) or HTTP/transport errors.  Carries a ``.status_code``
-            attribute (HTTP status from capture-rs, or 0 for client-side/transport errors)
-            so callers can propagate into their own HTTP responses.
+        CaptureInternalError: on client-side validation failures (missing/empty event_source,
+            missing token, replay event names, etc.) or HTTP/transport errors.  Carries a
+            ``.status_code`` attribute (HTTP status from capture-rs, or 0 for client-side/
+            transport errors) so callers can propagate into their own HTTP responses.
     """
     event_dict: dict[str, Any] = {
         "event": event_name,

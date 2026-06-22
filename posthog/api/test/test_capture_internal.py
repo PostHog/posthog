@@ -325,13 +325,16 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("empty_token", "", [{"event": "e", "distinct_id": "u"}], "api token is required"),
-            ("no_events", "tok", [], "at least one event is required"),
+            ("empty_token", "", [{"event": "e", "distinct_id": "u"}], "src", "api token is required"),
+            ("no_events", "tok", [], "src", "at least one event is required"),
+            ("empty_event_source", "tok", [{"event": "e", "distinct_id": "u"}], "", "event_source is required"),
         ]
     )
-    def test_validation_errors(self, _name: str, token: str, events: list[dict[str, Any]], fragment: str) -> None:
+    def test_validation_errors(
+        self, _name: str, token: str, events: list[dict[str, Any]], event_source: str, fragment: str
+    ) -> None:
         with self.assertRaises(CaptureInternalError) as ctx:
-            prepare_capture_internal_batch(events, token=token, event_source="src")
+            prepare_capture_internal_batch(events, token=token, event_source=event_source)
         assert fragment in str(ctx.exception).lower()
 
     def test_missing_event_name_raises(self) -> None:
