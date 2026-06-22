@@ -449,12 +449,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
-        # Default the implementation run's stage so its $ai_generation traces are attributed
-        # instead of landing in the unattributed "(none)" bucket. An explicitly-passed
-        # ai_stage (e.g. research, repo_selection) still wins via setdefault.
-        if origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            extra_state.setdefault("ai_stage", "implementation")
-
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 

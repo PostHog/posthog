@@ -198,6 +198,10 @@ async def maybe_autostart_implementation_task(
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+        # Tags this run's $ai_generation traces so they're attributed to the implementation
+        # stage instead of landing in the unattributed "(none)" cost bucket. The research and
+        # repo-selection runs set their own ai_stage; this is the implementation run.
+        ai_stage="implementation",
     )
     if created.latest_run is None:
         raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")

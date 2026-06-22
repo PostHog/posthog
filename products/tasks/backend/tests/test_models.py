@@ -140,37 +140,6 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=run_id)
         self.assertNotIn("ai_stage", task_run.state)
 
-    @parameterized.expand(
-        [
-            ("signal_report_defaults_to_implementation", Task.OriginProduct.SIGNAL_REPORT, None, "implementation"),
-            ("signal_report_explicit_stage_wins", Task.OriginProduct.SIGNAL_REPORT, "research", "research"),
-            ("non_signal_report_gets_no_stage", Task.OriginProduct.USER_CREATED, None, None),
-        ]
-    )
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_signal_report_defaults_ai_stage(
-        self, _name, origin_product, ai_stage, expected_stage, mock_execute_workflow
-    ):
-        user = User.objects.create(email="test@test.com")
-        Integration.objects.create(team=self.team, kind="github", config={})
-
-        Task.create_and_run(
-            team=self.team,
-            title="Task",
-            description="Description",
-            origin_product=origin_product,
-            user_id=user.id,
-            repository="posthog/posthog",
-            ai_stage=ai_stage,
-        )
-
-        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
-        task_run = TaskRun.objects.get(id=run_id)
-        if expected_stage is None:
-            self.assertNotIn("ai_stage", task_run.state)
-        else:
-            self.assertEqual(task_run.state["ai_stage"], expected_stage)
-
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
