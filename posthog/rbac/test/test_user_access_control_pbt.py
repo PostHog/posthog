@@ -1,5 +1,6 @@
 import uuid
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Optional, cast
 
@@ -12,6 +13,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from hypothesis import (
+    HealthCheck,
     given,
     settings,
     strategies as st,
@@ -46,6 +48,14 @@ except ImportError:
     pass
 
 pytestmark = pytest.mark.ee
+
+# PostHog CI runs the backend suite with pytest-rerunfailures (--reruns 2). A rerun
+# re-instantiates the TestCase, so a genuinely-failing @given method is re-invoked
+# from a fresh instance, which trips hypothesis's differing_executors health check
+# and masks the real falsifying example. Each example already runs in its own
+# transaction (the Django hypothesis TestCase), so cross-instance reruns are benign
+# here - suppress the check so a real regression surfaces its falsifying example.
+SUPPRESSED_HEALTH_CHECKS = [HealthCheck.differing_executors]
 
 
 ALL_RESOURCES = sorted({*ACCESS_CONTROL_RESOURCES, "project", "organization", *RESOURCE_INHERITANCE_MAP})
@@ -83,7 +93,7 @@ def _max_level(levels: list[AccessControlLevel], order: list[AccessControlLevel]
 
 class TestAccessLevelHelpersProperties(TestCase):
     @given(resource=resources_st)
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_level_helpers_are_consistent(self, resource):
         levels = ordered_access_levels(resource)
         assert levels[0] == "none"
@@ -95,7 +105,7 @@ class TestAccessLevelHelpersProperties(TestCase):
         assert levels.index(default_access_level(resource)) <= levels.index(highest_access_level(resource))
 
     @given(data=resource_with_levels(n=3))
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_satisfaction_is_a_total_order(self, data):
         resource, a, b, c = data
         levels = ordered_access_levels(resource)
@@ -111,7 +121,7 @@ class TestAccessLevelHelpersProperties(TestCase):
             assert access_level_satisfied_for_resource(resource, a, c)
 
     @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_org_admin_member_always_gets_highest(self, data):
         resource, default_level, role_levels, member_level = data
         result = get_effective_access_level_for_member(
@@ -122,7 +132,7 @@ class TestAccessLevelHelpersProperties(TestCase):
         assert result.inherited_access_level_reason == "organization_admin"
 
     @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_effective_member_level_is_max_of_inputs(self, data):
         resource, default_level, role_levels, member_level = data
         result = get_effective_access_level_for_member(
@@ -132,7 +142,7 @@ class TestAccessLevelHelpersProperties(TestCase):
         assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
 
     @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_effective_member_level_is_monotonic(self, data):
         resource, default_level, role_levels, member_level = data
         levels = ordered_access_levels(resource)
@@ -148,7 +158,7 @@ class TestAccessLevelHelpersProperties(TestCase):
                 assert levels.index(extended.effective_access_level) >= levels.index(base.effective_access_level)
 
     @given(data=resource_with_levels(n=2), has_default=st.booleans(), has_role=st.booleans())
-    @settings(max_examples=500, deadline=None)
+    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_effective_role_level_is_max_of_inputs(self, data, has_default, has_role):
         resource, default_level, role_level = data
         default_arg = default_level if has_default else None
@@ -181,6 +191,31 @@ ACCESS_CONTROLLED_RESOURCES = set(ACCESS_CONTROL_RESOURCES) | set(RESOURCE_INHER
 EXCLUSIONS: dict[str, str] = {}
 
 
+def _build_evaluation(team: Team, user: User, model_cls: type[models.Model]) -> models.Model:
+    # Evaluation.save() enforces an interdependent (evaluation_type, output_type)
+    # combo plus per-combo config validation that the generic field-filler can't
+    # satisfy. sentiment/sentiment is the combo that needs no model configuration
+    # and accepts empty configs. If the valid combos change, the buildable guard
+    # test fails loudly and this factory should be updated.
+    manager: Any = model_cls._default_manager
+    return manager.create(
+        team=team,
+        name="pbt-evaluation",
+        evaluation_type="sentiment",
+        output_type="sentiment",
+        evaluation_config={},
+        output_config={},
+        created_by=user,
+    )
+
+
+# resource -> factory for models whose validation the generic build_instance can't
+# satisfy. Preferred over EXCLUSIONS so the resource keeps coverage.
+FACTORY_OVERRIDES: dict[APIScopeObject, Callable[[Team, User, type[models.Model]], models.Model]] = {
+    "evaluation": _build_evaluation,
+}
+
+
 def discover_object_models() -> list[tuple[APIScopeObject, type[models.Model]]]:
     candidates: dict[APIScopeObject, list[type[models.Model]]] = {}
     for model in apps.get_models():
@@ -205,6 +240,10 @@ _unique_counter = itertools.count()
 def build_instance(model_cls: type[models.Model], team: Team, user: User, _depth: int = 0) -> models.Model:
     if _depth > 3:
         raise ValueError(f"FK chain too deep while building {model_cls.__name__}")
+
+    override_resource = model_to_resource(cast(models.Model, model_cls))
+    if override_resource in FACTORY_OVERRIDES:
+        return FACTORY_OVERRIDES[override_resource](team, user, model_cls)
 
     kwargs: dict = {}
     for field in model_cls._meta.concrete_fields:
@@ -505,11 +544,12 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
                 failures.append(f"{resource} ({model_cls.__name__}): {e}")
         assert not failures, (
             "Some access-controlled models cannot be built generically. Either fix build_instance, "
-            "or add an EXCLUSIONS entry with a reason:\n" + "\n".join(failures)
+            "add a FACTORY_OVERRIDES factory for the resource, or add an EXCLUSIONS entry with a reason:\n"
+            + "\n".join(failures)
         )
 
     @given(data=object_resource_and_rows(), membership_level=membership_levels_st, own=st.booleans())
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_get_user_access_level_matches_oracle(self, data, membership_level, own):
         resource, model_cls, specs = data
         self._set_membership_level(membership_level)
@@ -526,7 +566,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert self._fresh_uac().get_user_access_level(obj) == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_access_level_for_resource_matches_oracle(self, data, membership_level):
         resource, specs = data
         self._set_membership_level(membership_level)
@@ -538,7 +578,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert self._fresh_uac().access_level_for_resource(resource) == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_has_resource_access_and_blocked_resources_match_oracle(self, data, membership_level):
         resource, specs = data
         self._set_membership_level(membership_level)
@@ -559,7 +599,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert uac.blocked_resources == expected_blocked
 
     @given(scenario=queryset_scenario(), membership_level=membership_levels_st)
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_filter_queryset_by_access_level_matches_oracle(self, scenario, membership_level):
         resource, model_cls, objects, resource_specs = scenario
         self._set_membership_level(membership_level)
@@ -595,7 +635,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert result_ids == expected
 
     @given(scenario=queryset_scenario(), membership_level=membership_levels_st)
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_blocked_resource_ids_by_scope_matches_oracle(self, scenario, membership_level):
         resource, model_cls, objects, resource_specs = scenario
         self._set_membership_level(membership_level)
@@ -622,7 +662,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         team_rows=project_rows(),
         membership_level=st.sampled_from(ADMIN_LEVELS),
     )
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_org_admin_always_gets_highest_access(self, data, team_rows, membership_level):
         resource, model_cls, specs = data
         self._set_membership_level(membership_level)
@@ -639,7 +679,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert uac.check_can_modify_access_levels_for_object(obj) is True
 
     @given(data=object_resource_and_rows(), admin_target=st.sampled_from(sorted(MATCHING)))
-    @settings(max_examples=50, deadline=None)
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_project_admin_can_always_modify_access_levels(self, data, admin_target):
         resource, model_cls, specs = data
         obj = build_instance(model_cls, self.team, self.other_user)
@@ -657,7 +697,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         membership_level=membership_levels_st,
         own=st.booleans(),
     )
-    @settings(max_examples=100, deadline=None)
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
     def test_check_can_modify_access_levels_matches_oracle(self, data, team_rows, membership_level, own):
         resource, model_cls, specs = data
         self._set_membership_level(membership_level)
