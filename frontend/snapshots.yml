@@ -3004,10 +3004,6 @@ snapshots:
         hash: v1.k794b7964.aaac7f23f9a219a36fe552eeb2ce78db7a6a4e888c3d784c906ee625f08551b2.ble3WT6n9mE7ijlFM6k-RZ1RY3zyNZRNQqYvyTSMuYg
     lemon-ui-lemon-button--with-very-long-popover-to-the-bottom--light:
         hash: v1.k794b7964.22bf3aff2387bc9fe0be60368f2dbaf387ac90e9d7e50da67b105a2a262919e2.Z9B3MO0-PGXtKS6u9b2m2Meb0HPHYlCtXtojeaKl_DU
-    lemon-ui-lemon-calendar-lemon-calendar--custom-styles--dark:
-        hash: v1.k794b7964.baca44acec1f2e9e1cef89dcf75bc6edc6a54c67060fc1cbb76c225a24d92893.GRhAG2QB3ezEo6BL7PNwpbrB5zYYsCb44VqdofLXNic
-    lemon-ui-lemon-calendar-lemon-calendar--custom-styles--light:
-        hash: v1.k794b7964.bbfe74c90d40f40a776d8192e3801359674a53f1b8edc7ca5b938a9ad017e8ba.fxdqMLzFdeHLIybSbYCrKDeWzzzIudUtwjmI0aDuxL0
     lemon-ui-lemon-calendar-lemon-calendar--default--dark:
         hash: v1.k794b7964.5cc5655547a3c164875acb55eced294598821b81155445536c69bafdfe84bab5.dqIgEZe6tvm57LKOGn33UqlK-CdtktCizCihcYbgXPA
     lemon-ui-lemon-calendar-lemon-calendar--default--light:
@@ -3036,10 +3032,18 @@ snapshots:
         hash: v1.k794b7964.5b7f8fc424da29131233d304afcd8c418f79386cf590c98490e76ef1619fb45a.25TRqcaXkkpvNx6CJobzTR07FkZEGqOxkJSsCfuYHyE
     lemon-ui-lemon-calendar-lemon-calendar--multiple-months--light:
         hash: v1.k794b7964.e846f27f1e6699e58149f39e333b5191f0c1dd7bfd466d6efd66c7b5510a69e5.861M9fa7ItLq-GPkUx5uoMzNyrs1rIEWsMrXyw6GAXA
+    lemon-ui-lemon-calendar-lemon-calendar--range-selection--dark:
+        hash: v1.k794b7964.1706853c2e36898d55307af95c50ab517bbb8c0f79c29318a803f9f384057f59.ougW9eZ3tW9JoShtLQERoIq2Cmx2qhONV9wW_a4rfUw
+    lemon-ui-lemon-calendar-lemon-calendar--range-selection--light:
+        hash: v1.k794b7964.dfa6345f2507f5ecc54088d26b9ec299622c504ac4891f64ccd99e0a3235e72f.fyH8Og_JDhY-zvDVolJP27FzVnUmiT5bsFSH8YNFQ_s
     lemon-ui-lemon-calendar-lemon-calendar--saturday-first--dark:
         hash: v1.k794b7964.17911f2bb2e5d81ca3e5874bbc2984a88e1d365dff1bdabae00c7462b1a1a7df.7itKfZmIgJiL7PLLxt4Y7xvWcwakalUY4jKn0MSkTco
     lemon-ui-lemon-calendar-lemon-calendar--saturday-first--light:
         hash: v1.k794b7964.c2f367de16677442b5cb270a612045666a223ec9cca01b5e4f37db1741116daf.LMw8G6RfZMS2P6r0A1shod7CYpz_ELPjlClafd4giGY
+    lemon-ui-lemon-calendar-lemon-calendar--single-selection--dark:
+        hash: v1.k794b7964.ce1fbe645a41122cc1feb73d05d30d87a1f8a02f849c7d3c23454e82a6639d8b.CvqJIO8nA_wGVzUo6eVL6K6DJZQo8wQ32nBaan1fxDU
+    lemon-ui-lemon-calendar-lemon-calendar--single-selection--light:
+        hash: v1.k794b7964.59c783c66d128b6b515ee6e287e3b14c2ba244922213ca835ecd8a5331af72aa.FYhmDqtiHQPwAJqEcN-Vff1CVt1QoSzpfVL8kelImAo
     lemon-ui-lemon-calendar-lemon-calendar--sunday-first--dark:
         hash: v1.k794b7964.5cc5655547a3c164875acb55eced294598821b81155445536c69bafdfe84bab5.Ff1kUDrm3_vPzAwk01tdDz7s5uHOMfaM-4uCP0YXl4A
     lemon-ui-lemon-calendar-lemon-calendar--sunday-first--light:
