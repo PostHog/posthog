@@ -370,6 +370,29 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The request size
+            # and memory-context name are volatile; the "out of memory" text is stable.
+            'out of memory DETAIL:  Failed on request of size 12 in memory context "MessageContext".',
+            'out of memory DETAIL:  Failed on request of size 32816 in memory context "get_actual_variable_range workspace".',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OutOfMemory: out of memory DETAIL:  Failed on request of size 32816 in memory context "MessageContext".',
+        ],
+    )
+    def test_server_out_of_memory_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Server out-of-memory error should be non-retryable: {error_msg}"
+
+    def test_server_out_of_memory_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'out of memory DETAIL:  Failed on request of size 12 in memory context "MessageContext".'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Server out-of-memory error should surface an actionable message"
+        assert "ran out of memory" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
         ],
