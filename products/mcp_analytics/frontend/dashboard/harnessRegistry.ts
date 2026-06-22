@@ -1,9 +1,15 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import claudeLogo from '../harness-logos/claude.svg'
+import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
+import linearLogo from '../harness-logos/linear.svg'
+import notionLogo from '../harness-logos/notion.svg'
 import openaiLogo from '../harness-logos/openai.svg'
+import opencodeLogo from '../harness-logos/opencode.svg'
+import replitLogo from '../harness-logos/replit.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
+import windsurfLogo from '../harness-logos/windsurf.svg'
 
 export interface HarnessLogo {
     src: string
@@ -115,14 +121,15 @@ const HARNESS_REGISTRY: HarnessDescriptor[] = [
         logo: { src: vscodeLogo, alt: 'VS Code logo' },
         colorIndex: 11,
     },
-    { category: 'Windsurf', match: (n) => n === 'windsurf' },
-    { category: 'Replit', match: (n) => n.startsWith('replit') },
+    { category: 'Windsurf', match: (n) => n === 'windsurf', logo: { src: windsurfLogo, alt: 'Windsurf logo' } },
+    { category: 'Replit', match: (n) => n.startsWith('replit'), logo: { src: replitLogo, alt: 'Replit logo' } },
     { category: 'Lovable', match: (n) => n.startsWith('lovable') },
     { category: 'Manus', match: (n) => n === 'manus' },
-    { category: 'CodeRabbit', match: (n) => n === 'coderabbit' },
-    { category: 'Notion', match: (n) => n.startsWith('notion') },
+    { category: 'CodeRabbit', match: (n) => n === 'coderabbit', logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' } },
+    { category: 'Notion', match: (n) => n.startsWith('notion'), logo: { src: notionLogo, alt: 'Notion logo' } },
+    { category: 'Linear', match: (n) => n.startsWith('linear'), logo: { src: linearLogo, alt: 'Linear logo' } },
     { category: 'Poke', match: (n) => n === 'poke' },
-    { category: 'opencode', match: (n) => n === 'opencode' },
+    { category: 'opencode', match: (n) => n === 'opencode', logo: { src: opencodeLogo, alt: 'opencode logo' } },
     { category: 'Kiro', match: (n) => n.startsWith('kiro') },
     { category: 'Desktop Commander', match: (n) => n.startsWith('desktop-commander') },
 ]
