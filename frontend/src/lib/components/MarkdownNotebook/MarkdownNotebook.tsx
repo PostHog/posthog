@@ -1982,6 +1982,11 @@ export function MarkdownNotebook({
                 return true
             }
 
+            if (direction === 'backward' && selectionStart === 0 && nodeIndex === 0) {
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                return true
+            }
+
             if (direction === 'forward' || selectionStart !== 0 || nodeIndex <= 0) {
                 return false
             }

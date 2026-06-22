@@ -548,6 +548,13 @@ export function EditableTextBlock({
             }
 
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
+            if (isTitleBlock && event.key === 'Backspace' && selection?.start === 0 && selection.end === 0) {
+                event.preventDefault()
+                event.stopPropagation()
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                return
+            }
+
             if (isEmpty && !isTitleBlock && node.type === 'paragraph' && event.key === 'Backspace') {
                 event.preventDefault()
                 if (!deleteNodeAndFocusPrevious(node.id)) {

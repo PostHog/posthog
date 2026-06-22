@@ -1171,6 +1171,41 @@ Last paragraph`)
         expect(onChange).toHaveBeenLastCalledWith(`# New title\n\nNotebookTitle`)
     })
 
+    it('keeps a standalone heading marker as body text with an empty title', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: '#' }))
+
+        const textBlocks = getEditableTextBlocks(container)
+        expect(textBlocks.map((block) => block.tagName)).toEqual(['H1', 'P'])
+        expect(textBlocks.map((block) => block.textContent)).toEqual(['', '#'])
+    })
+
+    it('prevents Backspace at the start of the notebook title from editing the canvas background', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title', onChange }))
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        placeCaretInElement(title)
+
+        expect(fireEvent.keyDown(title, { key: 'Backspace' })).toEqual(false)
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual(['Title'])
+        expect(document.activeElement).toEqual(title)
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('prevents native deleteContentBackward at the start of the notebook title', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# Title', onChange }))
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        placeCaretInElement(title)
+        const event = beforeInputInContentEditable(canvas, 'deleteContentBackward')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual(['Title'])
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('merges the notebook title split back together when backspacing after Enter', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -1445,7 +1480,7 @@ Repeated block`),
 
         fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true })
 
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(onChange).toHaveBeenLastCalledWith('')
         expect(editableTextBlock.textContent).toEqual('')
 
         fireEvent.keyDown(editableTextBlock, { key: 'z', metaKey: true, shiftKey: true })
@@ -1691,7 +1726,7 @@ Tail paragraph`)
         expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([''])
         expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(onChange).toHaveBeenLastCalledWith('')
 
         fireUndoShortcut(getEditableTextBlocks(container)[0])
 
@@ -1709,7 +1744,7 @@ Tail paragraph`)
         expect(getEditableTextBlocks(container).map((block) => block.textContent)).toEqual([''])
         expect(container.querySelector('.MarkdownNotebook__code-block')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(onChange).toHaveBeenLastCalledWith('')
     })
 
     it('undoes and redoes deleting a partial selection around a component node', () => {
@@ -5399,7 +5434,7 @@ After paragraph`),
         expect(nextTextBlocks.map((block) => block.textContent)).toEqual([''])
         expect(document.activeElement).toEqual(nextTextBlocks[0])
         expect(window.getSelection()?.focusOffset).toEqual(0)
-        expect(onChange).toHaveBeenLastCalledWith('#')
+        expect(onChange).toHaveBeenLastCalledWith('')
     })
 
     it('merges a text row into the previous text row with Backspace and supports undo', () => {
