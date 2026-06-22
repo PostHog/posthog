@@ -28,11 +28,21 @@ jobs:
     # because many of them are required for CI checks to be green
     changes:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # Bumped from 5: a product-only PR pays a cached pnpm install + a ~2s tsgo
+        # run in the `graph` step below to refine the broad products filter.
+        timeout-minutes: 10
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            # The dorny `frontend` filter matches `products/**/*.ts(x)`, which over-matches
+            # Node-only product workspaces (e.g. agent_platform services) that have their own
+            # CI (ci-agents.yml) and aren't in the frontend bundle. When a PR touches ONLY
+            # product files, the `graph` step asks the real TypeScript project graph whether
+            # any changed file is actually compiled into the frontend — so a Node-service-only
+            # change skips frontend CI while an alias-imported product frontend change still
+            # runs it. `graph` is skipped (no install) on non-product and master-push runs, so
+            # its output is empty and the `|| 'true'` fallback keeps the prior behavior.
+            frontend: ${{ (steps.filter.outputs.frontend || 'true') == 'true' && (steps.graph.outputs.affected || 'true') == 'true' }}
+            frontend_code: ${{ (steps.filter.outputs.frontend_code || 'true') == 'true' && (steps.graph.outputs.affected || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -107,6 +117,39 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+
+            # Cheap pre-check: is EVERY changed file under products/? Only then is the
+            # broad `products/**/*.ts(x)` rule the *sole* reason `frontend` matched, and
+            # only then do we pay an install + tsgo run to refine it. `predicate-quantifier:
+            # every` makes this true only when all changed files are under products/ (dorny's
+            # default `some` would OR-match and report true for any single product file).
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: scope
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: |
+                      products_only:
+                        - 'products/**'
+
+            # Product-only PR that dorny flagged as frontend: ask the real TypeScript project
+            # graph whether any changed product file is actually compiled into the frontend.
+            # `bin/is-frontend-affected` runs `tsgo --listFilesOnly` over frontend/tsconfig.json
+            # (~2s) and checks membership — this follows the `from 'products/...'` path aliases
+            # that turbo's package graph can't see, so an alias-imported product frontend change
+            # runs while a Node-only product service/package (separate tsconfig project) skips.
+            # No product names hardcoded; a new product's services are excluded automatically.
+            - uses: ./.github/actions/pnpm-install
+              if: github.event_name != 'push' && steps.filter.outputs.frontend == 'true' && steps.scope.outputs.products_only == 'true'
+            - name: Frontend affected by changed product files?
+              id: graph
+              if: github.event_name != 'push' && steps.filter.outputs.frontend == 'true' && steps.scope.outputs.products_only == 'true'
+              run: |
+                  BASE="${{ github.event.pull_request.base.ref || github.base_ref }}"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE:refs/remotes/origin/$BASE"
+                  FILES=$(git diff --name-only "origin/$BASE...HEAD" | paste -sd, -)
+                  bin/is-frontend-affected --files "$FILES"
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).

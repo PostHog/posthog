@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+/**
+ * Decide whether the frontend pipeline (jest, typecheck, bundle) must run for a
+ * set of changed files, using the REAL TypeScript project graph instead of a
+ * path glob.
+ *
+ * Why this exists
+ * ---------------
+ * The dorny `products/**\/*.ts(x)` rule that gates frontend CI over-matches
+ * Node-only product workspaces (e.g. `products/agent_platform/services/**`) that
+ * have their own CI (`ci-agents.yml`) and are not in the frontend bundle — so a
+ * services-only PR runs the full frontend + storybook suites and tests nothing.
+ * A plain path negation per product doesn't generalize (every new Node service
+ * adds another exclusion to every workflow), and it can't tell
+ * `@posthog/products-agent-memory` (a real frontend dep) from `@posthog/agent-ingress`
+ * (a Node service) because both match `agent`.
+ *
+ * Turbo's package graph can't gate this either: the frontend imports product code
+ * via tsconfig path aliases (`from 'products/...'`), not package.json deps, so turbo
+ * sees no edge and would wrongly SKIP frontend for alias-only product changes.
+ *
+ * The TypeScript project graph does follow those aliases. `tsgo --listFilesOnly`
+ * over `frontend/tsconfig.json` lists every file the frontend actually compiles
+ * (~12k, resolves in ~2s, cache-cold). A product's frontend code is in that graph;
+ * a Node service/package lives in a separate tsconfig project and is absent.
+ *
+ * Rule
+ * ----
+ *   affected = some changed file is EITHER not under `products/`
+ *              (handled by the normal frontend globs in the workflow)
+ *              OR under `products/` AND present in the frontend TS graph.
+ *
+ * Equivalent: NOT affected only when every changed file is product code outside
+ * the frontend graph — Node services/packages, backend, non-imported product code.
+ * This is the graph-based generalization of "skip when the PR is services-only",
+ * with no product names anywhere.
+ *
+ * Usage (from ci-frontend.yml / ci-storybook.yml, on product-only PRs):
+ *   bin/is-frontend-affected --base-ref origin/master
+ *   # writes `affected=true|false` to $GITHUB_OUTPUT; diagnostics to stderr
+ *
+ * Flags:
+ *   --base-ref <ref>    git ref to diff against (default: origin/master)
+ *   --files <a,b,...>   explicit changed-file list (skips git diff; for tests)
+ *   --graph <file>      use a precomputed `tsgo --listFilesOnly` output instead of
+ *                       running tsgo (CI cache / tests)
+ */
+
+const { execFileSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const REPO_ROOT = path.resolve(__dirname, '..')
+const FRONTEND_DIR = path.join(REPO_ROOT, 'frontend')
+const TSCONFIG = 'tsconfig.json'
+
+function parseArgs(argv) {
+    const args = { baseRef: 'origin/master', files: null, graph: null }
+    for (let i = 0; i < argv.length; i++) {
+        const next = () => argv[++i]
+        if (argv[i] === '--base-ref') args.baseRef = next()
+        else if (argv[i] === '--files') args.files = next()
+        else if (argv[i] === '--graph') args.graph = next()
+    }
+    return args
+}
+
+function changedFiles(args) {
+    if (args.files !== null) {
+        return args.files.split(',').map((f) => f.trim()).filter(Boolean)
+    }
+    // `A...B` (merge-base) matches how the rest of CI computes the diff.
+    const out = execFileSync('git', ['diff', '--name-only', `${args.baseRef}...HEAD`], {
+        cwd: REPO_ROOT,
+        encoding: 'utf-8',
+        maxBuffer: 64 * 1024 * 1024,
+    })
+    return out.split('\n').map((f) => f.trim()).filter(Boolean)
+}
+
+// Absolute paths of every file in the frontend TS project. tsgo emits absolute
+// paths already; a precomputed --graph file is normalized the same way.
+function frontendGraph(args) {
+    let raw
+    if (args.graph) {
+        raw = fs.readFileSync(args.graph, 'utf-8')
+    } else {
+        // listFilesOnly resolves the program and prints its files — no typecheck,
+        // no emit, no tsbuildinfo. Run from frontend/ so -p tsconfig.json resolves.
+        raw = execFileSync(path.join(REPO_ROOT, 'node_modules/.bin/tsgo'), ['-p', TSCONFIG, '--listFilesOnly', '--noEmit'], {
+            cwd: FRONTEND_DIR,
+            encoding: 'utf-8',
+            maxBuffer: 64 * 1024 * 1024,
+        })
+    }
+    return new Set(
+        raw
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .map((l) => path.resolve(l))
+    )
+}
+
+function main() {
+    const args = parseArgs(process.argv.slice(2))
+    const changed = changedFiles(args)
+
+    // Fast path: any non-product change is frontend-relevant by the normal globs;
+    // skip the tsgo run entirely.
+    const nonProduct = changed.filter((f) => !f.startsWith('products/'))
+    let affected = nonProduct.length > 0
+    let inGraph = []
+
+    if (!affected && changed.length > 0) {
+        const graph = frontendGraph(args)
+        inGraph = changed.filter((f) => graph.has(path.resolve(REPO_ROOT, f)))
+        affected = inGraph.length > 0
+    }
+
+    console.error(`changed files        : ${changed.length}`)
+    console.error(`non-product changes  : ${nonProduct.length}`)
+    console.error(`product files in graph: ${inGraph.length ? inGraph.join(', ') : '(none / not checked)'}`)
+    console.error(`=> frontend affected : ${affected ? 'TRUE (run)' : 'FALSE (skip)'}`)
+
+    if (process.env.GITHUB_OUTPUT) {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, `affected=${affected}\n`)
+    }
+    // Also print to stdout so the script is usable outside Actions.
+    process.stdout.write(`${affected}\n`)
+}
+
+main()

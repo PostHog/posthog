@@ -64,7 +64,13 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        - 'products/**/*.{ts,tsx}'
+                        # `products/**/frontend/**` (below) already covers every product
+                        # story precisely. A broad `products/**/*.{ts,tsx}` rule here only
+                        # adds non-frontend product code — Node-only services
+                        # (products/agent_platform/services/**) and product backend TS — that
+                        # has no stories and isn't in the bundle, forcing the visual-regression
+                        # suite to run for changes it can't affect. Stories live under
+                        # products/<name>/frontend/, so the precise rule is sufficient.
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         # quill is consumed app-wide via `workspace:*`, so a change here
