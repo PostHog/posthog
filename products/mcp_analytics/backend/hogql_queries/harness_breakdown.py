@@ -1,5 +1,8 @@
 from datetime import datetime
 from functools import cached_property
+from typing import TYPE_CHECKING
+
+import posthoganalytics
 
 from posthog.schema import (
     CachedMCPHarnessBreakdownQueryResponse,
@@ -16,9 +19,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
+
+# Gates this runner behind the same flag the product's DRF endpoints require, so the
+# generic /query/ endpoint can't bypass it (see PostHogFeatureFlagPermission).
+MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 
 
 class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQueryResponse]):
@@ -33,6 +44,20 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
 
     query: MCPHarnessBreakdownQuery
     cached_response: CachedMCPHarnessBreakdownQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        org_id = str(self.team.organization_id)
+        enabled = posthoganalytics.feature_enabled(
+            MCP_ANALYTICS_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": org_id, "project": str(self.team.id)},
+            group_properties={"organization": {"id": org_id}, "project": {"id": str(self.team.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if not enabled:
+            raise UserAccessControlError("mcp_analytics", "viewer")
+        return True
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:

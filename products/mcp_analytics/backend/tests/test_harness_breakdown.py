@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -13,6 +14,8 @@ from posthog.schema import (
     MCPHarnessBreakdownQuery,
     PropertyOperator,
 )
+
+from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
@@ -155,3 +158,14 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert "OpenAI Codex" in by_harness
         assert "Cursor" not in by_harness
+
+    def test_allows_access_when_flag_enabled(self) -> None:
+        # The mixin enables only the mcp-analytics flag, mirroring the DRF gate.
+        runner = MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team, user=self.user)
+        assert runner.validate_query_runner_access(self.user) is True
+
+    def test_blocks_access_when_flag_disabled(self) -> None:
+        runner = MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team, user=self.user)
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.assertRaises(UserAccessControlError):
+                runner.validate_query_runner_access(self.user)
