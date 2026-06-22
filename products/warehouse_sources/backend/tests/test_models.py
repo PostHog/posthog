@@ -212,12 +212,22 @@ class TestStagedIncrementalCursor:
         staged = schema.sync_type_config["incremental_staged"]
         assert staged == {"run_uuid": "run-1", "earliest_value": 10}
 
-    def test_stage_overwrites_previous_staged(self) -> None:
-        schema = self._make_schema(incremental_staged={"run_uuid": "old", "last_value": 1})
+    def test_stage_overwrites_when_different_run_uuid(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "old", "last_value": 1, "earliest_value": 5})
         with patch.object(schema, "save"):
             schema.stage_incremental_field_value("run-2", 99)
-        assert schema.sync_type_config["incremental_staged"]["run_uuid"] == "run-2"
-        assert schema.sync_type_config["incremental_staged"]["last_value"] == 99
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged["run_uuid"] == "run-2"
+        assert staged["last_value"] == 99
+        assert "earliest_value" not in staged
+
+    def test_stage_merges_when_same_run_uuid(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", None, earliest_value=10)
+            schema.stage_incremental_field_value("run-1", 42)
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged == {"run_uuid": "run-1", "earliest_value": 10, "last_value": 42}
 
     def test_promote_moves_last_value_to_live(self) -> None:
         schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})

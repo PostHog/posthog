@@ -320,7 +320,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.save()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
-        staged: dict[str, Any] = {"run_uuid": run_uuid}
+        existing = self.sync_type_config.get("incremental_staged", {})
+        if existing.get("run_uuid") == run_uuid:
+            staged = existing
+        else:
+            staged = {"run_uuid": run_uuid}
         if last_value is not None:
             staged["last_value"] = self._serialize_incremental_value(last_value)
         if earliest_value is not None:
