@@ -984,6 +984,74 @@ class TestExternalDataSchema(APIBaseTest):
         if expected_status == 400:
             assert "1-minute" in str(response.json()).lower() or "cdc" in str(response.json()).lower()
 
+    def test_update_schema_to_xmin_forces_full_resync(self):
+        # Switching to xmin from another strategy adds the `_ph_xmin` control column to the physical
+        # schema, so the existing Delta table must be rebuilt — force a full resync.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+            table=table,
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with (
+            get_schemas_patch,
+            flag_patch,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
+    def test_update_schema_from_xmin_forces_full_resync(self):
+        # Leaving xmin for another strategy must also rebuild the table — the lingering `_ph_xmin`
+        # column would otherwise break the incremental write.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={"primary_key_columns": ["id"], "xmin_last_value": 123},
+            table=table,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "incremental", "incremental_field": "id", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
     @parameterized.expand(
         [
             ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
