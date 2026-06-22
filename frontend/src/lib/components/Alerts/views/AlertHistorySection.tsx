@@ -20,7 +20,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'

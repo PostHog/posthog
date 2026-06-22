@@ -22,11 +22,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanizeBytes } from 'lib/utils/numbers'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
+import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -146,7 +147,7 @@ function confirmThen(opts: {
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (source.source_type !== 'Postgres') {
+    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
         return null
     }
     if (source.access_method !== 'warehouse') {

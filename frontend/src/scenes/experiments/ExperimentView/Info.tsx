@@ -15,11 +15,11 @@ import { urls } from 'scenes/urls'
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
-import { experimentLogic, previousRefreshAnalytics } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
-import { ExperimentReloadAction } from './ExperimentReloadAction'
+import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
 
@@ -28,16 +28,12 @@ export function Info(): JSX.Element {
         experiment,
         primaryMetricsResults,
         secondaryMetricsResults,
-        primaryMetricsResultsLoading,
-        secondaryMetricsResultsLoading,
         statsMethod,
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
-        autoRefresh,
-        currentRefresh,
     } = useValues(experimentLogic)
-    const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
+    const { updateExperiment } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
         useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
@@ -204,20 +200,7 @@ export function Info(): JSX.Element {
                                 isExperimentDraft={isExperimentDraft}
                             />
                             {status !== ExperimentStatus.Draft && (
-                                <ExperimentReloadAction
-                                    isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                    lastRefresh={lastRefresh}
-                                    onClick={() => {
-                                        // Track manual refresh click
-                                        reportExperimentMetricsRefreshed(experiment, true, {
-                                            triggered_by: 'manual',
-                                            auto_refresh_enabled: autoRefresh.enabled,
-                                            auto_refresh_interval: autoRefresh.interval,
-                                            ...previousRefreshAnalytics(currentRefresh),
-                                        })
-                                        refreshExperimentResults(true, 'manual')
-                                    }}
-                                />
+                                <ExperimentReloadActionContainer experiment={experiment} lastRefresh={lastRefresh} />
                             )}
                             <div className="flex flex-col">
                                 <Label intent="menu">Created by</Label>

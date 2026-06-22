@@ -31,11 +31,13 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CDC_SOURCE_TYPES } from '../../cdc'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { shouldHideSourceField } from './sourceFieldVisibility'
+import { supportsDirectQuery } from './schemaGroupingUtils'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -89,7 +91,7 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    Run queries live against this database connection. Data from this source can&apos;t
                                     be joined with PostHog data.
                                 </div>
                             </div>
@@ -455,13 +457,24 @@ function CDCPrerequisitesCheck(): JSX.Element {
     )
 }
 
-function CDCConfigSection(): JSX.Element {
+function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
 
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
+                {sourceName === 'Supabase' && (
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">Supabase CDC needs the direct connection + IPv4 add-on</p>
+                        <p className="text-xs m-0">
+                            Logical replication doesn't work through the Supabase pooler. Use the{' '}
+                            <strong>direct host</strong> (<code>db.&lt;ref&gt;.supabase.co</code>) and enable Supabase's{' '}
+                            <strong>IPv4 add-on</strong> (Project settings → Add-ons) so PostHog can reach it. The
+                            pooler host is fine for standard syncs but won't work for CDC.
+                        </p>
+                    </LemonBanner>
+                )}
                 <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
                         <div
@@ -689,7 +702,7 @@ export function SourceFormComponent({
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
+    const isDirectQuerySource = supportsDirectQuery(sourceConfig.name) && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -713,7 +726,7 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+            {!isUpdateMode && supportsDirectQuery(sourceConfig.name) && showAccessMethodSelector && (
                 <>
                     <LemonField name="access_method">
                         {({ value, onChange }) => (
@@ -729,15 +742,15 @@ export function SourceFormComponent({
                     <LemonDivider />
                 </>
             )}
-            {isPostgresDirectQuery && (
+            {isDirectQuerySource && (
                 <LemonField
                     name="prefix"
                     label="Name"
-                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                    help={`Required. This name is shown in the query editor when selecting a ${sourceConfig.name} connection.`}
                 >
                     {({ value, onChange }) => {
                         const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
-                        const displayValue = value?.trim() || 'My Postgres database'
+                        const displayValue = value?.trim() || `My ${sourceConfig.name} database`
 
                         return (
                             <>
@@ -751,7 +764,10 @@ export function SourceFormComponent({
                                 />
                                 {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p className="mb-0">
-                                    Shown as: <strong>{displayValue} (Postgres)</strong>
+                                    Shown as:{' '}
+                                    <strong>
+                                        {displayValue} ({sourceConfig.name})
+                                    </strong>
                                 </p>
                             </>
                         )
@@ -795,7 +811,7 @@ export function SourceFormComponent({
                     )
                 ) : (
                     availableSources[sourceConfig.name].fields
-                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .filter((field) => !(isDirectQuerySource && field.type === 'ssh-tunnel'))
                         .filter((field) => !shouldHideSourceField(sourceConfig.name, field))
                         .map((field) =>
                             sourceFieldToElement(
@@ -811,10 +827,10 @@ export function SourceFormComponent({
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                sourceConfig.name === 'Postgres' &&
+                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
-            {showPrefix && !isPostgresDirectQuery && (
+                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
+            {showPrefix && !isDirectQuerySource && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"
@@ -834,9 +850,10 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const cleanedPrefix = value ? value.trim() : ''
                         const sourceType = sourceConfig.name.toLowerCase()
-                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
+                        const tableName = (
+                            cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`
+                        ).toLowerCase()
                         return (
                             <>
                                 <LemonInput

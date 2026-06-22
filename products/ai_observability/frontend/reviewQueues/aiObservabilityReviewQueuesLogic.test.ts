@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from '~/lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'

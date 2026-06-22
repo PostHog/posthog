@@ -20,8 +20,8 @@ describe('sessionRecordingCommentsLogic', () => {
         setupSessionRecordingTest({
             getMocks: {
                 '/api/environments/:team_id/session_recordings/1/': {},
-                '/api/projects/:team_id/comments': (req) => {
-                    capturedCommentsQuery = req.url.searchParams
+                '/api/projects/:team_id/comments': ({ request }) => {
+                    capturedCommentsQuery = new URL(request.url).searchParams
                     return [200, { results: [] }]
                 },
             },

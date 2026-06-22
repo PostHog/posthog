@@ -19,6 +19,7 @@ class DuckDBPrinter(PostgresPrinter):
     """
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "duckdb"
+    DIALECT_LABEL: ClassVar[str] = "DuckDB"
 
     def __init__(
         self,

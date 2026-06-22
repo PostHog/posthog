@@ -143,3 +143,36 @@ def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verd
         # Should NOT mention infrastructure/credentials
         assert "infrastructure" not in pipeline.reviewer_output["reasoning"]
         assert "credentials" not in pipeline.reviewer_output["reasoning"]
+
+
+def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bot-authored PR is hard-refused before any classification, gate, or
+    LLM call — a human applying the stamphog label can't make the agent review
+    bot output."""
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    bot_pr = _fake_pr(head_sha="abc123")
+    bot_pr.author = "mendral-app[bot]"
+    bot_pr.author_is_bot = True
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    monkeypatch.setattr(pipeline, "_fetch", lambda: setattr(pipeline, "pr", bot_pr))
+
+    def _fail_classify() -> None:
+        raise AssertionError("bot PR must be refused before classification")
+
+    monkeypatch.setattr(pipeline, "_classify", _fail_classify)
+
+    verdict = pipeline.run()
+
+    assert verdict == "REFUSED"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["verdict"] == "REFUSE"
+    assert "bot" in pipeline.reviewer_output["reasoning"].lower()
+
+    # The workflow always runs with --output-json, so to_dict() must serialize
+    # cleanly even though classification was never populated on this path.
+    output = pipeline.to_dict()
+    assert output["final_verdict"] == "REFUSED"
+    assert output["classification"]["tier"] == ""
+    assert output["classification"]["breadth"] == ""

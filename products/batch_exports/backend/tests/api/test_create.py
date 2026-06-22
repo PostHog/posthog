@@ -180,7 +180,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     """
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -326,7 +326,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal, organization, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -361,7 +361,7 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
     client: HttpClient, temporal, organization, team, user
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -426,7 +426,7 @@ def test_create_batch_export_with_custom_schema(
     """
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -524,7 +524,7 @@ def test_create_batch_export_fails_with_invalid_query(
     """Test creating a BatchExport should fail with an invalid query."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -571,7 +571,7 @@ def test_create_batch_export_fails_with_invalid_query(
             "invalid type: got 'int', expected 'str'",
         ),
         (
-            "S3",
+            "AwsS3",
             {
                 "bucket_name": "my-s3-bucket",
                 "region": "us-east-1",
@@ -672,7 +672,7 @@ def test_creating_batch_export_with_filters(
     """Test validation of the filters field when creating a batch export."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": _S3_FILTER_TEST_CONFIG,
     }
 

@@ -226,10 +226,10 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('_posthogUrl')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
 
-            // Formatted results should contain pipe-separated values (the formatter output)
+            // Paths demo data can have pageviews without a path edge in the selected window.
             expect(typeof result.results).toBe('object')
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
-            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toMatch(/\||No data recorded for this time period\./)
         })
 
         it('should execute a paths query with start point', async () => {
@@ -527,6 +527,95 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(sourcePathsFilter.pathEndKey).toBe('3_https://us.posthog.com')
             expect(sourcePathsFilter.startPoint).toBe('https://posthog.com/')
             expect(sourcePathsFilter.endPoint).toBe('https://us.posthog.com/')
+        })
+    })
+
+    describe('query-retention-actors', () => {
+        const pageview = { id: '$pageview', name: 'Pageview', type: 'events' }
+        const retentionSource = {
+            kind: 'RetentionQuery',
+            retentionFilter: {
+                period: 'Day',
+                totalIntervals: 8,
+                targetEntity: pageview,
+                returningEntity: pageview,
+                retentionType: 'retention_first_time',
+            },
+            dateRange: { date_from: '-30d' },
+        }
+
+        it('returns a flat {columns, rows} table with the actors projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, { source: retentionSource, interval: 0 })) as any
+
+            expect(result).toHaveProperty('query')
+            expect(result).toHaveProperty('hasMore')
+            expect(result).toHaveProperty('offset')
+            expect(result).toHaveProperty('results')
+            expect(Array.isArray(result.results.results)).toBe(true)
+        })
+
+        it('wraps the source in an outer ActorsQuery with the person + per-interval projection', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, { source: retentionSource, interval: 1 })) as any
+
+            expect(result.query.kind).toBe('ActorsQuery')
+            expect(result.query.select).toEqual([
+                'person',
+                'day_0',
+                'day_1',
+                'day_2',
+                'day_3',
+                'day_4',
+                'day_5',
+                'day_6',
+                'day_7',
+            ])
+            expect(result.query.orderBy).toEqual(['length(appearances) DESC', 'actor_id'])
+            expect(result.query.source.kind).toBe('InsightActorsQuery')
+            expect(result.query.source.interval).toBe(1)
+            expect(result.query.source.source.kind).toBe('RetentionQuery')
+            expect(result.results.columns).toEqual([
+                'distinct_id',
+                'email',
+                'name',
+                'day_0',
+                'day_1',
+                'day_2',
+                'day_3',
+                'day_4',
+                'day_5',
+                'day_6',
+                'day_7',
+            ])
+        })
+
+        it('derives the interval column count from custom brackets', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            const result = (await tool.handler(context, {
+                source: {
+                    ...retentionSource,
+                    retentionFilter: { ...retentionSource.retentionFilter, retentionCustomBrackets: [1, 3, 5] },
+                },
+                interval: 0,
+            })) as any
+
+            // 3 custom brackets → 3 + 1 = 4 interval columns.
+            expect(result.query.select).toEqual(['person', 'day_0', 'day_1', 'day_2', 'day_3'])
+            expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'day_0', 'day_1', 'day_2', 'day_3'])
+        })
+
+        it('rejects a totalIntervals above the supported maximum', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            await expect(
+                tool.handler(context, {
+                    source: {
+                        ...retentionSource,
+                        retentionFilter: { ...retentionSource.retentionFilter, totalIntervals: 50 },
+                    },
+                    interval: 0,
+                })
+            ).rejects.toThrow(/maximum is 32/)
         })
     })
 })

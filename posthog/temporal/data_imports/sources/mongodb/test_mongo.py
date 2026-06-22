@@ -337,8 +337,27 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', "
                 "'code': 18, 'codeName': 'AuthenticationFailed'}",
             ),
+            # Real pymongo OperationFailure string for bad credentials on MongoDB Atlas (code 8000).
+            (
+                "atlas_bad_auth",
+                "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
+                "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
+            ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+            # pymongo InvalidURI raised before any network call when credentials in the connection
+            # string contain unescaped reserved characters — a malformed string the user must fix.
+            (
+                "unescaped_credentials",
+                "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus",
+            ),
+            # Same unescaped-credential mistake surfacing via the "Port contains non-digit characters"
+            # variant, which carries the identical RFC-3986 hint.
+            (
+                "unescaped_credentials_port_variant",
+                "Port contains non-digit characters. Hint: username and password must be escaped "
+                "according to RFC 3986, use urllib.parse.quote_plus",
+            ),
             # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
             # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
             ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
@@ -359,6 +378,18 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
                 "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
                 "connectTimeoutMS: 20000.0ms)')>]>",
+            ),
+            # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
+            # driver, so the topology stays Unknown and selection times out. Despite the "connection
+            # closed" text, the host suffix marks it as a wrong-endpoint config error, not a blip.
+            (
+                "atlas_sql_endpoint",
+                "atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net:27017: connection closed "
+                "(configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: "
+                "10.0s, Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: Unknown, servers: [<ServerDescription "
+                "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
         ]
     )
@@ -390,7 +421,10 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         [
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
+            ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
+            ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

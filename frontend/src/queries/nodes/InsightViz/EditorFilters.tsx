@@ -4,7 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'

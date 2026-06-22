@@ -127,8 +127,17 @@ def create_posthog_code_task_for_repo_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
-    title = user_text[:255] if user_text else "Task from Slack"
+    from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
+        decode_slack_event_text,
+        labeled_mentions_to_display_names,
+    )
+
+    user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
+    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # labeled `<@U…|name>` form would render as literal noise; the description
+    # keeps the labeled form so the agent can echo tokens back as real pings.
+    title_text = labeled_mentions_to_display_names(user_text)
+    title = title_text[:255] if title_text else "Task from Slack"
     description = _build_posthog_code_task_description(user_text, thread_messages, user_message_ts)
 
     slack_thread_context = SlackThreadContext(
@@ -352,7 +361,9 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
+    from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
+
+    user_text = decode_slack_event_text(slack, integration, event_text)
     if not user_text:
         return True
     if followup_user_text_prefix:
@@ -427,10 +438,12 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
+    integration = slack.integration
+    user_text = decode_slack_event_text(slack, integration, event_text)
     if not user_text:
         return True
     if user_text_prefix:

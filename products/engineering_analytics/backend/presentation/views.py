@@ -23,6 +23,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
+    GitHubSourceSerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
     WorkflowHealthItemSerializer,
@@ -55,10 +56,18 @@ _DATE_TO = OpenApiParameter(
     description="Window end: relative or ISO8601. Defaults to now.",
 )
 
+_SOURCE_ID = OpenApiParameter(
+    name="source_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub "
+    "source when the team has more than one.",
+)
 
-def _invalid_date(exc: ValueError | None = None) -> Response:
-    detail = str(exc) if exc is not None and str(exc) else "Invalid date_from or date_to"
-    return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+def _bad_request(exc: ValueError, *, fallback: str) -> Response:
+    return Response({"detail": str(exc) or fallback}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
@@ -66,7 +75,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
-    scope_object_read_actions = ["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
+    scope_object_read_actions = ["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
     scope_object_write_actions: list[str] = []
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -76,8 +85,27 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return super().handle_exception(exc)
 
     @extend_schema(
+        operation_id="engineering_analytics_sources",
+        responses={200: GitHubSourceSerializer(many=True)},
+        description=(
+            "The team's connected GitHub data warehouse sources, oldest first. Populate a source picker "
+            "from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect "
+            "GitHub more than once (e.g. one source per repository); this lists them all, including any whose "
+            "tables aren't fully synced yet."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def sources(self, request: Request, **kwargs) -> Response:
+        result = api.list_github_sources(team=self.team, user_access_control=self.user_access_control)
+        return Response(GitHubSourceSerializer(instance=result, many=True).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_ci_cards",
-        responses={200: CICardSummarySerializer},
+        parameters=[_SOURCE_ID],
+        responses={
+            200: CICardSummarySerializer,
+            400: OpenApiResponse(description="Invalid source_id."),
+        },
         description=(
             "Headline counts for the open-PR backlog: open PRs, distinct repos, stuck PRs (open, non-draft, "
             "non-bot, older than 7 days), and PRs with failing CI. The failing-CI count rests on the head-SHA "
@@ -86,15 +114,22 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def ci_cards(self, request: Request, **kwargs) -> Response:
-        result = api.get_ci_cards(team=self.team)
+        try:
+            result = api.get_ci_cards(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
         return Response(CICardSummarySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pull_requests",
-        parameters=[_DATE_FROM],
+        parameters=[_DATE_FROM, _SOURCE_ID],
         responses={
             200: PullRequestListSerializer,
-            400: OpenApiResponse(description="Invalid date_from."),
+            400: OpenApiResponse(description="Invalid date_from or source_id."),
         },
         description=(
             "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
@@ -106,17 +141,24 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @action(detail=False, methods=["get"], pagination_class=None)
     def pull_requests(self, request: Request, **kwargs) -> Response:
         try:
-            result = api.list_pull_requests(team=self.team, date_from=request.query_params.get("date_from") or None)
-        except ValueError:
-            return _invalid_date()
+            result = api.list_pull_requests(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from or source_id")
         return Response(PullRequestListSerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_DATE_FROM, _DATE_TO],
+        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
-            400: OpenApiResponse(description="Invalid date_from or date_to, or a window longer than 366 days."),
+            400: OpenApiResponse(
+                description="Invalid date_from, date_to, or source_id, or a window longer than 366 days."
+            ),
         },
         description=(
             "Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success "
@@ -132,9 +174,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _invalid_date(exc)
+            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
         return Response(WorkflowHealthItemSerializer(instance=result, many=True).data)
 
     @extend_schema(
@@ -148,10 +192,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Pull request number to inspect.",
             ),
             _REPO,
+            _SOURCE_ID,
         ],
         responses={
             200: PRLifecycleSerializer,
-            400: OpenApiResponse(description="Missing or non-integer pr_number."),
+            400: OpenApiResponse(description="Missing or non-integer pr_number, or invalid repo or source_id."),
             404: OpenApiResponse(description="No pull request with that number in the warehouse."),
         },
         description=(
@@ -175,9 +220,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 pr_number=pr_number,
                 repo=request.query_params.get("repo") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
             )
-        except ValueError as err:
-            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
         if result is None:
             return Response({"detail": "Pull request not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(PRLifecycleSerializer(instance=result).data)

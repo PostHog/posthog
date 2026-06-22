@@ -47,9 +47,13 @@ def _make_mock_activities(
 
     @activity.defn(name="calculate_experiment_metric_for_recalculation")
     async def mock_calculate(
-        experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+        experiment_id: int,
+        metric_uuid: str,
+        recalculation_id: str,
+        query_to: str,
+        metric_type: str = "primary",
     ) -> MetricRecalculationResult:
-        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to))
+        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, metric_type))
         return metric_results.get(metric_uuid, MetricRecalculationResult(metric_uuid=metric_uuid, success=True))
 
     activities = [mock_discover, mock_update_progress, mock_calculate]
@@ -148,7 +152,11 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         @activity.defn(name="calculate_experiment_metric_for_recalculation")
         async def mock_calculate(
-            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -196,7 +204,11 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         @activity.defn(name="calculate_experiment_metric_for_recalculation")
         async def mock_calculate(
-            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 

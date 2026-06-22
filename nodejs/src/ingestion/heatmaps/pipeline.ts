@@ -12,6 +12,7 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { addTeamToContext } from '../common/subpipelines/helpers'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
@@ -25,6 +26,7 @@ import {
 } from '../event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -34,7 +36,6 @@ import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from './disable-person-processing-step'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 import { HeatmapsOutput } from './outputs'
-import { createSkipEmitEventStep } from './skip-emit-event-step'
 
 export interface HeatmapsPipelineConfig {
     outputs: IngestionOutputs<HeatmapsOutput | IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
@@ -73,7 +74,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         promiseScheduler,
     }
 
-    return newBatchingPipeline<TInput, void, TContext, EventFiltersBatchContext, TContext>(
+    return newBatchingPipeline<TInput, EmitEventStepOutput, TContext, EventFiltersBatchContext, TContext>(
         (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
@@ -111,7 +112,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
                                                 .pipe(createNormalizeEventStep())
                                                 .pipe(createPrepareEventStep())
                                                 .pipe(createExtractHeatmapDataStep(outputs))
-                                                .pipe(createSkipEmitEventStep())
+                                                .pipe(createRecordIngestionLagStep())
                                         )
                                 )
                                 .handleIngestionWarnings(outputs)

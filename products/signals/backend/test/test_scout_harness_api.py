@@ -25,6 +25,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
@@ -321,6 +322,19 @@ class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
             response = self.client.get(self._url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["report"] is None
+
+    def test_report_lookup_query_compiles_without_alias_collision(self) -> None:
+        # Regression: the lookup pushes the `source_id` filter into the shared dedup subquery,
+        # which exposes `metadata` as an `argMax(...)` alias. HogQL resolved the `metadata`
+        # reference in that pushed-down WHERE to the aggregate alias and rejected the whole
+        # query ("aggregate function ... found in WHERE"), so `fetch_report_ids_for_source_ids`
+        # raised on every call. The view swallowed it, degrading *every* finding to
+        # `report: null` — the chip never rendered for anyone. The other tests in this class
+        # mock the helper, so they never exercised the query and the break shipped silently.
+        # Run the real query (no mock) against an empty ClickHouse: it must compile and return
+        # an empty map rather than raise.
+        result = fetch_report_ids_for_source_ids(self.team, ["run:00000000-0000-0000-0000-000000000000:finding:f-a"])
+        assert result == {}
 
     def test_empty_run_returns_empty_and_skips_clickhouse(self) -> None:
         run = _make_run(self.team)
@@ -706,7 +720,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
-        assert body[0]["run_interval_minutes"] == 60
+        assert body[0]["run_interval_minutes"] == 180
 
     @parameterized.expand(
         [

@@ -70,6 +70,64 @@ python -c "import hogql_parser_rs; print(hogql_parser_rs.parse_expr_json('1 + 2'
 musllinux 1_2) and macOS arm64/x86_64; see
 [`.github/workflows/build-hogql-parser-rs.yml`](../../../.github/workflows/build-hogql-parser-rs.yml).
 
+## Coverage-instrumented build (for the parser-parity PBT)
+
+A second build path exists for fuzz-driven parser-parity work: build the crate
+with `--features coverage` and SanitizerCoverage's `trace-pc-guard` pass, and
+the resulting wheel exposes two PyO3 functions (`cov_snapshot()`, `cov_reset()`)
+that the pytest PBT
+([`posthog/hogql/test/test_parser_pbt.py`](../../../posthog/hogql/test/test_parser_pbt.py))
+uses to feed a per-example `rust_edges` novelty count into Hypothesis `target()`
+on top of the existing `ast_depth` / `novel_kpaths` signals. See
+[`src/cov.rs`](src/cov.rs) for the callback + bitmap implementation. The
+production wheel is unchanged: without the feature, neither `cov.rs` nor the
+sancov pass are compiled, and the PBT detects the absence via
+`hasattr(hogql_parser_rs, "cov_snapshot")` and silently skips the third
+steering label.
+
+Cargo applies `RUSTFLAGS` globally to every crate it compiles, including
+dependency proc macros and build scripts, and those don't have our
+`__sanitizer_cov_trace_pc_guard*` callbacks linked in, so a naive
+`RUSTFLAGS=… maturin build --features coverage` segfaults the host build
+scripts on macOS (and fails to link on Linux). The fix is a small per-crate
+rustc wrapper that strips the sancov flags from every invocation except the
+one for `hogql_parser_rs`. That wrapper lives at
+[`scripts/cov-rustc-wrapper.py`](scripts/cov-rustc-wrapper.py):
+
+```bash
+WRAPPER=$PWD/rust/hogql/parser/scripts/cov-rustc-wrapper.py
+
+# Build the instrumented wheel into a temp dir.
+RUSTC_WRAPPER="$WRAPPER" \
+RUSTFLAGS="-C passes=sancov-module \
+           -C llvm-args=-sanitizer-coverage-level=3 \
+           -C llvm-args=-sanitizer-coverage-trace-pc-guard" \
+maturin build --release --manifest-path rust/hogql/parser/Cargo.toml \
+              --features coverage --out /tmp/cov-wheel
+
+# Install it into the active venv (in the same shell session — the shared
+# flox venv prunes manually-installed wheels otherwise).
+VIRTUAL_ENV=$PWD/.flox/cache/venv uv pip install --reinstall --no-deps \
+    /tmp/cov-wheel/hogql_parser_rs-*.whl
+
+# Verify the instrumented wheel is loaded.
+python -c "import hogql_parser_rs; print(hasattr(hogql_parser_rs, 'cov_snapshot'))"
+
+# Run the parity PBT; the rust_edges target appears in --hypothesis-show-statistics.
+RUN_PBT=1 hogli test posthog/hogql/test/test_parser_pbt.py::TestParserBackendEquivalence \
+    --hypothesis-show-statistics
+```
+
+`rust_edges` will show up in Hypothesis's per-test target stats alongside
+`ast_depth`. The wrapper has been verified to work locally on macOS aarch64. On
+a normal install (no coverage build) the PBT just doesn't emit the third label;
+nothing else changes.
+
+If you want a production CI job to produce this wheel as a sidecar, mirror the
+above invocation in a separate workflow file and publish it under a separate
+package name (e.g. `hogql_parser_rs_cov`) so production deploys can't
+accidentally pull the instrumented wheel.
+
 ## Publishing
 
 The crate is pinned via the `hogql-parser-rs==X.Y.Z` line in the
