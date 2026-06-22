@@ -12,6 +12,7 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
+    AIGateway = 'AIGateway',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
