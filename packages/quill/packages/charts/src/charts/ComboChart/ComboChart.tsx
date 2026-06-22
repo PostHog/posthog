@@ -5,6 +5,7 @@ import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from 
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    drawAxes,
     drawBarHighlight,
     drawBars,
     drawGrid,
@@ -80,10 +81,12 @@ function ComboChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
+        showAxisLines = false,
         barLayout = 'stacked',
         barCornerRadius = DEFAULT_BAR_CORNER_RADIUS,
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
+        valueDomain,
     } = config ?? {}
 
     const seriesTypeOf = useCallback(
@@ -121,6 +124,7 @@ function ComboChartInner<Meta = unknown>({
                 barLayout,
                 seriesTypeOf,
                 barStackedData,
+                valueDomain,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -153,7 +157,7 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData]
+        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain]
     )
 
     const drawStatic = useCallback(
@@ -180,6 +184,8 @@ function ComboChartInner<Meta = unknown>({
                     xTickFormatter
                 ).map((entry) => entry.x)
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
+            } else if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -213,7 +219,16 @@ function ComboChartInner<Meta = unknown>({
                 zOrder: 'areas-first',
             })
         },
-        [seriesTypeOf, showGrid, xTickFormatter, barLayout, barStackedData, topStackedKeyByAxis, barCornerRadius]
+        [
+            seriesTypeOf,
+            showGrid,
+            showAxisLines,
+            xTickFormatter,
+            barLayout,
+            barStackedData,
+            topStackedKeyByAxis,
+            barCornerRadius,
+        ]
     )
 
     const drawHover = useCallback(

@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { experimentsList, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
-import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { ExperimentApi, ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { experimentPickerLogicType } from './experimentPickerLogicType'
 
@@ -36,12 +36,12 @@ export const experimentPickerLogic = kea<experimentPickerLogicType>([
 
     loaders(({ values }) => ({
         experimentOptions: [
-            [] as ExperimentApi[],
+            [] as ExperimentBasicApi[],
             {
                 loadOptions: async (
                     { debounce }: { debounce: boolean } = { debounce: false },
                     breakpoint
-                ): Promise<ExperimentApi[]> => {
+                ): Promise<ExperimentBasicApi[]> => {
                     // Debounce keystroke-driven searches; the initial focus load should open the dropdown immediately.
                     if (debounce) {
                         await breakpoint(SEARCH_DEBOUNCE_MS)

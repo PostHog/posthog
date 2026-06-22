@@ -313,12 +313,15 @@ export const TriggerSchema = z.discriminatedUnion('type', [
  *     the owning team. The default scope on every gated tool.
  *   - `session_principal` — the auth-time principal stored on the session
  *     row (NOT the most recent /send sender — see B1 in
- *     `runtime-mcps.md` "Resolved design"). Used by the concierge so the
- *     session owner can authorise their own destructive call without
- *     round-tripping through a team admin; a second user posting to a
- *     resumed session can't bypass the gate. v0 is per-asker fast-path
- *     only — queued-approval routing to the session principal widens
- *     later via approver-scope routing in `approval-gated-tools.md` §6.
+ *     `runtime-mcps.md` "Resolved design"). Marks the session owner as the
+ *     approver. Unlike `team_admins`, this is NOT a per-asker fast-path:
+ *     the owner being the asker is not consent to the specific gated call
+ *     the model emitted (prompt injection in content the agent reads can
+ *     steer that call), so a `session_principal` gate always queues for an
+ *     explicit human decision and never auto-dispatches. Decision-side
+ *     routing — letting the session owner clear the queued approval rather
+ *     than only a team admin — widens later via approver-scope routing in
+ *     `approval-gated-tools.md` §6.
  */
 export const ApproverScopeSchema = z.enum(['team_admins', 'session_principal'])
 
@@ -833,7 +836,6 @@ export interface AgentApplication {
     description: string
     live_revision_id: string | null
     archived: boolean
-    encrypted_env: string | null
 }
 
 export interface AgentRevision {
@@ -847,6 +849,14 @@ export interface AgentRevision {
     bundle_uri: string
     bundle_sha256: string | null
     spec: AgentSpec
+    /**
+     * Encrypted JSON env block — the secret values this revision runs with.
+     * Decrypted at session start by the runner's secret resolver (same
+     * `EncryptedFields` key schedule as before). Lives on the revision (not
+     * the application) so a draft preview runs against its own secrets,
+     * isolated from the live revision. NULL means "no secrets set".
+     */
+    encrypted_env: string | null
 }
 
 /**

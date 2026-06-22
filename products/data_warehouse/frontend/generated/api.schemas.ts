@@ -1392,7 +1392,14 @@ export interface CredentialApi {
  * * `Streamlabs` - Streamlabs
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
+ * * `Appstack` - Appstack
+ * * `Razorpay` - Razorpay
+ * * `Neon` - Neon
+ * * `NewRelic` - NewRelic
  * * `Custom` - Custom
+ * * `Tile38` - Tile38
+ * * `Chatwoot` - Chatwoot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2023,7 +2030,14 @@ export const ExternalDataSourceTypeEnumApi = {
     Streamlabs: 'Streamlabs',
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
+    Appstack: 'Appstack',
+    Razorpay: 'Razorpay',
+    Neon: 'Neon',
+    NewRelic: 'NewRelic',
     Custom: 'Custom',
+    Tile38: 'Tile38',
+    Chatwoot: 'Chatwoot',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

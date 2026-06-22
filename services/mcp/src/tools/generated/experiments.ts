@@ -432,13 +432,16 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
-const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<Schemas.PaginatedExperimentList>> =>
+const experimentList = (): ToolBase<
+    typeof ExperimentListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentBasicList>
+> =>
     withUiApp('experiment-list', {
         name: 'experiment-list',
         schema: ExperimentListSchema,
         handler: async (context: Context, params: z.infer<typeof ExperimentListSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedExperimentList>({
+            const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
@@ -768,7 +771,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
-            running_time_calculation: true,
             secondary_metrics: true,
             saved_metrics_ids: true,
             filters: true,
@@ -781,7 +783,12 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             only_count_matured_users: true,
         }).shape
     )
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+        running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
+        ),
+    })
 
 const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -801,6 +808,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
+            }
+            if (params.running_time_calculation !== undefined) {
+                body['running_time_calculation'] = params.running_time_calculation
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
@@ -846,6 +856,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',

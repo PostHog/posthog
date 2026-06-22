@@ -44,10 +44,8 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
     from posthog.models.integration import Integration, SlackIntegration
     from posthog.temporal.common.client import sync_connect
 
-    from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.services.agent_command import send_cancel
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.temporal import ProcessTaskWorkflow
 
     actions = payload.get("actions", [])
     action = next((a for a in actions if a.get("action_id") == "posthog_code_terminate_task"), None)
@@ -104,9 +102,8 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
     message_ts = payload.get("message", {}).get("ts")
     thread_ts = thread_ts_from_value or payload.get("message", {}).get("thread_ts") or message_ts
 
-    try:
-        task_run = TaskRun.objects.select_related("task").get(id=run_id, team_id=integration.team_id)
-    except TaskRun.DoesNotExist:
+    task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    if task_run is None:
         logger.warning("posthog_code_terminate_run_not_found", run_id=run_id)
         return
 
@@ -125,15 +122,16 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
         return
 
     auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and isinstance(created_by.id, int):
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+    if task_run.created_by_id is not None:
+        distinct_id = task_run.created_by_distinct_id or f"user_{task_run.created_by_id}"
         try:
-            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+            auth_token = tasks_facade.create_sandbox_connection_token(
+                run_id, user_id=task_run.created_by_id, distinct_id=distinct_id
+            )
         except Exception as e:
             logger.warning("posthog_code_terminate_auth_token_failed", run_id=run_id, error=str(e))
 
-    cancel_result = send_cancel(task_run, auth_token=auth_token)
+    cancel_result = tasks_facade.send_cancel(run_id, auth_token=auth_token)
     if cancel_result.success:
         logger.info("posthog_code_terminate_command_dispatched", run_id=run_id)
     else:

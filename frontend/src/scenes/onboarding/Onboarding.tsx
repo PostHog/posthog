@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { onboardingLogic } from './onboardingLogic'
+import { onboardingLogic } from './legacy/onboardingLogic'
 import { onboardingVariantRegistry } from './onboardingVariantRegistry'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
 
@@ -19,6 +19,6 @@ export function Onboarding(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const onboardingFlowVariant = resolveOnboardingFlowVariant(featureFlags)
 
-    const VariantComponent = onboardingVariantRegistry[onboardingFlowVariant] ?? onboardingVariantRegistry.control
+    const VariantComponent = onboardingVariantRegistry[onboardingFlowVariant] ?? onboardingVariantRegistry.legacy
     return <VariantComponent />
 }

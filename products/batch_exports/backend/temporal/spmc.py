@@ -679,6 +679,8 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
+    # Export models are only events/persons/sessions; warehouse tables and views are denied.
+    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
     exprs = []
     for filter in filters:

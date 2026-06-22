@@ -6,11 +6,13 @@ from unittest import mock
 
 from dateutil import parser
 from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.auth.exceptions import RefreshError
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BigQueryCredentialsRejectedError,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
@@ -130,6 +132,37 @@ def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, i
         assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
     else:
         assert error_message in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_rejected",
+    [
+        # An `invalid_grant` RefreshError means Google rejected the service-account grant (rotated
+        # key, deleted account). `get_columns` must surface a clear message instead of the tuple repr.
+        (
+            "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+            BigQueryCredentialsRejectedError,
+            True,
+        ),
+        # Transient/other RefreshErrors carry their own diagnoses and must propagate unchanged.
+        ("('Failed to retrieve token', {'error': 'internal_failure'})", RefreshError, False),
+    ],
+)
+def test_bigquery_get_columns_refresh_error_handling(error_message, expected_type, is_rejected):
+    """`invalid_grant` RefreshErrors are wrapped as `BigQueryCredentialsRejectedError`; others propagate."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = RefreshError(error_message)
+
+    with pytest.raises(expected_type) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert isinstance(exc_info.value, BigQueryCredentialsRejectedError) == is_rejected
+    if is_rejected:
+        # The wizard shows this str() directly, and it must keep the `invalid_grant` marker so the
+        # sync schema-discovery path still recognises it as non-retryable.
+        assert "invalid_grant" in str(exc_info.value)
+        assert "rejected by Google" in str(exc_info.value)
+        assert any(key in str(exc_info.value) for key in BigQuerySource().get_non_retryable_errors())
 
 
 @pytest.mark.parametrize(

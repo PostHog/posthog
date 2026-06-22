@@ -189,6 +189,13 @@ export interface Cluster {
      * so teardown wipes both at once.
      */
     tabularStore: S3JsonlTabularStore
+    /**
+     * The `EncryptedFields` instance the harness encrypts agent env with (and
+     * the runner's secret resolver decrypts). Exposed so cases can encrypt a
+     * value to stamp onto a revision's `encrypted_env`, or decrypt one to
+     * assert a round-trip.
+     */
+    encryption: EncryptedFields
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     ingress: Express
@@ -493,6 +500,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         credentialBroker,
         memoryStore,
         tabularStore,
+        encryption,
         model,
         ingress,
         janitor,
@@ -528,7 +536,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 slug: input.slug,
                 name: input.name ?? input.slug,
                 description: input.description ?? '',
-                encrypted_env,
             })
             const rawSpec: Record<string, unknown> = {
                 // Default model is "faux/<name>"; tests can override via spec.model.
@@ -567,6 +574,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 created_by_id: null,
                 bundle_uri: `s3://${TEST_S3_BUCKET}/${bundlePrefix}/${app.id}/`,
                 spec,
+                encrypted_env,
             })
             for (const [p, content] of Object.entries(input.files ?? {})) {
                 await bundle.write(rev.id, p, content)
