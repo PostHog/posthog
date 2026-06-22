@@ -654,9 +654,17 @@ def cleanup_staged_files(
             s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})  # type: ignore[typeddict-item]
 
 
-def setup_duckgres_session(conn: psycopg.Connection) -> None:
-    """Install and load required extensions on a duckgres connection."""
-    for ext in ("ducklake", "httpfs", "delta"):
+def setup_duckgres_session(
+    conn: psycopg.Connection,
+    extensions: tuple[str, ...] = ("ducklake", "httpfs", "delta"),
+) -> None:
+    """Install and load required extensions on a duckgres connection.
+
+    Callers should request only what they use: extensions bundled in the duckgres
+    worker image (httpfs, ducklake) make INSTALL a local no-op, but anything else
+    triggers a CDN download that egress-restricted workers silently drop.
+    """
+    for ext in extensions:
         conn.execute(f"INSTALL {ext}")
         conn.execute(f"LOAD {ext}")
 

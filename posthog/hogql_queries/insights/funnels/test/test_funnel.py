@@ -6122,3 +6122,110 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([s["order"] for s in previous_steps], [0, 1])
         self.assertEqual([s["count"] for s in previous_steps], [0, 0])
         self.assertEqual([s["name"] for s in previous_steps], ["step one", "step two"])
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous composed with a breakdown on the funnel STEPS viz. A breakdown funnel
+    returns N inner funnels (a list-of-lists); with compare on it returns 2·N — N current and N
+    previous — each inner funnel preserving its breakdown_value and each step tagged compare_label."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        breakdown: str = "$browser",
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="steps",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @staticmethod
+    def _by_label_and_value(results) -> dict[tuple[str, tuple], list[dict]]:
+        # results is a list of inner funnels (list-of-lists). Key each by (compare_label, breakdown_value).
+        return {(group[0]["compare_label"], tuple(group[0]["breakdown_value"])): group for group in results}
+
+    def _conversion(self, browser: str, day: int) -> list[dict]:
+        return [
+            {"event": "step one", "timestamp": datetime(2021, 6, day, 10), "properties": {"$browser": browser}},
+            {"event": "step two", "timestamp": datetime(2021, 6, day, 11), "properties": {"$browser": browser}},
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                # Both values convert in both periods (current 2021-06-07..13, default previous
+                # 2021-05-31..06-06) → 2 values × 2 periods = 4 inner funnels, all populated.
+                "all_values_in_both_periods",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_safari": ("Safari", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [1, 1],
+                },
+            ),
+            (
+                # Chrome converts in both periods, Safari only in current, Firefox only in previous.
+                # Each one-sided value is still represented on the missing side as a zeroed inner
+                # funnel (the union across periods), so the chart draws a pair for every value.
+                "one_sided_values_zeroed_on_missing_period",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_firefox": ("Firefox", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("current", ("Firefox",)): [0, 0],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [0, 0],
+                    ("previous", ("Firefox",)): [1, 1],
+                },
+            ),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts, _feature_enabled):
+        journeys_for(
+            {key: self._conversion(browser, day) for key, (browser, day) in journeys.items()},
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # One inner funnel per (period, breakdown value), spanning the union of values across both
+        # periods. Every inner funnel — populated or zeroed — carries the full step skeleton tagged
+        # by period and value, so the chart draws a current/previous pair of bars for every value.
+        self.assertEqual(len(results), len(expected_counts))
+        for group in results:
+            self.assertEqual([s["order"] for s in group], [0, 1])
+            self.assertEqual([s["name"] for s in group], ["step one", "step two"])
+            for step in group:
+                self.assertIn(step["compare_label"], ("current", "previous"))
+                self.assertIsNotNone(step["breakdown_value"])
+
+        groups = self._by_label_and_value(results)
+        self.assertEqual(set(groups.keys()), set(expected_counts.keys()))
+        for key, counts in expected_counts.items():
+            self.assertEqual([s["count"] for s in groups[key]], counts)

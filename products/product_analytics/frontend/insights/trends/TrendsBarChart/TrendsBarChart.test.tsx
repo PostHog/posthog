@@ -624,9 +624,14 @@ describe('TrendsBarChart overlays', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
-            const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(['Target'])
-            expect(lines[0].orientation).toBe(expectedOrientation)
+            await waitFor(
+                () => {
+                    const lines = getHogChart().referenceLines()
+                    expect(lines.map((l) => l.label)).toEqual(['Target'])
+                    expect(lines[0].orientation).toBe(expectedOrientation)
+                },
+                { timeout: 5000 }
+            )
         }
     )
 })
