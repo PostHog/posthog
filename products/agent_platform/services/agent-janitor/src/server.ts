@@ -75,7 +75,7 @@ import {
     TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
-import { listNativeTools } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
@@ -85,7 +85,7 @@ import { buildApprovalDecidedMarker } from './approval-marker'
 // typed PUT /tools/:id handler, not by freeze. Freeze just validates +
 // seals; the compiled.js is already in the bundle by then.
 import { fireCronManually } from './cron-tick'
-import { asyncHandler, errorHandler } from './http-utils'
+import { asyncHandler, errorHandler, httpMetricsMiddleware, requestLogger } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
 import { validateRevisionBundle } from './validate-spec'
 
@@ -220,10 +220,50 @@ async function deriveSpec(args: {
         ...(args.rev.spec as Record<string, unknown>),
         skills: derivedSkills,
         tools: [...preservedTools, ...derivedTools],
+        identity_providers: deriveIdentityProviders(args.rev.spec as Record<string, unknown>, preservedTools),
     }
     return instrument({ key: 'derive.parseSpec', log, context: ctx }, () =>
         Promise.resolve(AgentSpecSchema.parse(mergedSpec))
     )
+}
+
+/**
+ * Auto-wire the managed `posthog` identity provider when a Slack-triggered agent
+ * uses native PostHog tools: a Slack asker has no trigger-edge seed, so the link
+ * flow needs a provisioned OAuthApplication. We add (or scope-union) the provider
+ * with exactly the scopes its tools declare, so promote provisions an app with
+ * the right scopes. Chat/MCP agents resolve `posthog` off the seed and don't need
+ * this. `binding` defaults are applied by `AgentSpecSchema.parse`.
+ */
+export function deriveIdentityProviders(spec: Record<string, unknown>, nativeRefs: unknown[]): unknown[] {
+    const declared = (spec.identity_providers as Record<string, unknown>[] | undefined) ?? []
+    const triggers = (spec.triggers as { type?: string }[] | undefined) ?? []
+    if (!triggers.some((t) => t.type === 'slack')) {
+        return declared
+    }
+    const scopes = new Set<string>()
+    for (const ref of nativeRefs) {
+        const id = (ref as { kind?: string; id?: string }).kind === 'native' ? (ref as { id?: string }).id : undefined
+        if (!id || !hasNativeTool(id)) {
+            continue
+        }
+        const provider = getNativeTool(id).schema.requires.provider
+        if (provider?.id === 'posthog') {
+            for (const s of provider.scopes) {
+                scopes.add(s)
+            }
+        }
+    }
+    const idx = declared.findIndex((p) => p.kind === 'posthog')
+    if (idx === -1 && scopes.size === 0) {
+        return declared
+    }
+    if (idx === -1) {
+        return [...declared, { kind: 'posthog', id: 'posthog', scopes: [...scopes].sort() }]
+    }
+    const existing = declared[idx]
+    const merged = [...new Set([...((existing.scopes as string[] | undefined) ?? []), ...scopes])].sort()
+    return declared.map((p, i) => (i === idx ? { ...existing, scopes: merged } : p))
 }
 
 const BackfillUsageBodySchema = z.object({
@@ -305,6 +345,10 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             }
         })
     }
+    // Access log + http metrics before json/auth so they see body-parse 400s,
+    // 401s, and 404s too. Every request now leaves one structured `request` line.
+    app.use(requestLogger(log))
+    app.use(httpMetricsMiddleware())
     // JSON bodies up to 8MB cover any reasonable bundle bulk-push (TS source +
     // a few markdown files). Larger bundles should land an S3 presigned URL
     // path eventually; flagged in the bundle-push action below.
@@ -795,7 +839,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const eventsUrl = typeof req.query.events_url === 'string' ? req.query.events_url : null
             const interactivityUrl =
                 typeof req.query.interactivity_url === 'string' ? req.query.interactivity_url : null
-            const scopeByTool = new Map(listNativeTools().map((t) => [t.id, t.schema.requires.scopes]))
+            // Slack scopes only: a tool contributes to the Slack app manifest
+            // iff its single credential provider is the `slack` bot. PostHog /
+            // other identity-provider scopes never leak into the Slack manifest.
+            const scopeByTool = new Map(
+                listNativeTools().map((t) => [
+                    t.id,
+                    t.schema.requires.provider?.id === 'slack' ? t.schema.requires.provider.scopes : [],
+                ])
+            )
             try {
                 const { manifest, notes } = buildSlackManifest({
                     triggers: rev.spec.triggers ?? [],
