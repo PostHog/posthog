@@ -8,7 +8,14 @@ import express, { Express, Request, Response } from 'express'
 import { z } from 'zod'
 
 import type { IdentityStore, SecretResolver } from '@posthog/agent-shared'
-import { createLogger, RevisionStore, SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
+import {
+    createLogger,
+    handleMetricsRequest,
+    isDev,
+    RevisionStore,
+    SessionQueue,
+    triggerAuthConfig,
+} from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
 
@@ -23,7 +30,7 @@ import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
-import { asyncHandler, errorHandler, requestLogger } from './http-utils'
+import { asyncHandler, errorHandler, httpMetricsMiddleware, requestLogger } from './http-utils'
 import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
@@ -114,9 +121,23 @@ export interface BuildAppOpts {
 
 export function buildApp(opts: BuildAppOpts): Express {
     const app = express()
+    // Dev only: serve /metrics on the request port (no dedicated scrape server —
+    // three services on one host would collide). First in the chain so scrapes
+    // bypass logging + routing. Prod uses the dedicated port and never serves
+    // /metrics on this public listener.
+    if (isDev()) {
+        app.use((req, res, next) => {
+            if (!handleMetricsRequest(req, res, log)) {
+                next()
+            }
+        })
+    }
     // First in the chain so it sees — and times — every request, including
     // those that never match a route (404s) or fail body parsing (400s).
     app.use(requestLogger(log))
+    // Record HTTP latency/status for every request. Sits right after the
+    // logger so it shares the same view of unmatched + rejected requests.
+    app.use(httpMetricsMiddleware())
     const bus = opts.bus
     const resolver = new RevisionResolver({
         revisions: opts.revisions,

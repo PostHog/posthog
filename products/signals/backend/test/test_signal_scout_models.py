@@ -1,8 +1,10 @@
 from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 
+from django.apps import apps
 from django.db import IntegrityError
 from django.utils import timezone
 
@@ -11,7 +13,9 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 class _ScoutTeamScopedTestMixin:
@@ -91,8 +95,10 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         SignalScoutConfig.all_teams.filter(pk=config.pk).update(last_run_at=timezone.now())
         assert not ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).exists()
 
-    def _make_task_run(self) -> TaskRun:
+    def _make_task_run(self) -> "TaskRun":
         """Minimal Task + TaskRun pair scoped to this test's team."""
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="scout run",

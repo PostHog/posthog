@@ -1,19 +1,12 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { GUTTER_GAP } from '../core/hooks/useChartMargins'
-import { autoFormatterFor } from '../core/scales'
-import { AXIS_LABEL_FONT, getTextMeasureCtx, measureLabelWidth, truncateToWidth } from '../utils/text-measure'
+import { TICK_GAP } from '../core/y-axis-gutters'
+import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
-    /** The *unresolved* user y-tick formatter (config). When set, every stacked axis uses it; when
-     *  unset, each axis auto-formats against its own ticks. Only consulted for the multi-axis path. */
-    userYTickFormatter?: (value: number) => string
-    /** Per-axis tick formatters keyed by axis id. A gutter prefers its own formatter, then
-     *  `userYTickFormatter`, then auto-formats against its ticks. Only consulted for the multi-axis path. */
-    yAxisFormatters?: Record<string, (value: number) => string>
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
@@ -135,18 +128,6 @@ const TICK_STYLE_BASE: React.CSSProperties = {
     whiteSpace: 'nowrap',
 }
 
-const TICK_GAP = 8
-
-/** One stacked value-axis gutter: its ticks, scale, side, and outward pixel offset from the plot edge. */
-interface Gutter {
-    key: string
-    side: 'left' | 'right'
-    offset: number
-    ticks: number[]
-    scale: (v: number) => number
-    formatter: (v: number) => string
-}
-
 interface ChartBox {
     width: number
     plotLeft: number
@@ -232,8 +213,6 @@ function XTickLabel({
 export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
-    userYTickFormatter,
-    yAxisFormatters,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
@@ -241,49 +220,8 @@ export const AxisLabels = React.memo(function AxisLabels({
     labelToCoord,
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChartLayout()
+    const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
-
-    // Vertical value-axis gutters, stacked outward per side. With per-axis scales (`scales.yAxes`,
-    // i.e. `showMultipleYAxes`) we render one gutter per axis — each labelled with its own ticks and
-    // offset by the cumulative width of the inner gutters. Without, a single left gutter from the
-    // shared scale (`scales.y` / `scales.yTicks`). Each axis auto-formats against its own ticks
-    // unless the caller supplied an explicit formatter, in which case every axis shares it.
-    const yGutters = useMemo(() => {
-        if (hideYAxis || orientation === 'horizontal') {
-            return []
-        }
-        if (!scales.yAxes) {
-            return [
-                {
-                    key: 'y-left',
-                    side: 'left' as const,
-                    offset: 0,
-                    ticks: yTicks,
-                    scale: scales.y,
-                    formatter: yTickFormatter ?? autoFormatterFor(yTicks),
-                },
-            ] satisfies Gutter[]
-        }
-        const widthOf = (ticks: number[], formatter: (v: number) => string): number =>
-            ticks.reduce((widest, t) => Math.max(widest, measureLabelWidth(formatter(t))), 0)
-        let leftCum = 0
-        let rightCum = 0
-        const gutters: Gutter[] = []
-        Object.entries(scales.yAxes).forEach(([axisId, axis]) => {
-            const ticks = axis.ticks()
-            const formatter = yAxisFormatters?.[axisId] ?? userYTickFormatter ?? autoFormatterFor(ticks)
-            const offset = axis.position === 'left' ? leftCum : rightCum
-            gutters.push({ key: `y-${axisId}`, side: axis.position, offset, ticks, scale: axis.scale, formatter })
-            const width = widthOf(ticks, formatter) + GUTTER_GAP
-            if (axis.position === 'left') {
-                leftCum += width
-            } else {
-                rightCum += width
-            }
-        })
-        return gutters
-    }, [hideYAxis, orientation, scales.yAxes, scales.y, yTicks, yTickFormatter, userYTickFormatter, yAxisFormatters])
 
     const visibleXLabels = useMemo(
         () =>

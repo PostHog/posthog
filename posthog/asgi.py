@@ -91,7 +91,7 @@ def self_capture_wrapper(func):
 
 def task_run_event_ingest_wrapper(func):
     async def inner(scope, receive, send):
-        from products.tasks.backend.stream.event_ingest import handle_task_run_event_ingest
+        from products.tasks.backend.facade.streams import handle_task_run_event_ingest
 
         if await handle_task_run_event_ingest(scope, receive, send):
             return
