@@ -13,8 +13,16 @@ logger = structlog.get_logger(__name__)
 
 CONVERSATIONS_SUPPORT_REPLY_ENV_NAME = "CONVERSATIONS_SUPPORT_REPLY"
 
+# Ticket content is attacker-controlled (public widget/email), so this sandbox processes
+# untrusted input with read MCP scopes. Lock egress to CUSTOM with an empty allowlist: the
+# agent can still reach the always-on INFRASTRUCTURE_DOMAINS (*.posthog.com for MCP, the LLM
+# gateways, api.anthropic.com), but NOT github/pypi/npm/etc. — closing the prompt-injection
+# exfiltration channel that TRUSTED's broad allowlist would otherwise leave open. This agent
+# only drafts text + calls read-only MCP tools; it has no reason to fetch from the internet.
 _SANDBOX_DEFAULTS = {
-    "network_access_level": SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+    "network_access_level": SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+    "allowed_domains": [],
+    "include_default_domains": False,
     "private": False,
     "internal": True,
 }
