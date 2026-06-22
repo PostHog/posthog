@@ -22,9 +22,19 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
-from products.signals.backend.temporal.agentic.scout_coordinator import (
+
+# The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
+# defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
+from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
+    _default_team_config,
+    _enrolled_team_ids,
+    _read_flag_payload,
+    _resolve_max_runs_per_day,
+    _team_configs,
+)
+from products.signals.backend.temporal.agentic.scout_coordinator import (
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
@@ -32,19 +42,14 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _allocate_tick_budget,
-    _default_team_config,
     _DueRun,
-    _enrolled_team_ids,
-    _read_flag_payload,
-    _resolve_max_runs_per_day,
-    _team_configs,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
 
-_PAYLOAD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.get_feature_flag_payload"
-_IS_CLOUD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.is_cloud"
+_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+_IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
 
 # Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
 # (no transaction rollback across the worker thread), so leftover teams from other modules can
@@ -419,7 +424,7 @@ async def test_per_team_tick_cap_defers_overflow(ateam):
             ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
         )
 
-    with patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TEAM_PER_TICK", 2):
+    with patch("products.signals.backend.scout_harness.team_limits.MAX_RUNS_PER_TEAM_PER_TICK", 2):
         planned = await _run_activity()
 
     assert sorted(p.skill_name for p in planned) == ["signals-scout-mid", "signals-scout-most"]

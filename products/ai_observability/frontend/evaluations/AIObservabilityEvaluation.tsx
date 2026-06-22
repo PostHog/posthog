@@ -444,7 +444,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of user messages on each matching generation.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
@@ -645,5 +645,6 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        evaluationType: searchParams.type === 'sentiment' ? 'sentiment' : undefined,
     }),
 }

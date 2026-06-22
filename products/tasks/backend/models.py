@@ -777,6 +777,9 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Time-range scans over runs (default ordering, recent-runs lookups, and the
+            # signals outcome-billing query that buckets PR runs into a period).
+            models.Index(fields=["created_at"], name="task_run_created_at_idx"),
         ]
 
     def __str__(self):
