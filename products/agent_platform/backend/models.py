@@ -213,7 +213,6 @@ class AgentUser(ProductTeamModel, UUIDModel):
     principal_kind = models.TextField()
     principal_id = models.TextField()
     metadata = models.JSONField(default=dict, db_default=Value("{}"))
-    posthog_user_id = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
 
     class Meta:
@@ -333,8 +332,7 @@ class AgentIdentityCredential(ProductTeamModel, UUIDModel):
     The "stored auth" an agent_user has consented to — e.g. a Slack user who
     OAuth-linked their PostHog (or GitHub, …) account. Keyed by (agent_user,
     provider). Read at turn start and copied into the ephemeral per-session
-    AgentSessionCredential broker; never read directly by tools. `posthog_user_id`
-    on the AgentUser is set from this only for the identity-establishing provider.
+    AgentSessionCredential broker; never read directly by tools.
     """
 
     application_id = models.UUIDField()
@@ -348,6 +346,11 @@ class AgentIdentityCredential(ProductTeamModel, UUIDModel):
     scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
     state = models.TextField(default="active", db_default="active")  # active | revoked
     access_expires_at = models.DateTimeField(null=True, blank=True)
+    # The proven external identity this link established (e.g. the PostHog user
+    # uuid from /oauth/userinfo). Set only by an identity-establishing provider;
+    # null for capability-only links. Replaces the old AgentUser.posthog_user_id —
+    # per-asker auth reads it to resolve the PostHog user behind a principal.
+    subject = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
     revoked_at = models.DateTimeField(null=True, blank=True)

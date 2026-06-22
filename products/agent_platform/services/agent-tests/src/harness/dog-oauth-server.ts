@@ -8,7 +8,8 @@
  *   GET  /authorize  auto-approves, 302 → redirect_uri?code&state
  *   POST /token      auth_code (verifies PKCE S256 + client) & refresh grants
  *   GET  /api/dog    401 without a valid, unexpired, unrevoked bearer
- *   GET  /userinfo   { email } (for the link-time email cross-check)
+ *   GET  /userinfo   { sub, email } (sub lets an identity-establishing provider
+ *                    stamp a subject; email is the link-time cross-check)
  */
 
 import { createHash, randomUUID } from 'node:crypto'
@@ -22,6 +23,8 @@ export interface DogServerOptions {
     tokenTtlSeconds?: number
     /** Email returned by /userinfo. Default dog@posthog.com. */
     userEmail?: string
+    /** Subject (`sub`) returned by /userinfo. Default dog-user-1. */
+    userSub?: string
     /** Fixed listen port (for a standalone dev server). Default 0 (random, for tests). */
     port?: number
 }
@@ -59,6 +62,7 @@ export async function startDogServer(opts: DogServerOptions = {}): Promise<DogSe
     const clientSecret = opts.clientSecret
     const ttlMs = (opts.tokenTtlSeconds ?? 3600) * 1000
     const email = opts.userEmail ?? 'dog@posthog.com'
+    const sub = opts.userSub ?? 'dog-user-1'
 
     const codes = new Map<string, CodeRecord>()
     const tokens = new Map<string, TokenRecord>()
@@ -169,7 +173,7 @@ export async function startDogServer(opts: DogServerOptions = {}): Promise<DogSe
                 send(401, { error: 'unauthorized' })
                 return
             }
-            send(200, { email })
+            send(200, { sub, email })
             return
         }
 

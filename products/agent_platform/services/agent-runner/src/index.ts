@@ -196,7 +196,12 @@ async function main(): Promise<void> {
     // into `WorkerDeps.isAskerInApproverScope` → driver → gated tool's
     // pre-queue check in build-agent-tools.
     const identities = new PgIdentityStore(agentDb)
-    const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
+    // Persistent linked-credential store: shared by the per-asker auth check
+    // (reads the established subject) and the runtime identity providers.
+    const identityCredentials = new PgIdentityCredentialStore(agentDb, {
+        encryptionSaltKeys: config.encryptionSaltKeys,
+    })
+    const isAskerInApproverScope = makePerAskerAuth({ credentials: identityCredentials, posthogDb })
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     // ai-gateway is a cluster-internal service — use the direct client so the
     // call doesn't hit smokescreen (which would refuse it as RFC1918). The
@@ -338,7 +343,7 @@ async function main(): Promise<void> {
         isAskerInApproverScope,
         // Per-principal identity linking (spec.identity_providers): reuse the
         // same agent DB + encryption the credential broker uses.
-        identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
+        identityCredentials,
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         identities,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,

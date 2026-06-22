@@ -12,6 +12,7 @@ import type { IdentityCredentialStore } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
 import { type IdentityProvider, type IdentityProviderRegistry, MapIdentityProviderRegistry } from './identity-provider'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
+import { PostHogAuthProvider } from './posthog-identity-provider'
 
 export interface BuildIdentityRegistryDeps {
     links: IdentityLinkStateStore
@@ -19,8 +20,13 @@ export interface BuildIdentityRegistryDeps {
     http: HttpFetcher
     /** Resolve an encrypted_env secret by name (for oauth2 client_secret_ref). */
     secret: (name: string) => string | undefined
-    /** Builds the managed posthog provider; injected by the runner (M6). */
-    posthogProviderFactory?: (cfg: { id: string; scopes: string[] }) => IdentityProvider
+    /**
+     * PostHog instance base URL (no trailing slash). When set, a `{kind:posthog}`
+     * provider is built against `${base}/oauth/{authorize,token,userinfo}/` using
+     * the client_id Django provisioned into the spec. Omit it (or omit the
+     * client_id) and posthog providers are skipped — they can't link.
+     */
+    posthogBaseUrl?: string
 }
 
 /** Build the per-revision provider registry from spec.identity_providers. */
@@ -47,8 +53,23 @@ export function buildIdentityRegistry(
                     http: deps.http,
                 })
             )
-        } else if (cfg.kind === 'posthog' && deps.posthogProviderFactory) {
-            providers.push(deps.posthogProviderFactory({ id: cfg.id, scopes: cfg.scopes }))
+        } else if (cfg.kind === 'posthog' && deps.posthogBaseUrl && cfg.client_id) {
+            const base = deps.posthogBaseUrl.replace(/\/+$/, '')
+            providers.push(
+                new PostHogAuthProvider({
+                    config: {
+                        id: cfg.id,
+                        authorizeUrl: `${base}/oauth/authorize/`,
+                        tokenUrl: `${base}/oauth/token/`,
+                        userinfoUrl: `${base}/oauth/userinfo/`,
+                        clientId: cfg.client_id,
+                        scopes: cfg.scopes,
+                    },
+                    links: deps.links,
+                    credentials: deps.credentials,
+                    http: deps.http,
+                })
+            )
         }
     }
     return new MapIdentityProviderRegistry(providers)

@@ -54,9 +54,13 @@ interface TokenResponse {
 const b64url = (buf: Buffer): string => buf.toString('base64url')
 
 export class Oauth2AuthProvider implements IdentityProvider {
-    readonly establishesIdentity = false
+    // Typed `boolean` (not the literal `false`) so an identity-establishing
+    // subclass can override it to `true`.
+    readonly establishesIdentity: boolean = false
 
-    constructor(private readonly deps: Oauth2ProviderDeps) {}
+    // `protected` (not `private`) so an identity-establishing subclass
+    // (PostHogAuthProvider) can reach the config + http to derive a subject.
+    constructor(protected readonly deps: Oauth2ProviderDeps) {}
 
     get id(): string {
         return this.deps.config.id
@@ -121,6 +125,7 @@ export class Oauth2AuthProvider implements IdentityProvider {
             redirect_uri: state.redirectUri,
             code_verifier: state.codeVerifier,
         })
+        const subject = await this.deriveSubject(token.access_token)
         await this.deps.credentials.put({
             teamId: state.teamId,
             applicationId: state.applicationId,
@@ -128,8 +133,19 @@ export class Oauth2AuthProvider implements IdentityProvider {
             provider: this.id,
             credential: this.toStored(token),
             scopes: token.scope ? token.scope.split(' ') : state.scopes,
+            subject,
         })
         return { agentUserId: state.agentUserId, provider: this.id }
+    }
+
+    /**
+     * The external subject this link proves, if any. Base provider establishes
+     * no identity → undefined. An identity-establishing subclass overrides this
+     * (e.g. PostHog reads /oauth/userinfo `sub`) so `complete()` stamps it on
+     * the stored credential. Runs once, at link time, with a fresh access token.
+     */
+    protected async deriveSubject(_accessToken: string): Promise<string | undefined> {
+        return undefined
     }
 
     async resolve(input: IdentityResolveInput): Promise<Credential | null> {

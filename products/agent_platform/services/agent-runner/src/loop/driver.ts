@@ -61,7 +61,6 @@ import {
     HttpFetcher,
     IdentityCredentialStore,
     IdentityLinkStateStore,
-    IdentityProvider,
     IdentityStore,
     IntegrationCredentials,
     isDeltaEventKind,
@@ -236,8 +235,6 @@ export interface RunSessionDeps {
     identities?: IdentityStore
     /** OAuth callback base; `/link/<provider>/callback` is appended. */
     linkRedirectBaseUrl?: string
-    /** Builds the managed posthog identity provider (M6). */
-    posthogIdentityProviderFactory?: (cfg: { id: string; scopes: string[] }) => IdentityProvider
 }
 
 export type RunOutcome =
@@ -426,7 +423,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 credentials: deps.identityCredentials,
                 http: deps.http,
                 secret: (name) => deps.secrets[name],
-                posthogProviderFactory: deps.posthogIdentityProviderFactory,
+                posthogBaseUrl: deps.posthogApiBaseUrl,
             })
             const slackTrigger = rev.spec.triggers.find((t) => t.type === 'slack')
             const sharedSession = slackTrigger?.type === 'slack' && slackTrigger.config.allow_workspace_participants

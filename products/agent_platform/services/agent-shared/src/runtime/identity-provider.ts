@@ -5,8 +5,9 @@
  * bundles the principal-source verifiers (Axis A).
  *
  * All methods key off a generic `agentUserId` — no Slack/PostHog assumptions.
- * `establishesIdentity` is true ONLY for a provider that also asserts a PostHog
- * identity (sets AgentUser.posthog_user_id); capability-only providers leave it.
+ * `establishesIdentity` is true ONLY for a provider that also proves who the
+ * linker is (stamps `subject` on the stored credential — e.g. the PostHog user
+ * uuid); capability-only providers leave it false and stamp no subject.
  */
 
 import type { Credential } from './credential-broker'
@@ -50,7 +51,7 @@ export interface IdentityProvider {
     readonly id: string
     /** Broker key tools/MCPs resolve ('posthog_api', 'github', 'dogs', …). */
     readonly credentialTarget: string
-    /** True only for a provider that also asserts PostHog identity. */
+    /** True only for a provider that proves the linker's identity (stamps `subject`). */
     readonly establishesIdentity: boolean
     initiate(input: IdentityInitiateInput): Promise<IdentityInitiateResult>
     complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult>

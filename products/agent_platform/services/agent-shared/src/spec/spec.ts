@@ -688,8 +688,11 @@ export const ResumeConfigSchema = z.object({
 
 /**
  * A per-app identity provider users can link against. Two kinds:
- *   - `posthog` — managed: the backend auto-provisions a per-app first-party
- *     OAuthApplication; the author supplies nothing but optional scopes.
+ *   - `posthog` — managed: on promote the backend provisions a normal,
+ *     user-consented OAuthApplication for the agent's org and injects its
+ *     `client_id` here (the author supplies nothing but optional scopes).
+ *     Linking runs PostHog's standard consent flow, so the user explicitly
+ *     authorises the agent to act as them.
  *   - `oauth2`  — bring-your-own: the author registers an OAuth app at a third
  *     party (GitHub, Linear, the `dogs` test IdP), points its redirect at our
  *     callback, and supplies endpoints + client_id + a `client_secret_ref`
@@ -700,6 +703,9 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
         kind: z.literal('posthog'),
         id: z.string().min(1).default('posthog'),
         scopes: z.array(z.string()).default([]),
+        /** Backend-injected on promote (the provisioned OAuthApplication's
+         *  client_id). Author never sets it; absent until the agent is promoted. */
+        client_id: z.string().optional(),
     }),
     z.object({
         kind: z.literal('oauth2'),

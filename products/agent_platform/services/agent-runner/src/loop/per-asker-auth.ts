@@ -7,9 +7,10 @@
  *
  * Scopes supported in v0:
  *   - `team_admins` — the original B.2 v0 scope. Resolution:
- *     - `sender.kind === 'slack'`: `sender.id` is an `agent_user.id`. Look
- *       up the row, read its `posthog_user_id`, check OrganizationMembership
- *       for `level >= ADMIN`.
+ *     - `sender.kind === 'slack'`: `sender.id` is an `agent_user.id`. Read the
+ *       PostHog subject (uuid) the principal proved via an identity-establishing
+ *       link, then check OrganizationMembership for `level >= ADMIN`. (Slated
+ *       for rework alongside the identity model — kept minimal here.)
  *     - Other kinds: not authorised for v0. PAT-based self-authorisation
  *       (chat /run with an admin's token) is a sensible follow-up but adds
  *       a second resolution path that step 3 doesn't need to demo the
@@ -25,7 +26,7 @@
 
 import type { Pool } from 'pg'
 
-import { ConversationMessage, IdentityStore, principalsMatch, SessionPrincipal } from '@posthog/agent-shared'
+import { ConversationMessage, IdentityCredentialStore, principalsMatch, SessionPrincipal } from '@posthog/agent-shared'
 
 /** PostHog's `OrganizationMembership.Level` values — keep in sync with the Django enum. */
 const ADMIN_LEVEL = 8
@@ -52,11 +53,11 @@ export type IsAskerInApproverScope = (
 ) => Promise<boolean>
 
 export interface MakePerAskerAuthDeps {
-    identities: IdentityStore
+    credentials: IdentityCredentialStore
     posthogDb: Pool
 }
 
-/** Production factory — closes over the identity store + posthog DB pool. */
+/** Production factory — closes over the credential store + posthog DB pool. */
 export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverScope {
     return async (conversation, teamId, approverScope, sessionPrincipal) => {
         const sender = findLastUserSender(conversation)
@@ -77,11 +78,11 @@ export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverS
         if (!sender) {
             return false
         }
-        const posthogUserId = await resolvePosthogUserId(sender, deps.identities)
-        if (posthogUserId === null) {
+        const subject = await resolveEstablishedSubject(sender, deps.credentials)
+        if (subject === null) {
             return false
         }
-        return isTeamAdmin(deps.posthogDb, posthogUserId, teamId)
+        return isTeamAdmin(deps.posthogDb, subject, teamId)
     }
 }
 
@@ -104,27 +105,30 @@ export function findLastUserSender(conversation: ConversationMessage[]): Session
     return null
 }
 
-async function resolvePosthogUserId(sender: SessionPrincipal, identities: IdentityStore): Promise<number | null> {
+async function resolveEstablishedSubject(
+    sender: SessionPrincipal,
+    credentials: IdentityCredentialStore
+): Promise<string | null> {
     if (sender.kind !== 'slack' || !sender.agent_user_id) {
         return null
     }
-    const agentUser = await identities.getById(sender.agent_user_id)
-    if (!agentUser || agentUser.posthog_user_id == null) {
-        return null
-    }
-    return agentUser.posthog_user_id
+    // The PostHog user uuid the principal proved via an identity-establishing
+    // link (e.g. the managed posthog provider). Null if they never linked.
+    return credentials.getEstablishedSubject(sender.agent_user_id)
 }
 
-async function isTeamAdmin(pool: Pool, posthogUserId: number, teamId: number): Promise<boolean> {
+async function isTeamAdmin(pool: Pool, subjectUuid: string, teamId: number): Promise<boolean> {
     const r = await pool.query<{ one: number }>(
-        // OrganizationMembership.Level: ADMIN=8, OWNER=15. The team belongs
+        // Map the proven subject (posthog_user.uuid) to its membership in one
+        // hop. OrganizationMembership.Level: ADMIN=8, OWNER=15. The team belongs
         // to an organization; the membership scopes to that organization.
         `SELECT 1 AS one
-         FROM posthog_organizationmembership om
+         FROM posthog_user u
+         JOIN posthog_organizationmembership om ON om.user_id = u.id
          JOIN posthog_team t ON t.organization_id = om.organization_id
-         WHERE om.user_id = $1 AND t.id = $2 AND om.level >= $3
+         WHERE u.uuid = $1 AND t.id = $2 AND om.level >= $3
          LIMIT 1`,
-        [posthogUserId, teamId, ADMIN_LEVEL]
+        [subjectUuid, teamId, ADMIN_LEVEL]
     )
     return (r.rowCount ?? 0) > 0
 }

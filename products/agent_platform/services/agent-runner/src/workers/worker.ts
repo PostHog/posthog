@@ -32,7 +32,6 @@ import {
     CredentialBroker,
     IdentityCredentialStore,
     IdentityLinkStateStore,
-    IdentityProvider,
     IdentityStore,
     FailureNotifier,
     GatewayClient,
@@ -179,7 +178,6 @@ export interface WorkerDeps {
     identities?: IdentityStore
     /** OAuth callback base; `/link/<provider>/callback` is appended. */
     linkRedirectBaseUrl?: string
-    posthogIdentityProviderFactory?: (cfg: { id: string; scopes: string[] }) => IdentityProvider
     /**
      * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
      * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
@@ -538,7 +536,6 @@ export class Worker {
                 identityLinks: this.deps.identityLinks,
                 identities: this.deps.identities,
                 linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
-                posthogIdentityProviderFactory: this.deps.posthogIdentityProviderFactory,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
                 mcpFailures,

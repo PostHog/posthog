@@ -43,6 +43,13 @@ export interface PutLinkedCredentialInput {
     credential: StoredCredential
     /** Granted scopes; defaults to `credential.scopes ?? []`. */
     scopes?: string[]
+    /**
+     * The proven external subject this link established (e.g. the PostHog user
+     * uuid from /oauth/userinfo). Set only by an identity-establishing provider;
+     * capability-only providers leave it undefined. Never nulled on a token
+     * refresh (the put on refresh omits it → COALESCE keeps the existing value).
+     */
+    subject?: string
 }
 
 export interface IdentityCredentialStore {
@@ -50,6 +57,13 @@ export interface IdentityCredentialStore {
     put(input: PutLinkedCredentialInput): Promise<void>
     /** Active credential for (agent_user, provider); null if absent or revoked. */
     get(agentUserId: string, provider: string): Promise<LinkedCredential | null>
+    /**
+     * The proven external subject for an agent_user — from whichever active link
+     * established identity (the one provider that stamps `subject`). Null when
+     * the principal has no identity-establishing link. Used by per-asker auth to
+     * resolve the PostHog identity behind a Slack principal.
+     */
+    getEstablishedSubject(agentUserId: string): Promise<string | null>
     /** Mark revoked (row kept for audit). Idempotent. */
     revoke(agentUserId: string, provider: string): Promise<void>
     /** Hard-delete the link. Idempotent. */
@@ -87,13 +101,16 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
         await this.pool.query(
             `INSERT INTO agent_identity_credential
                 (id, team_id, application_id, agent_user_id, provider,
-                 encrypted_credentials, scopes, state, access_expires_at, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, NOW(), NOW())
+                 encrypted_credentials, scopes, state, access_expires_at, subject, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, NOW(), NOW())
              ON CONFLICT (agent_user_id, provider) DO UPDATE SET
                 encrypted_credentials = EXCLUDED.encrypted_credentials,
                 scopes = EXCLUDED.scopes,
                 state = 'active',
                 access_expires_at = EXCLUDED.access_expires_at,
+                -- Keep the established subject across token refreshes (which put
+                -- with subject = null); only an explicit relink overwrites it.
+                subject = COALESCE(EXCLUDED.subject, agent_identity_credential.subject),
                 revoked_at = NULL,
                 updated_at = NOW()`,
             [
@@ -105,8 +122,19 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
                 ciphertext,
                 scopes,
                 accessExpiresAt,
+                input.subject ?? null,
             ]
         )
+    }
+
+    async getEstablishedSubject(agentUserId: string): Promise<string | null> {
+        const r = await this.pool.query<{ subject: string }>(
+            `SELECT subject FROM agent_identity_credential
+              WHERE agent_user_id = $1 AND state = 'active' AND subject IS NOT NULL
+              LIMIT 1`,
+            [agentUserId]
+        )
+        return r.rowCount === 0 ? null : r.rows[0].subject
     }
 
     async get(agentUserId: string, provider: string): Promise<LinkedCredential | null> {
