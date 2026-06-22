@@ -736,7 +736,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
-        assert body[0]["run_interval_minutes"] == 180
+        assert body[0]["run_interval_minutes"] == 1440
 
     @parameterized.expand(
         [
@@ -890,7 +890,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == sorted(scout_names)
         assert all(c["enabled"] is True for c in body)
         assert all(c["emit"] is True for c in body)
-        assert all(c["run_interval_minutes"] == 180 for c in body)
+        assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.

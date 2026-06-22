@@ -14,7 +14,7 @@ control surface, separate from its instruction body (the `LLMSkill`).
 | `skill_name`           | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.       |
 | `enabled`              | `false` = paused. The coordinator skips disabled scouts entirely.                             |
 | `emit`                 | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox. |
-| `run_interval_minutes` | Cadence, 10–43200. Default 60 (hourly). The coordinator dispatches when due.                  |
+| `run_interval_minutes` | Cadence, 10–43200. Default 1440 (daily). The coordinator dispatches when due.                  |
 | `last_run_at`          | When it last fired. `null` = never run. Drives the due-check.                                 |
 
 A scout that is `enabled: true, emit: false` is alive and working — it just can't post findings.
