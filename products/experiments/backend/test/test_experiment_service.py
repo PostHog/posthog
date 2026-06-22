@@ -2217,6 +2217,21 @@ class TestExperimentService(APIBaseTest):
         assert flag.active is True
         assert flag.archived is False
 
+    def test_archive_experiment_denies_disabling_active_flag_without_feature_flag_write_scope(self):
+        # An experiment-only token must not be able to disable an active flag via disable_feature_flag.
+        experiment = self._create_ended_experiment(
+            name="No FF Scope Active", feature_flag_key="no-ff-scope-active-flag"
+        )
+
+        with self.assertRaises(PermissionDenied):
+            self._service().archive_experiment(experiment, disable_feature_flag=True, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
     def test_archive_experiment_skips_flag_cleanup_without_feature_flag_write_scope(self):
         # A token scoped only to experiments must not archive the linked flag as a side effect.
         experiment = self._create_ended_experiment(name="No FF Scope", feature_flag_key="no-ff-scope-flag")

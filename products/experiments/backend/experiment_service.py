@@ -1416,6 +1416,10 @@ class ExperimentService:
             if not disable_if_active:
                 return
             # Explicit, user-requested flag change: enforce the same gates the flag API does.
+            if not can_write_feature_flag:
+                raise PermissionDenied(
+                    "You don't have feature flag write access, so this experiment's feature flag can't be disabled."
+                )
             if not can_edit:
                 raise PermissionDenied(
                     "You don't have editor access to this experiment's feature flag, so it can't be disabled. "

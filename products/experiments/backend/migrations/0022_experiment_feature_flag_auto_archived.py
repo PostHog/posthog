@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("experiments", "0019_experiment_running_time_calculation"),
+        ("experiments", "0021_alter_experimentmetricsrecalculation_trigger"),
     ]
 
     operations = [
