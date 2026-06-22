@@ -7,12 +7,16 @@ four runtime workspaces into one bundle.
 
 The image bakes four entrypoints into one slim Node 24 image:
 
-| Service            | Command                                    | Default port |
-| ------------------ | ------------------------------------------ | ------------ |
-| `agent-ingress`    | `node services/agents/dist/ingress.mjs`    | 8080         |
-| `agent-runner`     | `node services/agents/dist/runner.mjs`     | —            |
-| `agent-janitor`    | `node services/agents/dist/janitor.mjs`    | 8082         |
-| `agent-migrations` | `node services/agents/dist/migrate.mjs up` | —            |
+| Service            | Command                                    | Default port | Metrics port |
+| ------------------ | ------------------------------------------ | ------------ | ------------ |
+| `agent-ingress`    | `node services/agents/dist/ingress.mjs`    | 8080         | 6738         |
+| `agent-runner`     | `node services/agents/dist/runner.mjs`     | —            | 6738         |
+| `agent-janitor`    | `node services/agents/dist/janitor.mjs`    | 8082         | 6738         |
+| `agent-migrations` | `node services/agents/dist/migrate.mjs up` | —            | —            |
+
+All long-running services expose Prometheus metrics on a dedicated `/metrics`
+endpoint (default port 6738, configurable via `AGENT_METRICS_PORT`). This
+listener is separate from the service's main port.
 
 Why one image: ingress + runner + janitor + migrations co-evolve (one DB
 schema, one `@posthog/agent-shared`). The deploy manifest picks the
