@@ -444,6 +444,12 @@ class TestLoadIntegrationsAuthStateFilter:
     """
 
     @pytest.fixture(autouse=True)
+    def _bypass_slack_auth_filter(self):
+        """Override the conftest's auto-bypass so this class exercises the real
+        filter — that's the whole point of the class."""
+        yield
+
+    @pytest.fixture(autouse=True)
     def setup(self, db):
         from unittest.mock import MagicMock, patch
 
@@ -627,6 +633,11 @@ class TestLoadIntegrationsAuthStateFilter:
         # Thread mapping points at the broken ``old`` install. ``team`` /
         # ``task`` / ``task_run`` aren't relevant to this test's assertions —
         # we only need a mapping row that resolves the mapped integration.
+        # ``Task`` / ``TaskRun`` are looked up via the app registry to dodge
+        # the circular-import that fires when ``products.tasks`` is imported
+        # at module top from this products.slack_app test file.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(team=self.team_old, title="t")
         task_run = TaskRun.objects.create(team=self.team_old, task=task)
         SlackThreadTaskMapping.objects.create(
