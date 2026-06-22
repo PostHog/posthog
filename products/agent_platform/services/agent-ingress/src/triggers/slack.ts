@@ -18,7 +18,6 @@ const log = createLogger('slack-trigger')
 
 import { AgentApplication, AgentRevision, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@posthog/agent-shared'
 
-import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { getOwnedSession } from './session-access'
@@ -203,17 +202,6 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             metadata: { workspace: workspaceId, slack_user: event.user },
         })
         agentUserId = agentUser.id
-        // Slack → PostHog user bridge. Runs the first time we see this
-        // AgentUser; cached on the row afterwards. Sync but tight-budgeted so
-        // a Slack hiccup can't blow past Slack's 3s event ack window.
-        if (deps.integrations && deps.posthogDb) {
-            await bridgeSlackToPosthogUser(agentUser, workspaceId, event.user, {
-                integrations: deps.integrations,
-                identities: deps.identities,
-                posthogDb: deps.posthogDb,
-                http: deps.http,
-            })
-        }
     }
 
     const slackPrincipal: SessionPrincipal = {
