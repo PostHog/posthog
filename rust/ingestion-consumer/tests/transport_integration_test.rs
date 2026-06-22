@@ -122,6 +122,50 @@ async fn start_always_busy_worker() -> (String, tokio::task::JoinHandle<()>) {
     (url, handle)
 }
 
+/// Spin up a mock worker that returns 503 for its first `busy_times` requests,
+/// then 200 OK thereafter — simulating a worker that is momentarily at capacity.
+async fn start_busy_then_ok_worker(busy_times: usize) -> (String, tokio::task::JoinHandle<()>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().route(
+        "/ingest",
+        post(move |Json(req): Json<IngestBatchRequest>| {
+            let calls = calls.clone();
+            async move {
+                let n = calls.fetch_add(1, Ordering::SeqCst);
+                if n < busy_times {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        axum::Json(IngestBatchResponse {
+                            batch_id: req.batch_id,
+                            status: "error".to_string(),
+                            accepted: 0,
+                            error: Some("at concurrent batch capacity (1)".to_string()),
+                        }),
+                    )
+                        .into_response();
+                }
+                axum::Json(IngestBatchResponse {
+                    batch_id: req.batch_id,
+                    status: "ok".to_string(),
+                    accepted: req.messages.len() as u32,
+                    error: None,
+                })
+                .into_response()
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://127.0.0.1:{}", addr.port());
+
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    (url, handle)
+}
+
 /// Spin up a mock worker that sleeps `delay` before responding ok. Records
 /// the max number of overlapping in-flight requests it ever observed.
 async fn start_slow_worker(
@@ -212,16 +256,15 @@ async fn transport_retries_on_server_error() {
 }
 
 #[tokio::test]
-async fn transport_fails_fast_on_worker_busy_without_retry() {
-    // The Rust consumer's per-worker semaphore is supposed to prevent 503s.
-    // If the worker still returns 503, that's a contract violation, not a
-    // transient state — fail immediately rather than hammering an already
-    // overloaded worker.
+async fn transport_retries_on_worker_busy() {
+    // 503 is transient backpressure (a shared worker can be momentarily full),
+    // so the transport retries with the longer, jittered busy backoff rather
+    // than failing fast. An always-busy worker exhausts retries and returns the
+    // last WorkerBusy error — but only after backing off at least once.
     let (url, _handle) = start_always_busy_worker().await;
 
     let urls = vec![url.clone()];
-    // max_retries = 3 — irrelevant for this path since WorkerBusy is non-retriable.
-    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1);
+    let transport = HttpTransport::new(Duration::from_secs(5), 1, None, &urls, 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
 
@@ -236,11 +279,29 @@ async fn transport_fails_fast_on_worker_busy_without_retry() {
         matches!(err, TransportError::WorkerBusy(_)),
         "expected WorkerBusy, got {err:?}"
     );
-    // No retry backoff should have been applied (would have been ≥100ms+200ms+400ms = 700ms).
+    // One retry means one busy backoff (base 250ms + jitter), so the call must
+    // take noticeably longer than the old fail-fast path (<200ms).
     assert!(
-        elapsed < Duration::from_millis(200),
-        "expected fail-fast on 503 (<200ms), got {elapsed:?}"
+        elapsed >= Duration::from_millis(240),
+        "expected a busy backoff before exhausting (≥240ms), got {elapsed:?}"
     );
+}
+
+#[tokio::test]
+async fn transport_recovers_after_worker_busy() {
+    // A worker that is busy once and then ready should succeed after a retry.
+    let (url, _handle) = start_busy_then_ok_worker(1).await;
+
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1);
+
+    let messages = vec![make_message("tok", "user", 0, "{}")];
+
+    let accepted = transport
+        .send_batch(&url, "batch-recover", messages)
+        .await
+        .expect("should succeed after the worker stops being busy");
+    assert_eq!(accepted, 1);
 }
 
 #[tokio::test]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import ssl
 import math
+import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -73,6 +74,27 @@ def _qualified_table(database: str, table_name: str) -> str:
     return f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
 
 
+# Number of times we re-open the client before giving up on a transient drop during connect.
+_MAX_CONNECT_ATTEMPTS = 3
+
+# Substrings of a connect-time failure that denote the connection being dropped before/during the
+# TLS read (ClickHouse Cloud cold-resume hanging up the first request, a proxy/LB idle cull, a
+# network blip) rather than a deterministic config error. A fresh attempt recovers. The TLS config
+# failures we never retry (`certificate verify failed`, `SSL: WRONG_VERSION_NUMBER`) don't contain
+# any of these, so the allowlist can't catch them.
+_TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
+    # OpenSSL 3.x and 1.x wordings for the peer closing the socket without a clean TLS close_notify.
+    "UNEXPECTED_EOF_WHILE_READING",
+    "EOF occurred in violation of protocol",
+    "Connection reset by peer",
+    "Connection aborted",
+)
+
+
+def _is_transient_connect_drop(error_message: str) -> bool:
+    return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+
+
 def _get_client(
     *,
     host: str,
@@ -92,28 +114,41 @@ def _get_client(
     reader that we use to read very large tables without buffering them in
     memory.
     """
-    try:
-        return get_client(
-            host=host,
-            port=port,
-            database=database,
-            username=user,
-            # clickhouse-connect expects str; passwordless auth is empty string.
-            password=password or "",
-            secure=secure,
-            verify=verify,
-            connect_timeout=CONNECT_TIMEOUT_SECONDS,
-            send_receive_timeout=query_timeout,
-            query_limit=0,  # we manage limits ourselves
-            settings=settings or {},
-            compress=True,
-        )
-    except (ClickHouseError, OSError, ssl.SSLError) as e:
-        # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
-        # and httpx-raised network errors that subclass OSError. ssl.SSLError
-        # covers TLS handshake failures that happen before ClickHouse sees
-        # the request.
-        raise ClickHouseConnectionError(str(e)) from e
+    attempt = 0
+    while True:
+        try:
+            return get_client(
+                host=host,
+                port=port,
+                database=database,
+                username=user,
+                # clickhouse-connect expects str; passwordless auth is empty string.
+                password=password or "",
+                secure=secure,
+                verify=verify,
+                connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                send_receive_timeout=query_timeout,
+                query_limit=0,  # we manage limits ourselves
+                settings=settings or {},
+                compress=True,
+            )
+        except (ClickHouseError, OSError, ssl.SSLError) as e:
+            # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
+            # and httpx-raised network errors that subclass OSError. ssl.SSLError
+            # covers TLS handshake failures that happen before ClickHouse sees
+            # the request.
+            attempt += 1
+            message = str(e)
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+                structlog.get_logger().warning(
+                    "Transient ClickHouse connection drop during connect; retrying",
+                    attempt=attempt,
+                    max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    exc_info=e,
+                )
+                time.sleep(attempt)
+                continue
+            raise ClickHouseConnectionError(message) from e
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
