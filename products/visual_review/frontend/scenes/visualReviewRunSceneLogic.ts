@@ -28,6 +28,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
@@ -276,10 +277,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
         isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
-        // A run with no PR is a default-branch (master/main) push — tracking-only, never
-        // approvable. CI submits these with purpose "observe"; the backend rejects approve/
-        // finalize on them. Mirror that here so the UI never offers an approval that can't apply.
-        isReportingOnly: [(s) => [s.run], (run): boolean => !!run && run.pr_number == null],
+        isReportingOnly: [(s) => [s.run], (run): boolean => isReportingOnlyRun(run)],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [

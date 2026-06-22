@@ -1141,16 +1141,21 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
-def _changes_summary(run: Run) -> str:
-    """'N changed, M new, K removed' from the run's (quarantine-excluded) counts; '' when none."""
+def _format_change_counts(changed: int, new: int, removed: int) -> str:
+    """'N changed, M new, K removed', omitting zero counts; '' when all are zero."""
     parts = []
-    if run.changed_count:
-        parts.append(f"{run.changed_count} changed")
-    if run.new_count:
-        parts.append(f"{run.new_count} new")
-    if run.removed_count:
-        parts.append(f"{run.removed_count} removed")
+    if changed:
+        parts.append(f"{changed} changed")
+    if new:
+        parts.append(f"{new} new")
+    if removed:
+        parts.append(f"{removed} removed")
     return ", ".join(parts)
+
+
+def _changes_summary(run: Run) -> str:
+    """Change summary from the run's denormalized (quarantine-excluded) counts."""
+    return _format_change_counts(run.changed_count, run.new_count, run.removed_count)
 
 
 def _update_counts_and_post_status(run: Run) -> int:
@@ -1985,14 +1990,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    summary = ", ".join(
-        f"{counts[result]} {label}"
-        for result, label in (
-            (SnapshotResult.CHANGED, "changed"),
-            (SnapshotResult.NEW, "new"),
-            (SnapshotResult.REMOVED, "removed"),
-        )
-        if counts.get(result)
+    summary = _format_change_counts(
+        counts[SnapshotResult.CHANGED], counts[SnapshotResult.NEW], counts[SnapshotResult.REMOVED]
     )
 
     sections = [
