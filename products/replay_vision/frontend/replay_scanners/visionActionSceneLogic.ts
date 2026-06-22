@@ -1,14 +1,10 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { visionActionsRetrieve } from '../generated/api'
-import type { VisionActionApi } from '../generated/api.schemas'
 import type { visionActionSceneLogicType } from './visionActionSceneLogicType'
 
 export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
@@ -16,9 +12,8 @@ export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
 
     actions({
         setActionId: (actionId: string) => ({ actionId }),
-        loadAction: true,
-        loadActionSuccess: (action: VisionActionApi) => ({ action }),
-        loadActionFailure: true,
+        // Pushed by visionActionRunsLogic once the action loads, so the title + breadcrumb can resolve.
+        setActionContext: (name: string | null, scannerId: string | null) => ({ name, scannerId }),
     }),
 
     reducers({
@@ -28,28 +23,20 @@ export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
                 setActionId: (_, { actionId }) => actionId,
             },
         ],
-        action: [
-            null as VisionActionApi | null,
+        actionContext: [
+            { name: null, scannerId: null } as { name: string | null; scannerId: string | null },
             {
-                loadActionSuccess: (_, { action }) => action,
-                // Clear when navigating to a different action so the previous one doesn't flash.
-                setActionId: () => null,
-            },
-        ],
-        actionLoading: [
-            false,
-            {
-                loadAction: () => true,
-                loadActionSuccess: () => false,
-                loadActionFailure: () => false,
+                setActionContext: (_, { name, scannerId }) => ({ name, scannerId }),
+                // Clear when navigating to a different action so the previous one doesn't linger.
+                setActionId: () => ({ name: null, scannerId: null }),
             },
         ],
     }),
 
     selectors({
         breadcrumbs: [
-            (s) => [s.action, s.actionId],
-            (action: VisionActionApi | null, actionId: string): Breadcrumb[] => {
+            (s) => [s.actionId, s.actionContext],
+            (actionId: string, context: { name: string | null; scannerId: string | null }): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: 'replay-vision',
@@ -58,16 +45,16 @@ export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
                         iconType: 'replay_vision',
                     },
                 ]
-                if (action?.scanner) {
+                if (context.scannerId) {
                     breadcrumbs.push({
-                        key: `scanner-${action.scanner}`,
+                        key: `scanner-${context.scannerId}`,
                         name: 'Scanner',
-                        path: `${urls.replayVision(action.scanner)}?tab=actions`,
+                        path: `${urls.replayVision(context.scannerId)}?tab=actions`,
                     })
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',
-                    name: action?.name || 'Action',
+                    name: context.name || 'Action',
                     path: urls.replayVisionAction(actionId),
                 })
                 return breadcrumbs
@@ -75,30 +62,11 @@ export const visionActionSceneLogic = kea<visionActionSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadAction: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId || !values.actionId) {
-                return
-            }
-            try {
-                const action = await visionActionsRetrieve(String(teamId), values.actionId)
-                actions.loadActionSuccess(action)
-            } catch (error: any) {
-                if (error.status !== 404) {
-                    lemonToast.error(`Failed to load action${error.detail ? `: ${error.detail}` : ''}`)
-                }
-                actions.loadActionFailure()
-            }
-        },
-    })),
-
     urlToAction(({ actions, values }) => ({
         [urls.replayVisionAction(':actionId')]: ({ actionId }) => {
             const next = actionId || ''
             if (next !== values.actionId) {
                 actions.setActionId(next)
-                actions.loadAction()
             }
         },
     })),

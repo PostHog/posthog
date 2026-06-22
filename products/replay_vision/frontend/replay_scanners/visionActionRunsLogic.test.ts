@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { VisionActionRunApi } from '../generated/api.schemas'
+import type { VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
 
 const run = (id: string, overrides: Partial<VisionActionRunApi> = {}): VisionActionRunApi => ({
@@ -18,12 +18,21 @@ const run = (id: string, overrides: Partial<VisionActionRunApi> = {}): VisionAct
     ...overrides,
 })
 
+const ACTION = {
+    id: 'a1',
+    name: 'daily summary',
+    scanner: 's1',
+    trigger_config: { rrule: 'FREQ=DAILY' },
+    delivery_config: [],
+} as unknown as VisionActionApi
+
 describe('visionActionRunsLogic', () => {
     let logic: ReturnType<typeof visionActionRunsLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/projects/:team/vision/actions/:action/': ACTION,
                 '/api/projects/:team/vision/actions/:action/runs/': {
                     results: [
                         run('r1'),
@@ -44,10 +53,13 @@ describe('visionActionRunsLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('loads the action runs on mount', async () => {
+    it('loads the action and its runs on mount', async () => {
+        // The action and runs fetch in parallel, so don't assert a strict order — wait for both to settle.
         await expectLogic(logic)
-            .toDispatchActions(['loadRuns', 'loadRunsSuccess'])
+            .toFinishAllListeners()
             .toMatchValues({
+                action: expect.objectContaining({ id: 'a1', name: 'daily summary' }),
+                actionLoading: false,
                 runs: expect.arrayContaining([
                     expect.objectContaining({ id: 'r1', status: 'completed' }),
                     expect.objectContaining({ id: 'r2', status: 'skipped' }),

@@ -3,9 +3,10 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionActionsRunsList } from '../generated/api'
-import type { VisionActionRunApi } from '../generated/api.schemas'
+import { visionActionsRetrieve, visionActionsRunsList } from '../generated/api'
+import type { VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
 import type { visionActionRunsLogicType } from './visionActionRunsLogicType'
+import { visionActionSceneLogic } from './visionActionSceneLogic'
 
 export interface VisionActionRunsLogicProps {
     actionId: string
@@ -20,6 +21,9 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
         loadRuns: true,
         loadRunsSuccess: (runs: VisionActionRunApi[]) => ({ runs }),
         loadRunsFailure: true,
+        loadAction: true,
+        loadActionSuccess: (action: VisionActionApi) => ({ action }),
+        loadActionFailure: true,
     }),
 
     reducers({
@@ -29,12 +33,27 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                 loadRunsSuccess: (_, { runs }) => runs,
             },
         ],
+        // Loading starts true so the page shows a spinner, not a flash of "no runs", before the first fetch.
         runsLoading: [
-            false,
+            true,
             {
                 loadRuns: () => true,
                 loadRunsSuccess: () => false,
                 loadRunsFailure: () => false,
+            },
+        ],
+        action: [
+            null as VisionActionApi | null,
+            {
+                loadActionSuccess: (_, { action }) => action,
+            },
+        ],
+        actionLoading: [
+            true,
+            {
+                loadAction: () => true,
+                loadActionSuccess: () => false,
+                loadActionFailure: () => false,
             },
         ],
     }),
@@ -43,6 +62,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
         loadRuns: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadRunsFailure()
                 return
             }
             try {
@@ -53,9 +73,26 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                 actions.loadRunsFailure()
             }
         },
+
+        // Loads the action metadata for the page title + breadcrumb. Runs render independently of this.
+        loadAction: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.loadActionFailure()
+                return
+            }
+            try {
+                const action = await visionActionsRetrieve(String(teamId), props.actionId)
+                actions.loadActionSuccess(action)
+                visionActionSceneLogic.actions.setActionContext(action.name, action.scanner ?? null)
+            } catch {
+                actions.loadActionFailure()
+            }
+        },
     })),
 
     afterMount(({ actions }) => {
         actions.loadRuns()
+        actions.loadAction()
     }),
 ])
