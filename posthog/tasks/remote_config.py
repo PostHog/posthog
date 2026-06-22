@@ -46,7 +46,14 @@ def sync_all_remote_configs() -> None:
         update_team_remote_config.delay(team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    # Bound the worker slot: this processes up to 5000 teams (a DB read + Redis write
+    # each), so a stalled iteration shouldn't pin a worker. Well under the hourly cadence.
+    soft_time_limit=15 * 60,
+    time_limit=16 * 60,
+)
 def refresh_expiring_remote_config_cache_entries() -> None:
     """
     Hourly task that re-stamps array/config.json cache entries expiring within 24h,
@@ -87,7 +94,12 @@ def refresh_expiring_remote_config_cache_entries() -> None:
         raise
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    soft_time_limit=5 * 60,
+    time_limit=6 * 60,
+)
 def cleanup_stale_remote_config_expiry_tracking_task() -> None:
     """
     Daily task that prunes expiry-tracking entries for deleted teams, keeping the
