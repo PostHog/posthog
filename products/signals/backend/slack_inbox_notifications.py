@@ -505,13 +505,9 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     source_type = str(signal.get("source_type") or "")
     raw_extra = signal.get("extra")
     extra = raw_extra if isinstance(raw_extra, dict) else {}
-    try:
-        weight = float(signal.get("weight") or 0.0)
-    except (TypeError, ValueError):
-        weight = 0.0
 
     source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type, extra))
-    header_line = f"*{source_line}*  ·  Weight: {weight:.1f}"
+    header_line = f"*{source_line}*"
     blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
 
     content = (signal.get("content") or "").strip()

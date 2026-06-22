@@ -913,7 +913,7 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     }
     blocks, fallback = _build_signal_thread_blocks(signal)
 
-    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*  ·  Weight: 2.5"
+    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*"
     assert blocks[1]["text"]["text"] == "Users report the export button does nothing"
     detail = blocks[2]["elements"][0]["text"]
     assert "#42" in detail
