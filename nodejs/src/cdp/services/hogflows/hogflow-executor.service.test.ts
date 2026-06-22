@@ -990,9 +990,12 @@ describe('Hogflow Executor', () => {
                     return invocation
                 }
 
+                // Mirrors the proven pattern in the on_error tests above: the handler resolves
+                // with an `error`, which executeCurrentAction's inner try re-throws — exactly the
+                // shape the Slack Hog template produces when it raises on res.body.ok == false.
                 const mockHandlerToThrow = (message: string): void => {
                     const functionHandler = executor['actionHandlers']['function']
-                    jest.spyOn(functionHandler, 'execute').mockRejectedValueOnce(new Error(message))
+                    jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({ error: new Error(message) })
                 }
 
                 it('disables the flow and fails the invocation on a terminal slack error', async () => {
