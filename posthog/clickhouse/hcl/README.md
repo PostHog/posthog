@@ -22,7 +22,7 @@ hcl/
       local/ops.hcl         # local dev — composes base as-is (no local-only objects yet)
       dev/ops.hcl           # prom_metrics experiment (cloud dev only)
       prod-us/ops.hcl       # events distributed proxies, sharded_tophog (tophog_new)
-      prod-eu/ops.hcl       # legacy query_log_archive_old, sharded_tophog (tophog)
+      prod-eu/ops.hcl       # sharded_tophog (tophog) — query_log_archive_old intentionally unmanaged
     golden/                 # vendored per-env cluster dumps — the drift baseline
     check.sh                # validate + diff layers vs golden for every env
     diff.sh                 # preview DDL your uncommitted edits produce, per env
