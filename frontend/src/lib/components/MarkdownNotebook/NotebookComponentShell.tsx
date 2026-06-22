@@ -228,7 +228,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label={resultsLabel}
                                 size="xsmall"
-                                icon={<IconEye />}
+                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
                                 active={componentPanels.results}
                                 tooltip={resultsLabel}
                                 onClick={() => toggleComponentPanel('results')}
