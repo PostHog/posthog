@@ -27,12 +27,14 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
         COMPLETED = "completed"
         CANCELLED = "cancelled"
         FAILED = "failed"
+        SKIPPED = "skipped"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING)
     hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.DO_NOTHING)
     variables = models.JSONField(default=dict)
     filters = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State, default=State.QUEUED)
+    skip_reason = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True)
@@ -44,15 +46,19 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
 
 @receiver(post_save, sender=HogFlowBatchJob)
 def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
-    if created:
-        try:
-            create_batch_hog_flow_job_invocation(
-                team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, batch_job_id=instance.id
-            )
-        except Exception as e:
-            logger.exception(
-                "Failed to create batch hogflow job invocation",
-                batch_job_id=instance.id,
-                error=str(e),
-            )
-            raise
+    if not created:
+        return
+    # Skipped rows exist only to surface the skip in run history — they never get dispatched to CDP.
+    if instance.status == HogFlowBatchJob.State.SKIPPED:
+        return
+    try:
+        create_batch_hog_flow_job_invocation(
+            team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, batch_job_id=instance.id
+        )
+    except Exception as e:
+        logger.exception(
+            "Failed to create batch hogflow job invocation",
+            batch_job_id=instance.id,
+            error=str(e),
+        )
+        raise

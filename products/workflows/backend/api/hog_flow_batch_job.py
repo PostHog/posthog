@@ -19,12 +19,14 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
             "hog_flow",
             "filters",
             "variables",
+            "skip_reason",
             "created_at",
             "created_by",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "skip_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -32,7 +34,8 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "status": {
                 "help_text": (
-                    "Not currently tracked — stays at its initial value. Use the workflow logs/metrics "
+                    "Not currently tracked — stays at its initial value, except for 'skipped' rows which "
+                    "represent runs that never executed (see skip_reason). Use the workflow logs/metrics "
                     "endpoints for run outcome."
                 )
             },
@@ -41,6 +44,12 @@ class HogFlowBatchJobSerializer(serializers.ModelSerializer):
                 "help_text": "Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters."
             },
             "variables": {"help_text": "Variable value overrides applied to this run."},
+            "skip_reason": {
+                "help_text": (
+                    "Populated only when status is 'skipped'. Object describing why the run was skipped — "
+                    "currently {'reason': 'audience_over_limit', 'affected': int, 'limit': int}."
+                ),
+            },
         }
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlowBatchJob:

@@ -2,12 +2,13 @@ import { useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
 import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonTag, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ListHog } from 'lib/components/hedgehogs'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
@@ -40,10 +41,33 @@ function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
     )
 }
 
+function describeSkipReason(job: HogFlowBatchJob): string {
+    const skip = job.skip_reason
+    if (!skip) {
+        return 'Skipped — no details recorded.'
+    }
+    if (skip.reason === 'audience_over_limit' && skip.affected != null && skip.limit != null) {
+        return `Audience size ${humanFriendlyNumber(skip.affected)} exceeded the limit of ${humanFriendlyNumber(
+            skip.limit
+        )}. Tighten the trigger filters or ask to raise the limit.`
+    }
+    return `Skipped: ${skip.reason}.`
+}
+
 function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
+    const isSkipped = job.status === 'skipped'
     return (
         <div className="flex gap-2 w-full justify-between">
-            <strong>{job.id}</strong>
+            <div className="flex items-center gap-2">
+                <strong>{job.id}</strong>
+                {isSkipped && (
+                    <Tooltip title={describeSkipReason(job)}>
+                        <LemonTag type="warning" size="small">
+                            Skipped
+                        </LemonTag>
+                    </Tooltip>
+                )}
+            </div>
             <div className="flex items-center gap-2">
                 <TZLabel title="Created at" time={job.created_at} />
                 <LemonDivider vertical className="h-full" />
@@ -64,6 +88,23 @@ function BatchRunHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 
 function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
     const { workflow } = useValues(workflowLogic)
+
+    if (job.status === 'skipped') {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="border rounded p-3 bg-bg-light text-sm">
+                    <div className="font-semibold mb-1">This run was skipped and did not send any messages.</div>
+                    <div className="text-muted">{describeSkipReason(job)}</div>
+                </div>
+                <div className="flex flex-col gap-2 items-start w-full">
+                    <span className="text-muted">Job filters</span>
+                    <PropertyFiltersDisplay
+                        filters={Array.isArray(job.filters?.properties) ? job.filters.properties : []}
+                    />
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">

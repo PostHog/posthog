@@ -264,6 +264,7 @@ class TestProcessDueSchedules(APIBaseTest):
             trigger=BATCH_TRIGGER,
             actions=[],
             variables=[{"key": "greeting", "default": "Hello"}],
+            created_by=self.user,
         )
         schedule = HogFlowSchedule.objects.create(
             team=self.team,
@@ -373,7 +374,12 @@ class TestProcessDueSchedules(APIBaseTest):
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
-        with override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=10, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set()):
+        with (
+            override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=10, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set()),
+            unittest.mock.patch(
+                "products.workflows.backend.utils.batch_trigger_skip.create_notification"
+            ) as mock_notify,
+        ):
             self.mock_blast.return_value = BlastRadiusResult(affected=500, total=1000)
             response = self._post()
 
@@ -381,8 +387,43 @@ class TestProcessDueSchedules(APIBaseTest):
         body = response.json()
         assert str(schedule.id) in body["skipped"]
         assert str(schedule.id) not in body["failed"]
-        assert HogFlowBatchJob.objects.filter(hog_flow_id=schedule.hog_flow_id).count() == 0
+        # CDP dispatch did NOT fire (the post_save signal early-returns on SKIPPED).
         mock_dispatch.assert_not_called()
+        # A skipped row was written with the reason payload so it surfaces in run history.
+        skipped_jobs = HogFlowBatchJob.objects.filter(hog_flow_id=schedule.hog_flow_id, status="skipped")
+        assert skipped_jobs.count() == 1
+        assert skipped_jobs.first().skip_reason == {
+            "reason": "audience_over_limit",
+            "affected": 500,
+            "limit": 10,
+        }
+        # Owner was notified.
+        mock_notify.assert_called_once()
+
+    def test_repeated_over_limit_schedules_notify_only_once_within_throttle_window(self, mock_dispatch):
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        with (
+            override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=10, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set()),
+            unittest.mock.patch(
+                "products.workflows.backend.utils.batch_trigger_skip.create_notification"
+            ) as mock_notify,
+        ):
+            self.mock_blast.return_value = BlastRadiusResult(affected=500, total=1000)
+            # First tick: a skip row is written and the owner is notified.
+            self._post()
+            # Manually re-arm the schedule and tick again; second skip row is written but the
+            # 24h throttle suppresses the duplicate notification.
+            schedule.refresh_from_db()
+            schedule.next_run_at = datetime(2020, 1, 1, tzinfo=UTC)
+            schedule.save(update_fields=["next_run_at"])
+            self._post()
+
+        assert HogFlowBatchJob.objects.filter(hog_flow_id=schedule.hog_flow_id, status="skipped").count() == 2
+        mock_notify.assert_called_once()
 
     def test_schedule_with_variable_overrides_resolves_correctly(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(

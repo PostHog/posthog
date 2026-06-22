@@ -65,6 +65,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.batch_trigger_skip import record_skipped_batch_run
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -1512,6 +1513,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                         "Could not validate audience size for this batch run. Adjust the filters and retry."
                     )
                 if blast_radius.affected > limit:
+                    record_skipped_batch_run(
+                        hog_flow=hog_flow,
+                        team_id=self.team_id,
+                        filters=filters,
+                        variables=request.data.get("variables") or {},
+                        affected=blast_radius.affected,
+                        limit=limit,
+                        created_by_id=request.user.id if request.user.is_authenticated else None,
+                    )
                     raise exceptions.ValidationError(
                         f"Batch size {blast_radius.affected} exceeds the limit of {limit} users. "
                         "Add filters to narrow your audience."
@@ -1785,6 +1795,14 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                                 schedule_id=str(schedule_id),
                                 team_id=batch_team_id,
                                 hog_flow_id=str(batch_hog_flow.id),
+                                affected=blast_radius.affected,
+                                limit=limit,
+                            )
+                            record_skipped_batch_run(
+                                hog_flow=batch_hog_flow,
+                                team_id=batch_team_id,
+                                filters=batch_filters,
+                                variables=batch_job_params["variables"],
                                 affected=blast_radius.affected,
                                 limit=limit,
                             )

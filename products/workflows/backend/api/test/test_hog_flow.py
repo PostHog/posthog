@@ -2018,12 +2018,15 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_post_hog_flow_batch_jobs_rejects_when_over_limit(self, _mock_create_invocation):
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
+
         flow_id = self._create_active_batch_hog_flow()
 
         with (
             patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast,
             patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_LIMIT", 100),
             patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", set()),
+            patch("products.workflows.backend.utils.batch_trigger_skip.create_notification") as mock_notify,
         ):
             from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
@@ -2036,6 +2039,13 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "exceeds the limit" in response.json()["detail"]
+
+        # A skipped row was written so the user sees the rejected attempt in run history
+        skipped = HogFlowBatchJob.objects.filter(hog_flow_id=flow_id, status="skipped").first()
+        assert skipped is not None
+        assert skipped.skip_reason == {"reason": "audience_over_limit", "affected": 500, "limit": 100}
+        # And the owner was notified once
+        mock_notify.assert_called_once()
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
