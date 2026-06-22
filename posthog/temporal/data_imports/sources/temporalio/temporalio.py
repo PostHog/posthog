@@ -78,7 +78,7 @@ async def _with_rate_limit_retry(
             if attempt >= max_attempts or e.status != RPCStatusCode.RESOURCE_EXHAUSTED:
                 raise
             backoff = min(2 * attempt, 30)
-            logger.debug(f"TemporalIO: namespace rate limited, backing off {backoff}s (attempt {attempt})")
+            logger.debug("TemporalIO: namespace rate limited", backoff_seconds=backoff, attempt=attempt)
             await asyncio.sleep(backoff)
 
 
