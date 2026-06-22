@@ -1896,7 +1896,13 @@ def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, l
         return False
 
 
-def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+def _get_rows_to_sync(
+    cursor: psycopg.Cursor,
+    count_query: sql.Composed,
+    logger: FilteringBoundLogger,
+    *,
+    should_use_incremental_field: bool = False,
+) -> int:
     try:
         _explain_query(cursor, count_query, logger)
         logger.debug(f"Running query: {count_query.as_string()}")
@@ -1914,7 +1920,18 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, count_query: sql.Composed, logger:
 
         return int(rows_to_sync)
     except psycopg.errors.QueryCanceled:
-        raise
+        # This COUNT(*) is one unbounded scan — far more expensive than the chunked server-cursor
+        # reads extraction actually runs (each FETCH is its own statement under statement_timeout),
+        # so a timeout here says nothing about whether extraction can complete (mirrors
+        # `_get_table_chunk_size`). Incremental syncs share an indexed WHERE with the reader, so
+        # re-raise and let the caller map it to the actionable non-retryable QueryTimeoutException.
+        # Full-table syncs fall back to an unknown count and let the streaming read loop classify
+        # the real outcome, rather than leaking a raw, retryable QueryCanceled that Temporal
+        # re-attempts forever on a count this table can never complete.
+        if should_use_incremental_field:
+            raise
+        logger.debug("_get_rows_to_sync: statement_timeout on COUNT(*). Using 0 as rows to sync")
+        return 0
     except Exception as e:
         # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
         # It shares its FROM/WHERE with the real extraction query, so any genuine problem
@@ -2593,7 +2610,12 @@ def postgres_source(
                                 except Exception as e:
                                     logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                             if rows_to_sync is None:
-                                rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                                rows_to_sync = _get_rows_to_sync(
+                                    cursor,
+                                    count_query,
+                                    logger,
+                                    should_use_incremental_field=should_use_incremental_field,
+                                )
 
                             if _role_subject_to_rls(cursor, schema, table_name, logger):
                                 logger.warning(

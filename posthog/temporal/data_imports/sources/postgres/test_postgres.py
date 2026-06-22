@@ -1134,6 +1134,52 @@ class TestStatementTimeoutAsNonRetryable:
         )
 
 
+class TestGetRowsToSyncStatementTimeout:
+    """The best-effort COUNT(*) in `_get_rows_to_sync` must not leak a raw, retryable
+    QueryCanceled for full-table syncs — a timeout on the unbounded count says nothing
+    about whether the chunked server-cursor extraction can complete, so it falls back to
+    an unknown count. Incremental syncs re-raise so the caller maps it to a non-retryable
+    QueryTimeoutException.
+    """
+
+    class _Cursor:
+        def __init__(self):
+            self.connection = mock.Mock(autocommit=True)
+
+        def execute(self, *args, **kwargs):
+            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+        def fetchone(self):
+            raise AssertionError("fetchone should not be reached after the timeout")
+
+        def fetchall(self):
+            return []
+
+    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
+    def test_count_statement_timeout(self, should_use_incremental_field):
+        logger = structlog.get_logger()
+        count_query = sql.SQL("SELECT count(*) FROM t").format()
+
+        if should_use_incremental_field:
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                _get_rows_to_sync(
+                    self._Cursor(),
+                    count_query,
+                    logger,
+                    should_use_incremental_field=True,
+                )
+        else:
+            assert (
+                _get_rows_to_sync(
+                    self._Cursor(),
+                    count_query,
+                    logger,
+                    should_use_incremental_field=False,
+                )
+                == 0
+            )
+
+
 class TestServerCursorStatementTimeout:
     """The main server-cursor streaming path in `get_rows` must not leak a raw,
     retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
