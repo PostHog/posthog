@@ -288,11 +288,12 @@ export function drawArea(
         const solidStart = toSplit === -1 ? 0 : toSplit
         const solidEnd = fromSplit === -1 ? top.length : fromSplit
 
+        // Solid stops exactly where the trailing hatch begins (its `hatchStart = fromSplit - 1`), sharing
+        // that one boundary point — no overlap. Otherwise the solid fill bleeds under the first dashed
+        // segment and the shaded region stops a step past where the line turns dashed.
         if (solidEnd - solidStart >= 2) {
-            const trailingHatchPresent = dashedFrom !== null && fromSplit !== -1
-            const slicedEnd = trailingHatchPresent ? Math.min(top.length, solidEnd + 1) : solidEnd
             ctx.fillStyle = series.color
-            fillAreaPath(ctx, top.slice(solidStart, slicedEnd), bottom.slice(solidStart, slicedEnd))
+            fillAreaPath(ctx, top.slice(solidStart, solidEnd), bottom.slice(solidStart, solidEnd))
         }
 
         if (dashedFrom !== null && fromSplit > 0) {
