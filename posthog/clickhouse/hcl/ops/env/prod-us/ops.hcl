@@ -4,6 +4,14 @@
 # See docs/plans/2026-06-16-ops-cluster-hcl-schema.md. Resolve with: hclexp load -layer <base>,<...>
 
 database "posthog" {
+  # prod-us-only experiment: an extra ProfileEvents2 JSON column on the base
+  # sharded_query_log_archive table. Additive patch so the shared base stays
+  # region-agnostic; drop this once the experiment ends or rolls out to prod-eu.
+  patch_table "sharded_query_log_archive" {
+    column "ProfileEvents2" {
+      type = "JSON(max_dynamic_paths=0, OSCPUVirtualTimeMicroseconds UInt64, ReadBufferFromS3Bytes UInt64, RealTimeMicroseconds UInt64, S3AbortMultipartUpload UInt64, S3Clients UInt64, S3CompleteMultipartUpload UInt64, S3CopyObject UInt64, S3CreateMultipartUpload UInt64, S3DeleteObjects UInt64, S3GetObject UInt64, S3GetObjectAttributes UInt64, S3HeadObject UInt64, S3ListObjects UInt64, S3PutObject UInt64, S3UploadPart UInt64, S3UploadPartCopy UInt64, WriteBufferFromS3Bytes UInt64)"
+    }
+  }
   table "events_main" {
     column "uuid" {
       type = "UUID"
