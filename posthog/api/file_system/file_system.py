@@ -468,6 +468,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         widget only ever needs the first page, so we return the rows directly. A `search` term just
         filters the hydration: we scan a wider window of recent views and let the text filter trim
         it, so search-within-Recents shares the exact same query path.
+
+        Only the params the Recents callers actually send are honoured here: `limit`, `not_type`,
+        `search` (+ `search_name_only`). The other list filters (`parent`, `type`, `depth`, `ref`,
+        `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
+        pairs them with `last_viewed_at` ordering. Add handling here if a caller ever needs to.
         """
         try:
             limit = int(request.query_params.get("limit", FileSystemsLimitOffsetPagination.default_limit))

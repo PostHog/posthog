@@ -156,10 +156,9 @@ def get_recent_file_system_items(
     if not log_rows:
         return []
 
-    viewed_at_by_key = {(row_type, row_ref): viewed_at for row_type, row_ref, viewed_at in log_rows}
-
+    # The (team, user, type, ref) unique constraint guarantees one row per key, so no dedup needed.
     key_filter = Q()
-    for row_type, row_ref in viewed_at_by_key:
+    for row_type, row_ref, _ in log_rows:
         key_filter |= Q(type=row_type, ref=row_ref)
 
     base_queryset = (
