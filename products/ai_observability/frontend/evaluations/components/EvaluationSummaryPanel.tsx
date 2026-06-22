@@ -4,7 +4,6 @@ import { IconCheck, IconChevronDown, IconMinus, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -44,12 +43,6 @@ const BASE_FILTER_OPTIONS: FilterOption[] = [
 
 const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
 
-function useShowEvaluationSummary(): boolean {
-    const summaryFlag = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
-    const earlyAdoptersFlag = useFeatureFlag('LLM_ANALYTICS_EARLY_ADOPTERS')
-    return summaryFlag || earlyAdoptersFlag
-}
-
 export function EvaluationSummaryControls(): JSX.Element | null {
     const {
         evaluation,
@@ -65,9 +58,8 @@ export function EvaluationSummaryControls(): JSX.Element | null {
         setEvaluationSummaryFilter,
         trackSummarizeClicked,
     } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useShowEvaluationSummary()
 
-    if (!showSummaryFeature || !runsSummary || runsSummary.total === 0) {
+    if (!runsSummary || runsSummary.total === 0) {
         return null
     }
 
@@ -124,11 +116,6 @@ export function EvaluationSummaryPanel({ runsLookup }: EvaluationSummaryPanelPro
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
     const { toggleSummaryExpanded } = useActions(llmEvaluationLogic)
-    const showSummaryFeature = useShowEvaluationSummary()
-
-    if (!showSummaryFeature) {
-        return null
-    }
 
     if (evaluationSummaryLoading) {
         return (
