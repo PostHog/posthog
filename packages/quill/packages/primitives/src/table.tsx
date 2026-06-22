@@ -193,6 +193,25 @@ const TableCell = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'t
     }
 )
 
+// Full-span empty state. Renders its own tbody + row + cell so it drops in
+// alongside TableHeader where a TableBody would go. `colSpan` defaults huge and
+// browsers clamp it to the real column count, so callers rarely set it. The cell
+// stretches to the table's body height (give the Table a height to fill it) and
+// centers its content — drop in `<Empty>` or plain text, no `h-full` needed.
+const TableEmpty = React.forwardRef<HTMLTableCellElement, React.ComponentProps<'td'>>(
+    function TableEmpty({ className, colSpan = 1000, children, ...props }, ref) {
+        return (
+            <tbody data-slot="table-empty">
+                <tr>
+                    <td ref={ref} colSpan={colSpan} className={cn('quill-table__empty', className)} {...props}>
+                        <div className="quill-table__empty-inner">{children}</div>
+                    </td>
+                </tr>
+            </tbody>
+        )
+    }
+)
+
 const TableCaption = React.forwardRef<HTMLTableCaptionElement, React.ComponentProps<'caption'>>(function TableCaption(
     { className, ...props },
     ref
@@ -207,6 +226,7 @@ TableFooter.displayName = 'TableFooter'
 TableRow.displayName = 'TableRow'
 TableHead.displayName = 'TableHead'
 TableCell.displayName = 'TableCell'
+TableEmpty.displayName = 'TableEmpty'
 TableCaption.displayName = 'TableCaption'
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption }
+export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableEmpty, TableCaption }

@@ -606,7 +606,7 @@ export function DateTimePicker({
     return (
         <div
             className={cn(
-                'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
+                'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10 overflow-hidden',
                 compact ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
                 className
             )}

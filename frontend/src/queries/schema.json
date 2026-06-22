@@ -4352,8 +4352,14 @@
                 },
                 "metricShowChange": {
                     "default": true,
-                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number — the percentage change from the first to the last point of the series over the selected date range.",
+                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when \"compare to previous\" is on (otherwise first→last of the series), and `latest` is always first→last of the series.",
                     "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when \"compare to previous\" is on; `latest` compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -21283,7 +21289,14 @@
                 "Streamlabs",
                 "Datorama",
                 "Ahrefs",
-                "Custom"
+                "Lightfield",
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },
@@ -21492,6 +21505,7 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
+                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -23313,7 +23327,7 @@
                     "description": "How to read the result rows — an explicit choice, no implicit default."
                 },
                 "label_column": {
-                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.",
+                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).",
                     "type": ["string", "null"]
                 },
                 "type": {
@@ -30435,6 +30449,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",
@@ -37172,7 +37187,8 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl"
+                "recording_ttl",
+                "surfacing_score"
             ],
             "type": "string"
         },
@@ -40549,6 +40565,10 @@
                     },
                     "type": "array"
                 },
+                "task_id": {
+                    "description": "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the run in the Tasks UI. Absent on emissions made before this linkage was captured.",
+                    "type": "string"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -43594,6 +43614,12 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
                     "type": "string"
@@ -43619,6 +43645,12 @@
                     "default": true,
                     "description": "Show the period-over-period change pill on the Metric display.",
                     "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when \"compare to previous\" is on; latest compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "minDecimalPlaces": {
                     "type": "number"

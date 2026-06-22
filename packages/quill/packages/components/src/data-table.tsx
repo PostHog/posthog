@@ -293,7 +293,9 @@ function DataTable<TData, TValue>({
         </Table>
     )
 
-    if (!paginated) {
+    // Nothing to paginate when the table is empty — the empty state already
+    // signals the absence of data, so a "0–0 of 0" pager is just noise.
+    if (!paginated || table.getFilteredRowModel().rows.length === 0) {
         return tableElement
     }
 

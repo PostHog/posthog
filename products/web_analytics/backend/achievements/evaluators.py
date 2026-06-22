@@ -114,10 +114,6 @@ def _first_value(value: object) -> Any:
 
 
 def evaluate_conversions(ctx: EvalContext) -> int:
-    """Single monotone value spanning both Goal Hog mechanics: stages 1-3 count configured goals,
-    stages 4-5 require a single goal to reach 100 / 1,000 conversions. `max(goals, best goal)` maps
-    cleanly onto the (1, 3, 5, 100, 1000) thresholds. Aggregated across the project's environments:
-    goal counts sum, best-goal conversions take the project-wide max."""
     num_goals = 0
     best_goal_conversions = 0
     for team in _project_environment_teams(ctx.team):

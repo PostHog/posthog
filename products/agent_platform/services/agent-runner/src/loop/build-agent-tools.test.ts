@@ -59,6 +59,7 @@ function makeRev(
         bundle_uri: 's3://',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills, mcps }),
+        encrypted_env: null,
     }
 }
 

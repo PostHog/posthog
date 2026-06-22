@@ -130,8 +130,25 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # details" message sending them to check the host/port.
             "Access denied for user": "Invalid user or password",
             "sqlstate 42S02": None,  # Table not found error
-            "ProgrammingError: (1146": None,  # Table not found error
-            "OperationalError: (1356": None,  # View not found error
+            # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
+            # in the source — it was renamed or dropped after the schema was set up. The streaming
+            # query reissues the same statement on every attempt, so it fails identically forever.
+            # Match the locale-independent error code (the table name is volatile and the message
+            # text is translated on non-English servers): `(1146,` appears both in the raw pymysql
+            # `str(exc)` the import/sync path classifies — `(1146, "Table ... doesn't exist")` — and
+            # in the class-name-prefixed `ProgrammingError: (1146, ...)` form the refresh-schemas
+            # path builds. The previous `"ProgrammingError: (1146"` key only matched the latter, so
+            # sync hit this error retried to the maximum instead of stopping.
+            "(1146,": "A table this sync reads no longer exists in your source database (MySQL error 1146). It was most likely renamed or dropped — restore the table, or remove it from the sync, then resync.",
+            # MySQL/MariaDB error 1356 (ER_VIEW_INVALID): a view the sync reads is broken — it
+            # references tables/columns that were dropped or renamed, or the view's definer lost the
+            # rights to read them. The streaming query reissues the same statement every attempt, so
+            # it fails identically forever. Match the locale-independent code `(1356,`, which appears
+            # both in the raw pymysql `str(exc)` the import/sync path classifies — `(1356, "View ...
+            # references invalid table(s) ...")` — and in the class-name-prefixed
+            # `OperationalError: (1356, ...)` form the refresh-schemas path builds. The previous
+            # `"OperationalError: (1356"` key only matched the latter.
+            "(1356,": "A view this sync reads is no longer valid (MySQL error 1356). It references tables or columns that were dropped or renamed, or its definer lost access to them — fix the view definition in your source database, or remove it from the sync, then resync.",
             "Bad handshake": None,
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
