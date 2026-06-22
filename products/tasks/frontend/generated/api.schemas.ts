@@ -48,6 +48,56 @@ export interface TaskRunErrorResponseApi {
 }
 
 /**
+ * @nullable
+ */
+export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
+
+/**
+ * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
+ */
+export interface TaskUserBasicInfoApi {
+    id: number
+    uuid: string
+    distinct_id: string
+    first_name: string
+    last_name: string
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    hedgehog_config?: TaskUserBasicInfoApiHedgehogConfig
+    /** @nullable */
+    role_at_organization?: string | null
+}
+
+/**
+ * List response for sandbox environments (subset of fields).
+ */
+export interface SandboxEnvironmentDTOApi {
+    id: string
+    name: string
+    network_access_level: string
+    allowed_domains?: string[]
+    repositories?: string[]
+    private: boolean
+    internal: boolean
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+}
+
+export interface PaginatedSandboxEnvironmentDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SandboxEnvironmentDTOApi[]
+}
+
+/**
  * * `trusted` - Trusted
  * * `full` - Full
  * * `custom` - Custom
@@ -61,230 +111,370 @@ export const NetworkAccessLevelEnumApi = {
 } as const
 
 /**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `other` - Other
+ * Request body for creating or updating a sandbox environment.
  */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export interface SandboxEnvironmentWriteApi {
+    /**
+     * Display name for the environment.
+     * @maxLength 255
+     */
+    name: string
+    /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+     *
+     * * `trusted` - Trusted
+     * * `full` - Full
+     * * `custom` - Custom */
+    network_access_level?: NetworkAccessLevelEnumApi
+    /**
+     * Allowed domains for custom network access.
+     * @items.maxLength 255
+     */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI). */
+    include_default_domains?: boolean
+    /**
+     * Repositories this environment applies to (format: org/repo).
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses). */
+    environment_variables?: unknown
+    /** If true, only the creator can see this environment; otherwise the whole team can. */
+    private?: boolean
+}
 
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
+/**
+ * Request body for creating or updating a sandbox environment.
+ */
+export interface PatchedSandboxEnvironmentWriteApi {
+    /**
+     * Display name for the environment.
+     * @maxLength 255
+     */
+    name?: string
+    /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+     *
+     * * `trusted` - Trusted
+     * * `full` - Full
+     * * `custom` - Custom */
+    network_access_level?: NetworkAccessLevelEnumApi
+    /**
+     * Allowed domains for custom network access.
+     * @items.maxLength 255
+     */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI). */
+    include_default_domains?: boolean
+    /**
+     * Repositories this environment applies to (format: org/repo).
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses). */
+    environment_variables?: unknown
+    /** If true, only the creator can see this environment; otherwise the whole team can. */
+    private?: boolean
+}
+
+/**
+ * Detail/create/update/run response for a task automation.
+ */
+export interface TaskAutomationDTOApi {
+    id: string
+    name: string
+    prompt: string
+    /** @nullable */
+    repository: string | null
+    /** @nullable */
+    github_integration: number | null
+    cron_expression: string
+    timezone: string
+    /** @nullable */
+    template_id: string | null
+    enabled: boolean
+    /** @nullable */
+    last_run_at: string | null
+    /** @nullable */
+    last_run_status: string | null
+    last_task_id: string
+    /** @nullable */
+    last_task_run_id: string | null
+    /** @nullable */
+    last_error: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedTaskAutomationDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAutomationDTOApi[]
+}
+
+/**
+ * Request body for creating or updating a task automation.
+ */
+export interface TaskAutomationWriteApi {
+    /**
+     * Display name (stored as the backing task's title).
+     * @maxLength 255
+     */
+    name: string
+    /** The automation prompt (stored as the backing task's description). */
+    prompt: string
+    /**
+     * Target repository in the format organization/repository.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * Standard 5-field cron expression (minute hour day month weekday).
+     * @maxLength 100
+     */
+    cron_expression: string
+    /**
+     * IANA timezone the schedule runs in.
+     * @maxLength 128
+     */
+    timezone?: string
+    /**
+     * Optional template identifier this automation was created from.
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    /** Whether the schedule is active; paused when false. */
+    enabled?: boolean
+}
+
+/**
+ * Request body for creating or updating a task automation.
+ */
+export interface PatchedTaskAutomationWriteApi {
+    /**
+     * Display name (stored as the backing task's title).
+     * @maxLength 255
+     */
+    name?: string
+    /** The automation prompt (stored as the backing task's description). */
+    prompt?: string
+    /**
+     * Target repository in the format organization/repository.
+     * @maxLength 255
+     */
+    repository?: string
+    /**
+     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * Standard 5-field cron expression (minute hour day month weekday).
+     * @maxLength 100
+     */
+    cron_expression?: string
+    /**
+     * IANA timezone the schedule runs in.
+     * @maxLength 128
+     */
+    timezone?: string
+    /**
+     * Optional template identifier this automation was created from.
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    /** Whether the schedule is active; paused when false. */
+    enabled?: boolean
+}
+
+/**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
 } as const
 
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+/**
+ * * `anthropic` - anthropic
+ * * `openai` - openai
+ */
+export type TaskRunDetailDTOProviderEnumApi =
+    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
 
-export const BlankEnumApi = {
-    '': '',
+export const TaskRunDetailDTOProviderEnumApi = {
+    Anthropic: 'anthropic',
+    Openai: 'openai',
 } as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+export interface TaskRunArtifactResponseApi {
+    /** Stable identifier for the artifact within this run */
+    id?: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+}
 
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
 
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
+export type TaskRunDetailDTOApiState = { [key: string]: unknown }
+
+/**
+ * Detail response for a task run.
+ *
+ * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+ * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+ * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+ * ``latest_run`` shape by the task detail response.
+ */
+export interface TaskRunDetailDTOApi {
+    id: string
+    /** Parent task id this run belongs to. */
+    task: string
+    /** @nullable */
+    stage: string | null
+    /** @nullable */
+    branch: string | null
+    status: string
+    environment: string
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+     *
+     * * `anthropic` - anthropic
+     * * `openai` - openai */
+    provider?: TaskRunDetailDTOProviderEnumApi | null
     /**
-     * @maxLength 200
+     * Configured LLM model identifier for this run.
      * @nullable
      */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
+    model?: string | null
+    /** Configured reasoning effort for this run when the selected model supports it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Presigned S3 URL for log access (valid for 1 hour).
+     * @nullable
+     */
+    log_url?: string | null
     /** @nullable */
-    is_email_verified?: boolean | null
+    error_message: string | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+    output: TaskRunDetailDTOApiOutput
+    state: TaskRunDetailDTOApiState
+    readonly artifacts: readonly TaskRunArtifactResponseApi[]
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    completed_at?: string | null
 }
 
-export interface SandboxEnvironmentListApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    internal?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
+/**
+ * @nullable
+ */
+export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Detail response for a task.
+ *
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ */
+export interface TaskDetailDTOApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** @nullable */
+    repository: string | null
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskDetailDTOApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
 }
 
-export interface PaginatedSandboxEnvironmentListListApi {
+export interface PaginatedTaskDetailDTOListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SandboxEnvironmentListApi[]
-}
-
-export interface SandboxEnvironmentApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
-    include_default_domains?: boolean
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** Encrypted environment variables (write-only, never returned in responses) */
-    environment_variables?: unknown
-    /** Whether this environment has any environment variables set */
-    readonly has_environment_variables: boolean
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    readonly internal: boolean
-    /** Computed domain allowlist based on network_access_level and allowed_domains */
-    readonly effective_domains: readonly string[]
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PatchedSandboxEnvironmentApi {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
-    include_default_domains?: boolean
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** Encrypted environment variables (write-only, never returned in responses) */
-    environment_variables?: unknown
-    /** Whether this environment has any environment variables set */
-    readonly has_environment_variables?: boolean
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    readonly internal?: boolean
-    /** Computed domain allowlist based on network_access_level and allowed_domains */
-    readonly effective_domains?: readonly string[]
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-export interface TaskAutomationApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    prompt: string
-    /** @maxLength 255 */
-    repository: string
-    /** @nullable */
-    github_integration?: number | null
-    /** @maxLength 100 */
-    cron_expression: string
-    /** @maxLength 128 */
-    timezone?: string
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    enabled?: boolean
-    /** @nullable */
-    readonly last_run_at: string | null
-    /** @nullable */
-    readonly last_run_status: string | null
-    /** @nullable */
-    readonly last_task_id: string | null
-    /** @nullable */
-    readonly last_task_run_id: string | null
-    /** @nullable */
-    readonly last_error: string | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedTaskAutomationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationApi[]
-}
-
-export interface PatchedTaskAutomationApi {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    prompt?: string
-    /** @maxLength 255 */
-    repository?: string
-    /** @nullable */
-    github_integration?: number | null
-    /** @maxLength 100 */
-    cron_expression?: string
-    /** @maxLength 128 */
-    timezone?: string
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    enabled?: boolean
-    /** @nullable */
-    readonly last_run_at?: string | null
-    /** @nullable */
-    readonly last_run_status?: string | null
-    /** @nullable */
-    readonly last_task_id?: string | null
-    /** @nullable */
-    readonly last_task_run_id?: string | null
-    /** @nullable */
-    readonly last_error?: string | null
-    readonly created_at?: string
-    readonly updated_at?: string
+    results: TaskDetailDTOApi[]
 }
 
 /**
@@ -325,21 +515,19 @@ export const SignalReportTaskRelationshipEnumApi = {
 } as const
 
 /**
- * Latest run details for this task
- * @nullable
+ * Request body for creating or updating a task.
+ *
+ * Field required/default semantics match the ``Task`` model. The view passes
+ * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+ * facade ``create_task`` / ``update_task`` functions.
  */
-export type TaskApiLatestRun = { [key: string]: unknown } | null
-
-export interface TaskApi {
-    readonly id: string
-    /** @nullable */
-    readonly task_number: number | null
-    readonly slug: string
+export interface TaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
      */
     title?: string
+    /** Whether the title was set by a human (vs auto-generated from the description). */
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
@@ -363,7 +551,7 @@ export interface TaskApi {
      */
     repository?: string | null
     /**
-     * GitHub integration for this task
+     * GitHub integration for this task.
      * @nullable
      */
     github_integration?: number | null
@@ -372,25 +560,18 @@ export interface TaskApi {
      * @nullable
      */
     github_user_integration?: string | null
-    /** @nullable */
+    /**
+     * Signal report this task implements, when created from a report.
+     * @nullable
+     */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
-    /** JSON schema for the task. This is used to validate the output of the task. */
+    /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
-    /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+    /** If true, the task is hidden from default list responses. */
     archived?: boolean
-    /** @nullable */
-    readonly archived_at: string | null
-    /**
-     * Latest run details for this task
-     * @nullable
-     */
-    readonly latest_run: TaskApiLatestRun
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
     /**
      * Custom prompt for CI fixes. If blank, a default prompt will be used.
      * @nullable
@@ -398,31 +579,20 @@ export interface TaskApi {
     ci_prompt?: string | null
 }
 
-export interface PaginatedTaskListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskApi[]
-}
-
 /**
- * Latest run details for this task
- * @nullable
+ * Request body for creating or updating a task.
+ *
+ * Field required/default semantics match the ``Task`` model. The view passes
+ * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+ * facade ``create_task`` / ``update_task`` functions.
  */
-export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null
-
-export interface PatchedTaskApi {
-    readonly id?: string
-    /** @nullable */
-    readonly task_number?: number | null
-    readonly slug?: string
+export interface PatchedTaskWriteApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
      */
     title?: string
+    /** Whether the title was set by a human (vs auto-generated from the description). */
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
@@ -446,7 +616,7 @@ export interface PatchedTaskApi {
      */
     repository?: string | null
     /**
-     * GitHub integration for this task
+     * GitHub integration for this task.
      * @nullable
      */
     github_integration?: number | null
@@ -455,25 +625,18 @@ export interface PatchedTaskApi {
      * @nullable
      */
     github_user_integration?: string | null
-    /** @nullable */
+    /**
+     * Signal report this task implements, when created from a report.
+     * @nullable
+     */
     signal_report?: string | null
     signal_report_task_relationship?: SignalReportTaskRelationshipEnumApi
-    /** JSON schema for the task. This is used to validate the output of the task. */
+    /** JSON schema used to validate the output of the task. */
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
-    /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+    /** If true, the task is hidden from default list responses. */
     archived?: boolean
-    /** @nullable */
-    readonly archived_at?: string | null
-    /**
-     * Latest run details for this task
-     * @nullable
-     */
-    readonly latest_run?: PatchedTaskApiLatestRun
-    readonly created_at?: string
-    readonly updated_at?: string
-    readonly created_by?: UserBasicApi
     /**
      * Custom prompt for CI fixes. If blank, a default prompt will be used.
      * @nullable
@@ -536,23 +699,6 @@ export type ClaudeRuntimeAdapterEnumApi = (typeof ClaudeRuntimeAdapterEnumApi)[k
 
 export const ClaudeRuntimeAdapterEnumApi = {
     Claude: 'claude',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
 } as const
 
 /**
@@ -822,25 +968,6 @@ export interface TaskStagedArtifactsFinalizeUploadRequestApi {
     artifacts: TaskStagedArtifactFinalizeUploadApi[]
 }
 
-export interface TaskRunArtifactResponseApi {
-    /** Stable identifier for the artifact within this run */
-    id?: string
-    /** Artifact file name */
-    name: string
-    /** Artifact classification (plan, context, etc.) */
-    type: string
-    /** Source of the artifact, such as agent_output or user_attachment */
-    source?: string
-    /** Artifact size in bytes */
-    size?: number
-    /** Optional MIME type */
-    content_type?: string
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
-    uploaded_at: string
-}
-
 export interface TaskStagedArtifactsFinalizeUploadResponseApi {
     /** Finalized staged artifacts available for attachment to a new run */
     artifacts: TaskRunArtifactResponseApi[]
@@ -923,115 +1050,13 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
 
-/**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-/**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
-
-export type TaskRunDetailProviderEnumApi =
-    (typeof TaskRunDetailProviderEnumApi)[keyof typeof TaskRunDetailProviderEnumApi]
-
-export const TaskRunDetailProviderEnumApi = {
-    Anthropic: 'anthropic',
-    Openai: 'openai',
-} as const
-
-export interface TaskRunDetailApi {
-    readonly id: string
-    readonly task: string
-    /**
-     * Current stage for this run (e.g., 'research', 'plan', 'build')
-     * @maxLength 100
-     * @nullable
-     */
-    stage?: string | null
-    /**
-     * Branch name for the run
-     * @maxLength 255
-     * @nullable
-     */
-    branch?: string | null
-    status?: TaskRunStatusEnumApi
-    /** Execution environment
-     *
-     * * `local` - Local
-     * * `cloud` - Cloud */
-    environment?: TaskRunEnvironmentEnumApi
-    /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterEnumApi | null
-    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-    readonly provider: TaskRunDetailProviderEnumApi | null
-    /**
-     * Configured LLM model identifier for this run.
-     * @nullable
-     */
-    readonly model: string | null
-    /** Configured reasoning effort for this run when the selected model supports it. */
-    readonly reasoning_effort: ReasoningEffortEnumApi | null
-    /**
-     * Presigned S3 URL for log access (valid for 1 hour).
-     * @nullable
-     */
-    readonly log_url: string | null
-    /**
-     * Error message if execution failed
-     * @nullable
-     */
-    error_message?: string | null
-    /** Run output data (e.g., PR URL, commit SHA, etc.) */
-    output?: unknown
-    /** Run state data for resuming or tracking execution state */
-    state?: unknown
-    readonly artifacts: readonly TaskRunArtifactResponseApi[]
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    readonly completed_at: string | null
-}
-
-export interface PaginatedTaskRunDetailListApi {
+export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskRunDetailApi[]
+    results: TaskRunDetailDTOApi[]
 }
 
 /**
@@ -1129,6 +1154,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+    /**
+     * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
+     * @maxLength 120
+     */
+    home_quick_action?: string
 }
 
 /**
@@ -1747,28 +1777,61 @@ export interface TaskSummariesRequestApi {
     ids: string[]
 }
 
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
+
 export interface TaskRunSummaryApi {
     status: TaskRunStatusEnumApi | null
     environment: TaskRunEnvironmentEnumApi | null
 }
 
-export interface TaskSummaryApi {
-    readonly id: string
-    readonly title: string
+/**
+ * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+ */
+export interface TaskSummaryDTOApi {
+    id: string
+    title: string
     /** @nullable */
-    readonly repository: string | null
-    readonly created_at: string
-    readonly updated_at: string
-    readonly latest_run: TaskRunSummaryApi | null
+    repository: string | null
+    created_at: string
+    updated_at: string
+    latest_run?: TaskRunSummaryApi | null
 }
 
-export interface PaginatedTaskSummaryListApi {
+export interface PaginatedTaskSummaryDTOListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskSummaryApi[]
+    results: TaskSummaryDTOApi[]
 }
 
 export type SandboxListParams = {
