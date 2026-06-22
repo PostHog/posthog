@@ -429,8 +429,8 @@ Per-team singleton config for Signals settings, including the default autonomy p
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
-- `default_autostart_priority` defaults to `P0`
-- Individual users can override this threshold via `SignalUserAutonomyConfig.autostart_priority`
+- `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The threshold is no longer user-configurable in the inbox UI; everyone runs on this default.
+- `SignalUserAutonomyConfig.autostart_priority` can still hold a per-user override at the data layer (`null` = use the team default), but there is no UI to set it.
 
 ### `SignalUserAutonomyConfig`
 

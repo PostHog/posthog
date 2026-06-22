@@ -6,7 +6,6 @@ import {
     IconChevronRight,
     IconCompass,
     IconGithub,
-    IconPullRequest,
     IconServer,
 } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -20,10 +19,8 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
-import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { AutoStartThresholdSection } from '../config/AutoStartThresholdSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -258,25 +255,6 @@ function NotificationsWidget(): JSX.Element {
     )
 }
 
-function AutoStartWidget(): JSX.Element {
-    useMountedLogic(signalTeamConfigLogic)
-    const { autonomyConfig, autonomyConfigLoading } = useValues(userAutonomyLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-
-    const userPriority = autonomyConfig?.autostart_priority ?? null
-    return (
-        <SetupWidgetCard
-            icon={<IconPullRequest />}
-            title="Auto-create PR"
-            size="sm"
-            tone="neutral"
-            loading={autonomyConfigLoading && autonomyConfig === null}
-            status={userPriority ? `${userPriority}+` : 'Off for you'}
-            onClick={() => openSetupModal('auto-start')}
-        />
-    )
-}
-
 /** Section heading styled like a LemonTabs label (same 14px scale, tertiary color) so the
  * rail reads as a sibling of the tab bar rather than a louder header. */
 function SetupSection({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
@@ -310,13 +288,6 @@ const SETUP_MODALS: Record<
         width: 560,
         body: <SlackNotificationsSection />,
     },
-    'auto-start': {
-        title: 'Auto-create PR',
-        description:
-            'Automatically open a pull request for an actionable report at or above a priority threshold – set the team default and your personal override.',
-        width: 560,
-        body: <AutoStartThresholdSection />,
-    },
 }
 
 function SetupModal(): JSX.Element {
@@ -337,9 +308,9 @@ function SetupModal(): JSX.Element {
 }
 
 /**
- * The agent-setup widgets, grouped into Agents / Connections / Preferences. Each widget shows
+ * The agent-setup widgets, grouped into Agents / Connections. Each widget shows
  * status and nudges the user to finish that part of the setup. Signal sources and Scout troop
- * (most edited) are largest; connections medium; Auto-create PR compact. Code access and MCP link
+ * (most edited) are largest; connections medium. Code access and MCP link
  * out to settings; the rest open a management modal.
  *
  * Rendered two ways: `rail` (a column to the right of the tabs on wide viewports) and
@@ -364,9 +335,6 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 <CodeAccessWidget />
                 <NotificationsWidget />
                 <McpServersWidget />
-            </SetupSection>
-            <SetupSection title="Preferences">
-                <AutoStartWidget />
             </SetupSection>
             <SetupModal />
         </div>
