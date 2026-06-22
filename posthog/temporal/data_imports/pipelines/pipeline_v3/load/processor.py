@@ -265,6 +265,8 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+    _promote_staged_cursor(export_signal)
+
     update_external_job_status(
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
@@ -283,6 +285,28 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     )
 
     _release_pipeline_lock_for_job(export_signal)
+
+
+def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+    close_old_connections()
+    try:
+        schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
+        promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
+        if promoted:
+            logger.info(
+                "staged_cursor_promoted",
+                run_uuid=export_signal.run_uuid,
+                external_data_schema_id=export_signal.schema_id,
+            )
+    except Exception as e:
+        logger.exception(
+            "staged_cursor_promotion_failed",
+            run_uuid=export_signal.run_uuid,
+            external_data_schema_id=export_signal.schema_id,
+        )
+        capture_exception(e)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
