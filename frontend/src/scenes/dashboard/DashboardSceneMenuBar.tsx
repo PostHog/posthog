@@ -101,6 +101,11 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     }
 
     const canShowDelete = canEditDashboard
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
     const customerTemplateEditorAccess = userHasAccess(AccessControlResourceType.Dashboard, AccessControlLevel.Editor)
     const customerTemplateDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Dashboard,
@@ -197,6 +202,8 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     {canEditDashboard && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
+                                disabled={!!exportAccessControlDisabledReason}
+                                tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.PNG,

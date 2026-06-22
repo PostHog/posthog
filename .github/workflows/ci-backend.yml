@@ -298,7 +298,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -746,10 +746,13 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
-            - name: Register Temporal search attributes
-              run: |
-                  bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+            - name: Wait for Temporal
+              # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
+              # via sync_connect() in their tests, so keep a readiness gate before tests run.
+              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # The expensive registration command this replaces is gone — no product test
+              # needs the custom search attributes against the container.
+              run: bin/wait-for-docker temporal
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
