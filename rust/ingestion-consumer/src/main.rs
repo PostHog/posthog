@@ -177,11 +177,28 @@ async fn async_main(config: Config) -> Result<()> {
             ))
         }
     };
-    let _discovery_handle = discovery.start(
-        Arc::clone(&registry),
-        Arc::clone(&transport),
-        discovery_token.clone(),
-    );
+    let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
+
+    // Reap drained workers: once a departed worker has finished its in-flight
+    // batches (or hit the drain timeout), remove it from the registry and prune
+    // its transport semaphore. No-op in static mode (workers never drain).
+    {
+        let registry = Arc::clone(&registry);
+        let transport = Arc::clone(&transport);
+        let token = probe_token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                }
+                for worker in registry.reapable_workers() {
+                    registry.remove_worker(&worker);
+                    transport.remove_worker(&worker);
+                }
+            }
+        });
+    }
 
     // For dynamic discovery, wait for the first workers before consuming so the
     // first batch has somewhere to route.

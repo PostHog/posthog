@@ -13,9 +13,13 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::Dispatcher;
+use crate::dispatcher::{Dispatcher, SubBatch};
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
+
+/// Max time `complete_oldest_batch` will keep retrying to flush a batch's
+/// deferred groups (waiting for a healthy worker) before failing the batch.
+const DEFERRED_FLUSH_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Statistics gathered while collecting a batch, used to emit parity metrics.
 struct BatchStats {
@@ -50,7 +54,12 @@ struct CollectedBatch {
 struct ProcessedBatch {
     offsets: HashMap<(String, i32), i64>,
     stats: BatchStats,
+    /// Messages accepted so far. Deferred groups (keys whose worker was
+    /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
     total_accepted: u32,
+    /// Total messages in the batch; the batch commits only once `total_accepted`
+    /// reaches it (i.e. all deferred groups have been flushed and ACKed).
+    batch_size: u32,
     elapsed: Duration,
 }
 
@@ -250,7 +259,22 @@ impl IngestionConsumer {
             return Ok(());
         };
 
-        let processed = self.await_processed_batch(batch).await?;
+        let batch_id = batch.batch_id.clone();
+        let mut processed = self.await_processed_batch(batch).await?;
+
+        // Flush this batch's deferred groups (keys whose worker was draining/dead)
+        // in order, re-routing them to healthy workers. Doing it here — serialized,
+        // oldest batch first — preserves per-distinct_id order across batches. The
+        // batch isn't committable until all its messages are accepted.
+        self.flush_deferred(&batch_id, &mut processed).await?;
+
+        if processed.total_accepted < processed.batch_size {
+            anyhow::bail!(
+                "accepted {}/{} messages — not committing offsets",
+                processed.total_accepted,
+                processed.batch_size
+            );
+        }
 
         // Commit only the oldest completed batch. Later successful batches stay
         // uncommitted behind any earlier failed batch, preserving at-least-once
@@ -285,6 +309,41 @@ impl IngestionConsumer {
                 }
             }
         }
+    }
+
+    /// Flush a completed batch's deferred groups (keys whose worker was
+    /// draining/dead), re-routing them to healthy workers and accumulating the
+    /// accepted count. Retries with backoff while a flush can't route (no healthy
+    /// worker yet), bounded by `DEFERRED_FLUSH_TIMEOUT`. Called serialized,
+    /// oldest-first, so a key's deferred messages flush in Kafka order.
+    async fn flush_deferred(
+        &self,
+        batch_id: &str,
+        processed: &mut ProcessedBatch,
+    ) -> anyhow::Result<()> {
+        if !self.dispatcher.has_deferred(batch_id) {
+            return Ok(());
+        }
+        let deadline = Instant::now() + DEFERRED_FLUSH_TIMEOUT;
+        while self.dispatcher.has_deferred(batch_id) {
+            let sub_batches = self.dispatcher.flush_deferred(batch_id);
+            if sub_batches.is_empty() {
+                // Nothing routable right now (no healthy worker) — wait and retry.
+                if Instant::now() >= deadline {
+                    anyhow::bail!("deferred messages could not be flushed within timeout");
+                }
+                tokio::select! {
+                    _ = self.handle.shutdown_recv() => {
+                        anyhow::bail!("shutdown while flushing deferred messages");
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+                }
+                continue;
+            }
+            processed.total_accepted +=
+                Self::scatter(&self.dispatcher, &self.transport, batch_id, sub_batches).await?;
+        }
+        Ok(())
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -336,56 +395,74 @@ impl IngestionConsumer {
         }
 
         // Health-aware assignment: groups by routing key, honors stickiness,
-        // skips unhealthy/dead workers.
-        let sub_batches = dispatcher.assign(collected.messages);
+        // skips unhealthy/dead workers, and defers keys whose worker is
+        // draining/dead (held in the dispatcher's stash, flushed at completion).
+        let sub_batches = dispatcher.assign(&batch_id, collected.messages);
 
-        if sub_batches.is_empty() {
+        // Nothing to send and nothing deferred to wait for → no usable workers.
+        if sub_batches.is_empty() && !dispatcher.has_deferred(&batch_id) {
             counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
             anyhow::bail!("No healthy workers available to route batch");
         }
 
-        // Scatter: send sub-batches to workers in parallel.
-        let mut handles = Vec::with_capacity(sub_batches.len());
-        for sub_batch in sub_batches {
-            let transport = Arc::clone(&transport);
-            let dispatcher = Arc::clone(&dispatcher);
-            let worker = sub_batch.worker.clone();
-            let bid = batch_id.clone();
-            let routing_keys = sub_batch.routing_keys.clone();
-            let message_count = sub_batch.messages.len();
-
-            handles.push(tokio::spawn(async move {
-                let result = transport
-                    .send_batch(&worker, &bid, sub_batch.messages)
-                    .await;
-                let is_error = result.is_err();
-
-                dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
-                dispatcher.record_send_outcome(&worker, is_error);
-
-                result
-            }));
-        }
-
-        // Gather: wait for all workers to ACK.
-        let mut total_accepted = 0u32;
-        for handle in handles {
-            let result = handle.await??;
-            total_accepted += result;
-        }
-
-        if total_accepted < batch_size as u32 {
-            anyhow::bail!(
-                "Workers accepted {total_accepted}/{batch_size} messages — not committing offsets"
-            );
-        }
+        let total_accepted = Self::scatter(&dispatcher, &transport, &batch_id, sub_batches).await?;
 
         Ok(ProcessedBatch {
             offsets: collected.offsets,
             stats: collected.stats,
             total_accepted,
+            batch_size: batch_size as u32,
             elapsed: start.elapsed(),
         })
+    }
+
+    /// Send sub-batches to workers in parallel and resolve each in the
+    /// dispatcher. On a send failure (the worker died mid-send), the failed
+    /// messages are deferred — before the resolve, so the pin isn't evicted —
+    /// to be replayed in order. Returns the number of messages accepted.
+    async fn scatter(
+        dispatcher: &Arc<Dispatcher>,
+        transport: &Arc<HttpTransport>,
+        batch_id: &str,
+        sub_batches: Vec<SubBatch>,
+    ) -> anyhow::Result<u32> {
+        let mut handles = Vec::with_capacity(sub_batches.len());
+        for sub_batch in sub_batches {
+            let transport = Arc::clone(transport);
+            let dispatcher = Arc::clone(dispatcher);
+            let worker = sub_batch.worker.clone();
+            let bid = batch_id.to_string();
+            let routing_keys = sub_batch.routing_keys.clone();
+            let message_count = sub_batch.messages.len();
+
+            handles.push(tokio::spawn(async move {
+                match transport
+                    .send_batch(&worker, &bid, sub_batch.messages)
+                    .await
+                {
+                    Ok(accepted) => {
+                        dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                        dispatcher.record_send_outcome(&worker, false);
+                        accepted
+                    }
+                    Err(send_err) => {
+                        // Defer the failed messages first, so the ref-count drop
+                        // in `on_sub_batch_resolved` doesn't evict the pin while
+                        // the key still has work to replay.
+                        dispatcher.defer_failed(&bid, send_err.messages);
+                        dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                        dispatcher.record_send_outcome(&worker, true);
+                        0
+                    }
+                }
+            }));
+        }
+
+        let mut accepted = 0u32;
+        for handle in handles {
+            accepted += handle.await?;
+        }
+        Ok(accepted)
     }
 
     /// Collect messages from Kafka up to batch_size or batch_timeout.
