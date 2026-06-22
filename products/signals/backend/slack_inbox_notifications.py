@@ -36,6 +36,10 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.slack_mrkdwn import (
+    escape_mrkdwn as _escape_mrkdwn,
+    markdown_to_slack_mrkdwn,
+)
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -277,10 +281,6 @@ def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | 
     return str(slack_user["id"])
 
 
-def _escape_mrkdwn(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
     # `<@U…>` mention when the reviewer's email resolves in this workspace, else escaped name.
     mentions: list[str] = []
@@ -516,9 +516,11 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
 
     content = (signal.get("content") or "").strip()
     if content:
+        # Truncate the raw markdown before converting so we never cut a link or emphasis
+        # token in half, then render markdown (headings, bullets, links) as Slack mrkdwn.
         if len(content) > _SIGNAL_CONTENT_MAX_LEN:
             content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": markdown_to_slack_mrkdwn(content)}})
 
     detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:
