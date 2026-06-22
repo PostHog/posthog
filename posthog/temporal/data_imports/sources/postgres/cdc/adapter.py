@@ -33,6 +33,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
+    """Split a ``schema.table`` name into ``(schema, table)``, falling back to
+    ``default_schema`` for a bare table name."""
+    if "." in qualified:
+        table_schema, table_name = qualified.split(".", 1)
+        return table_schema, table_name
+    return default_schema, qualified
+
+
 class PostgresCDCAdapter:
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
@@ -103,14 +112,17 @@ class PostgresCDCAdapter:
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing
         publication, recreating the publication first when PostHog owns it and it's gone.
-        Returns the job_inputs updates (new consistent point). Raises when recreation
-        isn't possible (no slot configured, customer-owned publication missing).
+
+        ``tables`` are schema-qualified ``schema.table`` names — a publication can span
+        schemas, so each table keeps its own schema rather than inheriting the source's
+        default. Returns the job_inputs updates (new consistent point). Raises when
+        recreation isn't possible (no slot configured, customer-owned publication missing).
         """
         cdc_config = self.parse_cdc_config(source)
         if not cdc_config.slot_name:
             raise RuntimeError("Cannot recreate CDC replication slot: no slot name configured for this source")
 
-        schema = self._resolve_schema(source)
+        default_schema = self._resolve_schema(source)
         with cdc_pg_connection(source) as conn:
             drop_slot(conn, cdc_config.slot_name)
             if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
@@ -120,7 +132,10 @@ class PostgresCDCAdapter:
                         "Recreate it (see the CDC setup instructions), then resync the source."
                     )
                 consistent_point = create_slot_and_publication(
-                    conn, cdc_config.slot_name, cdc_config.publication_name, schema, tables=tables
+                    conn,
+                    cdc_config.slot_name,
+                    cdc_config.publication_name,
+                    tables=[_split_qualified_table(t, default_schema) for t in tables],
                 )
             else:
                 consistent_point = create_slot(conn, cdc_config.slot_name)
@@ -143,8 +158,6 @@ class PostgresCDCAdapter:
         default_pub_name = "posthog_pub" if management_mode == "self_managed" else f"posthog_pub_{source.id.hex[:12]}"
         pub_name = payload.get("cdc_publication_name") or default_pub_name
 
-        schema = self._resolve_schema(source)
-
         resource_fields: dict[str, Any] = {
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
@@ -160,7 +173,7 @@ class PostgresCDCAdapter:
                     if publication_exists(conn, pub_name):
                         return {}, f"A publication named '{pub_name}' already exists on your database."
                     resource_fields["cdc_consistent_point"] = create_slot_and_publication(
-                        conn, slot_name, pub_name, schema, tables=[]
+                        conn, slot_name, pub_name, tables=[]
                     )
             except Exception as e:
                 logger.exception("Failed to create CDC slot and publication: %s", e)

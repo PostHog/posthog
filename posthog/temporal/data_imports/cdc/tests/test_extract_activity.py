@@ -1438,7 +1438,7 @@ class TestSlotInvalidationRecovery:
         # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
         cdc_extract_activity(inputs)
 
-        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["users"])
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
 
@@ -1450,6 +1450,37 @@ class TestSlotInvalidationRecovery:
         assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
 
         mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recreate_passes_source_qualified_table_names(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # Recovery must resolve each schema's real source location from its metadata,
+        # not assume every table lives in the source's default schema. Otherwise a table
+        # in a non-default schema gets jammed under `public` and the publication rebuild
+        # fails with `relation "public.tll.students" does not exist`.
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        schema.name = "students"
+        schema.sync_type_config["schema_metadata"] = {"source_schema": "tll", "source_table_name": "students"}
+        mock_adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["tll.students"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
