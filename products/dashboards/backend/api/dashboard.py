@@ -1178,6 +1178,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
             except Dashboard.DoesNotExist:
                 raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
 
+            # Duplicating a dashboard reads and copies all of its content (filters, variables, tiles, insights),
+            # so the caller must have at least viewer access to the source — mirrors the copy_tile/move_tile checks.
+            user_access_control = UserAccessControl(user=cast(User, request.user), team=team)
+            if not user_access_control.check_access_level_for_object(existing_dashboard, "viewer"):
+                raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+
         request_filters = request.data.get("filters")
         if request_filters:
             if not isinstance(request_filters, dict):
