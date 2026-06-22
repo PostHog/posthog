@@ -1712,7 +1712,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 4, "total": 10}
+        body = response.json()
+        assert body["affected"] == 4
+        assert body["total"] == 10
+        assert "limit" in body
+        assert body["limit"] > 0
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
@@ -1988,6 +1992,92 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
 
         assert response.status_code == 404, response.json()
+
+    def _create_active_batch_hog_flow(self) -> str:
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "batch", "filters": {"properties": []}},
+        }
+        action_node = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        }
+        hog_flow = {"name": "Batch Flow", "actions": [trigger_action, action_node]}
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+        return flow_id
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_rejects_when_over_limit(self, _mock_create_invocation):
+        flow_id = self._create_active_batch_hog_flow()
+
+        with (
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast,
+            patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_LIMIT", 100),
+            patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", set()),
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast.return_value = BlastRadiusResult(affected=500, total=1000)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "exceeds the limit" in response.json()["detail"]
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_allows_within_limit(self, _mock_create_invocation):
+        flow_id = self._create_active_batch_hog_flow()
+
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast.return_value = BlastRadiusResult(affected=10, total=100)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["hog_flow"] == flow_id
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_uses_elevated_limit_for_listed_teams(self, _mock_create_invocation):
+        flow_id = self._create_active_batch_hog_flow()
+
+        with (
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_blast,
+            patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_LIMIT", 100),
+            patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 10000),
+            patch("django.conf.settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", {self.team.id}),
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_blast.return_value = BlastRadiusResult(affected=500, total=1000)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 200, response.json()
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

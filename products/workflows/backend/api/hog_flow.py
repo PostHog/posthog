@@ -64,6 +64,7 @@ from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSer
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -135,6 +136,7 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+    limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1341,7 +1343,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(BlastRadiusSerializer(result).data)
+        return Response(
+            BlastRadiusSerializer(
+                {
+                    "affected": result.affected,
+                    "total": result.total,
+                    "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                }
+            ).data
+        )
 
     @extend_schema(
         operation_id="hog_flows_invocation_results_retrieve",
@@ -1482,6 +1492,31 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             if hog_flow.status != HogFlow.State.ACTIVE:
                 raise exceptions.ValidationError("Workflow must be active to run a batch. Enable it first.")
 
+            # Cap audience size for batch-triggered workflows so a manual run can't far exceed what the scheduled
+            # path allows. Other trigger types don't have this notion, so leave them alone.
+            if (hog_flow.trigger or {}).get("type") == "batch":
+                filters = request.data.get("filters") or (hog_flow.trigger or {}).get("filters") or {}
+                limit = get_hogflow_batch_trigger_limit(self.team_id)
+                try:
+                    reject_flag_conditions_in_audience(self.team, filters)
+                    blast_radius = get_user_blast_radius(self.team, filters)
+                except exceptions.ValidationError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Failed to evaluate batch trigger audience size",
+                        team_id=self.team_id,
+                        hog_flow_id=str(hog_flow.id),
+                    )
+                    raise exceptions.ValidationError(
+                        "Could not validate audience size for this batch run. Adjust the filters and retry."
+                    )
+                if blast_radius.affected > limit:
+                    raise exceptions.ValidationError(
+                        f"Batch size {blast_radius.affected} exceeds the limit of {limit} users. "
+                        "Add filters to narrow your audience."
+                    )
+
             serializer = HogFlowBatchJobSerializer(
                 data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
             )
@@ -1578,7 +1613,15 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             reject_flag_conditions_in_audience(team, filters)
             result = get_user_blast_radius(team, filters, group_type_index)
-            return Response(BlastRadiusSerializer(result).data)
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": result.affected,
+                        "total": result.total,
+                        "limit": get_hogflow_batch_trigger_limit(team.id),
+                    }
+                ).data
+            )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
@@ -1703,11 +1746,36 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         advance_next_run(schedule, after=schedule.next_run_at)
 
                         if trigger_type == "batch":
+                            schedule_filters = (hog_flow.trigger or {}).get("filters", {}) or {}
+                            schedule_limit = get_hogflow_batch_trigger_limit(schedule.team_id)
+                            try:
+                                reject_flag_conditions_in_audience(hog_flow.team, schedule_filters)
+                                schedule_blast_radius = get_user_blast_radius(hog_flow.team, schedule_filters)
+                            except Exception:
+                                logger.exception(
+                                    "Failed to evaluate scheduled batch trigger audience size",
+                                    schedule_id=str(schedule_id),
+                                    team_id=schedule.team_id,
+                                    hog_flow_id=str(hog_flow.id),
+                                )
+                                failed.append(str(schedule_id))
+                                continue
+                            if schedule_blast_radius.affected > schedule_limit:
+                                logger.warning(
+                                    "Skipping scheduled batch trigger over limit",
+                                    schedule_id=str(schedule_id),
+                                    team_id=schedule.team_id,
+                                    hog_flow_id=str(hog_flow.id),
+                                    affected=schedule_blast_radius.affected,
+                                    limit=schedule_limit,
+                                )
+                                failed.append(str(schedule_id))
+                                continue
                             batch_job_params = {
                                 "team_id": schedule.team_id,
                                 "hog_flow": hog_flow,
                                 "variables": resolve_variables(hog_flow, schedule),
-                                "filters": (hog_flow.trigger or {}).get("filters", {}),
+                                "filters": schedule_filters,
                             }
                         else:
                             schedule_invocation_params = {
