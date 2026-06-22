@@ -49,6 +49,7 @@ export function TooltipSurface({
 export function TooltipSwatch({ color }: { color: string }): React.ReactElement {
     return (
         <span
+            data-attr="hog-chart-tooltip-swatch"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 display: 'inline-block',

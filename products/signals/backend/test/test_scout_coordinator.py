@@ -20,26 +20,36 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.temporal.agentic.scout_coordinator import (
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
+
+# The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
+# defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
+from products.signals.backend.scout_harness.team_limits import (
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
+    _default_team_config,
+    _enrolled_team_ids,
+    _read_flag_payload,
+    _resolve_max_runs_per_day,
+    _team_configs,
+)
+from products.signals.backend.temporal.agentic.scout_coordinator import (
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
-    _enrolled_team_ids,
-    _read_flag_payload,
-    _team_configs,
+    _allocate_tick_budget,
+    _DueRun,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
 
-_PAYLOAD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.get_feature_flag_payload"
-_IS_CLOUD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.is_cloud"
+_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+_IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
 
 # Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
 # (no transaction rollback across the worker thread), so leftover teams from other modules can
@@ -91,8 +101,11 @@ async def aother_team(aorganization):
     await sync_to_async(team.delete)()
 
 
-def _create_skill(team: Team, name: str) -> LLMSkill:
-    return LLMSkill.objects.create(team=team, name=name, description="d", body="b")
+def _create_skill(team: Team, name: str, *, seeded: bool = True) -> LLMSkill:
+    # Default to a canonical (harness-seeded) skill — the realistic case; pass seeded=False for a
+    # hand-authored custom scout (no `seeded_by` tag), which the seed allowlist must not gate.
+    metadata = {"seeded_by": HARNESS_SEEDED_BY} if seeded else {}
+    return LLMSkill.objects.create(team=team, name=name, description="d", body="b", metadata=metadata)
 
 
 def _create_config(team: Team, skill_name: str, **kwargs: Any) -> SignalScoutConfig:
@@ -253,6 +266,26 @@ async def test_non_scout_skills_are_ignored(ateam):
     assert count == 0
 
 
+@pytest.mark.django_db
+def test_register_missing_configs_stamps_scout_category():
+    # The "author a skill, get it on the Scouts tab" path: auto-registration stamps the server-owned
+    # `category` so a custom scout authored via the skills API surfaces in the skills UI.
+    org = Organization.objects.create(name="cat-stamp-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="cat-stamp-team")
+    with team_scope(team.id, canonical=True):
+        scout = _create_skill(team, "signals-scout-custom")
+        helper = _create_skill(team, "custom-helper")
+        assert scout.category == ""
+
+        register_missing_configs(team.id)
+
+        scout.refresh_from_db()
+        helper.refresh_from_db()
+        assert scout.category == "scout"
+        # Non-scout skills are left untouched.
+        assert helper.category == ""
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_config_whose_skill_is_gone_is_skipped(ateam):
@@ -391,7 +424,7 @@ async def test_per_team_tick_cap_defers_overflow(ateam):
             ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
         )
 
-    with patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TEAM_PER_TICK", 2):
+    with patch("products.signals.backend.scout_harness.team_limits.MAX_RUNS_PER_TEAM_PER_TICK", 2):
         planned = await _run_activity()
 
     assert sorted(p.skill_name for p in planned) == ["signals-scout-mid", "signals-scout-most"]
@@ -544,6 +577,64 @@ async def test_per_team_config_override_keyed_by_child_env_applies_to_parent(ate
     await sync_to_async(child.delete)()
 
 
+# ── Fleet-wide default config via the flag payload (default_team_config) ──────────
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"default_team_config": {"max_runs_per_tick": 1}}, {"max_runs_per_tick": 1}),
+        ('{"default_team_config": {"max_runs_per_tick": 2}}', {"max_runs_per_tick": 2}),  # JSON string payload
+        ({"default_team_config": "nope"}, {}),  # wrong type → empty
+        ({}, {}),  # absent key → no fleet default
+        (None, {}),  # no payload → no fleet default
+    ],
+)
+@pytest.mark.flag_off
+def test_default_team_config_parses_payload(payload, expected):
+    with patch(_PAYLOAD_PATH, return_value=payload):
+        assert _default_team_config(_read_flag_payload()) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "team_override_cap,expected_names",
+    [
+        # No per-team entry → the fleet-wide default_team_config (cap 1) binds.
+        (None, ["signals-scout-most"]),
+        # A valid per-team override beats the fleet default, so all three dispatch.
+        (3, ["signals-scout-least", "signals-scout-mid", "signals-scout-most"]),
+        # An invalid per-team override falls through to the fleet default (cap 1).
+        ("nope", ["signals-scout-most"]),
+    ],
+)
+async def test_default_team_config_resolution(ateam, team_override_cap, expected_names):
+    # A fleet-wide `default_team_config` caps every enrolled team at 1/tick; a per-team
+    # `team_configs` override takes precedence when present and valid, else the fleet default
+    # still binds. Three scouts due (10h/5h/2h overdue) make the resolved cap observable.
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        payload: dict[str, Any] = {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"max_runs_per_tick": 1},
+        }
+        if team_override_cap is not None:
+            payload["team_configs"] = {str(ateam.id): {"max_runs_per_tick": team_override_cap}}
+        return payload
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == sorted(expected_names)
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
@@ -561,6 +652,229 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
     )()
     assert fresh.enabled is False
     assert sorted(p.skill_name for p in planned) == ["signals-scout-existing"]
+
+
+# ── Seed posture via the flag (enabled_skills allowlist + interval) ───────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "default_cfg,team_cfg,skills,expected_enabled",
+    [
+        # An allowlist enables only the listed canonical scout; the rest seed disabled.
+        # (error-tracking / surveys are real on-disk canonical names, so the tag gates them.)
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": False, "signals-scout-surveys": False},
+        ),
+        # No allowlist → every scout enables (back-compat, unchanged from before seed posture).
+        (
+            {},
+            None,
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True},
+        ),
+        # A per-team override widens the fleet default for one team (close-partner case).
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            {"enabled_skills": ["signals-scout-general", "signals-scout-error-tracking"]},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True, "signals-scout-surveys": False},
+        ),
+        # A malformed per-team override falls back to the fleet default, not "no allowlist".
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            {"enabled_skills": "signals-scout-general"},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": False},
+        ),
+        # A hand-authored custom scout (no seeded_by tag) auto-enables even under an allowlist.
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-custom", False)],
+            {"signals-scout-general": True, "signals-scout-custom": True},
+        ),
+        # A duplicated canonical scout keeps the seeded_by tag but on a non-canonical name, so it's
+        # treated as custom and still auto-enables (not gated by the allowlist).
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-general-copy", True)],
+            {"signals-scout-general": True, "signals-scout-general-copy": True},
+        ),
+    ],
+)
+async def test_seed_posture_enabled_map(ateam, default_cfg, team_cfg, skills, expected_enabled):
+    # Which scouts seed enabled vs disabled, across allowlist / no-allowlist / per-team-override /
+    # malformed-override / custom-scout / duplicated-scout scenarios. `skills` is
+    # (name, seeded_with_harness_tag) pairs; only a tag AND an on-disk canonical name = gated.
+    for name, seeded in skills:
+        await database_sync_to_async(_create_skill)(ateam, name, seeded=seeded)
+
+    def _payload(*_a, **_k):
+        payload: dict[str, Any] = {"guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS]}
+        if default_cfg:
+            payload["default_team_config"] = default_cfg
+        if team_cfg is not None:
+            payload["team_configs"] = {str(ateam.id): team_cfg}
+        return payload
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {c.skill_name: c.enabled for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)}
+    )()
+    assert rows == expected_enabled
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "interval,expected",
+    [
+        (1440, 1440),  # in-bounds cadence is stamped on the auto-enabled scout
+        (5, None),  # below the 10-min model floor → ignored, model default kept
+        (99999, None),  # above the 43200-min ceiling → ignored, model default kept
+    ],
+)
+async def test_seed_enabled_interval_validates_bounds(ateam, interval, expected):
+    # enabled_interval_minutes sets the cadence on allowlisted scouts, but only within the model's
+    # 10–43200 bounds (get_or_create bypasses validators); out-of-range falls back to the default.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"], "enabled_interval_minutes": interval},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    general = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name="signals-scout-general")
+    )()
+    assert general.enabled is True
+    if expected is not None:
+        assert general.run_interval_minutes == expected
+    else:
+        # Unchanged from the model default (not the out-of-range value).
+        assert general.run_interval_minutes != interval
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
+    # Option B: a canonical scout that seeds DISABLED under the allowlist still gets the launch
+    # cadence stamped, so when the user later toggles it on it runs at the daily cadence, not the
+    # 3h model default. general is allowlisted (enabled); error-tracking is gated (disabled).
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {
+                "enabled_skills": ["signals-scout-general"],
+                "enabled_interval_minutes": 1440,
+            },
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {
+            c.skill_name: (c.enabled, c.run_interval_minutes)
+            for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
+        }
+    )()
+    assert rows["signals-scout-general"] == (True, 1440)
+    # Disabled, but already on the daily cadence — so enabling it later doesn't run it every 3h.
+    assert rows["signals-scout-error-tracking"] == (False, 1440)
+
+
+# ── Per-team daily run budget (max_runs_per_day) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, None),  # nothing set → unbounded (only the per-tick cap binds)
+        ({}, {"max_runs_per_day": 3}, 3),  # fleet default binds
+        ({7: {"max_runs_per_day": 10}}, {"max_runs_per_day": 3}, 10),  # per-team override wins
+        ({7: {"max_runs_per_day": "nope"}}, {"max_runs_per_day": 3}, 3),  # malformed team → fleet default
+        ({}, {"max_runs_per_day": 0}, None),  # non-positive → falls through to the constant (None)
+        ({}, {"max_runs_per_day": True}, None),  # bool rejected
+    ],
+)
+def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
+    assert _resolve_max_runs_per_day(7, team_configs, default_cfg) == expected
+
+
+def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:
+    return _DueRun(overdue_s=overdue_s, config_pk=skill_name, team_id=team_id, skill_name=skill_name)
+
+
+@pytest.mark.parametrize(
+    "default_cfg,runs_today,due_skills,expected",
+    [
+        # Budget 3, 2 already run today → 1 slot left, so only the most-overdue dispatches (the
+        # per-tick cap of 50 is nowhere near binding).
+        (
+            {"max_runs_per_day": 3},
+            {7: 2},
+            [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)],
+            ["signals-scout-most"],
+        ),
+        # Budget fully spent → 0 runs this tick; the empty team must not crash the round-robin.
+        ({"max_runs_per_day": 3}, {7: 3}, [("signals-scout-most", 10)], []),
+        # Pre-existing over-run (runs_today > budget) → still 0, no negative cap.
+        ({"max_runs_per_day": 3}, {7: 5}, [("signals-scout-most", 10)], []),
+        # No daily budget set → historical behaviour: every due run (within the per-tick cap) goes.
+        ({}, {7: 999}, [("signals-scout-a", 1), ("signals-scout-b", 2)], ["signals-scout-a", "signals-scout-b"]),
+    ],
+)
+def test_daily_budget_allocation(default_cfg, runs_today, due_skills, expected):
+    due = [_due_run(7, name, hours * 3600) for name, hours in due_skills]
+    selected = _allocate_tick_budget(due, {}, default_cfg, runs_today)
+    assert sorted(d.skill_name for d in selected) == sorted(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_daily_budget_bounds_dispatch_end_to_end(ateam):
+    # End-to-end through the activity: fleet daily budget 2, team already ran once today (the
+    # trailing-24h count is stubbed to 1) → only 1 slot left, so the single most-overdue scout
+    # dispatches regardless of the per-tick cap.
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"max_runs_per_day": 2},
+        }
+
+    with (
+        patch(_PAYLOAD_PATH, side_effect=_payload),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator._runs_today_by_team",
+            return_value={ateam.id: 1},
+        ),
+    ):
+        planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-most"]
 
 
 @pytest.mark.asyncio

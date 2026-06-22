@@ -82,6 +82,7 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    pub capture_v1_scatter_gather_min_batch: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -149,6 +150,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
+    capture_v1_scatter_gather_min_batch: usize,
 ) -> Router {
     let state = State {
         sink,
@@ -174,6 +176,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router,
+        capture_v1_scatter_gather_min_batch,
     };
 
     // Very permissive CORS policy, as old SDK versions

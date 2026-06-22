@@ -3,6 +3,10 @@ import { ReactNode, type CSSProperties, useEffect, useRef } from 'react'
 
 import { IconCode, IconDatabase, IconGraph, IconList, IconPencil, IconSparkles } from '@posthog/icons'
 
+import { Scene } from 'scenes/sceneTypes'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import {
     INSERT_MENU_GAP,
     INSERT_MENU_MAX_HEIGHT,
@@ -79,8 +83,12 @@ export function InsertMenu({
                                 )}
                                 key={command.key}
                                 aria-selected={command.key === selectedCommandKey}
+                                disabled={command.disabled}
                                 type="button"
                                 onClick={() => {
+                                    if (command.disabled) {
+                                        return
+                                    }
                                     command.run(targetNodeId)
                                     if (command.closeOnRun !== false) {
                                         onClose()
@@ -167,7 +175,9 @@ export function buildInsertCommands(
     focusInsertedText: (nodeId: string) => void,
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
-    openAIPrompt?: (nodeId: string) => void
+    openAIPrompt?: (nodeId: string) => void,
+    isAskAIDisabled?: boolean,
+    extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
     const commonCategory = 'Common'
 
@@ -226,12 +236,13 @@ export function buildInsertCommands(
         ? [
               {
                   key: 'ai-ask',
-                  label: 'Ask PostHog AI',
+                  label: 'Ask AI',
                   category: commonCategory,
-                  description: 'Ask PostHog AI to write or edit this notebook',
+                  description: 'Ask AI to write or edit this notebook',
                   aliases: ['ai', 'ask', 'posthog ai'],
                   icon: <IconSparkles />,
                   closeOnRun: false,
+                  disabled: isAskAIDisabled,
                   run: openAIPrompt,
               },
           ]
@@ -267,19 +278,6 @@ export function buildInsertCommands(
                                 { event: '$pageleave', kind: 'EventsNode' },
                             ],
                         },
-                    },
-                }),
-        },
-        {
-            key: 'query-saved-insight',
-            label: 'Saved insight',
-            category: 'Insight',
-            icon: <IconGraph />,
-            run: (targetNodeId) =>
-                insertComponent(targetNodeId, 'Query', {
-                    query: {
-                        kind: 'SavedInsightNode',
-                        shortId: '',
                     },
                 }),
         },
@@ -320,7 +318,19 @@ export function buildInsertCommands(
             label: 'People',
             category: 'Data',
             icon: <IconList />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'Person'),
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'DataTableNode',
+                        source: {
+                            kind: 'ActorsQuery',
+                            select: ['person_display_name -- Person', 'id', 'created_at'],
+                            // ActorsQuery hits ClickHouse, which requires a product query tag.
+                            // Match the notebook query tagging convention (see NotebookSQLEditor).
+                            tags: { productKey: ProductKey.NOTEBOOKS, scene: Scene.Notebook },
+                        },
+                    },
+                }),
         },
         {
             key: 'data-session-recordings',
@@ -490,6 +500,7 @@ export function buildInsertCommands(
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,
+        ...extraCommands,
     ]
 }
 

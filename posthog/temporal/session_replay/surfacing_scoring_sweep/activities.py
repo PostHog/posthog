@@ -53,11 +53,13 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     TARGET_CHUNK_SIZE,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
+    ID_COLUMNS,
     MODEL_FEATURE_SCHEMA_VERSION,
     FeatureValidationError,
     out_of_contract_row_mask,
     validate_features,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import record_backlog_estimate
 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import get_feature_names, predict
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import (
     ChunkResult,
@@ -97,6 +99,7 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 
     sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
     estimated_total = sampled * of_chunks
+    record_backlog_estimate(estimated_total)
 
     chunks = [
         ChunkSpec(
@@ -121,6 +124,15 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 # --------------------------------------------------------------------------- #
 
 
+def _build_features_dataframe(rows: list[tuple], columns: list[str]) -> pd.DataFrame:
+    """Coerce all-NULL feature columns (driver returns all-`None` → pandas `object`) to float so they pass `validate_features`; typed columns are left untouched so genuine dtype drift still fails the chunk."""
+    df = pd.DataFrame(rows, columns=pd.Index(columns))
+    for col in df.columns:
+        if col not in ID_COLUMNS and df[col].dtype == object and df[col].isna().all():
+            df[col] = df[col].astype(float)
+    return df
+
+
 def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
     """Run the feature SELECT and return a pandas DataFrame."""
     result = cast(
@@ -142,7 +154,7 @@ def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
     )
     rows, column_metadata = result
     columns = [name for name, _type in column_metadata]
-    return pd.DataFrame(rows, columns=pd.Index(columns))
+    return _build_features_dataframe(rows, columns)
 
 
 def _build_partial_row(

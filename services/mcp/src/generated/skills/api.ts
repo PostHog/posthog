@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,6 +17,12 @@ export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
+    category: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.'
+        ),
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -65,7 +71,10 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .max(llmSkillsCreateBodyCompatibilityMax)
             .optional()
             .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-        allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+        allowed_tools: zod
+            .array(zod.string())
+            .optional()
+            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
         files: zod
             .array(
@@ -88,6 +97,30 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
     })
     .describe('Create serializer — accepts bundled files as write-only input on POST.')
+
+/**
+ * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+ *
+ * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+ */
+export const LlmSkillsMarketplaceInstallCommandCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault = false
+
+export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.object({
+    rotate: zod
+        .boolean()
+        .default(llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault)
+        .describe(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential."
+        ),
+})
 
 export const llmSkillsNameRetrievePathSkillNameRegExp = new RegExp('^[^/]+$')
 
@@ -165,7 +198,10 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmSkillsNamePartialUpdateBodyCompatibilityMax)
         .optional()
         .describe('Environment requirements.'),
-    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+    allowed_tools: zod
+        .array(zod.string())
+        .optional()
+        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(

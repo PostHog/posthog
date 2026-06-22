@@ -118,6 +118,11 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             # "Failed to refresh installation token" prefix would also swallow transient 5xx/429
             # refresh failures, which must stay retryable.
             'Failed to refresh installation token: {"message":"Not Found"': "Your GitHub App installation could not be found. It may have been uninstalled or had its access revoked. Please reconnect your GitHub account.",
+            # GitHub suspends an App installation (org owner action, or GitHub itself) and returns
+            # a 403 "This installation has been suspended" when minting a token. The custom
+            # GitHubIntegrationError message isn't a requests "403 Client Error" string, so it
+            # falls through the status-text keys above. Retrying can't unsuspend it.
+            "This installation has been suspended": "Your GitHub App installation has been suspended. Re-enable it from your GitHub organization's installed GitHub Apps settings, then reconnect your GitHub account.",
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
             "Missing GitHub integration ID": "No GitHub account is connected. Please reconnect your GitHub account.",

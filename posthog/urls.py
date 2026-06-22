@@ -105,7 +105,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     """
     import json
 
-    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+    from products.tasks.backend.facade.webhooks import get_github_webhook_secret, verify_github_signature
 
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -131,7 +131,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return dispatch_github_event(request, event_type, payload)
 
     if event_type == "pull_request":
-        from products.tasks.backend.webhooks import handle_pull_request_event
+        from products.tasks.backend.facade.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
 
@@ -278,7 +278,7 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
-    path("api/customer_analytics/", include("products.customer_analytics.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),

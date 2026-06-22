@@ -37,7 +37,7 @@ from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
@@ -414,7 +414,7 @@ class Team(UUIDTClassicModel):
     conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
-    # Proactive tasks (#team-signals)
+    # Proactive tasks (#team-self-driving)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
     # Surveys
@@ -736,9 +736,7 @@ class Team(UUIDTClassicModel):
 
     @cached_property
     def customer_analytics_config(self):
-        from products.customer_analytics.backend.models.team_customer_analytics_config import (
-            TeamCustomerAnalyticsConfig,
-        )
+        from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
         return get_or_create_team_extension(
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}

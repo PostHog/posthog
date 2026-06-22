@@ -258,6 +258,7 @@ jobs:
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
+                        - 'frontend/src/lib/agentScopes.generated.ts'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
@@ -297,7 +298,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -407,21 +408,23 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+
+            - name: Restore test durations from cache
+              # Shard counts are derived from .test_durations (Amdahl). Restore the newest
+              # cache (refreshed daily by ci-backend-update-test-timing.yml) over the
+              # committed file so counts track current timings; on a miss the committed file
+              # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Discover products to test
               id: discover
@@ -665,21 +668,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -754,10 +746,25 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
-            - name: Register Temporal search attributes
-              run: |
-                  bin/wait-for-docker temporal
-                  python manage.py register_temporal_search_attributes
+            - name: Wait for Temporal
+              # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
+              # via sync_connect() in their tests, so keep a readiness gate before tests run.
+              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # The expensive registration command this replaces is gone — no product test
+              # needs the custom search attributes against the container.
+              run: bin/wait-for-docker temporal
+
+            - name: Restore test durations from cache
+              # pytest-split distributes this product's tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
 
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -1675,25 +1682,10 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Wait for Docker services
               env:
@@ -1806,7 +1798,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
+                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -2231,6 +2223,36 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
+            - name: Restore test durations from cache
+              # pytest-split distributes Core/Temporal tests across shards using
+              # .test_durations. Restore the newest cache (refreshed daily) over the committed
+              # file; a miss leaves the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
+            - name: Restore per-segment test durations from cache
+              # File-granularity sharding plans from a per-segment file (.test_durations.core /
+              # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
+              # union file's cross-segment contamination. These are cache-only (NOT committed),
+              # written by the daily timing-update job on master so PR runs can restore them.
+              # On a miss the file is simply absent and the "Run … tests" step omits
+              # --split-plan-path, falling back to scoping the union (still correct, pre-fix
+              # balance). The posthog-segment-durations- prefix is deliberately distinct from
+              # the union's posthog-test-durations- so the two never shadow each other.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -2290,6 +2312,27 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to Core's clean per-segment durations
+                      # (restored from the daily master cache) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations's
+                      # cross-segment tests — see AGENTS.md (CI). Only persons-on-events-off,
+                      # non-compat Core matches the .core run-set; POE-on and compat run a
+                      # different/narrower scope, and a cache miss with no committed file all
+                      # fall back to scoping the union.
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
+                      fi
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
@@ -2323,7 +2366,8 @@ jobs:
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
-                        --splitting-algorithm=duration_based_chunks \
+                        --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                        "${SPLIT_GRANULARITY[@]}" \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
@@ -2378,6 +2422,25 @@ jobs:
                   TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to this segment's clean per-segment durations
+                      # (restored from the daily master cache) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations —
+                      # see AGENTS.md (CI). A missing file (cache miss, no fallback) is omitted
+                      # and the plugin falls back to scoping the union.
+                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
+                      fi
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
                       # timing data with a partial run), no --reruns (fail loud; the ready
@@ -2398,7 +2461,8 @@ jobs:
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
-                          --splitting-algorithm=duration_based_chunks \
+                          --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                          "${SPLIT_GRANULARITY[@]}" \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
@@ -2983,15 +3047,14 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Master pushes always; PRs only when labelled `capture-test-timings`. Skip forks (no secrets access).
+        # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             always() &&
             github.repository == 'PostHog/posthog' &&
             (
             (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            contains(github.event.pull_request.labels.*.name, 'capture-test-timings'))
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.

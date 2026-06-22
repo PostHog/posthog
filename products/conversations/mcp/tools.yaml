@@ -124,9 +124,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-    conversations-tickets-suggest-reply-create:
-        operation: conversations_tickets_suggest_reply_create
-        enabled: false
     conversations-tickets-unread-count-retrieve:
         operation: conversations_tickets_unread_count_retrieve
         enabled: false

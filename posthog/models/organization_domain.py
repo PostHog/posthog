@@ -2,7 +2,7 @@ import secrets
 from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
@@ -11,6 +11,7 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.identity_provider_config import IdentityProviderConfig, sync_identity_provider_config_from_domain
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -215,8 +216,29 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
 
+    # ---- IdP config (new home for SAML/SCIM/ID-JAG settings) ----
+    # Temporary foreign key to the backing `IdentityProviderConfig` model. Eventually
+    # will be removed once the migration is complete.
+    # The IdP fields above are being migrated to `IdentityProviderConfig`, which can be
+    # shared by multiple domains. Until reads are switched over, this model remains the
+    # source of truth and `save()` mirrors the fields into the linked config.
+    identity_provider_config = models.ForeignKey(
+        IdentityProviderConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="domains",
+        help_text="IdP configuration (SAML/SCIM/XAA) backing this domain.",
+    )
+
     class Meta:
         verbose_name = "domain"
+
+    def save(self, *args, **kwargs) -> None:
+        # Atomic so the domain write and the mirrored IdP config write cannot diverge.
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            sync_identity_provider_config_from_domain(self)
 
     def clean(self) -> None:
         # Validate ID-JAG IdP URLs at write time as a UX guard against the
@@ -239,6 +261,20 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
             allowed, reason = is_url_allowed(url)
             if not allowed:
                 errors[field_name] = f"URL is not allowed: {reason}"
+        # A linked IdP config must belong to the same organization as the domain. Without
+        # this, an admin could link a domain to another org's config and have its IdP
+        # settings silently overwritten on save (see `sync_identity_provider_config_from_domain`).
+        if self.identity_provider_config_id is not None:
+            try:
+                config = self.identity_provider_config
+            except IdentityProviderConfig.DoesNotExist:
+                config = None
+            if config is None:
+                errors["identity_provider_config"] = "IdP configuration does not exist."
+            elif config.organization_id != self.organization_id:
+                errors["identity_provider_config"] = (
+                    "IdP configuration must belong to the same organization as the domain."
+                )
         if errors:
             raise ValidationError(errors)
         super().clean()

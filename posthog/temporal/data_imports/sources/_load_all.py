@@ -18,6 +18,7 @@ from .adroll.source import AdRollSource
 from .adyen.source import AdyenSource
 from .agilecrm.source import AgileCRMSource
 from .aha.source import AhaSource
+from .ahrefs.source import AhrefsSource
 from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airtable.source import AirtableSource
@@ -41,6 +42,7 @@ from .appfigures.source import AppfiguresSource
 from .appfollow.source import AppfollowSource
 from .apple_search_ads.source import AppleSearchAdsSource
 from .appsflyer.source import AppsFlyerSource
+from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
 from .asana.source import AsanaSource
 from .ashby.source import AshbySource
@@ -97,6 +99,7 @@ from .chargebee.source import ChargebeeSource
 from .chargedesk.source import ChargedeskSource
 from .chargify.source import ChargifySource
 from .chartmogul.source import ChartMogulSource
+from .chatwoot.source import ChatwootSource
 from .checkout_com.source import CheckoutComSource
 from .chift.source import ChiftSource
 from .chorus.source import ChorusSource
@@ -305,6 +308,7 @@ from .leadfeeder.source import LeadfeederSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
+from .lightfield.source import LightfieldSource
 from .lightspeed_retail.source import LightspeedRetailSource
 from .linear.source import LinearSource
 from .linkedin_ads.source import LinkedInAdsSource
@@ -353,7 +357,9 @@ from .n8n.source import N8nSource
 from .nasa.source import NasaSource
 from .navan.source import NavanSource
 from .nebius_ai.source import NebiusAISource
+from .neon.source import NeonSource
 from .netsuite.source import NetSuiteSource
+from .new_relic.source import NewRelicSource
 from .new_york_times.source import NewYorkTimesSource
 from .news_api.source import NewsApiSource
 from .newsdata.source import NewsDataSource
@@ -448,6 +454,7 @@ from .qualtrics.source import QualtricsSource
 from .quickbooks.source import QuickBooksSource
 from .railz.source import RailzSource
 from .ramp.source import RampSource
+from .razorpay.source import RazorpaySource
 from .rd_station_marketing.source import RDStationMarketingSource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource
@@ -558,6 +565,7 @@ from .ticketmaster.source import TicketmasterSource
 from .tickettailor.source import TicketTailorSource
 from .ticktick.source import TickTickSource
 from .tiktok_ads.source import TikTokAdsSource
+from .tile38.source import Tile38Source
 from .timely.source import TimelySource
 from .tinyemail.source import TinyemailSource
 from .tmdb.source import TMDbSource
