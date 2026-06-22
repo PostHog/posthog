@@ -1100,6 +1100,51 @@ class TestDirectPostgresQuery(APIBaseTest):
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
 
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_handles_statements_without_result_set(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        # ATTACH, SET and other utility/DDL statements return no result set: cursor.description
+        # is None and calling fetchall() on them raises ProgrammingError. They must be reported
+        # as a successful, empty result instead of a spurious error.
+        mocked_cursor = MagicMock()
+        mocked_cursor.description = None
+        mocked_cursor.fetchall.side_effect = psycopg.ProgrammingError("the last operation didn't produce a result")
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        executor = HogQLQueryExecutor(
+            query="SET TIME ZONE 'UTC'",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        response = executor.execute()
+
+        self.assertIsNone(response.error)
+        self.assertEqual(response.results, [])
+        self.assertEqual(response.columns, [])
+        mocked_cursor.fetchall.assert_not_called()
+        mocked_cursor.execute.assert_called_once_with("SET TIME ZONE 'UTC'", None)
+
     @parameterized.expand(
         [
             ("explicit_read_write", "COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;"),

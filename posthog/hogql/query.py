@@ -768,8 +768,12 @@ class HogQLQueryExecutor:
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_sql, self.direct_values or None)
-                            results = cursor.fetchall()
+                            # Statements that don't produce a result set (e.g. ATTACH, SET, other
+                            # DDL/utility commands) leave cursor.description as None; calling
+                            # fetchall() on them raises ProgrammingError. Treat them as a
+                            # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
+                            results = cursor.fetchall() if cursor.description is not None else []
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if self.debug:
