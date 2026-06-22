@@ -76,18 +76,27 @@ struct BenchConfig {
     seed: u64,
     hours: usize,
     cache_cap: usize,
+    cap_eventdefs: usize,
+    cap_eventprops: usize,
+    cap_propdefs: usize,
     compaction_batch_size: usize,
     emit_json: bool,
 }
 
 impl BenchConfig {
     fn from_env() -> Self {
+        // Per-subcache caps default to the shared cap; set them individually to test allocating a
+        // fixed memory budget by cardinality (eventprops/propdefs need far more than eventdefs).
+        let cache_cap = env_usize("PROPDEFS_BENCH_CACHE_CAP", 1_000_000);
         Self {
             num_events: env_usize("PROPDEFS_BENCH_EVENTS", 300_000),
             num_teams: env_usize("PROPDEFS_BENCH_TEAMS", 50),
             seed: env_usize("PROPDEFS_BENCH_SEED", 42) as u64,
             hours: env_usize("PROPDEFS_BENCH_HOURS", 6),
-            cache_cap: env_usize("PROPDEFS_BENCH_CACHE_CAP", 1_000_000),
+            cache_cap,
+            cap_eventdefs: env_usize("PROPDEFS_BENCH_CAP_EVENTDEFS", cache_cap),
+            cap_eventprops: env_usize("PROPDEFS_BENCH_CAP_EVENTPROPS", cache_cap),
+            cap_propdefs: env_usize("PROPDEFS_BENCH_CAP_PROPDEFS", cache_cap),
             // Mirrors the producer's bounded compaction batch (`compaction_batch_size`). Bounded
             // so repeats spanning a flush reach the shared cache, where eviction can re-issue —
             // without this the unbounded window hides all cache-capacity effects.
@@ -373,7 +382,7 @@ fn main() {
     let bytes_per_event = phase_a_bytes as f64 / cfg.num_events as f64;
 
     // ---- Phase B: dedup effectiveness through the real Cache ----
-    let cache = Cache::new(cfg.cache_cap, cfg.cache_cap, cfg.cache_cap);
+    let cache = Cache::new(cfg.cap_eventdefs, cfg.cap_eventprops, cfg.cap_propdefs);
     let mut compaction: AHashSet<Update> = AHashSet::with_capacity(1 << 20);
     let mut stats = DedupStats::default();
     let dedup_start = Instant::now();

@@ -37,6 +37,7 @@ Tunables (env):
 | `PROPDEFS_BENCH_HOURS` | 6 | simulated hours for last_seen_at churn |
 | `PROPDEFS_BENCH_CACHE_CAP` | 1000000 | per-subcache capacity (sweep eviction effects) |
 | `PROPDEFS_BENCH_COMPACTION` | 10000 | producer compaction-window size (matches prod `compaction_batch_size`); bounded so cache eviction is actually exercised |
+| `PROPDEFS_BENCH_CAP_EVENTDEFS` / `_EVENTPROPS` / `_PROPDEFS` | = `CACHE_CAP` | per-subcache capacities; set individually to test allocating a fixed memory budget by cardinality |
 | `PROPDEFS_BENCH_FLOOR_SECS` | 3600 | last_seen_at floor period for Phase C (3600 = historical hourly baseline; 86400 = current daily default) |
 | `PROPDEFS_BENCH_JSON` | unset | also print one `BENCH_JSON {...}` line |
 
@@ -137,9 +138,17 @@ Dedup-focused (primary):
   cliff: once a subcache drops below its working set (~11k distinct eventprops here), `writes_per_1k`
   explodes — 70 (≥20k cap) → 98 (10k) → **4,432 (5k) → 9,779 (1k)**, a 60-140× re-issue storm, with
   `dedup_ratio` collapsing 0.998 → 0.78. Real production risk: an undersized cache amplifies the slow
-  173 ms eventproperty writes. Next: confirm prod working-set cardinality vs the 1M-per-subcache
-  default, then size/weight the subcaches (eventprops/propdefs need far more than eventdefs) or adopt
-  a hybrid (foyer). The bench can now score these directly.
+  173 ms eventproperty writes.
+  **iter6 quantified the fix:** per-subcache caps (`PROPDEFS_BENCH_CAP_*`) now let the bench split a
+  fixed budget. At the **same** ~22k-entry budget (just above the 21,081 working set), equal split
+  (7333 each) gives `writes_per_1k` 1,556 while cardinality-weighted (1000/11500/9500) gives 70.27 —
+  a **22× write reduction for the same memory.** Structural cardinality order is
+  eventprops ≥ propdefs ≫ eventdefs, so the equal 1M-each prod default is provably wasteful under
+  any memory pressure. **Actionable in prod via the existing `CACHE_CONSUMED` gauge** (len/capacity
+  per subcache, emitted in `update_consumer_loop`): if eventprops/propdefs approach 1.0 they are
+  evicting — size them up (or shift budget off the low-cardinality eventdefs cache). Defaults not
+  changed here: the absolute sizing needs prod cardinality/memory context, which `CACHE_CONSUMED`
+  provides. A hybrid cache (foyer) remains a later option if a single tier can't hold the working set.
 
 Throughput-focused:
 
@@ -278,6 +287,11 @@ baseline; everything worth keeping lands here and is pushed.
   baseline is unchanged (70.27, dedup 0.998412 — no disruption), but undersized caps now reveal a
   60-140× re-issue cliff. Tests/clippy green. Pivots the loop toward the dedup/cache work the bench
   can now actually score.
+- **iter6 — KEPT (bench tooling + D4 finding).** Added per-subcache caps (`PROPDEFS_BENCH_CAP_*`,
+  default to the shared cap → baseline unchanged). At a fixed ~22k budget, equal split gives
+  `writes_per_1k` 1,556 vs cardinality-weighted 70.27 — a **22× write reduction for the same
+  memory**. Establishes the D4 lever: size subcaches by cardinality (eventprops ≥ propdefs ≫
+  eventdefs), actionable in prod via the existing `CACHE_CONSUMED` gauge. Tests/clippy green.
 
 ## The benchmarks
 
