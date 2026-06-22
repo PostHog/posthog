@@ -552,6 +552,37 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             result[display_name].append((column_name, data_type, is_nullable == "YES"))
         return dict(result)
 
+    def get_column_comments(
+        self,
+        conn: pymysql.Connection,
+        config: MySQLSourceConfig,
+        tables: list[str],
+    ) -> dict[str, dict[str, str]]:
+        """Harvest native `COLUMN_COMMENT` values. Best-effort; never breaks discovery."""
+        params: dict[str, Any] = {"schema": config.schema}
+        names_filter = ""
+        if tables:
+            params["names"] = tuple(tables)
+            names_filter = "AND table_name IN %(names)s"
+
+        result: dict[str, dict[str, str]] = collections.defaultdict(dict)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT table_name, column_name, column_comment"
+                    " FROM information_schema.columns"
+                    f" WHERE table_schema = %(schema)s {names_filter}",
+                    params,
+                )
+                rows = cursor.fetchall()
+            for table_name, column_name, column_comment in rows:
+                if column_comment:
+                    result[table_name][column_name] = column_comment
+        except Exception as e:
+            structlog.get_logger().warning("Failed to fetch MySQL column comments", exc_info=e)
+            return {}
+        return dict(result)
+
     def get_primary_keys(
         self,
         conn: pymysql.Connection,

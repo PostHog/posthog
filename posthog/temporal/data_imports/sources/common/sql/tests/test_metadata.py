@@ -50,6 +50,20 @@ class TestSqlSchemaMetadata:
         assert metadata["source_schema"] == "analytics"
         assert metadata["source_table_name"] == "events"
 
+    def test_column_descriptions_added_when_present(self) -> None:
+        metadata = sql_schema_metadata(
+            [("amount", "integer", False), ("note", "text", True)],
+            column_descriptions={"amount": "charge amount in cents"},
+        )
+        by_name = {column["name"]: column for column in metadata["columns"]}
+        assert by_name["amount"]["description"] == "charge amount in cents"
+        # Columns without a comment carry no description key.
+        assert "description" not in by_name["note"]
+
+    def test_empty_column_descriptions_add_no_keys(self) -> None:
+        metadata = sql_schema_metadata([("id", "integer", False)], column_descriptions={"id": ""})
+        assert "description" not in metadata["columns"][0]
+
     def test_preserves_driver_native_casing(self) -> None:
         # BigQuery returns uppercase types, Postgres lowercase. The metadata must round-trip
         # whatever the driver returned — no normalization.

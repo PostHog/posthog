@@ -36,6 +36,8 @@ class SourceSchema:
     supports_xmin: bool = False
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
+    # Native column comments from the source DB, keyed by column name. Empty when unsupported.
+    column_descriptions: dict[str, str] = field(default_factory=dict)
     description: str | None = None
     source_catalog: str | None = None
     source_schema: str | None = None

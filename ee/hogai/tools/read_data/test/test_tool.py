@@ -19,6 +19,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from posthog.models.scoping import team_scope
+
 from products.ai_observability.backend.summarization.llm.schema import (
     InterestingNote,
     SummarizationResponse,
@@ -31,7 +33,10 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
@@ -779,6 +784,105 @@ class TestReadDataTool(BaseTest):
 
         assert "Table `nonexistent_table` not found" in result
         assert "Available tables include:" in result
+
+    async def test_list_tables_includes_warehouse_table_descriptions(self):
+        """data_warehouse_schema surfaces the source-schema description inline next to the table name."""
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        table = await DataWarehouseTable.objects.acreate(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        source = await ExternalDataSource.objects.acreate(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        await ExternalDataSchema.objects.acreate(
+            name="stripe_customers",
+            team=self.team,
+            source=source,
+            table=table,
+            description="Stripe customer records, one row per customer",
+        )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        assert "- stripe_customers — Stripe customer records, one row per customer" in result
+
+    async def test_table_schema_includes_column_descriptions_and_foreign_keys(self):
+        """data_warehouse_table weaves in per-column annotations and the foreign-key graph."""
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        table = await DataWarehouseTable.objects.acreate(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True},
+                "customer_id": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
+            },
+        )
+        source = await ExternalDataSource.objects.acreate(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        await ExternalDataSchema.objects.acreate(
+            name="stripe_charges",
+            team=self.team,
+            source=source,
+            table=table,
+            description="Stripe charges",
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "customer_id", "target_table": "stripe_customers", "target_column": "id"}
+                    ]
+                }
+            },
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await WarehouseColumnAnnotation.objects.acreate(
+                team=self.team,
+                table=table,
+                column_name="amount",
+                description="charge amount in cents",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+
+        assert "Table `stripe_charges` — Stripe charges with fields:" in result
+        assert "- amount (integer) — charge amount in cents" in result
+        assert "Foreign keys (use these to join related tables):" in result
+        assert "- customer_id → stripe_customers.id" in result
 
     async def test_read_feature_flag_by_id(self):
         """Test reading a feature flag by its numeric ID."""

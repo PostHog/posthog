@@ -16983,6 +16983,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `native_comment` - Native comment
+     * * `ai_generated` - AI generated
+     * * `user_edited` - User edited
+     */
+    export type DescriptionSourceEnum = typeof DescriptionSourceEnum[keyof typeof DescriptionSourceEnum];
+
+
+    export const DescriptionSourceEnum = {
+      NativeComment: 'native_comment',
+      AiGenerated: 'ai_generated',
+      UserEdited: 'user_edited',
+    } as const;
+
+    /**
      * * `update_content` - update_content
      * * `update_column` - update_column
      * * `update_row` - update_row
@@ -33391,6 +33405,38 @@ export namespace Schemas {
       results: ViewLink[];
     }
 
+    export interface WarehouseColumnAnnotation {
+      readonly id: string;
+      /** ID of the data warehouse table this annotation describes. */
+      table: string;
+      /** Column this annotation describes. Empty string denotes the table-level description. */
+      column_name?: string;
+      /** Human-readable description of what this table or column means. */
+      description: string;
+      /** Where the description came from: native_comment (the source database's own column comment), ai_generated (drafted by an LLM), or user_edited (written or edited by a user).
+       *
+       * * `native_comment` - Native comment
+       * * `ai_generated` - AI generated
+       * * `user_edited` - User edited */
+      readonly description_source: DescriptionSourceEnum;
+      /** Model used when the description was AI-generated, otherwise null. */
+      readonly ai_model: string;
+      /** True once a user has edited this annotation; such rows are never overwritten. */
+      readonly is_user_edited: boolean;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedWarehouseColumnAnnotationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseColumnAnnotation[];
+    }
+
     export interface WebAnalyticsFilterPreset {
       readonly id: string;
       readonly short_id: string;
@@ -40202,6 +40248,29 @@ export namespace Schemas {
       /** @maxLength 400 */
       field_name?: string;
       configuration?: unknown;
+    }
+
+    export interface PatchedWarehouseColumnAnnotation {
+      readonly id?: string;
+      /** ID of the data warehouse table this annotation describes. */
+      table?: string;
+      /** Column this annotation describes. Empty string denotes the table-level description. */
+      column_name?: string;
+      /** Human-readable description of what this table or column means. */
+      description?: string;
+      /** Where the description came from: native_comment (the source database's own column comment), ai_generated (drafted by an LLM), or user_edited (written or edited by a user).
+       *
+       * * `native_comment` - Native comment
+       * * `ai_generated` - AI generated
+       * * `user_edited` - User edited */
+      readonly description_source?: DescriptionSourceEnum;
+      /** Model used when the description was AI-generated, otherwise null. */
+      readonly ai_model?: string;
+      /** True once a user has edited this annotation; such rows are never overwritten. */
+      readonly is_user_edited?: boolean;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedWebAnalyticsFilterPreset {
@@ -62365,6 +62434,21 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WarehouseColumnAnnotationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return annotations for this data warehouse table.
+     */
+    table_id?: string;
     };
 
     export type WarehouseModelPathsListParams = {

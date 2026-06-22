@@ -68,8 +68,8 @@ This tool should be used for direct retrieval (by ID, name, etc.). Use the searc
 Read the SQL ClickHouse schema (tables, views, and columns) for the user's data.
 
 ## Available operations:
-- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names only). Use this first to see what data is available.
-- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view. Use this after `data_warehouse_schema` to get details on specific tables you need.
+- `data_warehouse_schema`: Returns core PostHog tables (events, groups, persons, sessions) with their full schemas, plus a list of available data warehouse tables and views (names, with a semantic description where one is available). Use this first to see what data is available.
+- `data_warehouse_table`: Returns the full schema for a specific data warehouse table or view, including per-column descriptions and the foreign-key graph where available. Use this after `data_warehouse_schema` to get details on specific tables you need.
 
 You MUST use this tool when:
 - Working with SQL.
@@ -178,5 +178,6 @@ READ_DATA_WAREHOUSE_SCHEMA_PROMPT = """
 
 <system_reminder>
 Use the `read_data` tool with the `data_warehouse_table` kind to get column and relationship details for a specific table.
+Descriptions shown after a `—` are semantic hints about what the data means (sourced from the database's own column comments, generated from the schema and business context, or written by the user). Use them to pick the right tables and columns and to join related tables via the listed foreign keys, but always confirm against the actual column types.
 </system_reminder>
 """.strip()

@@ -48,6 +48,10 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
 )
+from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    EnrichTableSemanticsInputs,
+    EnrichTableSemanticsWorkflow,
+)
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -482,6 +486,22 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
                 )
+
+            # Generate semantic descriptions for the synced table (gated by feature flag inside the
+            # activity, and idempotent — it no-ops once a table is enriched). Fire-and-forget on the
+            # signals queue so it never blocks or fails the import.
+            await workflow.start_child_workflow(
+                EnrichTableSemanticsWorkflow.run,
+                EnrichTableSemanticsInputs(
+                    team_id=inputs.team_id,
+                    schema_id=inputs.external_data_schema_id,
+                ),
+                id=f"enrich-warehouse-table-semantics-{job_id}",
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                execution_timeout=dt.timedelta(minutes=30),
+            )
 
             # Create source templates
             await workflow.execute_activity(

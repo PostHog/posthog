@@ -38,6 +38,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
+from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema, WarehouseColumnAnnotation
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
@@ -467,16 +468,62 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         views = database.get_view_names()
         system_tables = database.get_system_table_names()
 
+        semantics = self._warehouse_table_semantics(set(warehouse_tables))
+
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
+
+        def listify_warehouse(items: list[str]) -> str:
+            lines: list[str] = []
+            for item in sorted(items):
+                description = (semantics.get(item) or {}).get("description")
+                lines.append(f"- {item} — {description}" if description else f"- {item}")
+            return "\n".join(lines)
 
         return format_prompt_string(
             READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
-            data_warehouse_tables=listify(warehouse_tables),
+            data_warehouse_tables=listify_warehouse(warehouse_tables),
             system_tables=listify(system_tables),
             data_warehouse_views=listify(views),
         )
+
+    def _warehouse_table_semantics(self, table_names: set[str]) -> dict[str, dict]:
+        """Map warehouse table name -> {description, label, columns: {col: desc}, foreign_keys}.
+
+        Pulls the semantic context we already store — the source-table description/label and the
+        foreign-key graph on `ExternalDataSchema`, plus any per-column `WarehouseColumnAnnotation`
+        rows — so the agent sees what the data means, not just its column types.
+        """
+        if not table_names:
+            return {}
+
+        team_id = self._team.pk
+        tables = list(DataWarehouseTable.objects.filter(team_id=team_id, name__in=table_names, deleted=False))
+        if not tables:
+            return {}
+
+        table_ids = [table.id for table in tables]
+        schemas_by_table_id = {
+            schema.table_id: schema
+            for schema in ExternalDataSchema.objects.filter(team_id=team_id, table_id__in=table_ids, deleted=False)
+        }
+        # WarehouseColumnAnnotation is fail-closed, so query it through for_team rather than a prefetch.
+        annotations_by_table_id: dict[UUID, dict[str, str]] = {}
+        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id__in=table_ids):
+            annotations_by_table_id.setdefault(annotation.table_id, {})[annotation.column_name] = annotation.description
+
+        result: dict[str, dict] = {}
+        for table in tables:
+            schema = schemas_by_table_id.get(table.id)
+            annotations = annotations_by_table_id.get(table.id, {})
+            result[table.name] = {
+                "description": (schema.description if schema else None) or annotations.get(""),
+                "label": schema.label if schema else None,
+                "columns": {name: desc for name, desc in annotations.items() if name},
+                "foreign_keys": schema.foreign_keys if schema else None,
+            }
+        return result
 
     @database_sync_to_async
     def _build_table_schema(self, database: Database, hogql_context: HogQLContext, table_name: str) -> str:
@@ -507,10 +554,28 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             return f"Could not serialize schema for table `{table_name}`."
 
         table = serialized[table_name]
-        lines = [f"Table `{table_name}` with fields:"]
+        semantics = self._warehouse_table_semantics({table_name}).get(table_name) or {}
+        column_descriptions: dict[str, str] = semantics.get("columns") or {}
+
+        header = f"Table `{table_name}`"
+        if semantics.get("description"):
+            header += f" — {semantics['description']}"
+        lines = [f"{header} with fields:"]
+
         raw_fields = database.get_table(table_name).fields
         for field in table.fields.values():
-            lines.append(self._format_schema_field(field, raw_fields.get(field.name)))
+            line = self._format_schema_field(field, raw_fields.get(field.name))
+            description = column_descriptions.get(field.name)
+            if description:
+                line += f" — {description}"
+            lines.append(line)
+
+        foreign_keys = semantics.get("foreign_keys")
+        if foreign_keys:
+            lines.append("")
+            lines.append("Foreign keys (use these to join related tables):")
+            for fk in foreign_keys:
+                lines.append(f"- {fk.get('column')} → {fk.get('target_table')}.{fk.get('target_column')}")
 
         return "\n".join(lines)
 

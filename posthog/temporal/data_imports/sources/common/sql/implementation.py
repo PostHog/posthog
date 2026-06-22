@@ -163,6 +163,20 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
     ) -> dict[str, list[tuple[str, str, str]]]:
         return {}
 
+    def get_column_comments(
+        self,
+        conn: ConnT,
+        config: ConfigT,
+        tables: list[str],
+    ) -> dict[str, dict[str, str]]:
+        """Return `{table_name: {column_name: comment}}` for columns that carry a native comment.
+
+        Source databases let users document columns (Postgres `COMMENT ON COLUMN`, MySQL
+        `COLUMN_COMMENT`, Snowflake `COMMENT`); harvesting them gives the agent free, authoritative
+        semantic context. Drivers opt in by overriding; the base skips the feature.
+        """
+        return {}
+
     def get_source_metadata(
         self,
         conn: ConnT,

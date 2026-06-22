@@ -106,6 +106,54 @@ export const QueryTabStatePartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod.object({
+    table: zod.uuid().describe('ID of the data warehouse table this annotation describes.'),
+    column_name: zod
+        .string()
+        .optional()
+        .describe('Column this annotation describes. Empty string denotes the table-level description.'),
+    description: zod.string().describe('Human-readable description of what this table or column means.'),
+})
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const WarehouseColumnAnnotationsUpdateBody = /* @__PURE__ */ zod.object({
+    table: zod.uuid().describe('ID of the data warehouse table this annotation describes.'),
+    column_name: zod
+        .string()
+        .optional()
+        .describe('Column this annotation describes. Empty string denotes the table-level description.'),
+    description: zod.string().describe('Human-readable description of what this table or column means.'),
+})
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    table: zod.uuid().optional().describe('ID of the data warehouse table this annotation describes.'),
+    column_name: zod
+        .string()
+        .optional()
+        .describe('Column this annotation describes. Empty string denotes the table-level description.'),
+    description: zod.string().optional().describe('Human-readable description of what this table or column means.'),
+})
+
+/**
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export const warehouseSavedQueriesCreateBodyNameMax = 128
