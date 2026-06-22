@@ -50,6 +50,12 @@ export const BusinessKnowledgeDocumentsSearchListQueryParams = /* @__PURE__ */ z
         .describe(
             'Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.'
         ),
+    rerank: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.'
+        ),
 })
 
 export const BusinessKnowledgeSourcesListParams = /* @__PURE__ */ zod.object({

@@ -9,6 +9,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from products.web_analytics.backend.temporal.digest_common import ACTIVITY_RETRY_POLICY
     from products.web_analytics.backend.temporal.weekly_digest.activities import (
         get_org_batch_page,
         push_wa_digest_metrics_activity,
@@ -23,14 +24,6 @@ with workflow.unsafe.imports_passed_through():
         SendTestDigestInput,
         WAWeeklyDigestInput,
     )
-
-
-ACTIVITY_RETRY_POLICY = common.RetryPolicy(
-    maximum_attempts=3,
-    initial_interval=timedelta(seconds=30),
-    backoff_coefficient=2.0,
-    maximum_interval=timedelta(minutes=5),
-)
 
 
 @workflow.defn(name="wa-weekly-digest")

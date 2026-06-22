@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -37,6 +38,7 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OPTIMIZELY,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Optimizely",
             caption="""Enter your Optimizely personal access token to pull your experimentation data into the PostHog Data warehouse.
 

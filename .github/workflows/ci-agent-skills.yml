@@ -48,6 +48,7 @@ jobs:
                         - 'products/*/backend/max_tools.py'
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
+                        - 'services/mcp/schema/**'
 
     check-skills:
         name: Check agent skills

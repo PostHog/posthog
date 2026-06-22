@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHIP_STATION,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="ShipStation",
             caption="""Enter your ShipStation API credentials to pull your ShipStation order and shipping data into the PostHog Data warehouse.
 

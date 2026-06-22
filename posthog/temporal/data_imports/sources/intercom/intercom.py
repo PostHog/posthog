@@ -1,3 +1,4 @@
+import time
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from typing import Any, Optional
 
@@ -29,6 +30,34 @@ def _is_not_found(exc: HTTPError) -> bool:
     the parent listing and the per-row detail fetch — Intercom then returns
     404. Skip that single row instead of failing the whole sync."""
     return exc.response is not None and exc.response.status_code == 404
+
+
+def _is_scroll_exists(exc: HTTPError) -> bool:
+    """Intercom permits only one open companies scroll per workspace; opening a
+    new scroll while another is still alive returns `400` with `code:
+    scroll_exists`. A scroll left behind by an interrupted or concurrent sync
+    clears itself once it expires (~1 min idle), so the lock is transient —
+    wait it out and retry rather than failing the whole sync. Match on the
+    stable error `code`, not the message text or URL."""
+    resp = exc.response
+    if resp is None or resp.status_code != 400:
+        return False
+    try:
+        body = resp.json()
+    except Exception:
+        return False
+    errors = body.get("errors") if isinstance(body, dict) else None
+    return any(isinstance(e, dict) and e.get("code") == "scroll_exists" for e in errors or [])
+
+
+def _is_server_error(exc: HTTPError) -> bool:
+    """Intercom's companies Scroll API intermittently returns a 5xx mid-walk —
+    a transient backend blip, not a poisoned cursor. Retrying the identical
+    scroll request clears it, so back off and retry inline rather than failing
+    the whole sync. Distinct from the short transport-level retry: this gives
+    the flaky endpoint a wider window before a Temporal activity retry."""
+    resp = exc.response
+    return resp is not None and 500 <= resp.status_code < 600
 
 
 def _default_headers() -> dict[str, str]:
@@ -259,6 +288,73 @@ def _conversation_parts_generator(
             yield part
 
 
+# Intercom expires an idle companies scroll after ~1 minute, so a stale scroll
+# left by an interrupted or concurrent sync clears within that window. Wait
+# past it before retrying the open, and cap the retries so a genuinely stuck
+# lock still surfaces instead of looping forever.
+_SCROLL_EXISTS_BACKOFF_SECONDS = 60
+_SCROLL_EXISTS_MAX_RETRIES = 2
+
+# Transient 5xx from the companies Scroll API (see `_is_server_error`). Retry the
+# identical request inline with exponential backoff, then let it surface so
+# Temporal retries the activity (which re-opens a fresh scroll).
+_SCROLL_SERVER_ERROR_BACKOFF_SECONDS = 2.0
+_SCROLL_SERVER_ERROR_MAX_RETRIES = 3
+
+
+def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> dict[str, Any]:
+    """Fetch one `/companies/scroll` page, retrying a transient 5xx inline.
+
+    `scroll_param` is None to open the scroll, or the cursor from the prior page
+    to continue it. Retrying the same request is safe — the cursor doesn't
+    advance until a page is returned, so a retried call yields the same page
+    without duplicating or skipping rows."""
+    params = {"scroll_param": scroll_param} if scroll_param is not None else None
+    for attempt in range(_SCROLL_SERVER_ERROR_MAX_RETRIES + 1):
+        try:
+            return _intercom_get(session, "/companies/scroll", params=params)
+        except HTTPError as exc:
+            if _is_server_error(exc) and attempt < _SCROLL_SERVER_ERROR_MAX_RETRIES:
+                wait = _SCROLL_SERVER_ERROR_BACKOFF_SECONDS * (2**attempt)
+                logger.warning(
+                    "intercom_companies_scroll_server_error_retry",
+                    attempt=attempt + 1,
+                    backoff_seconds=wait,
+                    status_code=exc.response.status_code if exc.response is not None else None,
+                )
+                time.sleep(wait)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
+def _open_companies_scroll(session: Session) -> dict[str, Any]:
+    """Open a fresh companies scroll, waiting out a stale `scroll_exists` lock.
+
+    See `_is_scroll_exists`: a scroll left open by an interrupted or concurrent
+    sync blocks a new one with `400 scroll_exists` until it expires. Back off
+    and retry the open instead of failing — re-opening is the only recovery, as
+    a scroll can't be resumed from a point, only restarted from the beginning
+    (which is exactly what opening again does, and no rows have been yielded
+    yet at this stage)."""
+    for attempt in range(_SCROLL_EXISTS_MAX_RETRIES + 1):
+        try:
+            return _scroll_companies_get(session)
+        except HTTPError as exc:
+            if _is_scroll_exists(exc) and attempt < _SCROLL_EXISTS_MAX_RETRIES:
+                logger.warning(
+                    "intercom_companies_scroll_exists_retry",
+                    attempt=attempt + 1,
+                    backoff_seconds=_SCROLL_EXISTS_BACKOFF_SECONDS,
+                )
+                time.sleep(_SCROLL_EXISTS_BACKOFF_SECONDS)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
     """Walk every company via `GET /companies/scroll` (full refresh).
 
@@ -267,12 +363,14 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
     please use scroll API`. The Scroll API has no such ceiling: each response
     carries a `scroll_param` to feed into the next request, and the walk ends
     when `data` comes back empty (the scroll param then expires). Only one
-    scroll can be open per workspace at a time — fine here, since this is the
-    sole scroll user and a schema never syncs concurrently with itself."""
+    scroll can be open per workspace at a time, so the initial open backs off
+    past a stale `scroll_exists` lock (see `_open_companies_scroll`)."""
     scroll_param: str | None = None
     while True:
-        params = {"scroll_param": scroll_param} if scroll_param else None
-        payload = _intercom_get(session, "/companies/scroll", params=params)
+        if scroll_param is None:
+            payload = _open_companies_scroll(session)
+        else:
+            payload = _scroll_companies_get(session, scroll_param)
         data = payload.get("data") or []
         if not data:
             return

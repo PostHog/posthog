@@ -1,4 +1,10 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
@@ -26,14 +32,13 @@ import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
+import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
-import { createPersonHogClient } from './ingestion/personhog'
-import { PersonHogGroupReadRepository } from './ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -43,8 +48,6 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupReadRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -275,7 +278,30 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerEmail) {
             serviceLoaders.push(async () => {
                 // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
-                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                // When the SES rate-limiter Valkey is configured, use the rate-limited
+                // variant so dequeue is gated by a Valkey-backed token bucket. Without
+                // the env var (typical for local dev outside k8s) we fall back to the
+                // plain queue and dequeue is unthrottled.
+                //
+                // Fair dequeue (per-team round-robin) is independent — it's wired
+                // into the worker via workerOptions and applies regardless of whether
+                // rate limiting is on.
+                const sesValkey = createSesRateLimiterValkeyPool(this.config)
+                const workerOptions = { fairDequeue: this.config.CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE }
+                const queue = sesValkey
+                    ? new CyclotronJobQueueRateLimitedPostgresV2(
+                          this.config.CONSUMER_BATCH_SIZE,
+                          this.config,
+                          {
+                              limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+                              key: '@posthog/ses/global',
+                              capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+                              refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+                              throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+                          },
+                          workerOptions
+                      )
+                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, workerOptions)
                 const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service

@@ -199,6 +199,49 @@ def remove_table_from_publication(
     logger.info("Removed table %s.%s from publication '%s'", schema, table, pub_name)
 
 
+# Substrings of the errors Postgres raises when reading from / advancing a slot that it
+# invalidated (max_slot_wal_keep_size exceeded). Wordings differ across PG 13–17.
+_SLOT_INVALIDATION_MESSAGE_MARKERS = (
+    "can no longer get changes from replication slot",
+    "slot has been invalidated",
+    "cannot advance replication slot that has not previously reserved WAL",
+)
+
+
+def is_slot_invalidation_error(exc: BaseException) -> bool:
+    """Whether the exception (or anything in its chain) means the replication slot is
+    unusable and must be recreated: invalidated by Postgres or dropped entirely.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current)
+        if isinstance(current, psycopg.errors.ObjectNotInPrerequisiteState) and any(
+            marker in message for marker in _SLOT_INVALIDATION_MESSAGE_MARKERS
+        ):
+            return True
+        if (
+            isinstance(current, psycopg.errors.UndefinedObject)
+            and "replication slot" in message
+            and "does not exist" in message
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
+    """The server's max_slot_wal_keep_size in MB, or None when unlimited (-1) or unreadable."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT setting::bigint FROM pg_settings WHERE name = 'max_slot_wal_keep_size'")
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        return None
+    value = int(row[0])
+    return value if value >= 0 else None
+
+
 def get_slot_lag_bytes(conn: psycopg.Connection, slot_name: str) -> int | None:
     """Get the WAL lag in bytes for a replication slot.
 
@@ -229,3 +272,19 @@ def publication_exists(conn: psycopg.Connection, pub_name: str) -> bool:
     with conn.cursor() as cur:
         cur.execute(sql.SQL("SELECT 1 FROM pg_publication WHERE pubname = {}").format(sql.Literal(pub_name)))
         return cur.fetchone() is not None
+
+
+def get_publication_tables(conn: psycopg.Connection, pub_name: str) -> list[str]:
+    """List the schema-qualified tables (``schema.table``) in a publication, sorted.
+
+    Returns an empty list when the publication doesn't exist or has no tables.
+    These are exactly the tables whose changes the replication slot streams.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "SELECT schemaname, tablename FROM pg_publication_tables "
+                "WHERE pubname = {} ORDER BY schemaname, tablename"
+            ).format(sql.Literal(pub_name))
+        )
+        return [f"{schemaname}.{tablename}" for schemaname, tablename in cur.fetchall()]

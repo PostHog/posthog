@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
     NOTION_VERSION,
+    NotionNotFoundError,
     NotionResumeConfig,
     NotionRetryableError,
     _comments_stream,
@@ -205,6 +206,61 @@ class TestNotion:
 
         assert result == {"results": []}
         assert attempts["count"] == 2
+
+    def test_request_404_raises_not_found(self) -> None:
+        # Notion 404s a page/block that was deleted or unshared. It must surface as the typed
+        # NotionNotFoundError so the fan-out streams can skip it instead of crashing.
+        session = FakeSession([FakeResponse({}, status_code=404)])
+        with pytest.raises(NotionNotFoundError):
+            cast(Any, _request).__wrapped__(
+                cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={}
+            )
+
+    def test_request_404_is_not_retried(self) -> None:
+        # A 404 is not transient, so tenacity must propagate it immediately rather than burn attempts.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            return FakeResponse({}, status_code=404)
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            with pytest.raises(NotionNotFoundError):
+                _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
+
+        assert attempts["count"] == 1
+
+    def test_comments_stream_skips_missing_page(self) -> None:
+        # One page is deleted/unshared between search and the comments fetch (404). That page must be
+        # skipped without crashing the sync; comments for the surviving page still come through.
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            if index == 1:
+                return FakeResponse({}, status_code=404)  # comments for p1 -> gone
+            return _list_response([{"id": "cm"}], has_more=False, next_cursor=None)  # comments for p2
+
+        session = FakeSession(responses)
+        logger = mock.MagicMock()
+        tables = list(_comments_stream(cast(requests.Session, session), logger))
+
+        total_rows = sum(t.num_rows for t in tables)
+        assert total_rows == 1
+        assert logger.warning.called
+        # search + comments(p1, 404) + comments(p2)
+        assert len(session.calls) == 3
+
+    def test_block_children_skips_missing_block(self) -> None:
+        # A block that 404s (deleted/unshared) must terminate that branch gracefully, yielding nothing.
+        session = FakeSession([FakeResponse({}, status_code=404)])
+        logger = mock.MagicMock()
+        blocks = list(_iter_block_children(cast(requests.Session, session), "gone", "page-1", logger, 0))
+
+        assert blocks == []
+        assert logger.warning.called
 
     @parameterized.expand([("5", 5.0), (None, None), ("not-a-number", None)])
     def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:

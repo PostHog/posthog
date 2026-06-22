@@ -60,6 +60,32 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-canvas-partial-update:
+        operation: desktop_file_system_canvas_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update canvas code
+        description: >
+            Publish the React source for a freeform canvas (a "dashboard" item on the desktop surface). The `id` is the
+            canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code
+            and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do
+            not write a local file.
+        param_overrides:
+            id:
+                description: ID of the canvas (desktop "dashboard" item) whose code to publish.
+            code:
+                description: |
+                    The complete single-file React source for the canvas. Replaces the current code wholesale.
+                required: true
+            name:
+                description: |
+                    Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
+                    in place. Omit to leave the name unchanged.
     desktop-file-system-context-generation-retrieve:
         operation: desktop_file_system_context_generation_retrieve
         enabled: false
@@ -85,7 +111,7 @@ tools:
         description: >
             Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are
             created automatically) and `type: folder`. A blank instruction set is created for the channel automatically;
-            use the update-instructions tool to fill it in.
+            use the desktop-file-system-instructions-partial-update tool to fill it in.
         param_overrides:
             path:
                 description: >

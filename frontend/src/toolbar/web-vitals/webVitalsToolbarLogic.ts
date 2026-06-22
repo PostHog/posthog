@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams, router, urlToAction } from 'kea-router'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
@@ -71,9 +71,16 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
                     const params = { pathname: window.location.pathname }
 
-                    const response = await toolbarFetch(
-                        `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
-                    )
+                    let response: Response
+                    try {
+                        response = await toolbarFetch(
+                            `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
+                        )
+                    } catch {
+                        // Network-level failures (origin unreachable, CORS, aborted) throw a TypeError.
+                        // Degrade the same way we do for a non-OK response — the UI already handles null metrics.
+                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
+                    }
                     breakpoint()
 
                     if (!response.ok) {

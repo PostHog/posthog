@@ -124,6 +124,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     if (includeMa) {
         const window = opts.movingAverageIntervals as number
         out.movingAverage = results
+            .filter((r) => !opts.getHidden?.(r))
             .filter((r) => r.data.length >= window)
             .map((r) => ({ seriesKey: String(r.id), window }))
     }
@@ -156,7 +157,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
             // Self-map: applyComparisonDimming only checks key presence; the paired primary
             // id isn't carried on TrendsResultLike.
             comparisonOf[key] = key
-            if (includeMa && r.data.length >= (opts.movingAverageIntervals as number)) {
+            if (includeMa && !opts.getHidden?.(r) && r.data.length >= (opts.movingAverageIntervals as number)) {
                 comparisonOf[movingAverageKey(key)] = key
             }
         }
@@ -196,6 +197,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
+    legend?: TimeSeriesLineChartConfig['legend']
 }
 
 export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
@@ -235,5 +237,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         percentStackView: opts.isPercentStackView,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }

@@ -4,7 +4,7 @@ import threading
 import dataclasses
 import collections.abc
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -104,6 +104,36 @@ class GoogleSearchConsoleResumeConfig:
     start_row: int  # next startRow within current_date
 
 
+def normalize_site_url(raw: str) -> str:
+    """Coerce a user-entered property URL toward Google's canonical form.
+
+    Search Console identifies a property as either ``https://example.com/`` (URL-prefix,
+    trailing slash required) or ``sc-domain:example.com`` (domain). The API matches these
+    strings byte-for-byte, but users routinely enter values that don't: a percent-encoded
+    string copied from a URL bar (``sc-domain%3Aexample.com``), the full Search Console UI
+    URL, or a URL-prefix property with the trailing slash dropped. Resolve the cases we can
+    handle unambiguously and leave the rest untouched — a bare hostname (no scheme, no
+    ``sc-domain:`` prefix) stays as-is because we can't tell which property type was meant.
+    """
+    site = raw.strip()
+
+    # The Search Console UI URL carries the property in its `resource_id` query param.
+    if site.startswith("https://search.google.com/"):
+        resource_id = parse_qs(urlparse(site).query).get("resource_id")
+        if resource_id:
+            site = resource_id[0].strip()
+
+    # Decode percent-encoding ('sc-domain%3A...', 'https%3A%2F%2F...%2F') copied from a URL.
+    if "%" in site:
+        site = unquote(site).strip()
+
+    # URL-prefix properties are canonically stored with a trailing slash.
+    if site.startswith(("http://", "https://")) and not site.endswith("/"):
+        site = site + "/"
+
+    return site
+
+
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     # Temporal activities run in a thread pool where Django DB connections can go
     # stale between uses (Postgres closes the connection server-side). This is
@@ -117,7 +147,13 @@ def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
         client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
         client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+        # No `scopes=` on purpose. With a refresh-token grant, google-auth forwards the
+        # requested scopes to Google's token endpoint, which rejects anything that isn't an
+        # exact subset of what the original consent granted — surfacing as
+        # "invalid_scope: Bad Request" and failing every sync/validation. Omitting it
+        # refreshes with the originally-granted scopes (matching the Google Ads client). A
+        # genuinely missing scope then shows up as a 403 on the sites call, which we map to
+        # an actionable "reconnect" message instead.
     )
 
 
@@ -302,6 +338,10 @@ def google_search_console_source(
     dimensions = schema["dimensions"]
     primary_keys = list(schema["primary_key"])
 
+    # Match the canonicalization done at validation time so a property that validated (e.g. a
+    # percent-encoded or trailing-slash-less entry) resolves to the same string Google expects.
+    site_url = normalize_site_url(config.site_url)
+
     name = NamingConvention.normalize_identifier(resource_name)
 
     def get_rows() -> collections.abc.Iterator[list[dict[str, Any]]]:
@@ -332,7 +372,7 @@ def google_search_console_source(
             while True:
                 rows = _query_search_analytics(
                     session=session,
-                    site_url=config.site_url,
+                    site_url=site_url,
                     start_date=iso,
                     end_date=iso,
                     dimensions=dimensions,

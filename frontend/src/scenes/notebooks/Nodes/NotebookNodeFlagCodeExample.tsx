@@ -24,7 +24,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagCodeExample
         // oxlint-disable-next-line exhaustive-deps
     }, [featureFlag?.key])
 
-    if (!featureFlagMissing) {
+    if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
 

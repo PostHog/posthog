@@ -93,6 +93,69 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
 
+    def test_alert_rejects_insight_without_viewer_access(self) -> None:
+        # Alert write access must not let a user reference an insight they can't view — otherwise
+        # they could exfiltrate a restricted insight's results via notifications / check history.
+        def deny_insight(obj=None, *args, **kwargs) -> bool:
+            return type(obj).__name__ != "Insight"
+
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        # An alert created while access is allowed, so we can test the insight-swap update vector.
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=deny_insight,
+        ):
+            create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert_id}", {"insight": self.insight["id"]}
+            )
+            simulate = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate/",
+                {"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9}},
+            )
+
+        for response in (create, update, simulate):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "access to this insight" in str(response.json())
+
+    def test_existing_alert_hidden_when_insight_viewer_access_is_lost(self) -> None:
+        # An existing alert must not outlive viewer access to its linked insight: otherwise its
+        # check history (breaching rows / values) leaks on read, and a PATCH that omits `insight`
+        # bypasses the create-time check. The queryset gate hides it from list, retrieve, and update.
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        # Deny viewer access to every insight by emptying the viewable-insight queryset.
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
+            listed = self.client.get(f"/api/projects/{self.team.id}/alerts")
+            update = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "renamed"})
+
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve.content
+        assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
+        assert [a["id"] for a in listed.json()["results"]] == []
+
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
@@ -419,6 +482,121 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_hogql_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
+        hogql_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            },
+        }
+        hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": hogql_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                    "name": "sql alert",
+                },
+            ).json()
+
+        # The insight response must list the alert inline — the UI trusts this list on reload.
+        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}").json()
+        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
+
+        # Updating the insight while it stays SQL-backed must not cascade-delete the alert.
+        updated = deepcopy(hogql_insight_data)
+        updated["query"]["source"]["query"] = "select count() + 1 from events"
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}", data=updated)
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_200_OK
+
+        # Changing to a kind that cannot carry alerts still cascades.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
+            data={"query": {"kind": "FunnelsQuery", "series": []}},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _create_hogql_insight(self) -> dict:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                }
+            },
+        ).json()
+
+    def test_hogql_flag_enforced_on_config_only_patch(self) -> None:
+        # A config-only PATCH (no `insight`) skips the field-level validate_insight, so the SQL-alert
+        # flag must be enforced in the object-level validate() — otherwise an existing SQL alert could
+        # be reconfigured in an account where the flag is no longer enabled.
+        hogql_insight = self._create_hogql_insight()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": hogql_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                    "name": "sql alert",
+                },
+            )
+            assert alert.status_code == status.HTTP_201_CREATED, alert.content
+            alert_id = alert.json()["id"]
+
+        config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "first_row"}}
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
+        assert "SQL insight alerts are not enabled" in str(blocked.content)
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+
+    def test_alert_survives_switch_between_alertable_kinds(self) -> None:
+        # Switching the insight to a different alertable kind (trends -> SQL) leaves the alert's config
+        # mismatched, but the alert is NOT deleted: the check cycle re-validates against the current
+        # query and auto-disables + notifies on mismatch (covered by the validation/auto-disable tests),
+        # so the alert and its history survive the edit and the user can reconfigure it.
+        trends_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
+        ).json()
+        alert_id = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": trends_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "trends alert",
+            },
+        ).json()["id"]
+
+        # Switch the insight from trends to SQL — a different alertable kind.
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
+                data={
+                    "query": {
+                        "kind": "DataVisualizationNode",
+                        "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+                    }
+                },
+            )
+        assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
@@ -1231,6 +1409,52 @@ class TestAlertEventProperties(APIBaseTest):
         for key, value in expected_detector_fields.items():
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
+    @parameterized.expand(
+        [
+            (
+                "trends_config",
+                {"type": "TrendsAlertConfig", "series_index": 1},
+                {
+                    "config_type": "TrendsAlertConfig",
+                    "trends_series_index": 1,
+                    "hogql_evaluation": None,
+                    "hogql_has_explicit_column": None,
+                    "hogql_has_label_column": None,
+                },
+            ),
+            (
+                "hogql_default",
+                {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "last_row",
+                    "hogql_has_explicit_column": False,
+                    "hogql_has_label_column": False,
+                },
+            ),
+            (
+                "hogql_any_row_with_columns",
+                {"type": "HogQLAlertConfig", "evaluation": "any_row", "column": "errors", "label_column": "country"},
+                {
+                    "config_type": "HogQLAlertConfig",
+                    "hogql_evaluation": "any_row",
+                    "hogql_has_explicit_column": True,
+                    "hogql_has_label_column": True,
+                },
+            ),
+        ]
+    )
+    def test_event_properties_capture_alert_config_adoption(self, _name: str, config: dict, expected: dict) -> None:
+        alert = AlertConfiguration(
+            name="test alert",
+            condition={"type": "absolute_value"},
+            config=config,
+            calculation_interval="daily",
+        )
+        props = alert._get_event_properties()
+        for key, value in expected.items():
+            assert props[key] == value, f"{key} expected {value}, got {props[key]}"
+
 
 class TestTriggerAlertHogFunctions(APIBaseTest):
     @parameterized.expand(
@@ -1350,6 +1574,54 @@ class TestAlertListFilters(APIBaseTest):
         result_names = [alert["name"] for alert in response.json()["results"]]
 
         assert result_names == ["Revenue other"]
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing alert", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name: str, alert_name: str, search: str
+    ) -> None:
+        self._create_alert(alert_name)
+        self._create_alert("Totally unrelated")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": search})
+        results = response.json()["results"]
+
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name.get(alert_name) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(a["name"] != "Totally unrelated" for a in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self) -> None:
+        for name in ("revenue spike", "spike in revenue", "reveneu drop", "Unrelated alert"):
+            self._create_alert(name)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "revenue"})
+        results = response.json()["results"]
+
+        match_type_by_name = {a["name"]: a["search_match_type"] for a in results}
+        assert match_type_by_name == {
+            "revenue spike": "exact",
+            "spike in revenue": "exact",
+            "reveneu drop": "similar",
+        }
+
+        match_types = [a["search_match_type"] for a in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self) -> None:
+        self._create_alert("Revenue spike")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in a for a in results)
 
     @parameterized.expand(
         [

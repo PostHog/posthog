@@ -17,7 +17,6 @@ import {
     ObservationVerdictValue,
     replayScannerLogic,
 } from '../replayScannerLogic'
-import { ScanSessionButton } from './ScanSessionButton'
 
 const STATUS_OPTIONS: { value: ObservationStatusValue; label: string }[] = [
     { value: 'succeeded', label: 'Succeeded' },
@@ -195,12 +194,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-3">
-                <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
-                </p>
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <ScanSessionButton scannerId={scannerId} />
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <FilterPill<ObservationStatusValue>

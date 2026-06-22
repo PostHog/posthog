@@ -49,11 +49,16 @@ def block_if_team_over_quota(
     return True
 
 
+# Reaction errors that should never abort a follow-up activity — the 👀/🔍 reaction is purely
+# cosmetic UX feedback, so a deleted/unreachable message or a missing reaction is a no-op.
+_BENIGN_REACTION_ERRORS = frozenset({"already_reacted", "message_not_found", "no_reaction", "cant_react"})
+
+
 def safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
     try:
         client.reactions_add(channel=channel, timestamp=timestamp, name=name)
     except SlackApiError as e:
-        if e.response.get("error") == "already_reacted":
+        if e.response.get("error") in _BENIGN_REACTION_ERRORS:
             pass
         else:
             raise

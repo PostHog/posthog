@@ -236,6 +236,15 @@ class TestDatetimeHelpers:
     def test_datetime_to_plain_iso8601_assumes_utc_for_naive(self):
         assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0)) == "2024-01-15T10:30:00Z"
 
+    def test_datetime_to_plain_iso8601_caps_microseconds_at_milliseconds(self):
+        # Plain rejects 6-digit microsecond precision with "There was a validation error.";
+        # incremental watermarks carry microseconds, so we must emit millisecond precision.
+        assert (
+            _datetime_to_plain_iso8601(datetime(2026, 6, 7, 18, 3, 36, 624000, tzinfo=UTC))
+            == "2026-06-07T18:03:36.624Z"
+        )
+        assert _datetime_to_plain_iso8601(datetime(2024, 1, 15, 10, 30, 0, 1, tzinfo=UTC)) == "2024-01-15T10:30:00.000Z"
+
     def test_parse_plain_datetime_from_string(self):
         assert _parse_plain_datetime("2024-01-15T10:30:00Z") == datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
 

@@ -28,7 +28,7 @@ pytestmark = [
 
 def test_can_get_export_runs_for_your_organizations(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -57,7 +57,7 @@ def test_can_get_export_runs_for_your_organizations(client: HttpClient, temporal
 
 def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -93,7 +93,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
     doesn't belong to.
     """
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -135,7 +135,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
 def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organization, team, user):
     """Test cancelling a BatchExportRun."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

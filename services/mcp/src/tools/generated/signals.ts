@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    SignalsReportsBulkStateCreateBody,
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
@@ -13,6 +14,7 @@ import {
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRetrieveParams,
@@ -30,6 +32,41 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const InboxReportsBulkSetStateSchema = SignalsReportsBulkStateCreateBody
+
+const inboxReportsBulkSetState = (): ToolBase<
+    typeof InboxReportsBulkSetStateSchema,
+    Schemas.SignalReportBulkStateResponse
+> => ({
+    name: 'inbox-reports-bulk-set-state',
+    schema: InboxReportsBulkSetStateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsBulkSetStateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.state !== undefined) {
+            body['state'] = params.state
+        }
+        if (params.dismissal_reason !== undefined) {
+            body['dismissal_reason'] = params.dismissal_reason
+        }
+        if (params.dismissal_note !== undefined) {
+            body['dismissal_note'] = params.dismissal_note
+        }
+        if (params.snooze_for !== undefined) {
+            body['snooze_for'] = params.snooze_for
+        }
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.SignalReportBulkStateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/bulk-state/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxReportsListSchema = SignalsReportsListQueryParams
 
 const inboxReportsList = (): ToolBase<
@@ -44,6 +81,7 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                has_implementation_pr: params.has_implementation_pr,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -65,6 +103,8 @@ const inboxReportsList = (): ToolBase<
                     'priority',
                     'actionability',
                     'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
                     'signal_count',
                     'total_weight',
                     'source_products',
@@ -431,6 +471,24 @@ const signalsScoutProjectProfileGet = (): ToolBase<
     },
 })
 
+const SignalsScoutRunsEmissionReportsSchema = SignalsScoutRunsEmissionReportsParams.omit({ project_id: true })
+
+const signalsScoutRunsEmissionReports = (): ToolBase<
+    typeof SignalsScoutRunsEmissionReportsSchema,
+    WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>
+> => ({
+    name: 'signals-scout-runs-emission-reports',
+    schema: SignalsScoutRunsEmissionReportsSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionReportsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutEmissionReportLink[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emissions/reports/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
 
 const signalsScoutRunsEmissionsList = (): ToolBase<
@@ -568,6 +626,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
@@ -581,6 +640,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
+    'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,

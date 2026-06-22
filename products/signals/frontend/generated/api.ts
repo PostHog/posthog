@@ -22,8 +22,11 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ScoutEmissionReportLinkApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportBulkStateRequestApi,
+    SignalReportBulkStateResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -181,7 +184,7 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -198,6 +201,32 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk-state/`
+}
+
+/**
+ * Transition many reports to a new state in one call.
+ *
+ * Each id is processed independently: a report whose transition isn't allowed from its
+ * current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+ * rest still go through. Returns one result per requested id (in request order, after
+ * de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+ * inspect `results` / the counts to see what happened.
+ */
+export const signalsReportsBulkStateCreate = async (
+    projectId: string,
+    signalReportBulkStateRequestApi: SignalReportBulkStateRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkStateResponseApi> => {
+    return apiMutator<SignalReportBulkStateResponseApi>(getSignalsReportsBulkStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkStateRequestApi),
     })
 }
 
@@ -360,6 +389,25 @@ export const signalsScoutRunsEmissions = async (
     options?: RequestInit
 ): Promise<SignalScoutEmissionApi[]> => {
     return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsEmissionReportsUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/reports/`
+}
+
+/**
+ * Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic `source_id` back through the signal store. `report` is null when the finding hasn't grouped into a report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which inbox report a finding contributed to — the reverse of the report's evidence list. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List the inbox reports a run's findings linked to
+ */
+export const signalsScoutRunsEmissionReports = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<ScoutEmissionReportLinkApi[]> => {
+    return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsUrl(projectId, runId), {
         ...options,
         method: 'GET',
     })

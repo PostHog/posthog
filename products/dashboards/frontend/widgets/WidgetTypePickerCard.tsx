@@ -55,7 +55,7 @@ export function WidgetTypePickerCard({
                 <WidgetTypePickerSelectionIndicator selected={selected} />
             </div>
             <p className="text-xs text-muted m-0 mt-0.5 mb-2">{description}</p>
-            <div className="pointer-events-none select-none" aria-hidden="true">
+            <div className="pointer-events-none select-none overflow-hidden rounded" aria-hidden="true">
                 {preview}
             </div>
         </div>
