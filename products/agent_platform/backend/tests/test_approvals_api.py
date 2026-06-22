@@ -191,7 +191,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         else:
             mock_janitor.return_value.decide_approval.assert_not_called()
 
-    def _make_oauth_token(self, *, scope: str, token: str) -> OAuthAccessToken:
+    def _make_oauth_token(self, *, scope: str, token: str, is_first_party: bool = False) -> OAuthAccessToken:
         oauth_application = OAuthApplication.objects.create(
             name=f"App {token}",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -199,6 +199,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
             skip_authorization=False,
+            is_first_party=is_first_party,
             organization=self.organization,
             user=self.user,
         )
@@ -210,24 +211,21 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             scope=scope,
         )
 
-    # The dedicated `agent_approvals:write` scope is the only OAuth path past
-    # the `allow_agent_approver: False` gate. A token carrying only the broad
-    # `agents:write` scope is intentionally insufficient — the gate exists
-    # precisely to stop an agent token from approving its own paused tool
-    # call. Wildcard `*` is treated the same as `agents:write` here: it
-    # satisfies the viewset's scope check but does not grant decide rights.
+    # Only a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+    # approves in-app) can get past the `allow_agent_approver: False` gate. A
+    # third-party OAuth app is rejected even with a broad `*` scope — the gate
+    # keys off the app's staff-set `is_first_party` flag, not the token scope.
     @parameterized.expand(
         [
-            ("with_decide_scope", "agents:write agent_approvals:write", status.HTTP_200_OK, True),
-            ("without_decide_scope", "agents:write", status.HTTP_404_NOT_FOUND, False),
-            ("wildcard_does_not_grant_decide", "*", status.HTTP_404_NOT_FOUND, False),
+            ("first_party_app", True, status.HTTP_200_OK, True),
+            ("third_party_app", False, status.HTTP_404_NOT_FOUND, False),
         ]
     )
     @patch("products.agent_platform.backend.presentation.views._janitor")
-    def test_oauth_bearer_can_decide_human_only_approval_with_dedicated_scope(
+    def test_oauth_bearer_can_decide_human_only_approval_only_when_first_party(
         self,
         label: str,
-        scope: str,
+        is_first_party: bool,
         expected_status: int,
         decide_called: bool,
         mock_janitor,
@@ -239,7 +237,9 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             "approver_scope": {"allow_agent_approver": False},
         }
         mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
-        access_token = self._make_oauth_token(scope=scope, token=f"pha_test_{label}")
+        # `*` satisfies the viewset scope check for both; the first-party flag is
+        # the only thing that differs.
+        access_token = self._make_oauth_token(scope="*", token=f"pha_test_{label}", is_first_party=is_first_party)
         resp = self.client.post(
             self.url_decide,
             {"decision": "approve"},

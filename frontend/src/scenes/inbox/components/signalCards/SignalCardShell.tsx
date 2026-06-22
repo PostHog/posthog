@@ -13,12 +13,15 @@ export function SignalCardHeader({
     signal,
     label,
     rightSlot,
+    hideWeight,
 }: {
     signal: SignalNode
     /** Optional bold title shown after the source line (e.g. an entity name). */
     label?: React.ReactNode
     /** Optional content rendered before the weight tag (e.g. a severity badge). */
     rightSlot?: React.ReactNode
+    /** Hide the weight tag — weight is an internal pipeline knob, not user-facing for every source. */
+    hideWeight?: boolean
 }): JSX.Element {
     const meta = getSourceProductMeta(signal.source_product)
     const Icon = meta?.Icon
@@ -41,9 +44,11 @@ export function SignalCardHeader({
             {label && <span className="text-xs font-medium text-primary flex-1 truncate">{label}</span>}
             <span className="flex-1" />
             {rightSlot}
-            <LemonTag size="small" className="shrink-0">
-                Weight: {signal.weight.toFixed(1)}
-            </LemonTag>
+            {!hideWeight && (
+                <LemonTag size="small" className="shrink-0">
+                    Weight: {signal.weight.toFixed(1)}
+                </LemonTag>
+            )}
         </div>
     )
 }
@@ -53,16 +58,18 @@ export function SignalCardShell({
     signal,
     label,
     rightSlot,
+    hideWeight,
     children,
 }: {
     signal: SignalNode
     label?: React.ReactNode
     rightSlot?: React.ReactNode
+    hideWeight?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
         <div className="border rounded p-3 bg-surface-primary">
-            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} />
+            <SignalCardHeader signal={signal} label={label} rightSlot={rightSlot} hideWeight={hideWeight} />
             {children}
         </div>
     )

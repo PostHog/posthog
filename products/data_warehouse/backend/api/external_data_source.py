@@ -89,6 +89,7 @@ from products.data_warehouse.backend.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
@@ -569,7 +570,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=ExternalDataSchema.SyncType.choices,
-        help_text="Requested sync mode for the schema.",
+        help_text="Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).",
     )
     incremental_field = serializers.CharField(
         required=False,
@@ -743,6 +744,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Ignored on update."
         ),
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this synced source is also live-queryable via direct connection. "
+            "Defaults to true for new sources; ignored for pure direct-query sources."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -759,6 +767,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "direct_query_enabled",
             "engine",
             "last_run_at",
             "schemas",
@@ -1168,6 +1177,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1196,6 +1213,14 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
     )
 
 
@@ -1376,7 +1401,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -1426,6 +1451,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
     def _create_external_data_source(
@@ -1438,6 +1464,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        direct_query_enabled: bool = True,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
@@ -1521,6 +1548,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             prefix=prefix,
             description=description,
             access_method=access_method,
+            direct_query_enabled=direct_query_enabled,
         )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
@@ -1765,11 +1793,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 effective_primary_key_columns = primary_key_columns or (
                     source_schema.detected_primary_keys if source_schema else None
                 )
+                # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
+                # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
+                # creation paths reject the same inputs instead of silently dropping null/float values.
+                lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                if lookback_seconds is not None:
+                    # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
+                    if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
+                        lookback_seconds = int(lookback_seconds)
+                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
+                    if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"incremental_field_lookback_seconds must be an integer between 0 and 5184000 (60 days) for schema '{schema_name}'."
+                            },
+                        )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
+                    **(
+                        {"incremental_field_lookback_seconds": lookback_seconds}
+                        if sync_type == "incremental" and lookback_seconds is not None
+                        else {}
+                    ),
                 }
             elif is_cdc_schema and not cdc_not_set_up:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1916,9 +1967,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         on failure, or None on success. Callers decide whether to delete the source
         on failure (create flow does; enable_cdc does not).
         """
+        management_mode = payload.get("cdc_management_mode", "posthog")
+        logger.info(
+            "Setting up CDC resources for source",
+            source_id=str(source_model.pk),
+            source_type=source_model.source_type,
+            management_mode=management_mode,
+        )
+
         resource_fields, error = adapter.setup_resources(source_model, payload)
         if error is not None:
+            logger.warning(
+                "CDC resource setup failed",
+                source_id=str(source_model.pk),
+                source_type=source_model.source_type,
+                management_mode=management_mode,
+                error=error,
+            )
             return error
+
+        logger.info(
+            "CDC resources provisioned",
+            source_id=str(source_model.pk),
+            management_mode=management_mode,
+            slot_name=resource_fields.get("cdc_slot_name"),
+            publication_name=resource_fields.get("cdc_publication_name"),
+            resource_keys=sorted(resource_fields.keys()),
+        )
 
         job_inputs = dict(source_model.job_inputs or {})
         job_inputs.update(
@@ -2325,6 +2400,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
+        xmin_enabled = is_xmin_enabled_for_team(self.team)
+        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
+        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
             {
                 "table": schema.name,
@@ -2334,6 +2412,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -2431,6 +2510,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
