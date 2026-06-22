@@ -261,7 +261,7 @@ class SandboxOpenSerializer(serializers.Serializer):
         team = self.context["team"]
         user = self.context["user"]
         try:
-            return Task.objects.filter(team=team, deleted=False).filter(task_visibility_q(user.id)).get(id=value)
+            return Task.objects.filter(task_visibility_q(user.id)).get(id=value, team=team, deleted=False)
         except Task.DoesNotExist:
             raise serializers.ValidationError("Task not found or not accessible.")
 
