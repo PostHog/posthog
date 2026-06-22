@@ -1,11 +1,30 @@
+import datetime as dt
+from uuid import UUID, uuid4
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
+from posthog.models.property import Property, PropertyGroup
 
 from products.cohorts.backend.models.cohort import Cohort
+
+# Local single-node mirror of the production precalculated_person_properties table (which is
+# sharded/distributed and absent from the test ClickHouse schema). Created per execution test.
+_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL = """
+CREATE TABLE IF NOT EXISTS precalculated_person_properties (
+    team_id Int64, distinct_id String, person_id UUID, condition String,
+    matches Bool, source String, _timestamp DateTime64(6), _offset UInt64
+) ENGINE = ReplacingMergeTree(_timestamp) ORDER BY (team_id, condition, distinct_id)
+"""
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1935,3 +1954,202 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertIn(substring, query_str)
         for substring in expected_absent:
             self.assertNotIn(substring, query_str)
+
+    def _seed_precalculated_person_properties(self, rows: list[tuple[UUID, str, bool]]) -> None:
+        """Seed (person_id, condition, matches) rows for the current team."""
+        timestamp = dt.datetime(2026, 1, 1)
+        payload = [
+            (self.team.pk, str(person_id), str(person_id), condition, 1 if matches else 0, "test", timestamp, offset)
+            for offset, (person_id, condition, matches) in enumerate(rows)
+        ]
+        sync_execute(
+            "INSERT INTO precalculated_person_properties "
+            "(team_id, distinct_id, person_id, condition, matches, source, _timestamp, _offset) VALUES",
+            payload,
+        )
+
+    def _realtime_cohort_members(self, cohort: Cohort) -> set[str]:
+        """Execute a realtime cohort's current-members query and return the matched person_ids."""
+        query = HogQLRealtimeCohortQuery(cohort=cohort).get_query()
+        context = HogQLContext(
+            team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.COHORT_CALCULATION
+        )
+        sql, _ = prepare_and_print_ast(query, context, "clickhouse")
+        return {str(row[0]) for row in sync_execute(sql, context.values)}
+
+    def test_single_scan_membership_matches_boolean_semantics(self) -> None:
+        """Execute the single-scan query against seeded data and assert who actually matches.
+
+        String assertions can't catch a wrong argMax pick, a broken countIf, or an AND/OR
+        threshold flip — all would produce valid SQL and the wrong cohort. This seeds rows and
+        checks membership directly.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            and_all, and_two = uuid4(), uuid4()
+            or_one, or_none = uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    # AND cohort (hashes A, B, C): all three vs only two
+                    (and_all, "exec_A", True),
+                    (and_all, "exec_B", True),
+                    (and_all, "exec_C", True),
+                    (and_two, "exec_A", True),
+                    (and_two, "exec_B", True),
+                    (and_two, "exec_C", False),
+                    # OR cohort (hashes D, E): one of two vs none
+                    (or_one, "exec_D", True),
+                    (or_one, "exec_E", False),
+                    (or_none, "exec_D", False),
+                    (or_none, "exec_E", False),
+                ]
+            )
+
+            and_cohort = Cohort.objects.create(
+                team=self.team,
+                name="exec AND",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "a",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_A",
+                                    },
+                                    {
+                                        "key": "b",
+                                        "type": "person",
+                                        "value": "y",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_B",
+                                    },
+                                    {
+                                        "key": "c",
+                                        "type": "person",
+                                        "value": "z",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_C",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            and_members = self._realtime_cohort_members(and_cohort)
+            self.assertIn(str(and_all), and_members)  # matched all 3
+            self.assertNotIn(str(and_two), and_members)  # matched only 2 of 3
+
+            or_cohort = Cohort.objects.create(
+                team=self.team,
+                name="exec OR",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "key": "d",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_D",
+                                    },
+                                    {
+                                        "key": "e",
+                                        "type": "person",
+                                        "value": "y",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_E",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            or_members = self._realtime_cohort_members(or_cohort)
+            self.assertIn(str(or_one), or_members)  # matched 1 of 2
+            self.assertNotIn(str(or_none), or_members)  # matched neither
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    @parameterized.expand(
+        [
+            # A merged child's internal boolean type must match the top-level operator to flatten.
+            # (child_is_or, top_operator, should_flatten)
+            ("or_child_under_or", True, PropertyOperatorType.OR, True),
+            ("and_child_under_and", False, PropertyOperatorType.AND, True),
+            ("or_child_under_and", True, PropertyOperatorType.AND, False),
+            ("and_child_under_or", False, PropertyOperatorType.OR, False),
+        ]
+    )
+    def test_collect_person_property_hashes_operator_mismatch_guard(
+        self, _name: str, child_is_or: bool, top_operator: PropertyOperatorType, should_flatten: bool
+    ) -> None:
+        """A merged child encodes its own AND/OR across multiple hashes. The collector must only
+        flatten it when the child's boolean type matches the top-level operator; a mismatch falls
+        through (returns None) so the parent path expresses the nested boolean correctly.
+
+        Cohort preprocessing currently sets `_is_or_group=True` on same-key merges, so the
+        `and_child_under_or` direction isn't reachable end-to-end — this exercises the guard
+        directly to keep both directions covered.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="guard",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "x",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "h0",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        query = HogQLRealtimeCohortQuery(cohort=cohort)
+
+        def merged_prop(key: str, hashes: list[str]) -> Property:
+            prop = Property(key=key, type="person", value="x", operator="exact", conditionHash=hashes[0])
+            prop._merged_condition_hashes = hashes  # type: ignore[attr-defined]
+            prop._is_or_group = child_is_or  # type: ignore[attr-defined]
+            return prop
+
+        group = PropertyGroup(
+            type=top_operator,
+            values=[merged_prop("email", ["h1", "h2"]), merged_prop("plan", ["h3", "h4"])],
+        )
+        result = query._collect_person_property_hashes(group)
+
+        if should_flatten:
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(set(result[0]), {"h1", "h2", "h3", "h4"})
+        else:
+            self.assertIsNone(result)

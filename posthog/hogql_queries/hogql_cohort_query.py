@@ -1201,9 +1201,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """Build a single-scan query counting how many of `hashes` each person matches.
 
         One pass over precalculated_person_properties: compute the latest match state per
-        (person, condition) with argMax, then count matching conditions per person. This keeps
-        peak memory ~O(persons) instead of the O(persons × conditions) of N subqueries joined
-        by INTERSECT/UNION DISTINCT.
+        (person, condition) with argMax, then count matching conditions per person. Peak group
+        count is still O(persons × conditions) (person_id isn't a prefix of the table's ORDER BY,
+        so the inner aggregation can't stream), but what fixes the OOM is the constant factor:
+        N full-table scans collapse into one, and each group holds a tiny argMax(Bool) state
+        instead of N materialized person-UUID sets joined by INTERSECT/UNION DISTINCT.
 
             AND: every condition must match  → HAVING countIf(...) >= N
             OR:  at least one must match     → HAVING countIf(...) >= 1
@@ -1339,7 +1341,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 # path, which expresses the nested boolean correctly.
                 if len(merged) > 1:
                     child_is_or = getattr(prop, "_is_or_group", False)
-                    if child_is_or != (operator == PropertyOperatorType.OR):
+                    parent_is_or = operator == PropertyOperatorType.OR
+                    if child_is_or != parent_is_or:
                         return None
                 hashes.extend(merged)
             else:
@@ -1359,8 +1362,9 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         for large cohorts with many person-property conditions.
 
         When the cohort qualifies, we instead do one scan and count matching conditions per
-        person, keeping peak memory proportional to the number of distinct persons rather than
-        persons × conditions.
+        person. The peak group count is unchanged, but collapsing N full-table scans into one
+        with a tiny per-group argMax(Bool) state (rather than N materialized person-UUID sets)
+        is what avoids the OOM.
 
         Cohorts with mixed conditions (behavioral, dynamic-cohort, negation, deeply nested
         groups, or nested boolean groups whose operator differs from the top level) fall through
