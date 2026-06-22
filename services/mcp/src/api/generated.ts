@@ -34266,6 +34266,15 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    /**
+     * Payload for publishing a freeform canvas's React source via the agent.
+     */
+    export interface PatchedCanvasPublish {
+      code?: string;
+      prompt?: string;
+      name?: string;
+    }
+
     export interface PatchedClusteringJob {
       readonly id?: string;
       /** @maxLength 100 */
