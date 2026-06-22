@@ -170,14 +170,17 @@ Pipelining (measured against Postgres, not visible in Phase A/B/C):
 > is a partial version of this — it still reads one-at-a-time and stores offsets on read; closing
 > those two gaps (batched reads + inflight offset manager) is the remaining work.
 >
-> **Measured (iter3):** moving serde off the reader into the processors (point 2's parallel parse)
-> is NEUTRAL — staged_c4 moved only ~+2% in both read- and write-bound regimes (within noise). The
-> e2e ceiling (~8500 ev/s) is **recv-bound** — the single `rdkafka` broker thread — not parse-bound,
-> matching the prod profile. So parse-parallelism (point 2) does not help here, and batched reads
-> (point 1) won't either while recv is the cap. Highest-value remaining steps: **(4) the inflight
-> offset manager** (correctness — stops the on-read offset loss), and for *throughput*,
-> **parallelizing recv across multiple consumers / partition-subsets** (the only way to lift the
-> recv cap). Re-evaluate points 1-2 only after recv is parallelized.
+> **Measured (iter3-4): the e2e bench cannot validate reader/recv-side work.** iter3 moved serde
+> off the reader into the processors (point 2) → NEUTRAL (~+2%). iter4 ran multiple independent
+> consumers splitting the 12 partitions (parallel recv) → REGRESSED ~33%. So in this bench neither
+> parse nor recv is the bottleneck: a single local consumer already saturates the cheap (no
+> network latency) local recv, and the ~8500 ev/s cap is **downstream** (writer / single
+> update-channel / cache+dedup / harness). Local Kafka does **not** reproduce the prod recv
+> bottleneck (prod profile: 97% in `rdkafka` receive). **Consequence: points 1-2 (batched reads,
+> parallel parse) and multi-consumer recv are NOT loop-validatable here** — they need prod or a
+> prod-like Kafka harness. What the bench *can* score: write-concurrency (P1, done) and dedup.
+> Still worth doing regardless of throughput: **(4) the inflight offset manager** (correctness —
+> validated by tests, not the bench).
 
 - ✅ **P1. Write concurrency — reverted, then re-introduced once the regime was right.** First
   attempt regressed ~25-35% against a local Postgres (writes ~1ms, no latency to hide). Prod
@@ -215,13 +218,17 @@ baseline; everything worth keeping lands here and is pushed.
 - **Cache contention is negligible on the read path.** `quick_cache` shards internally by key hash
   and we split into 3 per-record-type subcaches; `contains_key` takes a read lock. Per-team
   sharding would help locality/eviction fairness, not lock contention.
-- **The staged e2e ceiling (~8500 ev/s at staged_c4) is recv-bound, not parse-bound.** iter3 moved
-  JSON parsing off the single reader into the N processors; read-bound (e2e@1) and write-bound
-  (e2e@173) staged_c4 both moved only ~+2% (within noise). The cap is the single `rdkafka` recv
-  path (one broker thread), empirically matching the prod profile — so reader-side CPU tricks
-  (parse-parallelism, batched reads) cannot lift it. The only throughput lever that can:
-  parallelize recv across multiple consumers / partition-subsets. Reader micro-opts are low-value
-  until then.
+- **The staged e2e ceiling (~8500 ev/s at staged_c4) is DOWNSTREAM of the reader — not parse, not
+  recv — and local Kafka can't reproduce the prod recv bottleneck.** Two trials: iter3 moved JSON
+  parsing off the reader into the N processors → neutral (~+2%); iter4 ran multiple independent
+  consumers splitting the 12 partitions (parallel recv) → **regressed ~33%** (e2e@1 8453→5492,
+  e2e@173 8210→5466). If recv were the cap, more consumers would help; they hurt. So a single local
+  consumer already saturates the cheap (no-network-latency) local recv, and the ~8500 cap is
+  downstream (writer / single update-channel / cache+dedup / harness). This **corrects iter3's
+  earlier "recv-bound" label.** Prod's profile (97% in `rdkafka` receive) reflects real network
+  latency + partition count + event rate that local Kafka does not model. **Net: the e2e bench
+  validates write-concurrency and dedup, but CANNOT score reader/recv-side optimizations** (batched
+  reads, parse-parallelism, multi-consumer) — those need prod or a prod-like Kafka harness.
 
 ### Iteration history (compact)
 
@@ -237,8 +244,14 @@ baseline; everything worth keeping lands here and is pushed.
   processors do serde + team-filter + dedup, to spread the heavy ~14 KB/event parse across cores.
   staged_c4 e2e@1 8405→8584 (+2.1%), e2e@173 8543→8716 (+2.0%) — both within noise, under the 5%
   bar; pipeline deterministic unchanged. Reverted: neutral, and it adds a per-event 14 KB copy.
-  Yielded the key finding above — the e2e cap is recv-bound, not parse-bound — which redirects the
-  focus away from reader-CPU work toward the inflight offset manager and multi-consumer recv.
+  (Initially read as "recv-bound"; iter4 corrected that — see the finding above.)
+- **iter4 — REVERTED.** Multi-consumer recv: a `reader_count` config spawning N independent
+  consumers (same group) to split the topic's 12 partitions and parallelize recv. staged_c4
+  **regressed ~33%** in both regimes (e2e@1 8453→5492, e2e@173 8210→5466); legacy unaffected. Cause:
+  rebalance overhead at the 50k-event scale **plus** the single local consumer already saturating
+  the cheap local recv (recv is not the in-bench bottleneck). This disproved iter3's "recv-bound"
+  reading and established the meta-finding above: the e2e bench can't validate reader/recv work.
+  Prod-plausible (where recv *is* the bottleneck) but not loop-validatable here.
 
 ## The benchmarks
 
