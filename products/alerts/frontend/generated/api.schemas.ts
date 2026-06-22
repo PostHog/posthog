@@ -622,13 +622,15 @@ export interface AlertSimulateApi {
     insight: number
     /** Detector configuration to simulate. */
     detector_config: DetectorConfigApi
-    /** Zero-based index of the series to analyze. */
+    /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**
-     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+     * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series.
      * @nullable
      */
     date_from?: string | null
+    /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
+    config?: AlertConfigUnionApi | null
 }
 
 export type AlertSimulateResponseApiSubDetectorScoresItem = { [key: string]: unknown }
