@@ -117,13 +117,20 @@ def _request(
     json_body: dict | None = None,
     params: dict | None = None,
     timeout: int = 30,
+    require_enabled: bool = True,
 ) -> Response:
     """Proxy a request to the duckgres provisioning API, gated on the org's feature flag.
 
     Paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
+
+    `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
+    default for UI-driven calls. Backend/background callers (e.g. the Dagster duckling
+    backfill) must pass `require_enabled=False`: the flag is evaluated only-locally and a
+    worker without the flag definition loaded would otherwise get a spurious 403 even when
+    the control plane can answer.
     """
-    if not is_enabled(organization_id):
+    if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
     base_url = getattr(settings, "DUCKGRES_API_URL", None)
@@ -197,7 +204,17 @@ def provision(organization_id: UUID | str, database_name: str | None) -> Respons
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
+        # The bucket is internal infra detail, persisted above and consumed by the
+        # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
+        # schema. Strip it so the response matches its OpenAPI contract.
+        _strip_bucket_fields(resp.data)
     return resp
+
+
+def _strip_bucket_fields(body: dict) -> None:
+    """Drop the internal bucket fields from a UI-facing response body, in place."""
+    body.pop("bucket", None)
+    body.pop("bucket_region", None)
 
 
 def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:
@@ -258,15 +275,48 @@ def status_for(organization_id: UUID | str) -> Response:
         _reconcile_bucket_from_status(organization_id, resp.data)
         if isinstance(resp.data.get("connection"), dict):
             resp.data["connection"] = _present_connection(resp.data["connection"])
+        # Internal infra detail — reconciled above, not part of the UI-facing
+        # WarehouseStatusResponse schema. Backend callers use cp_bucket_for instead.
+        _strip_bucket_fields(resp.data)
     return resp
 
 
-def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:
-    """Converge DuckgresServer.bucket onto the control-plane-reported name.
+def cp_bucket_for(organization_id: UUID | str) -> str | None:
+    """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 
-    Best-effort and side-effect-only: a single UPDATE touching only rows whose
-    bucket differs (no fetch, no create). A DB hiccup is swallowed — it must
-    never fail the status read it piggybacks on.
+    For backend/background callers (the Dagster duckling backfill), not the UI. Unlike
+    `status_for` it:
+      - bypasses the user-facing feature-flag gate (`require_enabled=False`), so a Dagster
+        worker without the flag loaded locally doesn't get a spurious 403; and
+      - returns the bucket only when the status body's own `org_id` matches the org asked
+        about, so a CP bug or misrouted proxy can never hand back another tenant's bucket.
+
+    Also reconciles the stored `DuckgresServer` row so it converges for next time. Returns
+    None when the control plane is unreachable, unconfigured, or names no bucket.
+    """
+    resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
+    if resp.status_code != 200 or not isinstance(resp.data, dict):
+        return None
+
+    response_org = resp.data.get("org_id")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "Refusing to use control-plane bucket: status org_id mismatch",
+            requested_organization_id=str(organization_id),
+            response_org_id=str(response_org),
+        )
+        return None
+
+    _reconcile_bucket_from_status(organization_id, resp.data)
+    return resp.data.get("bucket") or None
+
+
+def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:
+    """Converge DuckgresServer.bucket/bucket_region onto the control-plane-reported values.
+
+    Best-effort and side-effect-only: a single UPDATE touching only rows where the
+    bucket OR the region differs (no fetch, no create). A DB hiccup is swallowed — it
+    must never fail the status read it piggybacks on.
     """
     # Defense-in-depth: the request is per-org (the URL carries the org id), but
     # only write back when the response's own org_id agrees with the one we asked
@@ -291,9 +341,11 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
     try:
         from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
+        # exclude rows where BOTH already match, so a correct bucket with a stale
+        # region (or vice versa) is still repaired.
         updated = (
             DuckgresServer.objects.filter(organization_id=organization_id)
-            .exclude(bucket=bucket)
+            .exclude(bucket=bucket, bucket_region=bucket_region)
             .update(bucket=bucket, bucket_region=bucket_region)
         )
         if updated:

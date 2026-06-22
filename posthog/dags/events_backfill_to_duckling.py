@@ -180,8 +180,8 @@ class DucklingTarget:
 
     Built once per run from the team's organization id. The duckgres connection is driven by
     make_duckgres_conninfo (duckgres owns catalog attachment on the connection); the S3 bucket
-    is read from the org's stored DuckLakeCatalog row — the provisioning source of truth — and
-    only falls back to deterministic derivation when no catalog row exists (e.g. dev mode).
+    is resolved by _resolve_duckling_target (DuckLakeCatalog → control plane → stored
+    DuckgresServer fallback). The control plane is the authoritative owner of the bucket name.
     """
 
     team_id: int
@@ -194,14 +194,26 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     """Resolve the per-org duckling target for a backfill partition.
 
     The organization id (team → org) drives both the connection (make_duckgres_conninfo
-    resolves the duckgres server itself) and the S3 bucket. The bucket name is read from a
-    stored source of truth — the org's DuckLakeCatalog (hand-entered, older orgs) or its
-    DuckgresServer (written at provision time, newer orgs). When neither carries one, the
-    duckgres control plane is the authoritative source: ask it via the warehouse status
-    endpoint (which also self-heals the DuckgresServer row for next time). The bucket name
-    is never re-derived locally — that derivation drifted from the Crossplane composition
-    and produced buckets that don't exist.
+    resolves the duckgres server itself) and the S3 bucket.
+
+    Bucket resolution order:
+      1. The org's DuckLakeCatalog row (hand-entered, older orgs that predate the control
+         plane and have no CP-owned bucket to ask about).
+      2. The control plane — the single owner of the duckling bucket name. It is consulted
+         BEFORE the stored DuckgresServer row on purpose: a row provisioned before the
+         naming fix carries a stale, locally-derived bucket that names an object store
+         that doesn't exist, and that stale value must not win. cp_bucket_for() also
+         reconciles the row so it converges for next time.
+      3. The stored DuckgresServer.bucket, only as a fallback when the control plane is
+         unreachable/unconfigured — so a transient CP outage doesn't fail a run whose
+         bucket is already known-good.
+
+    The bucket name is never re-derived locally — that derivation drifted from the
+    Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
+    can name it rather than export to a guessed bucket.
     """
+    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+
     org_id = _get_org_id_for_team(team_id)
 
     catalog = get_ducklake_catalog_for_organization(org_id)
@@ -209,35 +221,34 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         bucket, bucket_region = catalog.bucket, catalog.bucket_region
         return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
+    # Control plane first — authoritative, and rejects an org_id-mismatched status body.
+    cp_bucket = managed_warehouse.cp_bucket_for(org_id)
+    if cp_bucket:
+        logger.info(
+            "duckling_bucket_resolved_from_control_plane",
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=cp_bucket,
+        )
+        return DucklingTarget(
+            team_id=team_id, organization_id=org_id, bucket=cp_bucket, bucket_region=DUCKGRES_BUCKET_REGION
+        )
+
+    # CP couldn't answer — fall back to the stored row if it knows a bucket.
     server = get_duckgres_server_for_organization(org_id)
     if server is not None and server.bucket:
         bucket, bucket_region = server.bucket, server.bucket_region
+        logger.warning(
+            "duckling_bucket_from_stored_server_control_plane_unavailable",
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=bucket,
+        )
         return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
-    # No stored bucket on the catalog/server row. Resolve from the control plane — the
-    # single owner of the name — via the warehouse status endpoint. status_for() also
-    # self-heals the DuckgresServer row, so the next run is served locally. Fail loudly
-    # if even the CP can't name it, rather than exporting to a guessed bucket that may
-    # not exist. (There is no local-dev branch: this is a prod DAG for customer ducklings
-    # and there is no control plane to ask in local dev; a local run surfaces the error.)
-    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
-
-    resp = managed_warehouse.status_for(org_id)
-    cp_bucket = resp.data.get("bucket") if (resp.status_code == 200 and isinstance(resp.data, dict)) else None
-    if not cp_bucket:
-        raise ValueError(
-            f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog and "
-            f"DuckgresServer, and the control plane warehouse status returned none "
-            f"(HTTP {resp.status_code})."
-        )
-    logger.info(
-        "duckling_bucket_resolved_from_control_plane",
-        team_id=team_id,
-        organization_id=org_id,
-        bucket=cp_bucket,
-    )
-    return DucklingTarget(
-        team_id=team_id, organization_id=org_id, bucket=cp_bucket, bucket_region=DUCKGRES_BUCKET_REGION
+    raise ValueError(
+        f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog, the control "
+        f"plane warehouse status named none, and no stored DuckgresServer bucket to fall back to."
     )
 
 
@@ -1829,7 +1840,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     )
 
     # Resolve the duckling target: org id (team → org) drives both the connection and the
-    # S3 bucket, derived deterministically (mirrors the duckgres Crossplane composition).
+    # S3 bucket (the control plane is the authoritative source of the bucket name).
     target = _resolve_duckling_target(team_id)
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
@@ -2010,7 +2021,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     )
 
     # Resolve the duckling target: org id (team → org) drives both the connection and the
-    # S3 bucket, derived deterministically (mirrors the duckgres Crossplane composition).
+    # S3 bucket (the control plane is the authoritative source of the bucket name).
     target = _resolve_duckling_target(team_id)
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
