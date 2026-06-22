@@ -334,6 +334,10 @@ auth predicates). Anything that crosses two services belongs in
 
 ## Where the canonical docs live
 
+- [README.md](README.md) — docs index.
+- [architecture.md](architecture.md) — high-level architecture (diagrams).
+- [services.md](services.md) — what each service does (diagrams).
+- [identity-and-tools.md](identity-and-tools.md) — identity → tools → MCP (diagrams).
 - This file — local dev + testing.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
 - [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.
