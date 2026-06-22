@@ -22274,6 +22274,11 @@
         "FunnelsActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "description": "When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "funnelStep": {
                     "$ref": "#/definitions/integer",
                     "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons."

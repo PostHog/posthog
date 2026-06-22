@@ -24528,6 +24528,14 @@ class FunnelsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    compare: Compare | None = Field(
+        default=None,
+        description=(
+            "When the source funnel has compare-to-previous enabled, scopes the actors"
+            " to a single period. The runner resolves `'previous'` to the shifted date"
+            " range; `'current'` (or unset) uses the source's own date range."
+        ),
+    )
     funnelStep: int | None = Field(
         default=None,
         description=(
