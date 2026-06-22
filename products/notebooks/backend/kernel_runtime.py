@@ -23,7 +23,7 @@ from posthog.models import Team, User
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
-from products.tasks.backend.services.sandbox import (
+from products.tasks.backend.facade.sandbox import (
     SandboxBase,
     SandboxClass,
     SandboxConfig,
@@ -708,7 +708,7 @@ class KernelRuntimeService:
         if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
             if not handle.sandbox_id:
                 return False
-            from products.tasks.backend.services.sandbox import SandboxStatus
+            from products.tasks.backend.facade.sandbox import SandboxStatus
 
             try:
                 sandbox_class = self._get_sandbox_class(handle.backend)
