@@ -259,6 +259,7 @@ layer = "modules"
 path = "products.early_access_features"
 depends_on = [
     "posthog",
+    "ee",
     "products.feature_flags",
 ]
 layer = "modules"
