@@ -1,4 +1,19 @@
+from typing import TYPE_CHECKING
+
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+
+if TYPE_CHECKING:
+    # Visible to type checkers (so re-exports keep their real types, e.g. the exception classes
+    # used in `except` clauses) without triggering the heavy runtime import — `__getattr__` below
+    # loads them lazily at runtime.
+    from products.tasks.backend.logic.repo_selection.agent import (
+        REPO_SELECTION_DUMMY_REPOSITORY,
+        RepoSelectionRejectedError,
+        RepoSelectionUnavailableError,
+        resolve_team_github_integration,
+        select_repository,
+    )
+    from products.tasks.backend.logic.repo_selection.cascade import select_repository_for_message
 
 __all__ = [
     "REPO_SELECTION_DUMMY_REPOSITORY",
