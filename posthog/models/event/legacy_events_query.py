@@ -225,9 +225,10 @@ class LegacyEventsListQuery:
         tzinfo = self.team.timezone_info
 
         # Resolve the [after_dt, before_dt) bounds. `before` defaults to just past now (so events
-        # ingested a moment ago aren't excluded); `after` is left open unless requested.
-        # PATCH_EVENT_LIST_MAX_OFFSET is a default-off operational guard against abusive scans: when
-        # set it forces a 24h default lower bound and caps the range at one year.
+        # ingested a moment ago aren't excluded); `after` stays open unless requested.
+        # PATCH_EVENT_LIST_MAX_OFFSET clamps this deprecated endpoint's ClickHouse cost as a graduated
+        # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): at 2 a missing
+        # `after` defaults to before-24h, and a range over a year is rejected (always at 2, ~1% at 1).
         before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
         if after:
             after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
