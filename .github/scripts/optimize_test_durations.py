@@ -518,6 +518,19 @@ def main():
         help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
     )
     parser.add_argument(
+        "--scope-to-junit",
+        action="store_true",
+        help=(
+            "Filter the output to exactly the nodeids the JUnit artifacts saw run "
+            "(requires --junit-dir). The shared .test_durations is a union across all "
+            "CI jobs, so a segment's artifacts still carry stale cross-segment nodeids "
+            "(other segments' param variants, product-routed files). This scopes a "
+            "per-segment file to what THAT segment actually ran -- the run-set is already "
+            "in the JUnit, so no extra collection is needed. Used to emit "
+            ".test_durations.<segment> for --split-granularity=file."
+        ),
+    )
+    parser.add_argument(
         "--merge-files",
         type=Path,
         nargs="+",
@@ -576,6 +589,26 @@ def main():
                 result.migration_tax_seconds,
                 result.migration_tax_seconds / 60,
             )
+
+    # Scope to exactly what this segment's JUnit saw run. The shared timing
+    # artifacts each carry the full union (every shard restores the merged file
+    # then refreshes its own slice), so a per-segment merge still contains other
+    # segments' nodeids -- their param variants and product-routed files -- which
+    # would poison a file-granularity plan (it budgets weight for tests that never
+    # collect in this segment). The JUnit call_times map is the segment's real
+    # run-set at nodeid granularity, already loaded above, so this costs nothing.
+    if args.scope_to_junit:
+        if not junit_shards:
+            logger.error("--scope-to-junit requires --junit-dir with matching artifacts")
+            sys.exit(1)
+        ran = set().union(*(s.call_times.keys() for s in junit_shards))
+        before_count = len(durations)
+        durations = {k: v for k, v in durations.items() if k in ran}
+        logger.info(
+            "  Scoped to %d nodeids the JUnit saw run (dropped %d cross-segment/stale)",
+            len(durations),
+            before_count - len(durations),
+        )
 
     # Filter to only existing tests if requested
     if args.filter_existing:

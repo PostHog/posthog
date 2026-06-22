@@ -40,6 +40,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import (
@@ -49,8 +50,16 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
-from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
+from products.signals.backend.scout_harness.config_registry import (
+    enabled_scout_count,
+    ensure_scout_category,
+    register_missing_configs,
+)
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
@@ -62,6 +71,7 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileSerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
+    ScoutMetadataSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -71,6 +81,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
+from products.signals.backend.scout_harness.team_limits import resolve_team_metadata
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
@@ -667,6 +678,60 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
 
 
+class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Team-scoped scout metadata: enrollment, the alpha banner, and the enforced run limits.
+
+    All resolved from the `signals-scout` flag payload — the same read and three-layer cap
+    resolution the coordinator applies at dispatch — so the UI shows the *enforced* throttle, not
+    what a user assumes they set. Read-only and side-effect free.
+
+    Exposed via a `current` action rather than `list` for the same reason as
+    `SignalProjectProfileViewSet`: a bare `list` action types the response as a paginated
+    collection downstream (drf-spectacular / Orval), and this is a singleton.
+    """
+
+    serializer_class = ScoutMetadataSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout"
+    # No model backs this endpoint — metadata is computed from the flag payload. A real queryset is
+    # still required to satisfy the team/org viewset mixin; the `current` action never reads it.
+    queryset = SignalScoutConfig.objects.unscoped()
+    pagination_class = None
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ScoutMetadataSerializer,
+                description="This project's scout enrollment, announcement banner, and enforced run limits.",
+            ),
+        },
+        summary="Get scout metadata",
+        description=(
+            "Return the project's scout metadata: whether it is enrolled, the current announcement "
+            "banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run "
+            "limits with current usage. Limits reflect what the coordinator actually applies at "
+            "dispatch, so a user can see the real throttle rather than what they assume they set. "
+            "All values come from the `signals-scout` flag payload, so the banner and caps can "
+            "change with no deploy."
+        ),
+        operation_id="signals_scout_metadata_get",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="current",
+        url_name="current",
+        pagination_class=None,
+        # `signal_scout:read` is the public, user-grantable read scope used across this surface;
+        # without explicit `required_scopes` APIScopePermission rejects the request outright.
+        required_scopes=["signal_scout:read"],
+    )
+    def current(self, request: Request, *args, **kwargs) -> Response:
+        metadata = resolve_team_metadata(_canonical_team_id(self))
+        return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
+
+
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
     """Raise when enabling this scout would push the team past the per-team enabled cap.
 
@@ -888,3 +953,42 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutConfigSerializer(many=True),
+                description="The team's full scout fleet after the sync, ordered by skill name.",
+            ),
+        },
+        summary="Sync scout configs",
+        description=(
+            "Materialize the scout fleet for this project on demand (idempotent): seed the "
+            "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
+            "lacking one, and return all scout configs. Normally the Temporal coordinator does "
+            "this on its next tick; this action exists so setup flows (e.g. the wizard's "
+            "self-driving program) can hand the user a tunable fleet immediately."
+        ),
+        operation_id="signals_scout_config_sync",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="sync",
+        # Custom actions need explicit scopes — see the `current` action's note on the
+        # "no scopes declared" rejection branch in `posthog/permissions.py`. Write scope:
+        # the sync materializes configs, and fresh configs are enabled (they drive spend).
+        required_scopes=["signal_scout:write"],
+        pagination_class=None,
+    )
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        # Scout rows persist under the canonical parent team (see `_canonical_team_id`);
+        # seed and register against that team so child-environment requests don't fork
+        # a second fleet.
+        team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
+        sync_canonical_skills(team)
+        register_missing_configs(team.id)
+        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team.id).order_by("skill_name")
+        skill_info = _skill_info_for(team.id, [c.skill_name for c in configs])
+        return Response(SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info}).data)

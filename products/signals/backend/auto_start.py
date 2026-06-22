@@ -198,6 +198,7 @@ async def maybe_autostart_implementation_task(
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+        ai_stage="implementation",
     )
     if created.latest_run is None:
         raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
