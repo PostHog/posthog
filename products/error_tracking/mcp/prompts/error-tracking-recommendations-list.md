@@ -13,40 +13,16 @@ Surface only the few recommendations that matter — don't dump every row. Skip 
 
 Only act on recommendations that are not `completed` and not dismissed.
 
-# Recommendation types and what to do
+# Recommendation types
 
-## `alerts` — issue alerts worth enabling
+- `alerts` — `meta.alerts` is a list of `{ key, enabled }` for the `issue-created`/`issue-reopened`/`issue-spiking` triggers; `enabled: false` means no alert is wired. To act, use the `authoring-error-tracking-alerts` skill (or the `error-tracking-alerts-create` tool).
+- `rate_limits` — `meta.rate_limits` is a list of `{ key, enabled }` for the `project` and `per_issue` ingestion limits; `enabled: false` means it isn't set. To act, check and set them via `error-tracking-settings-get` / `error-tracking-settings-update`.
+- `source_maps` — `meta` carries frame-resolution stats (`unresolved_pct` vs `threshold_pct` over a sample); a high unresolved share means stack traces aren't symbolicated. The fix is uploading source maps from the build via the setup wizard (append `--region eu` for EU projects):
 
-`meta.alerts` is a list of `{ key, enabled }`. Keys: `error-tracking-issue-created` (new issue appears), `error-tracking-issue-reopened` (a resolved issue regresses), `error-tracking-issue-spiking` (volume spikes). `enabled: false` means no alert is wired for that trigger. Completed once all are enabled.
+  ```sh
+  npx -y @posthog/wizard@latest upload-source-maps
+  ```
 
-What to do: tell the user which triggers are off and why each is worth turning on, then create the missing alerts with the `error-tracking-alerts-create` MCP tool — it covers trigger-event selection and the per-integration payloads (Slack/webhook/Linear). Use the `authoring-error-tracking-alerts` skill for the canonical message bodies and dedup against existing alerts. If the tool isn't available in this session, fall back to the skill, then to Error tracking → Alerts in the app.
+  If frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill.
 
-## `rate_limits` — ingestion limits to set
-
-`meta.rate_limits` is a list of `{ key, enabled }`. Keys: `project` (project-wide ingestion limit) and `per_issue` (per-issue limit). `enabled: false` means that limit isn't set. Completed once both are set.
-
-What to do: explain that setting limits protects ingestion quota from noisy issues that would otherwise drown out real signal. Check current values with `error-tracking-settings-get`, then set the missing ones with `error-tracking-settings-update` — `project` maps to the project-wide rate-limit fields, `per_issue` to the per-issue fields. If those tools aren't available in this session, point the user to Error tracking settings in the app.
-
-## `source_maps` — unresolved stack frames
-
-`meta` carries `total_frames`, `unresolved_frames`, `unresolved_pct`, `threshold_pct`, `min_sample_frames`, and `lookback_hours`. It fires when more than `threshold_pct` of recent JS/TS frames are left unresolved over a meaningful sample. Completed when the sample is too small to judge or the unresolved share is at or under the threshold.
-
-What to do: a high unresolved share means stack traces aren't being symbolicated, so errors are hard to read. Inspect current uploads with `error-tracking-symbol-sets-list`. The fix is uploading source maps from the build, and the fastest path is the setup wizard — have the user run:
-
-```sh
-npx -y @posthog/wizard@latest upload-source-maps
-```
-
-Append `--region eu` for EU projects. The wizard wires source-map upload into their build. For manual setup, link the docs: https://posthog.com/docs/error-tracking/upload-source-maps. There's no upload MCP tool. When frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill to dig into why.
-
-## `long_running_issues` — old issues still firing
-
-`meta.issues` is a list of `{ id, name, description, created_at, occurrences, status }` for active issues first seen over a week ago that are still recurring. Completed when the list is empty.
-
-What to do: these are stale, unresolved issues worth closing out. Either move them along by changing status, or dig into root cause. For each, inspect with `query-error-tracking-issue` and `query-error-tracking-issue-events`, then act:
-
-- resolve, assign, or change status with `error-tracking-issues-partial-update`
-- merge duplicates with `error-tracking-issues-merge-create`
-- suppress persistent noise with `error-tracking-suppression-rules-create`
-
-To find the root cause of a specific issue, use the `investigating-error-issue` skill (who it affects, when it started, whether it correlates with a release/browser/flag). The `triaging-error-issues` skill covers working through several at once.
+- `long_running_issues` — `meta.issues` lists stale active issues (first seen over a week ago, still recurring). To act, use the `triaging-error-issues` skill to work through them, or `investigating-error-issue` to root-cause one.
