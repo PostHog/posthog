@@ -41,11 +41,12 @@ from posthog.api.services.flags_service import FlagVersionConflictError, batch_e
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -66,7 +67,6 @@ from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching
-from posthog.queries.person_query import PersonQuery
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
@@ -1540,14 +1540,26 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
-        raw_result = sync_execute(
-            query,
-            {**params, **filter.hogql_context.values},
-            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
+        request_properties = request.GET.get("properties")
+        if request_properties:
+            for prop in json.loads(request_properties):
+                # Legacy person filters default to the "exact" operator when none is given;
+                # ActorsQuery's PersonPropertyFilter requires it explicitly.
+                if prop.get("type") != "cohort":
+                    prop.setdefault("operator", "exact")
+                cohort_properties.append(prop)
+
+        actors_query = ActorsQuery(
+            select=["id"],
+            properties=cohort_properties,
+            search=request.GET.get("search") or None,
+            limit=filter.limit,
+            offset=filter.offset,
         )
-        actor_ids = [row[0] for row in raw_result]
+        actors_response = ActorsQueryRunner(team=team, query=actors_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        actor_ids = [row[0] for row in actors_response.results]
         with personhog_caller_tag("cohorts/persons"):
             serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
