@@ -290,7 +290,7 @@
            FROM
              (SELECT e.id AS aggregation_target,
                      toStartOfInterval(toTimeZone(e.created, 'UTC'), toIntervalDay(1)) AS start_of_interval
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `created` DateTime64(3, \'UTC\'), `prop_1` String, `prop_2` String') AS e
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery/posthog_test_test_table_stickiness/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS e
               WHERE and(greaterOrEquals(toTimeZone(e.created, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.created, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))))
               GROUP BY aggregation_target,
                        start_of_interval
