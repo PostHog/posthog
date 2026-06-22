@@ -4489,12 +4489,20 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # posthog_code: 2.0 USD * 100 * 1.2 = 240 — only the posthog_code event, not the signals one.
         self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 240)])
 
+    @parameterized.expand(
+        [
+            ("billable", True, 480),
+            ("non_billable", False, None),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_posthog_code_credits_counts_traceless_generation(self, mock_region: MagicMock) -> None:
-        """A billable posthog_code generation with no $ai_trace IS billed via the empty-trace fallback.
+    def test_posthog_code_credits_billable_fallback(
+        self, _name: str, billable: bool, expected_credits: int | None, mock_region: MagicMock
+    ) -> None:
+        """A traceless posthog_code generation bills via the empty-trace fallback only when billable.
 
-        PostHog Code never emits $ai_trace events, so the LEFT JOIN never matches; the fallback is
-        what makes posthog_code billable at all.
+        PostHog Code never emits a matching $ai_trace event, so the LEFT JOIN never matches and the
+        empty-trace fallback is what makes posthog_code billable at all — but only for $ai_billable=true.
         """
         from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
 
@@ -4515,8 +4523,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
-                "$ai_total_cost_usd": 4.0,
-                "$ai_billable": True,
+                "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.2 = 480 credits
+                "$ai_billable": billable,
                 "ai_product": "posthog_code",
                 "$group_1": "https://us.posthog.com",
             },
@@ -4526,43 +4534,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
-        # 4.0 USD * 100 * 1.2 = 480
-        self.assertEqual(result, [(self.org_1_team_1.id, 480)])
-
-    @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_posthog_code_credits_excludes_non_billable_generation(self, mock_region: MagicMock) -> None:
-        """A posthog_code generation tagged $ai_billable=false is not counted, even for posthog_code."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
-
-        mock_region.return_value = "US"
-        self._setup_teams()
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-        self._setup_instance_group_mapping(analytics_team)
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_posthog_code",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_posthog_code",
-                "$ai_total_cost_usd": 4.0,
-                "$ai_billable": False,
-                "ai_product": "posthog_code",
-                "$group_1": "https://us.posthog.com",
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
-
-        self.assertEqual(result, [])
+        expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
+        self.assertEqual(result, expected)
 
     def test_has_non_zero_usage_counts_posthog_code_credits(self) -> None:
         """A posthog_code-only org must survive has_non_zero_usage so its report still reaches billing."""
