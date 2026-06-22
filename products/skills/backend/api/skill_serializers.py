@@ -12,7 +12,13 @@ from products.ai_observability.backend.markdown_outline import get_markdown_outl
 
 from ..models.skills import LLMSkill, LLMSkillFile
 
-RESERVED_SKILL_NAMES = {"new"}
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+RESERVED_SKILL_NAMES = {"new", "scouts"}
+# Bundled-file paths that would collide with generated artifacts in the exported skill
+# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
+RESERVED_SKILL_FILE_PATHS = {"skill.md"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
@@ -23,7 +29,7 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 def validate_skill_name_value(value: str) -> str:
     if value.lower() in RESERVED_SKILL_NAMES:
         raise serializers.ValidationError(
-            "'new' is a reserved name and cannot be used.",
+            f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
     if len(value) > 64:
@@ -46,13 +52,26 @@ def validate_skill_name_value(value: str) -> str:
 
 
 def validate_skill_file_path(value: str) -> str:
+    # Paths become git tree entries (and zip/marketplace paths), so anything that would
+    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
+    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
     normalized = value.replace("\\", "/")
-    parts = normalized.split("/")
-    if any(part == ".." for part in parts):
-        raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
+    if not normalized or normalized != normalized.strip():
+        raise serializers.ValidationError("File path must be a non-empty, trimmed relative path.")
     if normalized.startswith("/"):
         raise serializers.ValidationError("File paths must be relative, not absolute.")
-    return value
+    if normalized.endswith("/"):
+        raise serializers.ValidationError("File paths must not end with a slash.")
+    if any(part in ("", ".", "..") for part in normalized.split("/")):
+        raise serializers.ValidationError("File paths must not contain empty, '.', or '..' segments.")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
+        raise serializers.ValidationError("File paths must not contain control characters.")
+    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
+        raise serializers.ValidationError(f"'{value}' is a reserved file path and cannot be used.")
+    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
+    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
+    # rather than a file under `references/`, and would let the two spellings dodge dedup.
+    return normalized
 
 
 def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -77,6 +96,14 @@ def validate_skill_body_size(body: str) -> str:
     return body
 
 
+def validate_allowed_tool(value: str) -> None:
+    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
+    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
+    # Returns None (raise-only) so it fits a DRF `validators=[...]` list.
+    if any(ch.isspace() for ch in value):
+        raise serializers.ValidationError("Tool names cannot contain whitespace.")
+
+
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
@@ -94,6 +121,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter skills by the ID of the user who created them.",
+    )
+    category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
+        "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
     )
 
 
@@ -233,9 +266,9 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         help_text="Environment requirements.",
     )
     allowed_tools = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
-        help_text="List of pre-approved tools the skill may use.",
+        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -297,15 +330,21 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
     allowed_tools = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
         default=list,
-        help_text="List of pre-approved tools the skill may use.",
+        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
     )
     metadata = serializers.DictField(
         required=False,
         default=dict,
         help_text="Arbitrary key-value metadata.",
+    )
+    category = serializers.CharField(
+        read_only=True,
+        help_text='Server-owned classification — set by the producing system (the Signals harness stamps "scout"), '
+        "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
+        "(e.g. the Scouts tab) independently of the skill name.",
     )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
@@ -325,6 +364,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "compatibility",
             "allowed_tools",
             "metadata",
+            "category",
             "files",
             "outline",
             "version",
@@ -479,6 +519,12 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LLMSkillImportSerializer(serializers.Serializer):
+    file = serializers.FileField(
+        help_text="A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/).",
+    )
+
+
 class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
@@ -545,3 +591,66 @@ class LLMSkillFileDeleteQuerySerializer(serializers.Serializer):
             "when another write has landed in the meantime."
         ),
     )
+
+
+class LLMSkillMarketplaceIssueSerializer(serializers.Serializer):
+    rotate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one "
+            "(this invalidates any setup using the previous token). Ignored when no credential exists yet — "
+            "the first call always mints one. Only affects this user's own credential."
+        ),
+    )
+
+
+class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=["absent", "exists", "created", "rotated"],
+        help_text=(
+            "absent: no credential yet. exists: one already exists (no token returned). "
+            "created: a new credential was just minted. rotated: the existing credential was rolled."
+        ),
+    )
+    connected = serializers.BooleanField(
+        help_text="Whether this user already has a marketplace credential for the team's skill store."
+    )
+    plugin_name = serializers.CharField(help_text="The plugin name the command installs (Claude Code and Codex).")
+    marketplace_name = serializers.CharField(help_text="The marketplace name, used by the Codex install command.")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name shadows Field.label (str); intentional
+        help_text="Label of this user's marketplace credential (a scoped Personal API Key)."
+    )
+    repo_url = serializers.CharField(help_text="The marketplace git repository URL, with no credential embedded.")
+    command = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Claude Code: ready-to-paste `/plugin marketplace add` command with the live token embedded. "
+            "Returned only when a token was just issued (status created/rotated); null otherwise."
+        ),
+    )
+    command_template = serializers.CharField(
+        help_text="Claude Code install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
+    )
+    codex_command = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "OpenAI Codex: two-line `codex plugin marketplace add` + `codex plugin add` command with the live "
+            "token embedded. Returned only when a token was just issued (status created/rotated); null otherwise."
+        ),
+    )
+    codex_command_template = serializers.CharField(
+        help_text="Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
+    )
+    token = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The raw read-only `phx_` credential. Returned once, only when minted or rotated; "
+            "it cannot be retrieved again afterwards."
+        ),
+    )
+    mask_value = serializers.CharField(
+        allow_null=True, help_text="Masked preview of the existing credential (e.g. phx_...abcd)."
+    )
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was created.")
+    last_rolled_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was last rotated.")

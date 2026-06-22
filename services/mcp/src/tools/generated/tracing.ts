@@ -229,6 +229,9 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.excludeAttributes !== undefined) {
                 body['excludeAttributes'] = params.excludeAttributes
             }
+            if (params.offset !== undefined) {
+                body['offset'] = params.offset
+            }
             const result = await context.api.request<unknown>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,

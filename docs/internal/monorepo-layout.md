@@ -52,10 +52,15 @@ See [products/README.md](/products/README.md) for how to create products. For ne
 
 #### What a product can own
 
-Most products are a Django app plus React scenes. Some also own adjacent runtime and tooling — services they deploy, a CLI, packages, a standalone console. Nest those under the product instead of scattering them across top-level dirs:
+Most products are a Django app plus React scenes — and most already carry more: an `mcp/` directory of MCP tool definitions, often a `skills/` directory of agent skills. A product can own anything attributable to it, runtime and tooling alike. Nest it under the product instead of scattering it across top-level dirs:
 
-- `products/<product>/services/<svc>/`, `.../packages/<lib>/`, a product CLI, and so on. Top-level `services/`, `packages/`, `tools/`, and `cli/` are for things no single product owns.
-- Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
+- `products/<product>/mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (most products)
+- `products/<product>/skills/` — agent skills for the product (many products)
+- `products/<product>/services/<svc>/` — a service or worker the product deploys
+- `products/<product>/packages/<lib>/` — a library or CLI the product owns
+- dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators, a standalone console — same idea
+
+Top-level `services/`, `packages/`, `tools/`, and `cli/` are for things no single product owns. Keep package names (`@posthog/<name>`) independent of location — pnpm resolves by name, so relocating later is a path move with no import churn.
 
 Nest because tooling boundaries become path-scoped (`products/<product>/**` for CODEOWNERS, CI filters, lint) instead of hand-synced `<product>-*` prefixes. A prefix doing a folder's job is the signal to nest.
 

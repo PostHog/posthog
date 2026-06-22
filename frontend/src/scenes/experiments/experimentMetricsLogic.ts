@@ -16,10 +16,13 @@ import {
     experimentsMetricsRecalculationLatestRetrieve,
     experimentsMetricsRecalculationRetrieve,
 } from 'products/experiments/frontend/generated/api'
-import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
+import type {
+    ExperimentMetricsRecalculationApi,
+    TriggerEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
 
 import type { experimentMetricsLogicType } from './experimentMetricsLogicType'
-import { hasEnded, isLaunched } from './experimentsLogic'
+import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
     metadata: {
@@ -129,7 +132,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: true,
+        triggerRecalculation: (trigger: TriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -193,16 +196,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 total: recalc?.total_metrics ?? 0,
             }),
         ],
-        lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.completed_at ?? null],
+        lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
     }),
     listeners(({ actions, values, props, cache }) => {
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
         /**
-         * Recalculations only make sense for a running experiment: a draft has no results to fetch, and a
-         * stopped one is frozen. Gates both the latest-fetch and triggering a new run.
+         * Recalculations only make sense once an experiment has launched: a draft has no results to fetch.
+         * A stopped experiment still has final results to compute and display, so it is included here — this
+         * mirrors the backend, which only rejects recalculation for drafts (`is_launched`). Gates both the
+         * latest-fetch and triggering a new run.
          */
-        const experimentIsRunning = (): boolean => isLaunched(props.experiment) && !hasEnded(props.experiment)
+        const experimentIsLaunched = (): boolean => isLaunched(props.experiment)
 
         /**
          * some local helpers for the listeners closure
@@ -251,10 +256,60 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             const alignPrimary = alignByMetricPosition(props.experiment, 'primary')
             const alignSecondary = alignByMetricPosition(props.experiment, 'secondary')
 
-            actions.setPrimaryMetricsResults(alignPrimary(resultFor))
-            actions.setSecondaryMetricsResults(alignSecondary(resultFor))
-            actions.setPrimaryMetricsResultsErrors(alignPrimary(errorFor))
-            actions.setSecondaryMetricsResultsErrors(alignSecondary(errorFor))
+            /**
+             * Merge, don't overwrite: keep whatever is already shown for a metric until its real result or
+             * error lands. A run that is still pending (or a cold_run mid-flight) carries an empty `results`
+             * list, so a plain overwrite would blank cells we already populated (e.g. timeseries cold-start
+             * placeholders), flipping them back to a loading spinner. A slot is updated only when this payload
+             * has a result OR an error for that metric; a new error clears the old result and vice versa, so a
+             * cell never shows a stale result alongside a fresh error.
+             */
+            const nextResults = alignPrimary(resultFor)
+            const nextSecondaryResults = alignSecondary(resultFor)
+            const nextErrors = alignPrimary(errorFor)
+            const nextSecondaryErrors = alignSecondary(errorFor)
+
+            const mergeResults = (
+                current: CachedNewExperimentQueryResponse[],
+                nextResult: (CachedNewExperimentQueryResponse | undefined)[],
+                nextError: MetricErrorState[]
+            ): CachedNewExperimentQueryResponse[] =>
+                nextResult.map((value, i) => {
+                    if (value !== undefined) {
+                        return value
+                    }
+                    // A fresh error for this slot supersedes any previously shown result.
+                    if (nextError[i]) {
+                        return undefined as unknown as CachedNewExperimentQueryResponse
+                    }
+                    return current[i]
+                })
+            const mergeErrors = (
+                current: (unknown | null)[],
+                nextError: MetricErrorState[],
+                nextResult: (CachedNewExperimentQueryResponse | undefined)[]
+            ): (unknown | null)[] =>
+                nextError.map((value, i) => {
+                    if (value) {
+                        return value
+                    }
+                    // A fresh result for this slot clears any previously shown error.
+                    if (nextResult[i] !== undefined) {
+                        return null
+                    }
+                    return current[i] ?? null
+                })
+
+            actions.setPrimaryMetricsResults(mergeResults(values.primaryMetricsResults, nextResults, nextErrors))
+            actions.setSecondaryMetricsResults(
+                mergeResults(values.secondaryMetricsResults, nextSecondaryResults, nextSecondaryErrors)
+            )
+            actions.setPrimaryMetricsResultsErrors(
+                mergeErrors(values.primaryMetricsResultsErrors, nextErrors, nextResults)
+            )
+            actions.setSecondaryMetricsResultsErrors(
+                mergeErrors(values.secondaryMetricsResultsErrors, nextSecondaryErrors, nextSecondaryResults)
+            )
         }
 
         return {
@@ -266,8 +321,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     return
                 }
-                // Don't fetch for draft or stopped experiments — there's nothing to recalculate.
-                if (!experimentIsRunning()) {
+                // Don't fetch for draft experiments — there's nothing to recalculate yet.
+                if (!experimentIsLaunched()) {
                     actions.setRecalculationLoading(false)
                     return
                 }
@@ -295,11 +350,21 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     applyResults(recalculation)
 
                     /**
+                     * Timeseries fallback is a placeholder: it may cover only some metrics and is cumulative
+                     * daily data, not a fresh point-in-time result. Always trigger a real cold_run to fill the
+                     * gaps and refresh; the placeholder stays visible and cells update in place as it polls.
+                     */
+                    if (recalculation.result_source === 'timeseries_fallback') {
+                        actions.triggerRecalculation('cold_run')
+                        return
+                    }
+
+                    /**
                      * if the recalculation resutls are stale, trigger a new recalculation
                      * without hiding the existing resutls.
                      */
                     if (isRecalculationStale(recalculation)) {
-                        actions.triggerRecalculation()
+                        actions.triggerRecalculation('stale_refresh')
                     }
                 } catch (error: any) {
                     if (error?.status === 404) {
@@ -307,7 +372,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                          * if there are no completed recalculations, kick off a new one.
                          * this should only run on page loads, so no need to load exposures.
                          */
-                        actions.triggerRecalculation()
+                        actions.triggerRecalculation('cold_run')
                         return
                     }
 
@@ -316,7 +381,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                 }
             },
-            triggerRecalculation: async () => {
+            triggerRecalculation: async ({ trigger }) => {
                 /**
                  * bail if feature not enabled
                  */
@@ -324,10 +389,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * Don't recalculate draft or stopped experiments; a config-change edit on either shouldn't
-                 * kick off a run.
+                 * Don't recalculate draft experiments; a config-change edit on a draft shouldn't kick off a
+                 * run. Stopped experiments are allowed — they still need their final results computed.
                  */
-                if (!experimentIsRunning()) {
+                if (!experimentIsLaunched()) {
                     return
                 }
                 /**
@@ -343,7 +408,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     // 201 with a new pending run, or 200 with the already-active one. No results yet.
                     // Create a recalculation workflow. 201: a new run. 200: one is already running, poll it.
                     const recalculation = await experimentsMetricsRecalculationCreate(String(projectId), experimentId, {
-                        trigger: 'manual',
+                        trigger,
                     })
 
                     /**
@@ -363,7 +428,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.reportExperimentMetricRecalculation('triggered', {
                         experiment_id: experimentId,
                         recalculation_id: recalculation.id,
-                        trigger: 'manual',
+                        trigger,
                         is_existing: recalculation.is_existing,
                     })
 
@@ -455,6 +520,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     recalculation.status === RECALCULATION_STATUSES.pending ||
                     recalculation.status === RECALCULATION_STATUSES.in_progress
                 ) {
+                    /**
+                     * Cold-start runs have no prior results to preserve, so surface each metric as it lands
+                     * (applyResults is positional and idempotent); other triggers keep terminal-only apply.
+                     */
+                    if (recalculation.trigger === 'cold_run') {
+                        applyResults(recalculation)
+                    }
                     actions.pollRecalculation(recalculationId)
                     return
                 }

@@ -122,6 +122,11 @@ CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.MEDIUM,
     ReasoningEffort.HIGH,
 )
+CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_REASONING_EFFORTS,
+    ReasoningEffort.XHIGH,
+)
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 
 
 def get_provider_for_runtime_adapter(
@@ -148,6 +153,8 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
+        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+            return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 
     return ()
@@ -178,6 +185,7 @@ class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
+    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -669,7 +677,7 @@ def build_sandbox_environment_variables(
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
     """
-    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 
     env_vars: dict[str, str] = {}
 

@@ -1,10 +1,15 @@
 import json
+import uuid
 from datetime import timedelta
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,7 +20,9 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task, TaskRun
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -365,6 +372,19 @@ class TestSignalReportListAPI(APIBaseTest):
         assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
         assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
 
+    def test_ordering_skips_unknown_clause_keeps_valid_ones(self):
+        """An unrecognized clause (e.g. a stale persisted field) is skipped, not fatal:
+        the valid clauses still apply instead of silently reverting to the default order."""
+        r_p1 = self._create_report(title="P1 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p3, priority="P3")
+
+        response = self.client.get(self._list_url(status="ready", ordering="bogus_field,priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_p1.id)) < ids.index(str(r_p3.id))
+
     def test_ordering_by_total_weight_only_crosses_status_rank(self):
         """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(
@@ -490,7 +510,9 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def _create_implementation_task_with_run(
         self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
-    ) -> tuple[Task, TaskRun]:
+    ) -> "tuple[Task, TaskRun]":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="Implementation task",
@@ -557,6 +579,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] is None
 
     def test_implementation_pr_url_uses_latest_task_run(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
         task = Task.objects.create(
             team=self.team,
@@ -670,6 +694,74 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert body["attr"] == "has_implementation_pr"
+        assert body["code"] == "invalid_input"
+
+    # --- actionability filter ---
+
+    def test_filter_actionability_single_value(self):
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert {r["id"] for r in body["results"]} == {str(not_actionable.id)}
+        assert body["count"] == 1
+
+    def test_filter_actionability_multiple_values(self):
+        immediate = self._create_report(title="Immediate")
+        self._actionability_artefact(immediate, actionability="immediately_actionable")
+        needs_input = self._create_report(title="Needs input")
+        self._actionability_artefact(needs_input, actionability="requires_human_input")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="immediately_actionable,requires_human_input"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(immediate.id), str(needs_input.id)}
+
+    def test_filter_actionability_excludes_reports_without_judgment(self):
+        # A report with no actionability_judgment artefact (annotation is NULL) is excluded.
+        unjudged = self._create_report(title="Unjudged")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(unjudged.id) not in ids
+        assert str(not_actionable.id) in ids
+
+    def test_filter_actionability_count_via_limit_one(self):
+        for i in range(3):
+            report = self._create_report(title=f"NA report {i}")
+            self._actionability_artefact(report, actionability="not_actionable")
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable", limit=1))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == 1
+
+    def test_filter_actionability_absent_returns_all(self):
+        a = self._create_report(title="A")
+        self._actionability_artefact(a, actionability="immediately_actionable")
+        b = self._create_report(title="B")
+        self._actionability_artefact(b, actionability="not_actionable")
+
+        response = self.client.get(self._list_url())
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(a.id), str(b.id)} <= ids
+
+    def test_filter_actionability_invalid_value_returns_400(self):
+        response = self.client.get(self._list_url(actionability="maybe_later"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "actionability"
         assert body["code"] == "invalid_input"
 
     # --- source_products ---
@@ -804,6 +896,69 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["actionability"] is None
 
+    # --- dismissal reason ---
+
+    def _dismissal_artefact(
+        self,
+        report: SignalReport,
+        *,
+        reason: str | None,
+        note: str = "",
+        created_at=None,
+    ) -> SignalReportArtefact:
+        payload: dict = {"note": note, "user_id": None, "user_uuid": None}
+        if reason is not None:
+            payload["reason"] = reason
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=json.dumps(payload),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        return art
+
+    @parameterized.expand(
+        [
+            # Known reason code with a note: both are surfaced verbatim.
+            ("known_reason_with_note", "wontfix_intentional", "by design", "wontfix_intentional", "by design"),
+            # Reason codes are client-owned, so an unrecognised code passes through;
+            # an empty note collapses to null.
+            ("unknown_reason_passes_through", "some_brand_new_code", "", "some_brand_new_code", None),
+        ]
+    )
+    def test_list_surfaces_dismissal_reason_and_note(self, _name, reason, note, expected_reason, expected_note):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason=reason, note=note)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == expected_reason
+        assert row["dismissal_note"] == expected_note
+
+    def test_list_dismissal_reason_null_without_artefact(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] is None
+        assert row["dismissal_note"] is None
+
+    def test_list_uses_latest_dismissal_artefact_by_created_at(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason="report_unclear", created_at=timezone.now() - timedelta(days=1))
+        self._dismissal_artefact(report, reason="analysis_wrong")
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == "analysis_wrong"
+
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
@@ -845,13 +1000,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 None,
                 "free-form note",
             ),
-            # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
             (
-                "suppress_accepts_arbitrary_reason",
-                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+                "suppress_with_other_reason",
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "edge case"},
                 SignalReport.Status.SUPPRESSED,
-                "some_brand_new_code",
-                None,
+                "other",
+                "edge case",
             ),
             (
                 "snooze_with_reason_and_note",
@@ -874,6 +1028,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == expected_final_status
+
+        # The response serializes the report after the dismissal artefact is written, so it must
+        # reflect the just-saved reason/note — not a stale prefetch evaluated before the write.
+        assert response.json()["dismissal_reason"] == expected_reason
+        assert response.json()["dismissal_note"] == expected_note
 
         artefacts = list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
@@ -930,6 +1089,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             (
                 "oversized_dismissal_note",
                 {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001},
+            ),
+            # Reason codes are now constrained to the canonical inbox set, so invented codes are rejected.
+            (
+                "non_canonical_dismissal_reason",
+                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
             ),
         ]
     )
@@ -1013,3 +1177,265 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # prior status before archiving, expected status after restore
+            ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
+            # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
+            ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),
+            ("candidate", SignalReport.Status.CANDIDATE, SignalReport.Status.POTENTIAL),
+            ("in_progress", SignalReport.Status.IN_PROGRESS, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_restore_returns_report_to_pre_suppression_status(self, _name, prior_status, expected_restored_status):
+        report = SignalReport.objects.create(team=self.team, status=prior_status, title="t", summary="s")
+
+        suppress = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        assert suppress.status_code == status.HTTP_200_OK, suppress.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status_before_suppression == prior_status
+
+        restore = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        assert restore.status_code == status.HTTP_200_OK, restore.json()
+        report.refresh_from_db()
+        assert report.status == expected_restored_status
+        assert report.status_before_suppression is None
+
+    def test_restore_preserves_title_and_summary(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Original title", summary="Original summary"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert report.title == "Original title"
+        assert report.summary == "Original summary"
+
+
+class TestAvailableReviewersAPI(APIBaseTest):
+    """GET signals/reports/available_reviewers/: returns every eligible org member (no cap), with server-side search."""
+
+    def setUp(self):
+        super().setUp()
+        # The over-threshold report is throttled via the cache; clear it so each test starts fresh.
+        cache.clear()
+
+    def _url(self, **query) -> str:
+        base = f"/api/projects/{self.team.id}/signals/reports/available_reviewers/"
+        if not query:
+            return base
+        return f"{base}?{urlencode(query)}"
+
+    def _fake_user(self, n: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            uuid=uuid.UUID(int=n),
+            first_name=f"User{n:04d}",
+            last_name="Tester",
+            email=f"user{n:04d}@example.com",
+        )
+
+    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_returns_all_members_without_cap(self, mock_map):
+        # 250 > the old hard cap of 100: every member must come back now.
+        mock_map.return_value = self._login_map(250)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 250
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_search_query_filters_server_side(self, mock_map):
+        mock_map.return_value = self._login_map(250)
+        response = self.client.get(self._url(query="User0123"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 1
+        assert next(iter(body.values()))["email"] == "user0123@example.com"
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
+        mock_map.return_value = self._login_map(50)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_not_called()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_exception_captured_over_threshold(self, mock_map, mock_capture):
+        mock_map.return_value = self._login_map(1201)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 1201
+        mock_capture.assert_called_once()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
+        # Repeated popover opens for the same over-threshold org must report at most once.
+        mock_map.return_value = self._login_map(1201)
+        for _ in range(3):
+            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
+        # A search-as-you-type request must not spam the threshold capture.
+        mock_map.return_value = self._login_map(1201)
+        response = self.client.get(self._url(query="User0001"))
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_not_called()
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_empty_org_returns_empty(self, mock_map):
+        mock_map.return_value = {}
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_missing_team_map_returns_empty(self, mock_map):
+        # The helper returns None for an unknown team; the view coalesces it to an empty result.
+        mock_map.return_value = None
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+
+class TestSignalReportBulkStateAPI(APIBaseTest):
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    def _post(self, body: dict):
+        return self.client.post(self._bulk_url(), data=json.dumps(body), content_type="application/json")
+
+    def test_bulk_suppress_transitions_all_reports(self):
+        reports = [self._create_report() for _ in range(3)]
+        ids = [str(r.id) for r in reports]
+
+        response = self._post({"ids": ids, "state": "suppressed", "dismissal_reason": "wontfix_intentional"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 3
+        assert body["skipped_count"] == 0
+        assert body["failed_count"] == 0
+        assert body["not_found_count"] == 0
+        # Results are in request order, each carrying the post-transition status.
+        assert [row["id"] for row in body["results"]] == ids
+        assert all(row["outcome"] == "transitioned" for row in body["results"])
+        assert all(row["status"] == SignalReport.Status.SUPPRESSED for row in body["results"])
+
+        for report in reports:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.SUPPRESSED
+            artefacts = SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            )
+            assert artefacts.count() == 1
+            assert json.loads(artefacts.get().content)["reason"] == "wontfix_intentional"
+
+    def test_bulk_skips_disallowed_transitions_but_processes_the_rest(self):
+        ready = self._create_report(report_status=SignalReport.Status.READY)
+        # POTENTIAL -> POTENTIAL is not an allowed transition, so it comes back as `skipped`.
+        already_potential = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+
+        response = self._post({"ids": [str(ready.id), str(already_potential.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["skipped_count"] == 1
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(ready.id)] == "transitioned"
+        assert outcomes[str(already_potential.id)] == "skipped"
+
+        ready.refresh_from_db()
+        assert ready.status == SignalReport.Status.POTENTIAL
+
+    def test_bulk_reports_not_found_for_unknown_and_other_team_ids(self):
+        mine = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_teams_report = self._create_report(team=other_team)
+        missing_id = "00000000-0000-0000-0000-000000000000"
+
+        response = self._post({"ids": [str(mine.id), str(other_teams_report.id), missing_id], "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["not_found_count"] == 2
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(mine.id)] == "transitioned"
+        # Another team's report is invisible (IDOR boundary) — reported as not_found, never touched.
+        assert outcomes[str(other_teams_report.id)] == "not_found"
+        assert outcomes[missing_id] == "not_found"
+
+        other_teams_report.refresh_from_db()
+        assert other_teams_report.status == SignalReport.Status.READY
+
+    def test_bulk_deduplicates_ids_preserving_order(self):
+        first = self._create_report()
+        second = self._create_report()
+        ids = [str(first.id), str(second.id), str(first.id)]
+
+        response = self._post({"ids": ids, "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [row["id"] for row in body["results"]] == [str(first.id), str(second.id)]
+        assert body["transitioned_count"] == 2
+
+    def test_bulk_restore_reaches_suppressed_reports(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        report.status_before_suppression = SignalReport.Status.READY
+        report.save(update_fields=["status_before_suppression"])
+
+        response = self._post({"ids": [str(report.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["transitioned_count"] == 1
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("empty_ids", {"ids": [], "state": "suppressed"}),
+            ("missing_ids", {"state": "suppressed"}),
+            ("too_many_ids", {"ids": [f"00000000-0000-0000-0000-{i:012d}" for i in range(101)], "state": "suppressed"}),
+            (
+                "invalid_reason",
+                {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
+            ),
+            ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
+            ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
+        ]
+    )
+    def test_bulk_rejects_invalid_requests(self, _name, body):
+        response = self._post(body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

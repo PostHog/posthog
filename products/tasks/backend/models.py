@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.logic.services.sandbox import SandboxResources
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -40,9 +41,9 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
-from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +70,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Conversations support reply pipeline — autonomous grounded draft replies.
+        SUPPORT_REPLY = "support_reply", "Support Reply"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -331,18 +334,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_resources: "SandboxResources | None" = None,
+        sandbox_timeout_seconds: int | None = None,
+        inactivity_timeout_seconds: int | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -413,7 +420,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] = {}
+        extra_state: dict[str, Any] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
         if interaction_origin:
@@ -437,8 +444,30 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if model:
             extra_state["model"] = model
 
+        # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
+        # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
+        if ai_stage:
+            extra_state["ai_stage"] = ai_stage
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
+
+        # Optional per-task sandbox compute/timeout overrides. Read back into
+        # SandboxConfig at provision time (see TaskProcessingContext); unset
+        # fields keep the SandboxConfig defaults.
+        if sandbox_resources is not None:
+            if sandbox_resources.cpu_cores is not None:
+                extra_state["sandbox_cpu_cores"] = sandbox_resources.cpu_cores
+            if sandbox_resources.memory_gb is not None:
+                extra_state["sandbox_memory_gb"] = sandbox_resources.memory_gb
+        if sandbox_timeout_seconds is not None:
+            extra_state["sandbox_ttl_seconds"] = sandbox_timeout_seconds
+
+        # Optional per-task inactivity timeout override (seconds). Read back via
+        # TaskProcessingContext.inactivity_timeout(); unset falls back to the
+        # origin-aware default.
+        if inactivity_timeout_seconds is not None:
+            extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
@@ -1174,7 +1203,7 @@ class SandboxSnapshot(UUIDModel):
 
     def delete(self, *args, **kwargs):
         if self.external_id:
-            from products.tasks.backend.services.sandbox import Sandbox
+            from products.tasks.backend.logic.services.sandbox import Sandbox
 
             if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
@@ -1472,6 +1501,12 @@ class CodePrSnapshot(TeamScopedRootMixin):
     unresolved_threads = models.PositiveIntegerField(default=0)
     mergeable = models.BooleanField(null=True, blank=True)
     author_login = models.CharField(max_length=255, null=True, blank=True)
+    head_branch = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="PR head (source) branch, used to group follow-up task runs under this PR's workstream",
+    )
     requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
     pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
     fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")

@@ -336,6 +336,59 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface IntegrationAccessRequestApi {
+    /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+     *
+     * * `anthropic` - Anthropic
+     * * `apns` - Apple Push
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel */
+    kind: IntegrationKindEnumApi
+    /**
+     * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+     * @maxLength 2000
+     */
+    reason: string
+}
+
+export interface IntegrationAccessRequestResponseApi {
+    /** Whether the access request was accepted and the project admins were notified. */
+    success: boolean
+}
+
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.

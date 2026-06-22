@@ -4,7 +4,7 @@ from unittest import mock
 
 from rest_framework import status
 
-from products.endpoints.backend.api import EndpointViewSet
+from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
@@ -13,10 +13,8 @@ pytestmark = [pytest.mark.django_db]
 class TestShouldUseDuckLake(APIBaseTest):
     """Test the routing decision for DuckLake vs ClickHouse."""
 
-    def _make_viewset(self) -> EndpointViewSet:
-        viewset = EndpointViewSet()
-        viewset.team_id = self.team.id
-        return viewset
+    def _make_service(self) -> EndpointExecutionService:
+        return EndpointExecutionService(self.team, mock.MagicMock())
 
     def test_non_hogql_query_returns_false(self):
         endpoint = create_endpoint_with_version(
@@ -26,9 +24,9 @@ class TestShouldUseDuckLake(APIBaseTest):
             created_by=self.user,
         )
         version = endpoint.get_version()
-        viewset = self._make_viewset()
+        service = self._make_service()
 
-        assert viewset._should_use_ducklake(endpoint, version) is False
+        assert service._should_use_ducklake(endpoint, version) is False
 
     def test_none_version_returns_false(self):
         endpoint = create_endpoint_with_version(
@@ -37,9 +35,9 @@ class TestShouldUseDuckLake(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
             created_by=self.user,
         )
-        viewset = self._make_viewset()
+        service = self._make_service()
 
-        assert viewset._should_use_ducklake(endpoint, None) is False
+        assert service._should_use_ducklake(endpoint, None) is False
 
 
 class TestDuckLakeEndpointExecution(APIBaseTest):
@@ -57,7 +55,9 @@ class TestDuckLakeEndpointExecution(APIBaseTest):
         super().tearDown()
 
     @mock.patch("posthog.ducklake.client.execute_ducklake_query")
-    @mock.patch("products.endpoints.backend.api.EndpointViewSet._should_use_ducklake", return_value=True)
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
+    )
     def test_run_returns_ducklake_result(self, _mock_should, mock_execute):
         from posthog.ducklake.client import DuckLakeQueryResult
 
@@ -90,7 +90,9 @@ class TestDuckLakeEndpointExecution(APIBaseTest):
         mock_execute.assert_called_once()
 
     @mock.patch("posthog.ducklake.client.execute_ducklake_query")
-    @mock.patch("products.endpoints.backend.api.EndpointViewSet._should_use_ducklake", return_value=True)
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
+    )
     def test_run_with_debug_includes_sql_metadata(self, _mock_should, mock_execute):
         from posthog.ducklake.client import DuckLakeQueryResult
 
@@ -123,7 +125,41 @@ class TestDuckLakeEndpointExecution(APIBaseTest):
         assert "ducklake_sql" in data
 
     @mock.patch("posthog.ducklake.client.execute_ducklake_query")
-    @mock.patch("products.endpoints.backend.api.EndpointViewSet._should_use_ducklake", return_value=True)
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
+    )
+    def test_run_passes_overridden_variables_to_ducklake(self, _mock_should, mock_execute):
+        from posthog.ducklake.client import DuckLakeQueryResult
+
+        mock_execute.return_value = DuckLakeQueryResult(columns=[], types=[], results=[], sql="", hogql=None)
+
+        create_endpoint_with_version(
+            name="dl-vars-test",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT event FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
+                },
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/dl-vars-test/run/",
+            data={"variables": {"event_name": "purchase"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        passed_query = mock_execute.call_args.kwargs["query"]
+        assert passed_query.variables["var-1"].value == "purchase"
+
+    @mock.patch("posthog.ducklake.client.execute_ducklake_query")
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
+    )
     def test_run_ducklake_error_falls_back_to_inline(self, _mock_should, mock_execute):
         mock_execute.side_effect = Exception("Duckgres connection refused")
 
@@ -134,7 +170,9 @@ class TestDuckLakeEndpointExecution(APIBaseTest):
             created_by=self.user,
         )
 
-        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_inline_endpoint") as mock_inline:
+        with mock.patch(
+            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint"
+        ) as mock_inline:
             from rest_framework.response import Response
 
             mock_inline.return_value = Response({"results": [], "columns": [], "hasMore": False}, status=200)

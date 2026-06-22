@@ -675,6 +675,7 @@ export const TracingSpansTraceCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
+export const tracingSpansTraceCreateBodyOffsetMin = 0
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -697,6 +698,13 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
             'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+        ),
+    offset: zod
+        .number()
+        .min(tracingSpansTraceCreateBodyOffsetMin)
+        .optional()
+        .describe(
+            "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
 })
 

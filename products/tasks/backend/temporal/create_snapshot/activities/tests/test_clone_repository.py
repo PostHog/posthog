@@ -6,7 +6,7 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.exceptions import RepositoryCloneError, SandboxNotFoundError
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,

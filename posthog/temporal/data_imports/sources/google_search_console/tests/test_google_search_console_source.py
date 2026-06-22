@@ -28,8 +28,8 @@ def test_get_source_config_fields():
     field_names = {field.name for field in cfg.fields}
     assert field_names == {"google_search_console_integration_id", "site_url"}
     assert cfg.label == "Google Search Console"
-    assert cfg.featureFlag == "dwh-google-search-console"
-    assert cfg.releaseStatus == "beta"
+    assert cfg.featureFlag is None
+    assert cfg.releaseStatus == "ga"
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():
@@ -196,6 +196,36 @@ def test_validate_credentials_rejects_unverified_user():
 
     assert ok is False
     assert "verified access" in (message or "")
+
+
+@pytest.mark.parametrize(
+    "entered,site_url",
+    [
+        # Percent-encoded domain property copied from a URL bar.
+        ("sc-domain%3Aexample.com", "sc-domain:example.com"),
+        # URL-prefix property missing its trailing slash.
+        ("https://example.com", "https://example.com/"),
+        # Full Search Console UI URL pasted in.
+        (
+            "https://search.google.com/search-console/performance/search-analytics"
+            "?resource_id=https%3A%2F%2Fexample.com%2F",
+            "https://example.com/",
+        ),
+    ],
+)
+def test_validate_credentials_normalizes_site_url_before_lookup(entered, site_url):
+    config = GoogleSearchConsoleSourceConfig(site_url=entered, google_search_console_integration_id=1)
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[{"siteUrl": site_url, "permissionLevel": "siteOwner"}],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(config, team_id=1)
+
+    assert ok is True
+    assert message is None
 
 
 def test_validate_credentials_succeeds_for_verified_site():

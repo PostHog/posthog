@@ -23,6 +23,17 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
 
+# cryptography raises ValueError("Unable to load PEM file ...") when the key-pair private key can't
+# be parsed — typically the user pasted the bare base64 DER body without the
+# `-----BEGIN/END PRIVATE KEY-----` framing, or a truncated key. The `{action}` placeholder lets each
+# call site supply its own context-appropriate verb ("resync." on the sync path, "try again." during
+# credential validation) while keeping the guidance text defined once.
+_MALFORMED_PEM_MESSAGE = (
+    "Your Snowflake key-pair private key could not be read. Paste the full PEM private key including "
+    "the -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- lines (not just the base64 body), "
+    "then {action}"
+)
+
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
@@ -196,6 +207,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            # Snowflake error 250001 (08001): the supplied username or password is wrong, so the
+            # connector's login is rejected at connect time. Retrying can never succeed until the
+            # customer corrects the credentials. The codes, account id, and host in the message are
+            # volatile, so we match on the stable trailing phrase.
+            "Incorrect username or password was specified": "Snowflake rejected the login because the username or password is incorrect. Please check your Snowflake username and password (or switch to key-pair authentication), then resync.",
             # Snowflake error 000904 (42000): the table or view we select from references a column
             # that no longer exists — typically a stale view definition or a column dropped/renamed
             # in the source schema. We only run `SELECT ... FROM IDENTIFIER(%s)`, so the bad identifier
@@ -206,12 +222,32 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
             # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
             "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
+            # Snowflake error 250001 (08001): key-pair login was rejected because the JWT we signed with
+            # the configured private key doesn't match the public key registered on the Snowflake user
+            # (rotated/removed key, key assigned to a different user, or the wrong key pasted). Retrying
+            # can never succeed until the customer re-registers the matching public key. The host and
+            # request id in the message are volatile, so we match the stable phrase.
+            "JWT token is invalid": "Snowflake rejected key-pair authentication because the signed token is invalid — the private key you configured doesn't match the public key registered on the Snowflake user (often after a key rotation, or if the public key was never set). Re-register the matching public key on your Snowflake user (ALTER USER ... SET RSA_PUBLIC_KEY), or paste the correct private key here, then resync.",
+            # See `_MALFORMED_PEM_MESSAGE`: the key-pair private key can't be parsed, so retrying can
+            # never succeed until the user pastes a valid PEM key.
+            "Unable to load PEM file": _MALFORMED_PEM_MESSAGE.format(action="resync."),
+            # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
+            # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
+            # was revoked, after the schema was discovered. The driver raises "<object> does not exist
+            # or not authorized" on `SHOW PRIMARY KEYS` / the data query. Retrying can never succeed
+            # until the user restores the object or re-grants access. The object name and query id in
+            # the message are volatile, so we match on the stable trailing phrase.
+            "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
             # won't help — the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Snowflake SQL compilation error 002057: a view's declared column list no longer
+            # matches the columns its query produces, so the view itself fails to compile. This is
+            # a broken object on the source side that retrying can't repair.
+            "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
 
     def validate_credentials(
@@ -232,6 +268,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                 if key in error_msg:
                     return False, value
 
+            capture_exception(e)
+            return False, "Could not connect to Snowflake. Please check all connection details are valid."
+        except ValueError as e:
+            # A malformed key-pair private key fails to parse in `load_pem_private_key` before we ever
+            # reach Snowflake — a user config error, not an unexpected failure worth capturing.
+            if "Unable to load PEM file" in str(e):
+                return False, _MALFORMED_PEM_MESSAGE.format(action="try again.")
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
         except Exception as e:

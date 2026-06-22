@@ -8,7 +8,9 @@ import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
@@ -60,8 +62,10 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         executor = new HogExecutorService(
@@ -990,6 +994,42 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createAccountInvocation())
             expect(result.error).toContain('has no secret API token configured')
+        })
+
+        it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
+            ])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
+                method: 'PATCH',
+                body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-secret-token',
+                },
+            })
+        })
+
+        it('postHogUpdateAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [{ updates: { tags: ['enterprise'] } }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
         })
     })
 
@@ -1938,8 +1978,10 @@ describe('Hog Executor', () => {
                     sesEndpoint: hub.SES_ENDPOINT,
                 },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
             return new HogExecutorService(

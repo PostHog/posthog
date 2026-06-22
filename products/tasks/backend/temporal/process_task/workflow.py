@@ -15,7 +15,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
@@ -246,14 +246,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
         # env var bypasses the floor, but only when explicitly set AND short —
         # so a misconfigured large value still respects the CI floor.
+        base_timeout = self.context.inactivity_timeout()
         ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
         testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
-            INACTIVITY_TIMEOUT < ci_follow_up_floor
+            base_timeout < ci_follow_up_floor
         )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            max(base_timeout, ci_follow_up_floor)
             if ci_follow_up_scheduled and not testing_override_active
-            else INACTIVITY_TIMEOUT
+            else base_timeout
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),

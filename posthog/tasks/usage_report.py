@@ -227,6 +227,7 @@ class UsageReportCounters:
     node_events_count_in_period: int
     openclaw_events_count_in_period: int
     posthog_pi_events_count_in_period: int
+    posthog_ai_events_count_in_period: int
     edge_events_count_in_period: int
     convex_events_count_in_period: int
     android_events_count_in_period: int
@@ -659,43 +660,63 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # Check if $lib and $ai_lib are materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
     ai_lib_expression, _ = get_property_string_expr("events", "$ai_lib", "'$ai_lib'", "properties")
+    event_prefix_metrics = (
+        ("helicone%%", "helicone_events"),
+        ("langfuse%%", "langfuse_events"),
+        ("keywords_ai%%", "keywords_ai_events"),
+        ("traceloop%%", "traceloop_events"),
+    )
+    sdk_metrics = (
+        ("web", None, "web_events"),
+        ("js", None, "web_lite_events"),
+        ("posthog-node", "posthog-openclaw", "openclaw_events"),
+        ("posthog-node", "@posthog/pi", "posthog_pi_events"),
+        ("posthog-node", "posthog-ai", "posthog_ai_events"),
+        ("posthog-node", None, "node_events"),
+        ("posthog-edge", None, "edge_events"),
+        ("posthog-convex", None, "convex_events"),
+        ("posthog-android", None, "android_events"),
+        ("posthog-flutter", None, "flutter_events"),
+        ("posthog-ios", None, "ios_events"),
+        ("posthog-go", None, "go_events"),
+        ("posthog-java", None, "java_events"),
+        ("posthog-server", None, "java_events"),
+        ("posthog-react-native", None, "react_native_events"),
+        ("posthog-ruby", None, "ruby_events"),
+        ("posthog-python", None, "python_events"),
+        ("posthog-php", None, "php_events"),
+        ("posthog-dotnet", None, "dotnet_events"),
+        ("posthog-elixir", None, "elixir_events"),
+        ("posthog-unity", None, "unity_events"),
+        ("posthog-rs", None, "rust_events"),
+    )
+    tracked_libs = tuple(dict.fromkeys(lib for lib, _ai_lib, _metric in sdk_metrics))
+    quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
+    metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
+    metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
+    metric_filter = "\n            OR ".join(metric_filter_conditions)
+    metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
+    for lib, ai_lib, metric in sdk_metrics:
+        if ai_lib is None:
+            metric_conditions.append(f"{lib_expression} = '{lib}', '{metric}'")
+        else:
+            metric_conditions.append(f"{lib_expression} = '{lib}' AND {ai_lib_expression} = '{ai_lib}', '{metric}'")
+    metric_conditions.append("'other'")
+    metric_expression = ",\n                ".join(metric_conditions)
 
     query_template = f"""
         SELECT
             team_id,
             multiIf(
-                event LIKE 'helicone%%', 'helicone_events',
-                event LIKE 'langfuse%%', 'langfuse_events',
-                event LIKE 'keywords_ai%%', 'keywords_ai_events',
-                event LIKE 'traceloop%%', 'traceloop_events',
-                {lib_expression} = 'web', 'web_events',
-                {lib_expression} = 'js', 'web_lite_events',
-                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = 'posthog-openclaw', 'openclaw_events',
-                {lib_expression} = 'posthog-node' AND {ai_lib_expression} = '@posthog/pi', 'posthog_pi_events',
-                {lib_expression} = 'posthog-node', 'node_events',
-                {lib_expression} = 'posthog-edge', 'edge_events',
-                {lib_expression} = 'posthog-convex', 'convex_events',
-                {lib_expression} = 'posthog-android', 'android_events',
-                {lib_expression} = 'posthog-flutter', 'flutter_events',
-                {lib_expression} = 'posthog-ios', 'ios_events',
-                {lib_expression} = 'posthog-go', 'go_events',
-                {lib_expression} = 'posthog-java', 'java_events',
-                {lib_expression} = 'posthog-server', 'java_events',
-                {lib_expression} = 'posthog-react-native', 'react_native_events',
-                {lib_expression} = 'posthog-ruby', 'ruby_events',
-                {lib_expression} = 'posthog-python', 'python_events',
-                {lib_expression} = 'posthog-php', 'php_events',
-                {lib_expression} = 'posthog-dotnet', 'dotnet_events',
-                {lib_expression} = 'posthog-elixir', 'elixir_events',
-                {lib_expression} = 'posthog-unity', 'unity_events',
-                {lib_expression} = 'posthog-rs', 'rust_events',
-                'other'
+                {metric_expression}
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE (
+            {metric_filter}
+        )
         GROUP BY team_id, metric
-        HAVING metric != 'other'
     """
 
     # Define a custom function to combine results from multiple queries
@@ -712,6 +733,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "openclaw_events": {},
             "posthog_pi_events": {},
+            "posthog_ai_events": {},
             "edge_events": {},
             "convex_events": {},
             "android_events": {},
@@ -933,6 +955,7 @@ def get_teams_with_query_metric(
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
 
+    event_time_end = end + timedelta(hours=6)
     query_types_clause = "AND query_type IN (%(query_types)s)" if query_types and len(query_types) > 0 else ""
 
     query = f"""
@@ -944,6 +967,8 @@ def get_teams_with_query_metric(
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
         AND is_initial_query = 1
         {query_types_clause}
+        -- event_time is part of query_log's primary key; query_start_time preserves billing attribution.
+        AND event_time >= %(begin)s AND event_time < %(event_time_end)s
         AND query_start_time >= %(begin)s AND query_start_time < %(end)s
         AND access_method = %(access_method)s
         GROUP BY team_id
@@ -954,6 +979,7 @@ def get_teams_with_query_metric(
             {
                 "begin": begin,
                 "end": end,
+                "event_time_end": event_time_end,
                 "query_types": query_types,
                 "access_method": access_method,
             },
@@ -2143,6 +2169,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
+        "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
         "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
@@ -2498,6 +2525,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
+        posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
         convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),
