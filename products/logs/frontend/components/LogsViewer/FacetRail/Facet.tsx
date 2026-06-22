@@ -5,6 +5,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const ROW_HEIGHT = 33
 
@@ -13,6 +14,8 @@ export interface FacetOption {
     label: string
     /** Tailwind bg class for a leading color swatch (e.g. severity colors). */
     color?: string
+    /** Number of matching log records; rendered right-aligned. Omitted when unavailable. */
+    count?: number
 }
 
 interface FacetProps {
@@ -169,9 +172,12 @@ function FacetValueButton({
             onClick={() => onToggle(option.value)}
             data-attr={`logs-facet-${slug}-${option.value}`}
         >
-            <span className="flex items-center gap-2 min-w-0">
+            <span className="flex items-center gap-2 min-w-0 w-full">
                 {option.color && <span className={cn('w-1 h-3.5 rounded-full shrink-0', option.color)} />}
-                <span className="truncate">{option.label}</span>
+                <span className="truncate flex-1">{option.label}</span>
+                {option.count != null && (
+                    <span className="shrink-0 text-muted tabular-nums">{humanFriendlyLargeNumber(option.count)}</span>
+                )}
             </span>
         </LemonButton>
     )
