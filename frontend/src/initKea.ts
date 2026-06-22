@@ -9,8 +9,8 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'

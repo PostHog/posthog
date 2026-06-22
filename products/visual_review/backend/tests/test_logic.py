@@ -1157,6 +1157,69 @@ class TestCommitStatusChecks:
         assert "failed" in statuses[-1]["description"].lower()
         assert len(mock_github_api.issue_comments) == 0
 
+    def test_observe_run_with_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        # Default-branch (observe) runs are tracking-only: a visual change posts a green,
+        # informational status — never a blocking failure — and no review-prompt comment.
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "changed", "content_hash": "new_h"},
+                {"identifier": "added", "content_hash": "brand_new"},
+            ],
+            baseline_hashes={"changed": "old_h"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"changed": "old_h"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: 1 changed, 1 new recorded"
+        # Observe runs post to a separate, non-gating context. purpose is client-supplied,
+        # so greening the gating context would let an observe run bypass branch protection
+        # on a PR head SHA — the gating context must never be touched by an observe run.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
+        assert all(s["context"] != "PostHog Visual Review / storybook" for s in statuses)
+        assert len(mock_github_api.issue_comments) == 0
+
+    def test_observe_run_without_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same"}, 0),
+        )
+        logic.complete_run(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: no visual changes"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
+
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
         run, _ = logic.create_run(

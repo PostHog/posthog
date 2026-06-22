@@ -11,7 +11,7 @@
             "type": "boolean"
         },
         "run_interval_minutes": {
-            "description": "Minutes between runs (10–43200). Defaults to 60 (hourly).",
+            "description": "Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
             "maximum": 43200,
             "minimum": 10,
             "type": "number"

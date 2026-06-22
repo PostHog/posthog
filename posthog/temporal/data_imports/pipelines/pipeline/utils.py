@@ -669,8 +669,14 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
         try:
             return column_data.combine_chunks().tolist()
         except pa.ArrowInvalid as e:
-            if "consider casting input from `string` to `large_string`" in "".join(e.args):
+            joined_args = "".join(e.args)
+            if "consider casting input from `string` to `large_string`" in joined_args:
                 return column_data.cast(pa.large_string()).combine_chunks().tolist()
+            # Same int32 offset overflow as above, for `binary`-typed columns (e.g. a Postgres
+            # `bytea` whose chunk exceeds 2GB). large_binary uses 64-bit offsets so combining
+            # the chunks no longer overflows.
+            if "consider casting input from `binary` to `large_binary`" in joined_args:
+                return column_data.cast(pa.large_binary()).combine_chunks().tolist()
 
             raise
 

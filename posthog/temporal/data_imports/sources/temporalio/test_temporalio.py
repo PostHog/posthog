@@ -52,9 +52,12 @@ class TestTemporalIONonRetryableErrors:
             "received fatal alert: CertificateUnknown",
             "invalid peer certificate: UnknownIssuer",
             "Failed client connect: Server connection error: tonic::transport::Error(Transport, CertificateParseError)",
+            'RuntimeError: Failed client connect: invalid target URL: empty host: ":7233"',
+            "tonic::transport::Error(Transport, InvalidUri(InvalidUri(InvalidFormat))): invalid target URL: empty host",
+            'RuntimeError: Failed client connect: Server connection error: tonic::transport::Error(Transport, ConnectError(ConnectError("dns error", Custom { kind: Uncategorized, error: "failed to lookup address information: Name or service not known" })))',
         ],
     )
-    def test_tls_certificate_failures_are_non_retryable(self, error_message):
+    def test_config_failures_are_non_retryable(self, error_message):
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert any(pattern in error_message for pattern in non_retryable_errors), (
@@ -79,6 +82,9 @@ class TestTemporalIONonRetryableErrors:
         [
             "activity Heartbeat timeout",
             'RuntimeError: Failed client connect: `get_system_info` call error after connection: Status { code: Unknown, message: "transport error", source: Some(tonic::transport::Error(Transport, hyper::Error(Io, Os { code: 60, kind: TimedOut, message: "Operation timed out" }))) }',
+            # EAI_AGAIN is a transient resolver failure, distinct from the EAI_NONAME phrase we treat
+            # as non-retryable — it must keep retrying.
+            'RuntimeError: Failed client connect: Server connection error: tonic::transport::Error(Transport, ConnectError(ConnectError("dns error", Custom { kind: Uncategorized, error: "failed to lookup address information: Temporary failure in name resolution" })))',
         ],
     )
     def test_transient_failures_stay_retryable(self, error_message):

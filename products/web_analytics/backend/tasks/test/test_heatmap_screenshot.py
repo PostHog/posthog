@@ -1,23 +1,32 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE,
+    HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
     BrowserlessError,
     BrowserlessPermanentError,
+    BrowserlessTransientError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
+    _classify_failure,
     _redact_browserless_url,
     _resolve_widths,
     _sanitize_browserless_error,
     generate_heatmap_screenshot,
+    report_stuck_heatmap_screenshots,
 )
 
 BROWSERLESS_SETTINGS = {
@@ -153,6 +162,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert self.captured_events[-1]["properties"]["mode"] == "browserless"
         assert self.captured_events[-1]["properties"]["success"] is False
         assert self.captured_events[-1]["properties"]["error_type"] == "BrowserlessTransientError"
+        assert self.captured_events[-1]["properties"]["failure_type"] == "browserless_timeout"
 
     @override_settings(HEATMAP_BROWSERLESS_URL="")
     def test_unconfigured_url_marks_failed_permanently(self) -> None:
@@ -354,3 +364,90 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "token=REDACTED" in sanitized
         # The real failure reason is preserved so the error is debuggable
         assert "401" in sanitized
+
+
+class TestClassifyFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded(), "soft_time_limit"),
+            ("not_configured", BrowserlessPermanentError("x", cause="not_configured"), "not_configured"),
+            ("oversized", BrowserlessPermanentError("x", cause="oversized"), "validation_error"),
+            ("empty_body", BrowserlessTransientError("x", cause="empty_body"), "validation_error"),
+            ("non_image", BrowserlessTransientError("x", cause="non_image"), "validation_error"),
+            ("non_jpeg", BrowserlessTransientError("x", cause="non_jpeg"), "validation_error"),
+            ("request_exception", BrowserlessTransientError("x", cause="request_exception"), "browserless_timeout"),
+            ("http_408", BrowserlessTransientError("x", status_code=408, cause="http_status"), "browserless_timeout"),
+            ("http_429", BrowserlessTransientError("x", status_code=429, cause="http_status"), "browserless_4xx"),
+            ("http_404", BrowserlessPermanentError("x", status_code=404, cause="http_status"), "browserless_4xx"),
+            ("http_503", BrowserlessTransientError("x", status_code=503, cause="http_status"), "browserless_5xx"),
+            ("unknown", ValueError("x"), "unknown"),
+        ]
+    )
+    def test_classify_failure(self, _name: str, exc: BaseException, expected: str) -> None:
+        assert _classify_failure(exc) == expected
+
+
+class TestReportStuckHeatmapScreenshots(APIBaseTest):
+    def _make(
+        self, *, status: str, type_: str = SavedHeatmap.Type.SCREENSHOT, age_seconds: int | None = None
+    ) -> SavedHeatmap:
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[1024],
+            type=type_,
+            status=status,
+        )
+        if age_seconds is not None:
+            SavedHeatmap.objects.filter(id=heatmap.id).update(
+                updated_at=timezone.now() - timedelta(seconds=age_seconds)
+            )
+        return heatmap
+
+    def test_reports_only_old_processing_screenshots_without_mutating_them(self) -> None:
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        stuck = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+        fresh = self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=30)
+        completed = self._make(status=SavedHeatmap.Status.COMPLETED, age_seconds=old)
+        iframe = self._make(status=SavedHeatmap.Status.PROCESSING, type_=SavedHeatmap.Type.IFRAME, age_seconds=old)
+
+        count = report_stuck_heatmap_screenshots()
+
+        assert count == 1
+        for heatmap in (stuck, fresh, completed, iframe):
+            heatmap.refresh_from_db()
+        assert stuck.status == SavedHeatmap.Status.PROCESSING
+        assert fresh.status == SavedHeatmap.Status.PROCESSING
+        assert completed.status == SavedHeatmap.Status.COMPLETED
+        assert iframe.status == SavedHeatmap.Status.PROCESSING
+
+    def test_gauge_reflects_count_and_resets_when_clear(self) -> None:
+        def _gauge() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_stuck_processing") or 0.0
+
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        assert report_stuck_heatmap_screenshots() == 2
+        assert _gauge() == 2
+
+        SavedHeatmap.objects.update(status=SavedHeatmap.Status.COMPLETED)
+
+        assert report_stuck_heatmap_screenshots() == 0
+        assert _gauge() == 0
+
+    def test_logs_full_count_but_caps_the_sample(self) -> None:
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        over_cap = HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE + 5
+        for _ in range(over_cap):
+            self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        with patch("products.web_analytics.backend.tasks.heatmap_screenshot.logger") as mock_logger:
+            count = report_stuck_heatmap_screenshots()
+
+        assert count == over_cap
+        _args, kwargs = mock_logger.warning.call_args
+        assert kwargs["stuck_count"] == over_cap
+        assert len(kwargs["sample"]) == HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE

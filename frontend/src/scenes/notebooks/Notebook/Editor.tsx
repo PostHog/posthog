@@ -18,7 +18,7 @@ import { RichContentNodeMention } from 'lib/components/RichContentEditor/RichCon
 import { RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
 import { createEditor } from 'lib/components/RichContentEditor/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'

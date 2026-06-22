@@ -1,16 +1,21 @@
 import json
-from typing import Any
+import datetime as dt
+from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    MALFORMED_JSON_MAX_ATTEMPTS,
+    META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
+    _earliest_supported_since,
     _is_permanent_auth_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
@@ -18,8 +23,11 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     _override_limit,
     _strip_access_token,
     get_integration,
+    meta_ads_source,
 )
 from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _mock_response(status: int, body: dict) -> mock.MagicMock:
@@ -27,6 +35,16 @@ def _mock_response(status: int, body: dict) -> mock.MagicMock:
     response.status_code = status
     response.json.return_value = body
     response.text = ""
+    return response
+
+
+def _mock_truncated_response() -> mock.MagicMock:
+    # Meta occasionally returns HTTP 200 with a truncated JSON body, so `.json()`
+    # raises JSONDecodeError even though the status is healthy.
+    response = mock.MagicMock()
+    response.status_code = 200
+    response.json.side_effect = json.JSONDecodeError("Unterminated string starting at", "{", 98254)
+    response.text = '{"data": [{"id": "1"'
     return response
 
 
@@ -275,6 +293,62 @@ class TestSimplePaginationLimitFallback:
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         assert mock_get.return_value.get.call_count == 1
+
+
+class TestSimplePaginationMalformedJson:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+
+    def test_initial_truncated_body_reissues_same_request(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial request comes back 200 but with a truncated JSON body.
+            _mock_truncated_response(),
+            # Re-issuing the same request returns a complete body.
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        # Re-issue targets the same initial URL (no rows were yielded before the retry).
+        assert mock_get.return_value.get.call_count == 2
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+
+    def test_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {"data": [{"id": "1"}], "paging": {"next": "https://graph.facebook.com/v20/next?after=p1"}},
+            ),
+            # The cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # The already-yielded first page is not re-emitted; the cursor is re-fetched.
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+        assert mock_get.return_value.get.call_args_list[2].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+
+    def test_persistently_truncated_body_raises(self) -> None:
+        manager = _build_manager()
+        responses = [_mock_truncated_response() for _ in range(MALFORMED_JSON_MAX_ATTEMPTS)]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(json.JSONDecodeError):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # Bounded: one attempt per allowed try, then it gives up (stays retryable upstream).
+        assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
 
 
 class TestTimeRangePagination:
@@ -767,12 +841,135 @@ class TestMidChunkLimitFallback:
         assert mock_get.return_value.get.call_count == 2
 
 
+class TestTimeRangeMalformedJson:
+    URL = "https://graph.facebook.com/v20/act_1/insights"
+    PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}
+
+    def test_initial_chunk_truncated_body_reissues_chunk_request(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial chunk request returns a truncated 200 body.
+            _mock_truncated_response(),
+            # Re-issuing the same chunk request returns a complete body.
+            _mock_response(200, {"data": [{"ad_id": "a"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                )
+            )
+
+        assert batches == [[{"ad_id": "a"}]]
+        # Both calls are the same initial chunk request, carrying the time_range param.
+        assert mock_get.return_value.get.call_count == 2
+        for call in mock_get.return_value.get.call_args_list:
+            assert call.args[0] == self.URL
+            assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-04-21", "until": "2026-04-21"}
+
+    def test_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        manager = _build_manager()
+        responses = [
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "a"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # The cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                )
+            )
+
+        # Already-yielded first page is not re-emitted; the cursor is re-fetched at the same limit.
+        assert batches == [[{"ad_id": "a"}], [{"ad_id": "b"}]]
+        assert (
+            mock_get.return_value.get.call_args_list[1].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
+        )
+
+    def test_resumed_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        # Mid-chunk resume: pending_next_url comes from a saved MetaAdsResumeConfig,
+        # so chunk_params stays None and recovery must go through the last_paging_url branch.
+        resumed_cursor = "https://graph.facebook.com/v20/act_1/insights?after=resumed"
+        manager = _build_manager(
+            can_resume=True,
+            state=MetaAdsResumeConfig(
+                end_date="2026-04-21",
+                chunk_since="2026-04-21",
+                chunk_size_days=1,
+                chunk_next_url=resumed_cursor,
+            ),
+        )
+        responses = [
+            # The resumed cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-04-21", "until": "2026-04-21"},
+                    MetaAdsResumeConfig(
+                        end_date="2026-04-21",
+                        chunk_since="2026-04-21",
+                        chunk_size_days=1,
+                        chunk_next_url=resumed_cursor,
+                    ),
+                    manager,
+                )
+            )
+
+        assert batches == [[{"ad_id": "b"}]]
+        # Both calls re-fetch the same resumed cursor at the default limit; no initial chunk request.
+        assert mock_get.return_value.get.call_count == 2
+        for call in mock_get.return_value.get.call_args_list:
+            assert call.args[0] == f"{resumed_cursor}&limit=500"
+
+    def test_persistently_truncated_body_raises(self) -> None:
+        manager = _build_manager()
+        responses = [_mock_truncated_response() for _ in range(MALFORMED_JSON_MAX_ATTEMPTS)]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(json.JSONDecodeError):
+                list(
+                    _iter_time_range_pagination(
+                        self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
+                    )
+                )
+
+        assert mock_get.return_value.get.call_count == MALFORMED_JSON_MAX_ATTEMPTS
+
+
 class TestNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_message",
         [
             # Token refresh failure raised by get_integration.
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.",
+            # Integration row deleted/de-authorized while the source still references it —
+            # get_integration raises Django's Integration.DoesNotExist with this message.
+            "Integration matching query does not exist.",
             # 400 from Meta when the ad account no longer belongs to the authorised user.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
@@ -817,6 +1014,84 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+@freeze_time("2026-06-16")
+class TestTimeRangeClamping:
+    """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
+
+    The `since` we build must stay inside Meta's supported window, even when it is
+    derived from an aged incremental cursor.
+
+    The date is frozen so the ``today`` captured in the test and the
+    ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
+    """
+
+    def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, Any] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["time_range"] = time_range
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        config = mock.MagicMock()
+        config.account_id = "act_123"
+        config.meta_ads_integration_id = 1
+        config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+
+        response = meta_ads_source(
+            resource_name="campaign_stats",
+            config=config,
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            **source_kwargs,
+        )
+        list(cast(Any, response.items()))
+        return captured["time_range"]
+
+    @pytest.mark.parametrize(
+        "days_ago,should_clamp",
+        [
+            # A dormant account's stored cursor has aged past Meta's 37-month limit.
+            (META_ADS_MAX_HISTORY_DAYS + 200, True),
+            # A recent cursor sits comfortably inside the supported window.
+            (5, False),
+        ],
+    )
+    def test_incremental_cursor_clamping(self, monkeypatch, days_ago: int, should_clamp: bool) -> None:
+        today = dt.date.today()
+        cursor = today - dt.timedelta(days=days_ago)
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=cursor,
+        )
+
+        assert time_range is not None
+        expected_since = _earliest_supported_since(today) if should_clamp else cursor
+        assert time_range["since"] == expected_since.strftime("%Y-%m-%d")
+        assert time_range["until"] == today.strftime("%Y-%m-%d")
+
+    def test_stats_lookback_is_clamped_to_supported_window(self, monkeypatch) -> None:
+        today = dt.date.today()
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            sync_lookback_days=10_000,  # capped to META_ADS_MAX_HISTORY_DAYS upstream
+            should_use_incremental_field=False,
+        )
+
+        assert time_range is not None
+        assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
 
 
 class TestGetIntegration:

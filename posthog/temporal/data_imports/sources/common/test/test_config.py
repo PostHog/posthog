@@ -462,6 +462,168 @@ def test_to_config_scalar_under_nested_config_key(
     assert cfg.account_id == expected_account_id
 
 
+@pytest.mark.parametrize("bad_input", ["not a mapping", '{"key_file": {}}', b"bytes", 5, ["a", "b"], None])
+def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
+    """A non-mapping input must raise an actionable error, not the opaque builtin `TypeError`.
+
+    Stored config can come back as a non-mapping (e.g. a double-encoded string from an
+    `EncryptedJSONField`). Indexing into it deep inside `to_config` raised
+    `TypeError: string indices must be integers`, which is impossible to triage from the
+    source alone. `from_dict` must reject it up front with the config class name in the message.
+    """
+
+    @config.config
+    class KeyFileConfig:
+        project_id: str
+        private_key: str
+
+    @config.config
+    class SourceConfig(config.Config):
+        key_file: KeyFileConfig
+        dataset_id: str
+
+    with pytest.raises(TypeError, match="Cannot build 'SourceConfig'"):
+        SourceConfig.from_dict(bad_input)
+
+
+@config.config
+class _SecretFieldConfig(config.Config):
+    password: str | None = None
+    passphrase: str | None = None
+    secret_key: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
+    private_key: str | None = None
+    client_certificate: str | None = None
+    client_private_key: str | None = None
+    server_client_root_ca: str | None = None
+    connection_string: str | None = None
+    manifest_json: str | None = None
+    authorization_header: str | None = None
+    signing_secret: str | None = None
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "password",
+        "passphrase",
+        "secret_key",
+        "client_secret",
+        "api_key",
+        "access_token",
+        "refresh_token",
+        "private_key",
+        "client_certificate",
+        "client_private_key",
+        "server_client_root_ca",
+        "connection_string",
+        "manifest_json",
+        "authorization_header",
+        "signing_secret",
+    ],
+)
+def test_repr_redacts_secret_fields(field_name):
+    cfg = _SecretFieldConfig()
+    setattr(cfg, field_name, "super-secret-value")
+
+    rendered = repr(cfg)
+    assert "super-secret-value" not in rendered
+    assert f"{field_name}='***'" in rendered
+
+
+def test_repr_keeps_non_secret_fields_visible():
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        database: str
+        user: str
+        password: str
+
+    cfg = TestConfig(host="db.example.com", database="prod", user="reader", password="hunter2")
+
+    rendered = repr(cfg)
+    assert "host='db.example.com'" in rendered
+    assert "database='prod'" in rendered
+    assert "user='reader'" in rendered
+    # The credential is the only field redacted.
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+
+
+def test_repr_shows_none_secret_as_none():
+    @config.config
+    class TestConfig(config.Config):
+        password: str | None = None
+
+    # An unset secret has nothing to leak, so it stays visible to aid debugging.
+    assert "password=None" in repr(TestConfig())
+
+
+def test_repr_redacts_nested_config_secrets():
+    @config.config
+    class AuthConfig:
+        username: str
+        password: str | None = None
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        auth: AuthConfig
+
+    cfg = TestConfig(host="db.example.com", auth=AuthConfig(username="reader", password="hunter2"))
+
+    rendered = repr(cfg)
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+    assert "username='reader'" in rendered
+
+
+def test_repr_redacts_real_postgres_source_config():
+    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+
+    cfg = PostgresSourceConfig(
+        host="fadevpn-11499.example.cloud",
+        database="defaultdb",
+        user="datawarehouse",
+        password="hunter2",
+        port=26257,
+    )
+
+    rendered = repr(cfg)
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+    # Connection metadata stays visible for debugging.
+    assert "host='fadevpn-11499.example.cloud'" in rendered
+
+
+def test_repr_recurses_into_nested_config_with_secret_field_name():
+    @config.config
+    class KeyFileConfig:
+        project_id: str
+        client_email: str
+        private_key: str
+
+    @config.config
+    class TestConfig(config.Config):
+        # Field name contains "key" but holds a nested config, not a raw secret.
+        key_file: KeyFileConfig
+
+    cfg = TestConfig(
+        key_file=KeyFileConfig(project_id="my-project", client_email="sa@example.com", private_key="-----BEGIN-----")
+    )
+
+    rendered = repr(cfg)
+    # The nested object is not redacted wholesale — its non-secret fields stay visible.
+    assert "project_id='my-project'" in rendered
+    assert "client_email='sa@example.com'" in rendered
+    # The actual secret inside the nested config is still redacted.
+    assert "BEGIN" not in rendered
+    assert "private_key='***'" in rendered
+
+
 def test_validate_dict():
     @config.config
     class TestConfig(config.Config):

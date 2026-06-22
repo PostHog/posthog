@@ -13,10 +13,20 @@ def _gen() -> Iterator[bytes]:
 
 
 class TestSSEStreamingResponse:
-    def test_releases_db_connection_before_streaming(self):
-        with mock.patch("posthog.api.streaming.close_old_connections") as release:
+    def test_releases_db_connections_before_streaming(self):
+        idle = mock.Mock(in_atomic_block=False)
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            connections.all.return_value = [idle]
             sse_streaming_response(_gen())
-        release.assert_called_once()
+        connections.all.assert_called_once_with(initialized_only=True)
+        idle.close.assert_called_once()
+
+    def test_does_not_sever_connections_with_an_open_transaction(self):
+        in_transaction = mock.Mock(in_atomic_block=True)
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            connections.all.return_value = [in_transaction]
+            sse_streaming_response(_gen())
+        in_transaction.close.assert_not_called()
 
     def test_sets_event_stream_content_type_and_default_headers(self):
         response = sse_streaming_response(_gen())

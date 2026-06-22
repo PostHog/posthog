@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
@@ -163,6 +164,67 @@ class TestBuildQuery:
         # None last-value triggers fallback to incremental_type_to_initial_value
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
+
+
+class TestBuildQueryRowFilters:
+    def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
+    def test_full_refresh_appends_filters_after_table_ref(self):
+        sql, params = _build_query(
+            "DB", "PUBLIC", "t", False, None, None, None, row_filters=[self._filter("AGE", ">", 21)]
+        )
+        assert 'WHERE "AGE" > %s' in sql
+        # Positional order: IDENTIFIER table ref first, then the filter value.
+        assert params == ("DB.PUBLIC.t", 21)
+
+    def test_incremental_orders_table_then_incremental_then_filters(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            row_filters=[self._filter("AGE", ">", 21), self._filter("SCORE", "<=", 100)],
+        )
+        assert 'WHERE "created_at" > %s AND "AGE" > %s AND "SCORE" <= %s ORDER BY "created_at" ASC' in sql
+        # Critical: positional values must be (table_ref, incremental_value, *filter_values) in order.
+        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 100)
+
+    def test_value_never_interpolated(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            False,
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="NAME", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in sql
+        assert params == ("DB.PUBLIC.t", "x'; DROP TABLE y; --")
+
+    def test_in_filter_positional_values_in_order(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            row_filters=[self._filter("AGE", "IN", [21, 30, 40])],
+        )
+        assert 'WHERE "created_at" > %s AND "AGE" IN (%s, %s, %s)' in sql
+        # table_ref, incremental_value, then each IN element in order.
+        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 30, 40)
 
 
 class TestBuildQueryEnabledColumns:
@@ -609,6 +671,108 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "Specified password has expired",
+            # The real shape from production: codes + host vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: gbnacyk-mlb13594.snowflakecomputing.com:443. "
+            "Specified password has expired.  Password must be changed using the Snowflake web console.",
+        ],
+    )
+    def test_expired_password_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Expired-password error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "is not allowed to access Snowflake",
+            # The real shape from production: codes, IP/token, host, and help URL all vary,
+            # but the network-policy substring is stable.
+            "250001 (08001): None: Failed to connect to DB: ihoilnv-wd33458.snowflakecomputing.com:443. "
+            "Incoming request with IP/Token 44.208.188.173 is not allowed to access Snowflake. "
+            "Contact your account administrator. For more information about this error, go to "
+            "https://community.snowflake.com/s/ip-xxxxxxxxxxxx-is-not-allowed-to-access.",
+        ],
+    )
+    def test_network_policy_block_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Network-policy block should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "JWT token is invalid",
+            # The real shape from production: codes, host, and request id vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
+            "JWT token is invalid. [daf5b833-38d8-4aa9-9971-9d6bd736d978]",
+        ],
+    )
+    def test_invalid_jwt_token_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-JWT error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Table dropped/renamed or grant revoked (002003 / 42S02). Object name and query id vary.
+            "002003 (42S02): 01c511e7-0307-1937-0000-7c994379a9c2: SQL compilation error:\n"
+            "Table 'PRODUCTION.DBTNOVA.SCOPE_CATEGORIZATION' does not exist or not authorized.",
+            # Schema variant (002003 / 02000).
+            "002003 (02000): 01c4a15c-0105-a872-0002-113a44c42eaa: SQL compilation error:\n"
+            "Schema 'AXIOM.PRECOG_PRECOG_OPERATIONS_PRODUCT_US' does not exist or not authorized.",
+        ],
+    )
+    def test_object_not_found_or_unauthorized_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing/unauthorized object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "but view query produces",
+            # The real shape from production: the view name and column counts vary, but the
+            # "but view query produces" substring is stable.
+            "002057 (42601): 01c5120c-0009-a976-0001-40ae0960c0a6: SQL compilation error: View definition for "
+            "'DB.PUBLIC.SOME_VIEW' declared 42 column(s), but view query produces 43 column(s).",
+        ],
+    )
+    def test_broken_view_column_count_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Broken-view error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Incorrect username or password was specified",
+            # The real shape from production: codes + host vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Incorrect username or password was specified.",
+        ],
+    )
+    def test_incorrect_credentials_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Incorrect-credentials error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. MalformedFraming",
+            "Unable to load PEM file.",
+        ],
+    )
+    def test_unparseable_private_key_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unparseable private-key error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
@@ -617,3 +781,34 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
+
+
+class TestSnowflakeValidateCredentials:
+    @pytest.fixture
+    def source(self):
+        return SnowflakeSource()
+
+    def test_unparseable_private_key_returns_friendly_message_without_capture(self, source):
+        pem_error = ValueError(
+            "Unable to load PEM file. See https://cryptography.io/en/latest/faq/"
+            "#why-can-t-i-import-my-pem-file for more details. MalformedFraming"
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=pem_error),
+            patch("posthog.temporal.data_imports.sources.snowflake.source.capture_exception") as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    def test_unexpected_value_error_is_still_captured(self, source):
+        with (
+            patch.object(source, "get_schemas", side_effect=ValueError("something unexpected")),
+            patch("posthog.temporal.data_imports.sources.snowflake.source.capture_exception") as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        mock_capture.assert_called_once()

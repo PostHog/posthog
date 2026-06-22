@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { DuplicateStepIndicator } from 'scenes/funnels/FunnelBarHorizontal/DuplicateStepIndicator'
 import { FunnelStepMore } from 'scenes/funnels/FunnelStepMore'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'

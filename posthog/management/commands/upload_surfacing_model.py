@@ -2,7 +2,7 @@
 
 Uses `posthog.storage.object_storage` so it works against prod S3, staging, and
 local object storage with no config changes. After upload, set on the worker:
-    SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/<key>
+    SESSION_SURFACING_MODEL_S3_URI=s3://<bucket>/<key>
 
 Examples:
     ./bin/python manage.py upload_surfacing_model ./surfacing_score_xgb_v1.ubj
@@ -84,4 +84,4 @@ class Command(BaseCommand):
         object_storage.write_from_file(file_name=key, file_path=str(source), bucket=bucket)
 
         self.stdout.write(self.style.SUCCESS(f"Uploaded. Wire on the worker:"))
-        self.stdout.write(f"  SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://{bucket}/{key}")
+        self.stdout.write(f"  SESSION_SURFACING_MODEL_S3_URI=s3://{bucket}/{key}")

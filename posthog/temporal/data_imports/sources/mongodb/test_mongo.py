@@ -345,6 +345,19 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+            # pymongo InvalidURI raised before any network call when credentials in the connection
+            # string contain unescaped reserved characters — a malformed string the user must fix.
+            (
+                "unescaped_credentials",
+                "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus",
+            ),
+            # Same unescaped-credential mistake surfacing via the "Port contains non-digit characters"
+            # variant, which carries the identical RFC-3986 hint.
+            (
+                "unescaped_credentials_port_variant",
+                "Port contains non-digit characters. Hint: username and password must be escaped "
+                "according to RFC 3986, use urllib.parse.quote_plus",
+            ),
             # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
             # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
             ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
@@ -411,6 +424,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
+            ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

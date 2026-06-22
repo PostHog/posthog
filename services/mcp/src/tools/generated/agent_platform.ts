@@ -5,12 +5,10 @@ import type { Schemas } from '@/api/generated'
 import {
     AgentApplicationsCreateBody,
     AgentApplicationsDestroyParams,
-    AgentApplicationsEnvKeysClearParams,
-    AgentApplicationsEnvKeysGetParams,
-    AgentApplicationsEnvKeysListParams,
     AgentApplicationsListQueryParams,
     AgentApplicationsPartialUpdateBody,
     AgentApplicationsPartialUpdateParams,
+    AgentApplicationsPreviewProxyBody,
     AgentApplicationsPreviewProxyParams,
     AgentApplicationsPreviewProxyQueryParams,
     AgentApplicationsRetrieveParams,
@@ -51,6 +49,9 @@ import {
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
     AgentApplicationsSessionsRetrieveQueryParams,
+    AgentRevisionsEnvKeysClearParams,
+    AgentRevisionsEnvKeysGetParams,
+    AgentRevisionsEnvKeysListParams,
 } from '@/generated/agent_platform/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -98,7 +99,7 @@ const agentApplicationsDestroy = (): ToolBase<typeof AgentApplicationsDestroySch
     },
 })
 
-const AgentApplicationsEnvKeysClearSchema = AgentApplicationsEnvKeysClearParams.omit({ project_id: true })
+const AgentApplicationsEnvKeysClearSchema = AgentRevisionsEnvKeysClearParams.omit({ project_id: true })
 
 const agentApplicationsEnvKeysClear = (): ToolBase<typeof AgentApplicationsEnvKeysClearSchema, unknown> => ({
     name: 'agent-applications-env-keys-clear',
@@ -107,43 +108,43 @@ const agentApplicationsEnvKeysClear = (): ToolBase<typeof AgentApplicationsEnvKe
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/env_keys/${encodeURIComponent(String(params.key))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/env_keys/${encodeURIComponent(String(params.key))}/`,
         })
         return result
     },
 })
 
-const AgentApplicationsEnvKeysGetSchema = AgentApplicationsEnvKeysGetParams.omit({ project_id: true })
+const AgentApplicationsEnvKeysGetSchema = AgentRevisionsEnvKeysGetParams.omit({ project_id: true })
 
 const agentApplicationsEnvKeysGet = (): ToolBase<
     typeof AgentApplicationsEnvKeysGetSchema,
-    Schemas.AgentApplicationEnvKeyStatus
+    Schemas.AgentRevisionEnvKeyStatus
 > => ({
     name: 'agent-applications-env-keys-get',
     schema: AgentApplicationsEnvKeysGetSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsEnvKeysGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplicationEnvKeyStatus>({
+        const result = await context.api.request<Schemas.AgentRevisionEnvKeyStatus>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/env_keys/${encodeURIComponent(String(params.key))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/env_keys/${encodeURIComponent(String(params.key))}/`,
         })
         return result
     },
 })
 
-const AgentApplicationsEnvKeysListSchema = AgentApplicationsEnvKeysListParams.omit({ project_id: true })
+const AgentApplicationsEnvKeysListSchema = AgentRevisionsEnvKeysListParams.omit({ project_id: true })
 
 const agentApplicationsEnvKeysList = (): ToolBase<
     typeof AgentApplicationsEnvKeysListSchema,
-    Schemas.AgentApplicationEnvKeysResponse
+    Schemas.AgentRevisionEnvKeysResponse
 > => ({
     name: 'agent-applications-env-keys-list',
     schema: AgentApplicationsEnvKeysListSchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsEnvKeysListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplicationEnvKeysResponse>({
+        const result = await context.api.request<Schemas.AgentRevisionEnvKeysResponse>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/env_keys/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/env_keys/`,
         })
         return result
     },
@@ -205,21 +206,26 @@ const agentApplicationsPartialUpdate = (): ToolBase<
     },
 })
 
-const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true }).extend(
-    AgentApplicationsPreviewProxyQueryParams.omit({ format: true }).shape
-)
+const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true })
+    .extend(AgentApplicationsPreviewProxyQueryParams.omit({ format: true }).shape)
+    .extend(AgentApplicationsPreviewProxyBody.shape)
 
-const agentApplicationsPreviewProxy = (): ToolBase<
-    typeof AgentApplicationsPreviewProxySchema,
-    Schemas.AgentApplication
-> => ({
+const agentApplicationsPreviewProxy = (): ToolBase<typeof AgentApplicationsPreviewProxySchema, unknown> => ({
     name: 'agent-applications-preview-proxy',
     schema: AgentApplicationsPreviewProxySchema,
     handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewProxySchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AgentApplication>({
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.session_id !== undefined) {
+            body['session_id'] = params.session_id
+        }
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview-proxy/${encodeURIComponent(String(params.rest))}/`,
+            body,
             query: {
                 revision_id: params.revision_id,
             },

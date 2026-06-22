@@ -18,7 +18,13 @@ import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentMetric,
+)
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
@@ -30,6 +36,7 @@ from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
@@ -45,7 +52,8 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.experiments.backend.result_serialization import strip_step_sessions
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -70,29 +78,6 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
-
-
-def _strip_step_sessions(result: Any) -> Any:
-    """Remove the per-session funnel actors payload from a stored experiment metric result.
-
-    `step_sessions` powers the frontend's "view sessions per step" affordance off
-    a separate per-metric query, not this timeseries endpoint. Carrying it through
-    here multiplies the response by sessions × steps × variants and pushes MCP
-    consumers past their context window with no benefit.
-    """
-    if not isinstance(result, Mapping):
-        return result
-    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
-    baseline = cleaned.get("baseline")
-    if isinstance(baseline, dict):
-        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
-    variants = cleaned.get("variant_results")
-    if isinstance(variants, list):
-        cleaned["variant_results"] = [
-            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
-            for variant in variants
-        ]
-    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -436,6 +421,29 @@ class ExperimentService:
                             )
                         # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
+                    elif isinstance(actual_metric, ExperimentMeanMetric) and actual_metric.threshold is not None:
+                        # A threshold turns the per-user value into a binary "did the user reach N"
+                        # outcome, which only makes sense for sum/count math types.
+                        source_math = getattr(actual_metric.source, "math", None)
+                        if not is_threshold_supported_math(source_math):
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: a threshold is only supported for "
+                                "sum or count (total) math types."
+                            )
+                        # A non-positive threshold is satisfied by every user (missing users
+                        # accumulate to 0), producing a meaningless 100% proportion.
+                        if actual_metric.threshold <= 0:
+                            raise ValidationError(f"Invalid metric at index {i}: threshold must be a positive number.")
+                        # Winsorization caps continuous outliers, which is meaningless once the
+                        # value collapses to a binary threshold outcome.
+                        if (
+                            actual_metric.lower_bound_percentile is not None
+                            or actual_metric.upper_bound_percentile is not None
+                        ):
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: a threshold cannot be combined with "
+                                "outlier handling (winsorization)."
+                            )
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the
@@ -523,16 +531,12 @@ class ExperimentService:
     def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
         """Variant keys the experiment will have after this update.
 
-        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
-        current variants (its parameters first, then the linked flag's multivariate set).
+        Prefer the variants the PATCH sets; otherwise resolve from the linked flag,
+        which is the source of truth for variants.
         """
         update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
         if update_variants is None:
-            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
-                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
-                if experiment.feature_flag
-                else []
-            )
+            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
 
     @staticmethod
@@ -2185,14 +2189,20 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Reuse variants from an existing flag in the target project.
+        # Variants come from the source experiment's feature flag (the source of truth),
+        # not the stale copy denormalized into parameters.
+        source_variants = source_experiment.feature_flag.variants
+        if source_variants:
+            parameters["feature_flag_variants"] = deepcopy(source_variants)
+
+        # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
+            if existing_flag and existing_flag.variants:
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.variants)
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
@@ -2486,7 +2496,9 @@ class ExperimentService:
 
             created_by_id = query_params.get("created_by_id")
             if created_by_id:
-                queryset = queryset.filter(created_by_id=created_by_id)
+                user_ids = parse_created_by_ids(created_by_id)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
 
             archived = query_params.get("archived")
             if archived is not None:
@@ -2627,7 +2639,9 @@ class ExperimentService:
             queryset = queryset.filter(active=active_bool)
 
         if created_by_id:
-            queryset = queryset.filter(created_by_id=created_by_id)
+            user_ids = parse_created_by_ids(created_by_id)
+            if user_ids:
+                queryset = queryset.filter(created_by_id__in=user_ids)
 
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
@@ -2721,7 +2735,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
+                    timeseries[date_key] = strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:

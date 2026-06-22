@@ -57,6 +57,13 @@ interface OpenApiParam {
      * codegen widens these into z.union([z.string(), z.record(...)]).
      */
     'x-accepts-stringified-json'?: boolean
+    /**
+     * OpenAPI serialization hints. drf-spectacular emits `style: form` +
+     * `explode: false` for django-filter comma-separated filters (BaseInFilter),
+     * which expect `?type=a,b` on the wire.
+     */
+    style?: string
+    explode?: boolean
 }
 
 interface OpenApiSchema {
@@ -227,6 +234,32 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
         return spec.components?.schemas?.[schemaName]
     }
     return schemaOrRef as OpenApiSchema
+}
+
+const CSV_SCALAR_ITEM_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
+
+/**
+ * django-filter comma-separated filters (BaseInFilter) are emitted by
+ * drf-spectacular as array query params with `style: form` + `explode: false`,
+ * meaning `?type=a,b` on the wire. ApiClient.request() JSON-stringifies arrays
+ * for json.loads()-style backends, which DRF would read as one literal value
+ * (`type IN ('["a","b"]')`) and silently match nothing — so the handler must
+ * comma-join these before they reach the client. Only scalar-item arrays
+ * qualify; object/$ref-item arrays stay on the JSON path.
+ */
+function isCommaSeparatedQueryParam(p: OpenApiParam): boolean {
+    if (p.explode !== false || (p.style ?? 'form') !== 'form' || p['x-accepts-stringified-json']) {
+        return false
+    }
+    if (p.schema?.type !== 'array' || !p.schema.items) {
+        return false
+    }
+    const items = p.schema.items
+    if ('$ref' in items && items.$ref) {
+        return false
+    }
+    const itemType = (items as OpenApiSchema).type
+    return typeof itemType === 'string' && CSV_SCALAR_ITEM_TYPES.has(itemType)
 }
 
 /**
@@ -417,6 +450,12 @@ interface SchemaComposition {
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
+    /**
+     * Query params that must be comma-joined on the wire (OpenAPI
+     * `explode: false`, i.e. django-filter comma-separated filters) instead of
+     * JSON-stringified by ApiClient.request().
+     */
+    csvQueryParamNames: Set<string>
     bodyFieldNames: string[]
     /**
      * Body fields that only appear in some variants of a union (anyOf/oneOf) body schema.
@@ -442,6 +481,7 @@ function composeToolSchema(
     const schemaParts: string[] = []
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
+    const csvQueryParamNames = new Set<string>()
     const bodyFieldNames: string[] = []
     const variantSpecificBodyFieldNames = new Set<string>()
     /**
@@ -515,6 +555,13 @@ function composeToolSchema(
             }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
+                // param_overrides with input_schema / schema_ref / cast replace or
+                // reshape the param type, so the array-join can't be assumed.
+                const override = config.param_overrides?.[p.name]
+                const schemaReplaced = !!(override && (override.input_schema || override.schema_ref || override.cast))
+                if (!schemaReplaced && isCommaSeparatedQueryParam(p)) {
+                    csvQueryParamNames.add(p.name)
+                }
                 if (!p.required) {
                     optionalParamNames.add(p.name)
                 }
@@ -657,7 +704,13 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
+            } else if (
+                override.description ||
+                override.default !== undefined ||
+                override.optional ||
+                override.required ||
+                castHelper
+            ) {
                 // Locate the Orval source schema this param came from, so we can reference
                 // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
                 let sourceImport: string | null = null
@@ -670,6 +723,12 @@ function composeToolSchema(
                 }
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.required) {
+                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
+                        // tool schema requires the field, matching the backend serializer.
+                        expr += '.unwrap()'
+                        optionalParamNames.delete(paramName)
+                    }
                     if (override.default !== undefined) {
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }
@@ -740,6 +799,7 @@ function composeToolSchema(
         schemaExpr,
         pathParamNames,
         queryParamNames,
+        csvQueryParamNames,
         bodyFieldNames,
         variantSpecificBodyFieldNames,
         renamedFields,
@@ -979,7 +1039,17 @@ function generateToolCode(
     }
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
-            .map((qn) => `                ${qn}: params.${qn},`)
+            .map((qn) => {
+                // explode: false params are comma-joined here because
+                // ApiClient.request() JSON-stringifies raw arrays (the
+                // json.loads()-style contract), which DRF CSV filters can't parse.
+                // Callers may pass either the array shape or a single string, so
+                // only join when it's actually an array; an empty array is omitted.
+                if (composition.csvQueryParamNames.has(qn)) {
+                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                }
+                return `                ${qn}: params.${qn},`
+            })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
     }

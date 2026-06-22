@@ -8,6 +8,7 @@ from psycopg.pq import TransactionStatus
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import TemporaryFileSizeExceedsLimitException
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
@@ -127,6 +128,103 @@ class TestBuildQueryEnabledColumns:
         rendered = composed.as_string()
         assert rendered.startswith('SELECT "email", "id", "created_at" FROM')
         assert 'WHERE "created_at"' in rendered
+
+
+class TestBuildQueryRowFilters:
+    def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
+    def test_full_refresh_row_filter(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filters_compose_with_incremental(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=True,
+            table_type=None,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "created_at"' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
+
+    def test_sampling_query_is_not_filtered(self):
+        # Row filters apply only to the real data path; the sampling/estimation query stays unfiltered.
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            add_sampling=True,
+            row_filters=[self._filter("age", ">", 21)],
+        )
+        rendered = composed.as_string()
+        assert '"age"' not in rendered
+
+    def test_in_filter_renders_parenthesized_list(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("age", "IN", [21, 30, 40])],
+        )
+        rendered = composed.as_string()
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_not_in_string_list_values_are_escaped_literals(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                self._filter("name", "NOT IN", ["a", "'; DROP TABLE y; --"], category=ColumnTypeCategory.STRING)
+            ],
+        )
+        rendered = composed.as_string()
+        assert "\"name\" NOT IN ('a', '''; DROP TABLE y; --')" in rendered
+
+    def test_string_value_is_escaped_literal_not_injectable(self):
+        # psycopg's sql.Literal inlines values, but escapes them: the `;` stays inside a quoted
+        # literal (single quote doubled), so it can't break out into executable SQL.
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[self._filter("name", "=", "x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING)],
+        )
+        rendered = composed.as_string()
+        assert "'x''; DROP TABLE y; --'" in rendered
 
 
 class TestRedshiftColumnToArrowField:
@@ -401,7 +499,21 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_returns_false_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_called_once()
+
+    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+        # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
+        # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
+        abort_message = (
+            "abort query\nDETAIL:  \n  error:  abort query\n  code:      1020\n"
+            "  context:   system requested abort\n  location:  queryabort.hpp:103\n"
+        )
+        cursor.execute.side_effect = psycopg.errors.InternalError(abort_message)
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +933,7 @@ class TestBuildPipeline:
         assert get_meta.call_args.args[2] == "messages"
         assert response.name == "messages"
 
-    def test_dwh_storage_key_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
+    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
         mocker.patch.object(
             RedshiftImplementation,
             "get_table_metadata",
@@ -836,10 +948,44 @@ class TestBuildPipeline:
         inputs = _make_inputs(
             schema_name="analytics.users",
             schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            dwh_storage_key="users",
+            s3_folder_name="users",
         )
 
         response = impl.build_pipeline(_make_config(schema=""), inputs)
 
         # Migrated row keeps its original subdir rather than moving to `analytics_users`.
         assert response.name == "users"
+
+
+# ---------------------------------------------------------------------------
+# Connection lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestConnect:
+    def test_connect_forwards_tcp_keepalive_opts(self, mocker):
+        # Regression: a discovery query (`get_columns`) hung in psycopg's `wait_c` on a dead
+        # connection until the Temporal activity's `start_to_close_timeout` cancelled the worker
+        # thread, surfacing a misleading `CancelledError`. `connect_timeout` only bounds
+        # establishing the connection, so the connection must enable TCP keepalives to detect a
+        # dead peer mid-query and fail fast with a retryable error instead.
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
+        ).return_value.__enter__.return_value = ("localhost", 5439)
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
+            return_value=mock_conn,
+        )
+
+        impl = RedshiftImplementation()
+        with impl.connect(_make_config()):
+            pass
+
+        kwargs = mock_connect.call_args.kwargs
+        assert kwargs["keepalives"] == 1
+        assert kwargs["keepalives_idle"] == 30
+        assert kwargs["keepalives_interval"] == 10
+        assert kwargs["keepalives_count"] == 3
+        assert kwargs["tcp_user_timeout"] == 60000
