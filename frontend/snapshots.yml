@@ -669,9 +669,9 @@ snapshots:
     components-hogcharts-linechart--hovering-interior--light:
         hash: v1.k794b7964.9186ed84789ab03631d38096923a8632d535130057b6f92832decb65178be942.wGuboSulPIhdM2_GiDolvQD1kRpdyhlQuz9PFet_vSY
     components-hogcharts-linechart--hovering-multi-series--dark:
-        hash: v1.k794b7964.da078843ba3e1569c6a36aa6f8ba3eb5f7dedc1852b4f256435711871b55a7ed.u12-UiyjvpbExGP33yhNmKIj7MefFMxWpXsGkf3VG74
+        hash: v1.k794b7964.157939c1c62878808f9cfeffe7d10eb2b2dab6abdc98188102c23fce01e14fbd.FykAEyCz8bzzPkEoYgVpE-FBg4ncwlWAoKDgseFD-bA
     components-hogcharts-linechart--hovering-multi-series--light:
-        hash: v1.k794b7964.2fa5cdb17438c5d62f6b5c075c8160df3cc4c197754fe78c0bf722cd575b0dca.92ma-HCbFCtCf_jrLu2ntgzLy0g843soMAf-qaCna-E
+        hash: v1.k794b7964.2d2effaf2935816c82ddca8e6b46b1245a1c8bc7589c8d63cbae2398060e5001.UZwi1m_dJL4B6q1zWUpCUyEf2qnHxKAs83LEfm7a_Bw
     components-hogcharts-linechart--hovering-over-aux-series--dark:
         hash: v1.k794b7964.1251a1dc7a11763c51054b76bcc092db995f51208e20e3ffe668690ae763c38b.L0wjl3-x2fOMd9HZpRiQP5GaQLJUBDzhFwkno_qgqdM
     components-hogcharts-linechart--hovering-over-aux-series--light:
@@ -728,6 +728,10 @@ snapshots:
         hash: v1.k794b7964.d6540f839923dacec7185415d7d8b5cb065e8d6514041fbfdd83b226dc993cf4.qXWVNsCEUsOo1vhn1YiXI9gQq0uKl9oUN5IJ5265d4g
     components-hogcharts-metriccard--falling--light:
         hash: v1.k794b7964.258db964f84a31bfe604b19b1bfb9faa03bb98f41136c7188a2ea3db073a322b.GdxdeW4lJgAwqkeyyM94DlUkLOYIwP4OLkMN7qmqc6o
+    components-hogcharts-metriccard--incomplete-trailing-period--dark:
+        hash: v1.k794b7964.1ebc62758b2dbc68b96bca4f0cfbd02eec0982aeb3035907e84acbd629eb183a.eybJFxegiDZ2e7NLmI1p3spgKzS7qAAD-qRyV9SfS50
+    components-hogcharts-metriccard--incomplete-trailing-period--light:
+        hash: v1.k794b7964.e0ef3cced910b70e1612957a4dc88c55d53ded1de971fe63788efc2857f178fd.WE3IxSswycQjHLpNbwBSX6zPL8MFKAoRSrV0pZbBeXs
     components-hogcharts-metriccard--no-change--dark:
         hash: v1.k794b7964.cc7000b2031ab73a0922b493c62d140608f8f06ec054a5e6ecfa953967e4c0c9.Ee6vIwPcI14qimH2HuHvuUauqJlGIKsLv4tuIq_j-kg
     components-hogcharts-metriccard--no-change--light:
