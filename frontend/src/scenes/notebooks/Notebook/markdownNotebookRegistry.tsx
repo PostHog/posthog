@@ -714,8 +714,17 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        if (value !== undefined && isNotebookPropValue(value)) {
-            props[key] = value as NotebookPropValue
+        if (value === undefined) {
+            return props
+        }
+        // Deep-strip nested `undefined` before validating, mirroring the legacy notebook attribute
+        // pipeline (useSyncedAttributes JSON-serializes attributes). Otherwise a single nested
+        // `undefined` — e.g. a person-property filter's absent `label`/`group_type_index` inside
+        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped,
+        // silently discarding the edit so the node never re-queries.
+        const normalized: unknown = typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value
+        if (isNotebookPropValue(normalized)) {
+            props[key] = normalized
         }
         return props
     }, {})

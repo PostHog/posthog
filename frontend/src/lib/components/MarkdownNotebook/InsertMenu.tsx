@@ -314,7 +314,19 @@ export function buildInsertCommands(
             label: 'People',
             category: 'Data',
             icon: <IconList />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'Person'),
+            run: (targetNodeId) =>
+                insertComponent(targetNodeId, 'Query', {
+                    query: {
+                        kind: 'DataTableNode',
+                        source: {
+                            kind: 'ActorsQuery',
+                            select: ['person_display_name -- Person', 'id', 'created_at'],
+                            // ActorsQuery hits ClickHouse, which requires a product query tag.
+                            // Match the notebook query tagging convention (see NotebookSQLEditor).
+                            tags: { productKey: 'notebooks', scene: 'Notebook' },
+                        },
+                    },
+                }),
         },
         {
             key: 'data-session-recordings',
