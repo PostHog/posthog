@@ -311,8 +311,6 @@ class SnowflakeImplementation(
         result: dict[str, dict[str, str]] = collections.defaultdict(dict)
         try:
             with conn.cursor() as cursor:
-                if cursor is None:
-                    return {}
                 if selected_schema is not None:
                     cursor.execute(
                         "SELECT table_schema, table_name, column_name, comment"

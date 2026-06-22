@@ -99,14 +99,14 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             queryset = queryset.filter(table_id=table_id)
         return queryset.order_by(self.ordering)
 
-    def perform_create(self, serializer: WarehouseColumnAnnotationSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(
             team_id=self.team_id,
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             is_user_edited=True,
         )
 
-    def perform_update(self, serializer: WarehouseColumnAnnotationSerializer) -> None:
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             is_user_edited=True,
