@@ -236,7 +236,7 @@ describe('makePerAskerAuth', () => {
         expect(await isAuthed(conv, 7, [], null)).toBe(false)
     })
 
-    describe('session_principal scope (PR 7 — concierge fast-path)', () => {
+    describe('session_principal scope (NOT a fast-path — injection guard)', () => {
         const alice: SessionPrincipal = {
             kind: 'posthog',
             user_id: 'alice',
@@ -248,28 +248,28 @@ describe('makePerAskerAuth', () => {
             team_id: 7,
         }
 
-        it('returns true when the session principal matches the most recent user-turn sender', async () => {
-            // Alice authed the session and is the one driving the current
-            // turn — fast-path authorises without touching the posthog DB
-            // (the fake's query throws if called).
+        it('returns false even when the session principal matches the most recent user-turn sender', async () => {
+            // Regression guard for the "approval bypass for session-principal
+            // tools" finding. Alice authed the session and is the one driving
+            // the turn — but the owner being the *asker* is NOT consent to the
+            // specific gated call the model emitted (a prompt injection in
+            // content the agent read could have steered that call). So
+            // `session_principal` must NOT self-authorise; it defers to the
+            // queue. The posthog DB fake throws if hit — a `session_principal`-
+            // only scope must short-circuit to false before any DB roundtrip.
             const isAuthed = makePerAskerAuth({
                 identities: new PgIdentityStore(pool),
                 posthogDb: {
                     async query() {
-                        throw new Error('should not hit posthog DB on the session_principal fast path')
+                        throw new Error('session_principal must not touch the posthog DB — it never fast-paths')
                     },
                 } as unknown as import('pg').Pool,
             })
             const conv = [userMsg('promote it', alice)]
-            expect(await isAuthed(conv, 7, ['session_principal'], alice)).toBe(true)
+            expect(await isAuthed(conv, 7, ['session_principal'], alice)).toBe(false)
         })
 
         it('returns false when the last sender is a different principal than the session owner', async () => {
-            // The trigger edge already enforces strict-principal match on
-            // /send, so in practice we expect alice's session to only ever
-            // see alice's senders. Belt-and-braces: if a sender for bob
-            // somehow lands in alice's session, the session_principal scope
-            // still rejects.
             const isAuthed = makePerAskerAuth({
                 identities: new PgIdentityStore(pool),
                 posthogDb: fakePosthogDb([]),
@@ -287,11 +287,11 @@ describe('makePerAskerAuth', () => {
             expect(await isAuthed(conv, 7, ['session_principal'], null)).toBe(false)
         })
 
-        it('returns false for anonymous principals (public agent — every caller would otherwise self-authorise)', async () => {
-            // The public verifier stores { kind: 'anonymous' } — not null — on
-            // the session row and stamps the same sender on the user turn.
-            // principalsMatch(anonymous, anonymous) is true, so without the
-            // explicit exclusion every public caller would clear the gate.
+        it('returns false for anonymous principals (public agent)', async () => {
+            // The public verifier stores { kind: 'anonymous' } on the session
+            // row and stamps the same sender on the user turn. `session_principal`
+            // never fast-paths regardless, so a public caller can't clear the
+            // gate this way.
             const anon: SessionPrincipal = { kind: 'anonymous' }
             const isAuthed = makePerAskerAuth({
                 identities: new PgIdentityStore(pool),
@@ -301,12 +301,11 @@ describe('makePerAskerAuth', () => {
             expect(await isAuthed(conv, 7, ['session_principal'], anon)).toBe(false)
         })
 
-        it('falls through to team_admins when session_principal does not match but team_admins is in scope', async () => {
-            // Mixed-scope policy: session principal OR team admin. The
-            // session principal slot doesn't match (bob's sender vs alice's
-            // session), so we fall through and resolve team_admins via the
-            // existing path. Alice is configured as a team admin on team 7
-            // via the posthog-DB fake.
+        it('falls through to team_admins when session_principal is paired with team_admins in scope', async () => {
+            // Mixed-scope policy: session principal OR team admin. session_principal
+            // never fast-paths, but team_admins still does — so an admin asker
+            // clears the gate via the team_admins branch. Alice is configured as
+            // a team admin on team 7 via the posthog-DB fake.
             const store = new PgIdentityStore(pool)
             const senderAgent = await store.findOrCreate({
                 team_id: 7,

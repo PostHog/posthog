@@ -164,12 +164,12 @@ class Command(BaseCommand):
             for index, (group_key, props) in enumerate(groups):
                 account = existing.get(group_key)
                 if account is None:
-                    account = Account.objects.create(
+                    account = Account.objects.create_account(
                         team=team,
                         name=props.get("name") or group_key,
                         external_id=group_key,
                         created_by=creator,
-                        _properties=self._account_roles(assignments, index, group_key).model_dump(mode="json"),
+                        properties=self._account_roles(assignments, index, group_key),
                     )
                     created += 1
                 accounts.append(account)

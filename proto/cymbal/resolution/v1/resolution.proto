@@ -29,7 +29,7 @@ message ResolveItem {
   // Serialized rust/cymbal Exception before frame and exception remapping.
   bytes exception_json = 3;
   // Serialized resolution metadata. The current convention is JSON bytes with
-  // resolver-specific keys such as `apple_debug_images_json`.
+  // resolver-specific keys such as `debug_images_json`.
   bytes metadata = 4;
   // Deadline for this logical exception in milliseconds. The server may shed
   // stale items instead of starting work it cannot return in time.

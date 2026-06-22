@@ -1,11 +1,11 @@
+import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { PostgresRouter } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -33,6 +33,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailService } from './services/messaging/email.service'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -146,6 +147,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_QUEUE_ROUTING'
+        | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -379,6 +381,7 @@ export function createCdpCoreServices(
         : null
 
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
@@ -390,7 +393,8 @@ export function createCdpCoreServices(
         deps.integrationManager,
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL
+        config.SITE_URL,
+        trackingCodeSigner
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
 

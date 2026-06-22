@@ -1,6 +1,6 @@
 import datetime as dt
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 import temporalio
@@ -15,7 +15,8 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.models.user import User
+from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
@@ -23,12 +24,14 @@ from posthog.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     validate_and_coerce_row_filters,
 )
+from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
@@ -179,6 +182,32 @@ def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> 
     return None
 
 
+def _apply_primary_key_columns(
+    data: dict[str, Any],
+    payload: dict[str, Any],
+    instance: Any,
+    label: str,
+) -> None:
+    """Apply primary_key_columns from request data to the sync_type_config payload.
+
+    Raises ValidationError if the PK changed after data has been synced, or if no PK is set.
+    """
+    new_pk = data.get("primary_key_columns")
+    if new_pk:
+        old_pk = payload.get("primary_key_columns")
+        if new_pk != old_pk and instance.table is not None:
+            raise ValidationError(
+                "Primary key cannot be changed after data has been synced. "
+                "Delete the synced data first, then change the primary key."
+            )
+        payload["primary_key_columns"] = new_pk
+    elif not payload.get("primary_key_columns"):
+        raise ValidationError(
+            f"{label} requires a primary key on table '{instance.name}'. "
+            "Provide primary_key_columns or refresh schema discovery to pick one up."
+        )
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -187,7 +216,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         choices=ExternalDataSchema.SyncType.choices,
         required=False,
         allow_null=True,
-        help_text="Sync strategy: incremental, full_refresh, append, or cdc.",
+        help_text="Sync strategy: incremental, full_refresh, append, cdc, or xmin.",
     )
     incremental_field = serializers.CharField(
         required=False, allow_null=True, help_text="Column name used to track sync progress."
@@ -197,6 +226,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text="Data type of the incremental field.",
+    )
+    incremental_field_lookback_seconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=5_184_000,  # 60 days — larger windows defeat incremental efficiency
+        help_text=(
+            "Seconds to subtract from the stored incremental watermark at sync time, so each "
+            "incremental run re-reads a rolling overlap window and catches late or backdated rows. "
+            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged. "
+            "Maximum 5184000 (60 days)."
+        ),
     )
     sync_frequency = serializers.ChoiceField(
         choices=[
@@ -282,6 +323,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "incremental_field_lookback_seconds",
             "sync_frequency",
             "sync_time_of_day",
             "description",
@@ -382,7 +424,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         hogql_context = self.context.get("database", None)
         if not hogql_context:
-            hogql_context = Database.create_for(team_id=self.context["team_id"])
+            hogql_context = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if schema.table and schema.table.deleted:
             return None
@@ -404,6 +449,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["incremental_field_type"] = (
             instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
         )
+        ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
         return ret
@@ -443,6 +489,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
+        validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
@@ -489,6 +536,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             team = Team.objects.get(id=self.context["team_id"])
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
+
+        # Close the enum-exposure window: `XMIN` is a valid `SyncType` choice, so the field accepts
+        # "xmin" the moment the foundation lands. Reject it unless the source is Postgres, the flag is
+        # on for the team, and the table actually advertises xmin support — otherwise a raw PATCH would
+        # persist an xmin schema that silently degrades to full_refresh.
+        if sync_type == ExternalDataSchema.SyncType.XMIN:
+            from posthog.models import Team
+
+            if instance.source.source_type != ExternalDataSourceType.POSTGRES:
+                raise ValidationError("xmin replication is only available for Postgres sources.")
+            team = Team.objects.get(id=self.context["team_id"])
+            if not is_xmin_enabled_for_team(team):
+                raise ValidationError("xmin replication is not enabled for this team")
+            if not self._xmin_available_for_schema(instance):
+                raise ValidationError(
+                    f"xmin replication is not available for table '{instance.name}'. "
+                    "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
+                )
 
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
@@ -540,6 +605,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
 
+            # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
+            # idempotent. `null` clears it.
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+                payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
+
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
                     # Get the max_value and set it on incremental_field_last_value
@@ -562,22 +632,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
-            new_pk = data.get("primary_key_columns")
-            if new_pk:
-                old_pk = payload.get("primary_key_columns")
-                # Same rule as incremental: the PK is the merge key, so it can't change once data
-                # has synced (`instance.table` exists). Delete the synced data to change it.
-                if new_pk != old_pk and instance.table is not None:
-                    raise ValidationError(
-                        "Primary key cannot be changed after data has been synced. "
-                        "Delete the synced data first, then change the primary key."
-                    )
-                payload["primary_key_columns"] = new_pk
-            elif not payload.get("primary_key_columns"):
-                raise ValidationError(
-                    f"CDC requires a primary key on table '{instance.name}'. "
-                    "Provide primary_key_columns or refresh schema discovery to pick one up."
-                )
+            _apply_primary_key_columns(data, payload, instance, "CDC")
+
+            validated_data["sync_type_config"] = payload
+        elif sync_type == ExternalDataSchema.SyncType.XMIN:
+            payload = instance.sync_type_config
+
+            # xmin requires a primary key for clean upsert dedup, mirroring CDC. Accept the caller's
+            # PK or reuse what discovery already stored; refuse the switch when neither is set.
+            _apply_primary_key_columns(data, payload, instance, "xmin replication")
 
             validated_data["sync_type_config"] = payload
         else:
@@ -653,6 +716,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "Add a primary key on the source table and retry."
             )
 
+        # Switching sync type across the xmin boundary changes the physical Delta schema: xmin
+        # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
+        # Reusing the existing Delta table fails the write — the column is missing on the way in, or
+        # lingers on the way out — so force a full resync to rebuild the table from scratch.
+        if (
+            "sync_type" in data
+            and sync_type != instance.sync_type
+            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
+        ):
+            if is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Monthly sync limit reached. Please increase your billing limit before changing "
+                    "the sync type — a full re-sync would be required."
+                )
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
+            validated_data["sync_type_config"]["reset_pipeline"] = True
+            if should_sync if should_sync is not None else instance.should_sync:
+                trigger_refresh = True
+
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
             should_sync is True
@@ -708,7 +790,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
             sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
-        if is_cdc and source.source_type == ExternalDataSourceType.POSTGRES:
+        if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
         if trigger_refresh:
@@ -792,6 +874,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         except Exception:
             return False
         return any(s.name == schema.name and s.webhook_only for s in source_schemas)
+
+    def _xmin_available_for_schema(self, schema: ExternalDataSchema) -> bool:
+        """True when the source advertises xmin support for this table (Postgres heap table or
+        materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
+        has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
+        source = schema.source
+        if not source.job_inputs:
+            return False
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+            config = source_impl.parse_config(source.job_inputs)
+            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+        except Exception:
+            return False
+        return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
@@ -940,16 +1038,20 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
         return context
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.exclude(deleted=True).prefetch_related("created_by")
+        # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
+        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        queryset = (
+            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+        )
         if self.action == "retrieve":
-            # retrieve serializes the source summary + table; pull them in one round-trip.
-            queryset = queryset.select_related("source", "table__credential", "table__external_data_source")
+            # retrieve additionally embeds the source summary + table credential.
+            queryset = queryset.select_related("source", "table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1111,14 +1213,23 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
 
-        source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
+        # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
+        # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
+        source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
+        # xmin is Postgres-only AND flag-gated, mirroring the database_schema endpoint.
+        xmin_available = (
+            schema.supports_xmin
+            if (source.source_type == ExternalDataSourceType.POSTGRES and is_xmin_enabled_for_team(self.team))
+            else None
+        )
 
         data = {
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
+            "xmin_available": xmin_available,
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,

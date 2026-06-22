@@ -1026,6 +1026,40 @@ export interface AgentRevisionCronFireResponseApi {
     request_id: string
 }
 
+export interface AgentRevisionEnvKeysResponseApi {
+    /** Names of env variables currently set on the revision. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentRevisionEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
+}
+
 export interface AgentRevisionSlackManifestResponseApi {
     revision_id: string
     /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
@@ -1294,28 +1328,6 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
-export interface AgentApplicationEnvKeysResponseApi {
-    /** Names of env variables currently set on the application. Values are never returned. */
-    keys: string[]
-}
-
-export interface AgentApplicationEnvKeyStatusApi {
-    key: string
-    /** True if the key is present in the env block. The value itself is never returned. */
-    is_set: boolean
-}
-
-/**
- * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
- *
- * The view merges `{KEY: value}` into the existing encrypted env block
- * without touching other keys, so callers can set or rotate one secret
- * without needing to read the whole block back.
- */
-export interface SetEnvKeyRequestApi {
-    value: string
-}
-
 /**
  * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
  * non-live revision. The meaningful shape depends on the `rest` path segment:
@@ -1574,18 +1586,6 @@ export interface LogEntryApi {
 
 export interface AgentApplicationSessionLogsResponseApi {
     results: LogEntryApi[]
-}
-
-export type SetEnvRequestApiEnv = { [key: string]: string }
-
-/**
- * Body shape for AgentApplicationViewSet.set_env.
- *
- * `env` is a JSON object of string→string. The view encrypts it via the
- * same Fernet schedule the worker uses to decrypt.
- */
-export interface SetEnvRequestApi {
-    env: SetEnvRequestApiEnv
 }
 
 export interface AgentAggregateStatsApi {
