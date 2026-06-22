@@ -14,6 +14,11 @@ import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lem
  * The prop surface is intentionally minimal: trigger-styling props (size, type) and
  * `selectionPeriodLimit` are deliberately omitted until a real caller needs them, rather
  * than re-exposing the wrapped component's full API and losing the decoupling.
+ *
+ * Controlled visibility is a full trio: pass `visible` plus `onOpen` (fired when the
+ * trigger is clicked) and `onClickOutside` / `onClose` (fired when the panel dismisses) so
+ * the caller can drive `visible` itself. Without `onOpen` a controlled picker can't be
+ * opened from its own trigger.
  */
 export interface DatePickerProps {
     value: dayjs.Dayjs | null
@@ -41,9 +46,14 @@ export interface DatePickerProps {
     fullWidth?: boolean
     /** Disable the trigger and explain why on hover. */
     disabledReason?: string
-    /** Externally control popover visibility. */
+    /** Externally control popover visibility. Pair with `onOpen` + `onClickOutside`/`onClose`. */
     visible?: boolean
+    /** Fired when the trigger is clicked — set your `visible` state to true here. */
+    onOpen?: () => void
+    /** Fired when the panel is dismissed by clicking outside it. */
     onClickOutside?: () => void
+    /** Fired when the panel's Cancel/close control is used. */
+    onClose?: () => void
     'data-attr'?: string
 }
 
@@ -63,13 +73,20 @@ export function DatePicker({
     fullWidth = true,
     disabledReason,
     visible,
+    onOpen,
     onClickOutside,
+    onClose,
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
     const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {
         fullWidth,
         disabledReason,
         'data-attr': dataAttr,
+    }
+    // The wrapped trigger only flips its own uncontrolled state; a controlled caller needs the
+    // click to drive their `visible`, so forward `onOpen` as the trigger's onClick when given.
+    if (onOpen) {
+        buttonProps.onClick = onOpen
     }
 
     return (
@@ -88,6 +105,7 @@ export function DatePicker({
             format={format}
             visible={visible}
             onClickOutside={onClickOutside}
+            onClose={onClose}
             buttonProps={buttonProps}
         />
     )

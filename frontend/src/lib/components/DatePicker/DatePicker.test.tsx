@@ -1,10 +1,8 @@
-import { render, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
 import { dayjs } from 'lib/dayjs'
-
-import { getByDataAttr } from '~/test/byDataAttr'
 
 import { DatePicker, DatePickerProps } from './DatePicker'
 
@@ -46,9 +44,10 @@ describe('DatePicker', () => {
         const { container, onChange } = renderDatePicker(dayjs('2023-01-15'))
 
         await userEvent.click(within(container).getByText('January 15, 2023'))
-        const month = document.querySelector('.LemonCalendar__month') as HTMLElement
-        await userEvent.click(within(month).getByText('20'))
-        await userEvent.click(getByDataAttr(document.body, 'lemon-calendar-select-apply'))
+        // Accessible queries (role + name), not implementation-specific CSS classes / data-attrs,
+        // so this survives the eventual swap of the backing calendar.
+        await userEvent.click(await screen.findByRole('button', { name: '20' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
         expect(onChange).toHaveBeenCalledTimes(1)
         expect(onChange.mock.calls[0][0].format('YYYY-MM-DD')).toBe('2023-01-20')
