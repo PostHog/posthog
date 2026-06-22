@@ -500,6 +500,28 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_withheld_scout_is_not_run(ateam, aerrors_skill):
+    # A direct `run_signals_scout` of a held-back scout is refused up front — no sandbox session,
+    # no run row — so the manual path can't run a scout the `signals-scout` flag withholds.
+    payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+    with (
+        patch(payload_path, return_value={"default_team_config": {"withheld_skills": ["signals-scout-errors"]}}),
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=AssertionError("session.start should not run for a withheld scout"),
+        ),
+    ):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert result.run_id is None
+    assert result.skip_reason == "scout is withheld from this team"
+    has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
+    assert not has_runs
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, aerrors_skill):
     """Different skills for the same team must be allowed to run concurrently — the
     coordinator can dispatch several due scouts for one team in a single tick. The

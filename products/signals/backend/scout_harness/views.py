@@ -837,7 +837,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        configs = list(SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name"))
+        # Don't surface held-back scouts here either — keeps the config read surface consistent
+        # with the sync response and the seeding gate, so a withheld scout stays invisible to a
+        # held-back team across the whole config API. Storage is untouched; the row reappears if
+        # the team is later un-withheld.
+        withheld = withheld_skills_for_team(team_id)
+        configs = list(
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team_id)
+            .exclude(skill_name__in=withheld)
+            .order_by("skill_name")
+        )
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
@@ -993,6 +1003,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         withheld = withheld_skills_for_team(team.id)
         sync_canonical_skills(team, withheld_skill_names=withheld)
         register_missing_configs(team.id, withheld_skill_names=withheld)
-        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team.id).order_by("skill_name")
+        # Exclude held-back scouts from the materialized fleet response too: a scout that was
+        # previously seeded and later withheld still has a row, and surfacing it here would
+        # advertise an unreleased scout despite the holdback. Storage is left untouched (no
+        # tombstone/disable) — the row reappears if the team is later un-withheld.
+        configs = (
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team.id)
+            .exclude(skill_name__in=withheld)
+            .order_by("skill_name")
+        )
         skill_info = _skill_info_for(team.id, [c.skill_name for c in configs])
         return Response(SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info}).data)
