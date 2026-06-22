@@ -19,6 +19,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { ZodError } from 'zod'
 
 import type { Logger } from '@posthog/agent-shared'
+import { isMetricsExcludedPath, recordHttpRequest } from '@posthog/agent-shared'
 
 import { AmbiguousRevisionError } from './resolver'
 
@@ -89,7 +90,9 @@ export function requestLogger(log: Logger): RequestHandler {
                 // first means the peer hung up mid-write.
                 ...(res.writableFinished ? {} : { aborted: true }),
             }
-            if (req.path === '/healthz') {
+            if (isMetricsExcludedPath(req.path)) {
+                // Liveness probes + the scrape endpoint fire on a fixed interval —
+                // keep them out of the default `info` access stream.
                 log.debug(fields, 'request')
             } else if (res.statusCode >= 500) {
                 log.error(fields, 'request')
@@ -101,6 +104,46 @@ export function requestLogger(log: Logger): RequestHandler {
         }
         res.on('finish', emit)
         res.on('close', emit)
+        next()
+    }
+}
+
+/**
+ * Records `agent_http_request_duration_seconds` for every request. Mounted
+ * right after `requestLogger` so it sees 404s and body-parse rejections too.
+ *
+ * The `route` label is the express route PATTERN (`/run`, `/listen`) — never
+ * the resolved path — so per-agent slugs / session ids can't blow up
+ * cardinality. SSE streams (`text/event-stream`) are skipped: they don't
+ * "finish" until the client disconnects, so their duration is the whole stream
+ * lifetime (tracked instead by the `agent_ingress_active_streams` gauge).
+ * Metrics + health paths are excluded entirely.
+ */
+export function httpMetricsMiddleware(): RequestHandler {
+    return (req, res, next) => {
+        if (isMetricsExcludedPath(req.path)) {
+            next()
+            return
+        }
+        const start = process.hrtime.bigint()
+        let recorded = false
+        const record = (): void => {
+            if (recorded) {
+                return
+            }
+            recorded = true
+            const contentType = res.getHeader('content-type')
+            if (typeof contentType === 'string' && contentType.includes('text/event-stream')) {
+                return
+            }
+            const route = req.route?.path ?? (res.statusCode === 404 ? 'unmatched' : 'unrouted')
+            recordHttpRequest(
+                { method: req.method, route: String(route), statusCode: res.statusCode },
+                Number(process.hrtime.bigint() - start) / 1e9
+            )
+        }
+        res.on('finish', record)
+        res.on('close', record)
         next()
     }
 }

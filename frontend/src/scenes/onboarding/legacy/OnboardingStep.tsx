@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -52,13 +53,29 @@ export const OnboardingStep = ({
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
+    // advance() kicks off an async URL change that produces no immediate DOM mutation near the button, so without
+    // this posthog-js flags the click as a dead click. Setting a pending state gives instant visual feedback.
+    const [pendingAdvance, setPendingAdvance] = useState<'skip' | 'continue' | null>(null)
+
+    // On the happy path the component unmounts as soon as navigation happens. If advance() fails or navigation is
+    // blocked, this safety net clears the pending state so the buttons don't stay stuck loading/disabled forever.
+    useEffect(() => {
+        if (!pendingAdvance) {
+            return
+        }
+        const timeout = setTimeout(() => setPendingAdvance(null), 5000)
+        return () => clearTimeout(timeout)
+    }, [pendingAdvance])
+
     const skip = (): void => {
+        setPendingAdvance('skip')
         reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
     }
 
     const next = (): void => {
+        setPendingAdvance('continue')
         reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
         onContinue?.()
         advance()
@@ -94,7 +111,13 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                     {showSkip && (
-                        <LemonButton type="secondary" onClick={skip} data-attr="onboarding-skip-button">
+                        <LemonButton
+                            type="secondary"
+                            onClick={skip}
+                            loading={pendingAdvance === 'skip'}
+                            disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
+                            data-attr="onboarding-skip-button"
+                        >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
@@ -104,8 +127,9 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={next}
+                            loading={pendingAdvance === 'continue'}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
-                            disabledReason={continueDisabledReason}
+                            disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
                         >
                             {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>

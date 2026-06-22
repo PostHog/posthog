@@ -296,6 +296,7 @@ doesn't conflict with concurrent PRs.
 - chameleon
 - chargedesk
 - chargify
+- chatwoot
 - chift
 - chorus
 - churnkey
@@ -649,6 +650,7 @@ doesn't conflict with concurrent PRs.
 - ticketmaster
 - tickettailor
 - ticktick
+- tile38
 - timely
 - tinyemail
 - tmdb

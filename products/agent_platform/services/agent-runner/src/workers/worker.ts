@@ -49,6 +49,7 @@ import {
 import { runSession } from '../loop/driver'
 import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
 import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
+import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
@@ -241,6 +242,8 @@ export class Worker {
             )
         }
         this.maxConcurrency = Math.max(1, deps.maxConcurrency ?? 8)
+        metrics.maxConcurrency.set(this.maxConcurrency)
+        metrics.inflightSessions.set(0)
     }
 
     /** Signal a graceful shutdown. In-flight sessions suspend back to PG. */
@@ -316,6 +319,7 @@ export class Worker {
             try {
                 session = await this.deps.queue.claim(claimMs)
                 consecutiveClaimFailures = 0
+                metrics.consecutiveClaimFailures.set(0)
             } catch (err) {
                 // Transient PG error / malformed row mapping. Log and back off
                 // before retrying — without this guard a single bad row crashes
@@ -323,6 +327,8 @@ export class Worker {
                 // spins the loop hot. Equal jitter keeps the floor growing while
                 // de-syncing retries across pods recovering together.
                 consecutiveClaimFailures++
+                metrics.claimFailures.inc()
+                metrics.consecutiveClaimFailures.set(consecutiveClaimFailures)
                 const window = Math.min(backoffMaxMs, backoffBaseMs * 2 ** (consecutiveClaimFailures - 1))
                 const delayMs = Math.round(window / 2 + Math.random() * (window / 2))
                 log.error(
@@ -355,8 +361,10 @@ export class Worker {
                 })
                 .finally(() => {
                     this.inflight.delete(claimedSession.id)
+                    metrics.inflightSessions.set(this.inflight.size)
                 })
             this.inflight.set(claimedSession.id, p)
+            metrics.inflightSessions.set(this.inflight.size)
         }
 
         // Drain any still-in-flight sessions before returning so the caller
@@ -367,6 +375,7 @@ export class Worker {
     async runOne(session: AgentSession): Promise<void> {
         const sLog = log.child({ session_id: session.id, application_id: session.application_id })
         sLog.debug({ revision_id: session.revision_id }, 'session.claim')
+        const runStartedAt = Date.now()
         let sandbox = null
         let sandboxInstanceId: string | null = null
         // `mcpClose` is the batched closer returned by `openMcpClients`. The
@@ -418,6 +427,7 @@ export class Worker {
                     })
                     sandboxInstanceId = created.id
                 }
+                const sandboxStartedAt = Date.now()
                 try {
                     sandbox = await this.deps.sandboxes.acquireForSession({
                         sessionId: session.id,
@@ -434,6 +444,9 @@ export class Worker {
                             cpuCores: rev.spec.limits.max_cpu_cores,
                         },
                     })
+                    metrics.sandboxAcquire
+                        .labels({ provider: this.deps.sandboxes.kind, outcome: 'ok' })
+                        .observe((Date.now() - sandboxStartedAt) / 1000)
                     if (sandboxInstanceId) {
                         // Real provider id (Modal sandbox id, Docker container hash,
                         // or sessionId fallback for in-process) so the janitor
@@ -441,6 +454,9 @@ export class Worker {
                         await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.providerSandboxId)
                     }
                 } catch (err) {
+                    metrics.sandboxAcquire
+                        .labels({ provider: this.deps.sandboxes.kind, outcome: 'error' })
+                        .observe((Date.now() - sandboxStartedAt) / 1000)
                     if (sandboxInstanceId) {
                         await this.deps.sandboxInstances!.markFailed(sandboxInstanceId, (err as Error).message)
                     }
@@ -467,6 +483,9 @@ export class Worker {
                 openedMcpClients = opened.clients
                 mcpClose = opened.close
                 mcpFailures = opened.failures
+                for (const f of mcpFailures) {
+                    metrics.mcpOpenFailures.labels({ category: f.category }).inc()
+                }
                 // Persist the per-ref failure detail to log_entries so the
                 // agent owner can debug via the session-detail page. The
                 // bus + system prompt only see the coarse category — raw
@@ -562,6 +581,9 @@ export class Worker {
                 conversation: session.conversation,
                 usage_total: session.usage_total,
             })
+            metrics.sessionOutcomes.labels({ outcome: outcome.state }).inc()
+            metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
+            metrics.sessionTurns.observe(outcome.turns)
         } catch (err) {
             // Pre-runSession failures (revision load, secrets, sandbox acquire,
             // MCP open) skip the driver's bus / log / conversation hooks. Without
@@ -576,6 +598,9 @@ export class Worker {
             const category = categorize(reason)
             const userText = userFacingMessage(category)
             sLog.error({ err: reason, stack: e.stack, category }, 'session.crashed')
+            metrics.sessionOutcomes.labels({ outcome: 'failed' }).inc()
+            metrics.sessionFailures.labels({ category }).inc()
+            metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
 
             // 1. Synthetic assistant message — so the user sees something in the
             //    transcript instead of their lone user turn followed by silence.
