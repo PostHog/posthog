@@ -1207,12 +1207,12 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should use IN clause to fetch all conditions at once
         self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-        # Should use countIf for counting matches
-        self.assertIn("countif", query_str.lower())
-        # For AND semantics, should check that ALL 3 conditions matched
-        self.assertIn(", 3)", query_str)  # equals(countIf(...), 3)
-        # Should NOT use UNION DISTINCT since properties are merged
+        # AND semantics: all 3 conditions must match. Pin the full predicate so the threshold
+        # (3, not 1) is verified rather than a substring that any threshold would satisfy.
+        self.assertIn("greaterorequals(countif(equals(latest_matches, 1)), 3)", query_str.lower())
+        # Should NOT use UNION/INTERSECT DISTINCT since properties collapse into one scan
         self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
 
     def test_sibling_single_property_groups_under_or_merge(self) -> None:
         """
@@ -1744,6 +1744,180 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 },
                 ["intersect distinct", "precalculated_events", "precalculated_person_properties"],
                 [],
+            ),
+            (
+                # Single person property → single scan, threshold = 1
+                "single_property",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_single_001",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["greaterorequals(countif(equals(latest_matches, 1)), 1)"],
+                ["intersect distinct", "union distinct"],
+            ),
+            (
+                # Negated person property → falls through (single-scan must NOT fire)
+                "negated_person_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "neg_keep_001",
+                                },
+                                {
+                                    "key": "name",
+                                    "type": "person",
+                                    "value": "spam",
+                                    "negation": True,
+                                    "operator": "icontains",
+                                    "conditionHash": "neg_drop_002",
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["precalculated_person_properties"],
+                ["greaterorequals(countif(equals(latest_matches, 1))"],
+            ),
+            (
+                # (X OR Y) AND (A OR B): nested OR groups under a top-level AND must NOT collapse
+                # into a flat `>= 4` threshold (that would require all four). Falls through so the
+                # parent path expresses `(X OR Y) INTERSECT (A OR B)` correctly.
+                "nested_or_under_and_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nest_hx_001",
+                                        },
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@y.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nest_hy_002",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nest_ha_003",
+                                        },
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "B",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nest_hb_004",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["intersect distinct"],
+                ["greaterorequals(countif(equals(latest_matches, 1)), 4)"],
+            ),
+            (
+                # Deeply nested AND-of-AND with different-key (non-mergeable) props → falls through
+                "deeply_nested_falls_through",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x.com",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "deep_001",
+                                        },
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_002",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "country",
+                                            "type": "person",
+                                            "value": "US",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_003",
+                                        },
+                                        {
+                                            "key": "role",
+                                            "type": "person",
+                                            "value": "admin",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "deep_004",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                },
+                ["intersect distinct"],
+                ["greaterorequals(countif(equals(latest_matches, 1))"],
             ),
         ]
     )

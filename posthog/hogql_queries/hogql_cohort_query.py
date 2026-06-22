@@ -1197,19 +1197,24 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ),
         )
 
-    def _build_or_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
+    def _build_count_match_query(self, hashes: list[str], operator: PropertyOperatorType) -> ast.SelectQuery:
+        """Build a single-scan query counting how many of `hashes` each person matches.
+
+        One pass over precalculated_person_properties: compute the latest match state per
+        (person, condition) with argMax, then count matching conditions per person. This keeps
+        peak memory ~O(persons) instead of the O(persons × conditions) of N subqueries joined
+        by INTERSECT/UNION DISTINCT.
+
+            AND: every condition must match  → HAVING countIf(...) >= N
+            OR:  at least one must match     → HAVING countIf(...) >= 1
+
+        `>= N` is used for AND rather than `= N`: hashes are deduplicated and the inner
+        GROUP BY person_id, condition emits at most one row per condition, so countIf can never
+        exceed N. The two are equivalent, and a single operator keeps one query path.
         """
-        Build query for OR semantics where at least ONE condition must match.
+        deduplicated = self._deduplicate_hashes(hashes)
+        threshold = len(deduplicated) if operator == PropertyOperatorType.AND else 1
 
-        For example: email contains X OR email contains Y
-        Uses HAVING matching_count >= 1
-
-        Args:
-            merged_hashes: List of condition hashes to match against
-
-        Returns:
-            SelectQuery AST that returns person_ids matching at least one condition
-        """
         query_str = """
             SELECT
                 person_id as id
@@ -1226,7 +1231,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 GROUP BY person_id, condition
             )
             GROUP BY person_id
-            HAVING countIf(latest_matches = 1) >= 1
+            HAVING countIf(latest_matches = 1) >= {threshold}
         """
 
         return cast(
@@ -1235,51 +1240,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 query_str,
                 {
                     "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                },
-            ),
-        )
-
-    def _build_and_semantics_query(self, merged_hashes: list[str]) -> ast.SelectQuery:
-        """
-        Build query for AND semantics where ALL conditions must match.
-
-        For example: email contains X AND email contains Y
-        Uses HAVING matching_count = len(merged_hashes)
-
-        Args:
-            merged_hashes: List of condition hashes that all must match
-
-        Returns:
-            SelectQuery AST that returns person_ids matching all conditions
-        """
-        query_str = """
-            SELECT
-                person_id as id
-            FROM
-            (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, (_timestamp, _offset)) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
-            GROUP BY person_id
-            HAVING countIf(latest_matches = 1) = {num_conditions}
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in merged_hashes]),
-                    "num_conditions": ast.Constant(value=len(merged_hashes)),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in deduplicated]),
+                    "threshold": ast.Constant(value=threshold),
                 },
             ),
         )
@@ -1305,11 +1267,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
             # Check if this is from an OR group (OR semantics) or AND group (AND semantics)
             is_or_group = getattr(prop, "_is_or_group", False)
-
-            if is_or_group:
-                return self._build_or_semantics_query(merged_hashes)
-            else:
-                return self._build_and_semantics_query(merged_hashes)
+            operator = PropertyOperatorType.OR if is_or_group else PropertyOperatorType.AND
+            return self._build_count_match_query(merged_hashes, operator)
         else:
             # Single condition - original logic
             condition_hash = getattr(prop, "conditionHash", None)
@@ -1373,80 +1332,45 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             # Merged properties carry multiple hashes
             merged = getattr(prop, "_merged_condition_hashes", None)
             if merged:
+                # A merged child encodes its own AND/OR across its hashes. Flattening them into
+                # the parent's single threshold only preserves semantics when the child's boolean
+                # type matches the top-level operator (e.g. an OR-merged child under a top-level
+                # AND would wrongly require ALL its hashes). Otherwise defer to the multi-subquery
+                # path, which expresses the nested boolean correctly.
+                if len(merged) > 1:
+                    child_is_or = getattr(prop, "_is_or_group", False)
+                    if child_is_or != (operator == PropertyOperatorType.OR):
+                        return None
                 hashes.extend(merged)
             else:
                 hashes.append(condition_hash)
 
         if not hashes:
             return None
-        return self._deduplicate_hashes(hashes), operator
-
-    def _build_single_scan_query(self, hashes: list[str], operator: PropertyOperatorType) -> ast.SelectQuery:
-        """Emit one scan of precalculated_person_properties with argMaxIf per condition.
-
-        Instead of N separate subqueries joined by INTERSECT/UNION DISTINCT (which
-        materialises N intermediate sets), this reads the table once and aggregates per
-        person using conditional argMax.  The outer WHERE then filters by AND/OR logic.
-
-        AND: every hash must match  → HAVING countIf(argMaxIf(...) = 1) = N
-        OR:  at least one must match → HAVING countIf(argMaxIf(...) = 1) >= 1
-        """
-        num_conditions = len(hashes)
-        having_threshold = num_conditions if operator == PropertyOperatorType.AND else 1
-
-        # One scan: compute latest matches per (person, condition), then count how many
-        # conditions matched. Same countIf pattern as _build_and/or_semantics_query but
-        # generalised across different condition keys/operators in a single GROUP BY pass.
-        query_str = """
-            SELECT person_id AS id
-            FROM (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, tuple(_timestamp, _offset)) AS latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
-            GROUP BY person_id
-            HAVING countIf(latest_matches = 1) >= {threshold}
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes]),
-                    "threshold": ast.Constant(value=having_threshold),
-                },
-            ),
-        )
+        return hashes, operator
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """Override to emit a single-scan query when all conditions are person properties.
 
-        For cohorts whose top-level group contains only non-negated person properties
-        (all backed by precalculated_person_properties), the parent would produce N
-        separate subqueries joined by INTERSECT/UNION DISTINCT.  Each subquery reads the
-        full table and the set operations materialise large intermediate results — the
-        source of the 139 GiB OOM seen in production.
+        For cohorts whose top-level group is a flat AND/OR of non-negated person properties
+        (all backed by precalculated_person_properties), the parent would produce N separate
+        subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full table and
+        the set operations materialise large intermediate results — the source of the 139 GiB
+        OOM seen in production.
 
-        When the cohort qualifies, we instead do one scan with argMaxIf per condition and
-        filter in an outer WHERE, keeping peak memory proportional to the number of
-        distinct persons rather than persons × conditions.
+        When the cohort qualifies, we instead do one scan and count matching conditions per
+        person, keeping peak memory proportional to the number of distinct persons rather than
+        persons × conditions.
 
         Cohorts with mixed conditions (behavioral, dynamic-cohort, negation, deeply nested
-        groups) fall through to the parent's multi-subquery path unchanged.
+        groups, or nested boolean groups whose operator differs from the top level) fall through
+        to the parent's multi-subquery path unchanged.
         """
         if self.property_groups is not None:
             result = self._collect_person_property_hashes(self.property_groups)
             if result is not None:
                 hashes, operator = result
-                return self._build_single_scan_query(hashes, operator)
+                return self._build_count_match_query(hashes, operator)
         return super()._get_conditions()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
