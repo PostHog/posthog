@@ -310,7 +310,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):

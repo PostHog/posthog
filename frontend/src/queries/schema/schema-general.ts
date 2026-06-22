@@ -3581,6 +3581,7 @@ export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
+    | 'ai_gateway'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
@@ -6872,7 +6873,10 @@ export const externalDataSources = [
     'Appstack',
     'Razorpay',
     'Neon',
+    'NewRelic',
     'Custom',
+    'Tile38',
+    'Chatwoot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7376,6 +7380,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_GATEWAY = 'ai_gateway',
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',

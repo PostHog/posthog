@@ -1396,7 +1396,10 @@ export interface CredentialApi {
  * * `Appstack` - Appstack
  * * `Razorpay` - Razorpay
  * * `Neon` - Neon
+ * * `NewRelic` - NewRelic
  * * `Custom` - Custom
+ * * `Tile38` - Tile38
+ * * `Chatwoot` - Chatwoot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2031,7 +2034,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Appstack: 'Appstack',
     Razorpay: 'Razorpay',
     Neon: 'Neon',
+    NewRelic: 'NewRelic',
     Custom: 'Custom',
+    Tile38: 'Tile38',
+    Chatwoot: 'Chatwoot',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
