@@ -30,9 +30,10 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-
-ASSIGNMENT_ROLE_FIELDS = ("csm", "account_executive", "account_owner")
+from products.customer_analytics.backend.facade.constants import (
+    ACCOUNT_ASSIGNMENT_ROLE_FIELDS,
+    CUSTOMER_ANALYTICS_CSP_FLAG,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -139,7 +140,7 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        for field in ASSIGNMENT_ROLE_FIELDS:
+        for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
             if field in attrs and attrs[field] is not None:
                 attrs[field] = self._normalize_assignee(field, attrs[field])
         return attrs
@@ -203,7 +204,7 @@ class ExternalAccountView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        role_assignments = {field: data[field] for field in ASSIGNMENT_ROLE_FIELDS if field in data}
+        role_assignments = {field: data[field] for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS if field in data}
         result = facade.update_external_account(
             team.id,
             external_id,

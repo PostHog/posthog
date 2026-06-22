@@ -28,6 +28,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
+from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -210,8 +211,6 @@ def get_account(
 # endpoint. The view keeps only HTTP concerns (auth, throttles, the flag gate,
 # request validation) and maps the results below to responses.
 
-_EXTERNAL_ASSIGNMENT_ROLE_FIELDS = ("csm", "account_executive", "account_owner")
-
 
 def _to_external_account(account: Account) -> contracts.ExternalAccount:
     """Map an account to the verbatim external wire shape.
@@ -231,7 +230,7 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
 
 def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
     try:
-        return Account.objects.for_team(team_id).get(external_id=external_id)
+        return Account.objects.for_team(team_id).select_related("team").get(external_id=external_id)
     except Account.DoesNotExist:
         return None
 
@@ -270,7 +269,7 @@ def _apply_external_role_assignments(
     properties = dict(account._properties or {})
     changed = False
 
-    for field in _EXTERNAL_ASSIGNMENT_ROLE_FIELDS:
+    for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
         if field not in role_assignments:
             continue
         user_id = role_assignments[field]
