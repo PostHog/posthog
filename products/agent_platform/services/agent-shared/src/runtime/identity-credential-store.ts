@@ -156,12 +156,13 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
 
     async get(agentUserId: string, provider: string): Promise<LinkedCredential | null> {
         const r = await this.pool.query<CredentialRow>(
-            `SELECT encrypted_credentials, scopes, state
+            // Filter state in SQL so a revoked row is skipped without decrypting it.
+            `SELECT encrypted_credentials, scopes
                FROM agent_identity_credential
-              WHERE agent_user_id = $1 AND provider = $2`,
+              WHERE agent_user_id = $1 AND provider = $2 AND state = 'active'`,
             [agentUserId, provider]
         )
-        if (r.rowCount === 0 || r.rows[0].state !== 'active') {
+        if (r.rowCount === 0) {
             return null
         }
         const row = r.rows[0]
