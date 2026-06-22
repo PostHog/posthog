@@ -231,3 +231,60 @@ class TestInitializeDucklake:
 
         assert result is True
         mock_reset.assert_called_once_with(TEST_CONFIG)
+
+
+class TestValidateDuckgresIdentifier:
+    @parameterized.expand(["prod", "us_prod", "team_42", "abc123"])
+    def test_accepts_safe_identifiers(self, ident):
+        from posthog.ducklake.common import validate_duckgres_identifier
+
+        validate_duckgres_identifier(ident)  # no raise
+
+    @parameterized.expand(["", "a-b", "a b", "a;drop", "a.b", "a$b", '"x"'])
+    def test_rejects_unsafe_identifiers(self, ident):
+        from posthog.ducklake.common import validate_duckgres_identifier
+
+        with pytest.raises(ValueError):
+            validate_duckgres_identifier(ident)
+
+
+@pytest.mark.django_db
+class TestDuckgresDataImportsSchema:
+    def _team(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="o")
+        return Team.objects.create(organization=org, name="t")
+
+    def test_falls_back_to_team_id_when_no_backfill_row(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+
+        team = self._team()
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+
+    def test_falls_back_to_team_id_when_suffix_null_or_empty(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+        from posthog.ducklake.models import DuckLakeBackfill
+
+        team = self._team()
+        DuckLakeBackfill.objects.create(team=team, table_suffix=None)
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+        DuckLakeBackfill.objects.filter(team=team).update(table_suffix="")
+        assert duckgres_data_imports_schema(team.id) == f"posthog_data_imports_team_{team.id}"
+
+    def test_uses_suffix_when_set(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+        from posthog.ducklake.models import DuckLakeBackfill
+
+        team = self._team()
+        DuckLakeBackfill.objects.create(team=team, table_suffix="us_prod")
+        assert duckgres_data_imports_schema(team.id) == "posthog_data_imports_us_prod"
+
+    def test_rejects_unsafe_suffix(self):
+        from posthog.ducklake.common import duckgres_data_imports_schema
+        from posthog.ducklake.models import DuckLakeBackfill
+
+        team = self._team()
+        DuckLakeBackfill.objects.create(team=team, table_suffix="a;drop")
+        with pytest.raises(ValueError):
+            duckgres_data_imports_schema(team.id)

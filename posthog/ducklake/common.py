@@ -550,8 +550,46 @@ def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
+def validate_duckgres_identifier(identifier: str) -> None:
+    """Fail-closed check that an identifier is safe for SQL interpolation.
+
+    Only alphanumeric characters and underscores are allowed. Mirrors the
+    events/persons duckling DAG's ``_validate_identifier`` so a user-supplied
+    ``DuckLakeBackfill.table_suffix`` is validated identically wherever it is
+    interpolated into DuckDB DDL.
+    """
+    if not identifier or not identifier.replace("_", "").isalnum():
+        raise ValueError(f"Invalid SQL identifier: {identifier!r}")
+
+
+def duckgres_data_imports_schema(team_id: int) -> str:
+    """Resolve the duckgres schema the v3 data-import sink writes a team into.
+
+    A DuckgresServer is org-scoped and hosts many teams, so each team needs its
+    own schema. Historically that was ``posthog_data_imports_team_{team_id}``.
+    When a team sets ``DuckLakeBackfill.table_suffix`` (the same field that
+    governs its events/persons tables), the data-import schema uses that suffix
+    so one user-chosen identifier names all of a team's warehouse tables.
+
+    Backward-compatible: a NULL/empty suffix keeps the team-id schema, so
+    existing teams are unaffected until a suffix is explicitly set.
+
+    NOTE: a suffix CHANGE moves the schema and orphans the old one — callers
+    that have already written a team's tables must trigger a re-prime (handled
+    by the backfill state machine), not silently switch.
+    """
+    from posthog.ducklake.models import DuckLakeBackfill
+
+    suffix = DuckLakeBackfill.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
+    if not suffix:
+        return f"posthog_data_imports_team_{team_id}"
+    validate_duckgres_identifier(suffix)
+    return f"posthog_data_imports_{suffix}"
+
+
 __all__ = [
     "attach_catalog",
+    "duckgres_data_imports_schema",
     "escape",
     "get_config",
     "get_ducklake_catalog_for_organization",
@@ -573,4 +611,5 @@ __all__ = [
     "reset_ducklake_catalog",
     "run_smoke_check",
     "sanitize_ducklake_identifier",
+    "validate_duckgres_identifier",
 ]
