@@ -10154,8 +10154,8 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         self.assertIsNotNone(cached_flag.evaluation_tag_names)
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
-    @pytest.mark.ee
     @parameterized.expand([("with_experiment", True), ("without_experiment", False)])
+    @pytest.mark.ee
     def test_has_experiment_survives_cache_round_trip(self, _name: str, has_experiment: bool):
         from products.feature_flags.backend.models.feature_flag import (
             get_feature_flags_for_team_in_cache,
