@@ -487,12 +487,6 @@ def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
         trace_id = extra.get("trace_id")
         if trace_id:
             parts.append(f"Trace: `{_escape_mrkdwn(str(trace_id)[:12])}…`")
-    elif source_product == "error_tracking":
-        fingerprint = extra.get("fingerprint")
-        if fingerprint:
-            text = str(fingerprint)
-            short = text if len(text) <= 14 else text[:14] + "…"
-            parts.append(f"Fingerprint: `{_escape_mrkdwn(short)}`")
     elif source_product == "session_replay":
         if extra.get("problem_type"):
             parts.append(f"Problem: {_escape_mrkdwn(str(extra['problem_type']).replace('_', ' '))}")
