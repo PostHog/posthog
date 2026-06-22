@@ -48,8 +48,123 @@ def _make_pipeline() -> PipelineV3:
     pipeline._accumulated_pa_schema = None
     pipeline._batch_results = []
     pipeline._shutdown_monitor = MagicMock()
+    pipeline._attempt = 1
 
     return pipeline
+
+
+class TestAttemptScopedRunUuid:
+    def test_run_uuid_includes_attempt_number(self) -> None:
+        mock_job = MagicMock(
+            team_id=1,
+            workflow_run_id="wfrun-abc",
+            billable=False,
+            id="job-1",
+        )
+        mock_schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=False,
+            is_webhook=False,
+            is_xmin=False,
+            is_append=False,
+            table=None,
+            primary_key_columns=None,
+            partition_count=None,
+            partition_size=None,
+            partitioning_keys=None,
+            partition_format=None,
+            partition_mode=None,
+            incremental_field_earliest_value=None,
+            incremental_field_type=None,
+        )
+        mock_source = MagicMock()
+        mock_resource = MagicMock(
+            name="test",
+            primary_keys=["id"],
+            partition_count=None,
+            partition_size=None,
+            partition_keys=None,
+            partition_format=None,
+            partition_mode=None,
+        )
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_activity_attempt",
+                return_value=3,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_workflow_id",
+                return_value="wf-1",
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.current_workflow_run_id",
+                return_value="wfrun-abc",
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.S3BatchWriter",
+            ) as mock_s3_writer_cls,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
+            ),
+            patch("posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableHelper"),
+        ):
+            mock_s3_writer_cls.return_value = MagicMock(get_run_uuid=MagicMock(return_value="wfrun-abc-a3"))
+            pipeline = PipelineV3(
+                source_response=mock_resource,
+                logger=_make_logger(),
+                job_id="job-1",
+                reset_pipeline=False,
+                shutdown_monitor=MagicMock(),
+                job=mock_job,
+                schema=mock_schema,
+                source=mock_source,
+                table=None,
+                resumable_source_manager=None,
+            )
+
+        assert pipeline._attempt == 3
+        mock_s3_writer_cls.assert_called_once()
+        assert mock_s3_writer_cls.call_args[0][3] == "wfrun-abc-a3"
+
+    @pytest.mark.asyncio
+    async def test_skips_reset_table_on_retry(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = 2
+        pipeline._reset_pipeline = True
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.cdp_producer_clear_chunks",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.reset_rows_synced_if_needed",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.validate_incremental_sync",
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.setup_row_tracking_with_billing_check",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.handle_reset_or_full_refresh",
+                new_callable=AsyncMock,
+            ) as mock_reset,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.activity",
+            ) as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False
+
+            await pipeline.run()
+
+        mock_reset.assert_not_called()
 
 
 class TestExtractionFailureDoesNotCleanupS3:

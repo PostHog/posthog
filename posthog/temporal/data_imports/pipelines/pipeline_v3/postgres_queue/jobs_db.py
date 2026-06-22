@@ -385,6 +385,34 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
+    def supersede_other_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> int:
+        """Mark non-terminal batches from older runs of the same job as superseded."""
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "job_id": job_id,
+                "current_run_uuid": current_run_uuid,
+                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
     async def get_failed_runs(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -412,6 +440,7 @@ class BatchQueue:
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
                     ORDER BY b.run_uuid, s.created_at DESC
                 ) failed_runs
                 ORDER BY failed_at DESC
