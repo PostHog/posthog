@@ -1279,7 +1279,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ),
         "approver_scope": drf_serializers.DictField(
             child=drf_serializers.JSONField(),
-            help_text="Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.",
+            help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
             choices=[
@@ -1445,9 +1445,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="approvals/(?P<approval_id>[^/.]+)/decide")
     def approvals_decide(self, request: Request, approval_id: str = "", **kwargs) -> Response:
-        """Approve or reject a queued tool-approval request. Team-admin only
-        (plan §6.1). The runtime side runs the tool platform-side on approve
-        and wakes the session with a synthetic tool_result either way."""
+        """Approve or reject a queued `agent`-type tool-approval request.
+
+        This is the OWNER decision surface — the only PostHog-authoritative one:
+        team admins decide here, in the console. `principal`-type approvals are
+        decided by the session principal at the ingress decision API, not here.
+        The runtime side runs the tool platform-side on approve and wakes the
+        session with a synthetic tool_result either way."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -1458,22 +1462,28 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or a
-        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
-        # human approves in-app) — `is_first_party` is staff-set on the app, so a
-        # third-party OAuth app or a personal API key can't decide a human-only
-        # approval regardless of scope.
+        # Only `agent`-type approvals are decided through the console. A
+        # `principal`-type request is the session owner's to clear at the ingress
+        # decision API; collapse it to not-found here. (Legacy rows queued before
+        # the principal/agent split carry `approvers[]` instead of `type` — map
+        # `team_admins` → agent so an in-flight old row stays decidable.)
+        scope = existing.get("approver_scope", {})
+        approval_type = scope.get("type")
+        if approval_type is None:
+            approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
+        if approval_type != "agent":
+            raise NotFound("Approval not found")
+        # A human acting interactively only: SessionAuthentication, or a bearer
+        # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+        # approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide an owner
+        # approval.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
         is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
             getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
-        if (
-            existing.get("approver_scope", {}).get("allow_agent_approver") is False
-            and not is_session
-            and not is_first_party_oauth
-        ):
+        if not is_session and not is_first_party_oauth:
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(

@@ -28,7 +28,7 @@ single-agent flow:
    recommendations for the user to action after (see step 4).
 2. **No promotes, ever — propose, don't dispose.** Even with the user
    reachable, an audit's job is to surface and propose, not to ship.
-   `promote` / `archive` need explicit consent (`session_principal`
+   `promote` / `archive` need explicit consent (a `principal`
    approval) and are out of scope for the sweep itself. Your write
    surface this run is: `new-draft-create`, the bundle edit tools
    (`agent-md-update`, `skills-update`, `tools-update`,

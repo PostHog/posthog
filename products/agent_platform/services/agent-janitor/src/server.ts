@@ -53,11 +53,11 @@ import {
     AgentSpecSchema,
     ApprovalRequest,
     ApprovalStore,
+    applyApprovalDecision,
     BundleEntry,
     BundleStore,
     buildSlackManifest,
     buildSystemPrompt,
-    ConversationMessage,
     createLogger,
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
@@ -82,7 +82,6 @@ import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
 import { mountUsersRoutes } from './api/users'
 import { buildTypedBundleRouter } from './api/typed-bundle'
-import { buildApprovalDecidedMarker } from './approval-marker'
 // compile-custom-tools.ts now exports `compileTypedTool` — wired by the
 // typed PUT /tools/:id handler, not by freeze. Freeze just validates +
 // seals; the compiled.js is already in the bundle by then.
@@ -674,86 +673,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const body = DecideApprovalBodySchema.parse(req.body)
-            const existing = await getApprovalScoped(opts.approvals!, req)
-            if (!existing) {
-                res.status(404).json({ error: 'not_found' })
-                return
-            }
-            if (existing.state !== 'queued') {
-                res.status(409).json({ error: 'not_queued', state: existing.state })
-                return
-            }
-
-            // edited_args is only honoured when spec opted in. We surface
-            // a structured 422 so Django can map to a user-facing error
-            // rather than silently dropping the edits.
-            if (body.edited_args !== undefined && !existing.approver_scope.allow_edit) {
-                res.status(422).json({ error: 'edits_not_allowed' })
-                return
-            }
-
-            const decidedAt = new Date().toISOString()
-            if (body.decision === 'approve') {
-                const updated = await opts.approvals!.markApproving(req.params.id, {
-                    decided_by: body.decided_by,
-                    decided_at: decidedAt,
+            // Defence-in-depth tenant scope; Django always supplies it on the
+            // per-app routes. The shared helper runs the decide + wake so the
+            // ingress principal-decision API drives the identical transition.
+            const applicationId = typeof req.query.application_id === 'string' ? req.query.application_id : undefined
+            const result = await applyApprovalDecision(
+                { approvals: opts.approvals!, queue: opts.queue },
+                {
+                    requestId: req.params.id,
+                    applicationId,
+                    decision: body.decision,
+                    decidedBy: body.decided_by,
                     reason: body.reason,
-                    decided_args: body.edited_args,
-                })
-                if (!updated) {
-                    // Lost the race to another decider.
-                    res.status(409).json({ error: 'race_lost' })
-                    return
+                    editedArgs: body.edited_args,
                 }
-                // Wake the session. The runner picks up the marker on its
-                // next turn, dispatches the tool, finalises the row, and
-                // pushes the synthetic approved tool_result into the
-                // conversation. See run-turn.ts marker-processing block.
-                const wake: ConversationMessage = {
-                    role: 'user',
-                    content: [{ type: 'text', text: buildApprovalDecidedMarker(updated.id) }],
-                    timestamp: Date.now(),
-                }
-                await opts.queue.appendPendingInput(existing.session_id, wake)
-                await opts.queue.update(existing.session_id, { state: 'queued' })
-                res.json({ ok: true, state: updated.state })
+            )
+            if (!result.ok) {
+                const status =
+                    result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                res.status(status).json(result.state ? { error: result.error, state: result.state } : { error: result.error })
                 return
             }
-
-            // reject: terminal-here. Materialise the synthetic rejection
-            // straight into pending_inputs as a `user` message — see the
-            // note in run-turn's marker processor for why this isn't a
-            // toolResult (Anthropic 400s when a tool_result follows a
-            // closing assistant message instead of its matching tool_use).
-            const updated = await opts.approvals!.markRejected(req.params.id, {
-                decided_by: body.decided_by,
-                decided_at: decidedAt,
-                reason: body.reason,
-            })
-            if (!updated) {
-                res.status(409).json({ error: 'race_lost' })
-                return
-            }
-            const rejectedResult: ConversationMessage = {
-                role: 'user',
-                content: [
-                    {
-                        type: 'text',
-                        text: JSON.stringify({
-                            approval: {
-                                request_id: updated.id,
-                                state: 'rejected',
-                                decided_by: updated.decision_by ?? undefined,
-                                reason: updated.decision_reason ?? undefined,
-                            },
-                        }),
-                    },
-                ],
-                timestamp: Date.now(),
-            }
-            await opts.queue.appendPendingInput(existing.session_id, rejectedResult)
-            await opts.queue.update(existing.session_id, { state: 'queued' })
-            res.json({ ok: true, state: updated.state })
+            res.json({ ok: true, state: result.state })
         })
     )
 

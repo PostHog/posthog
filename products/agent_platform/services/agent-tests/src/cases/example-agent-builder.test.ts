@@ -144,7 +144,7 @@ describe('example: agent-builder bundle', () => {
         expect(parsed.resume?.max_completed_age_ms).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000)
     })
 
-    it('gates destructive MCP authoring tools (promote / archive / destroy) with session_principal approval', async () => {
+    it('gates destructive MCP authoring tools (promote / archive / destroy) with principal approval', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const entries = parsed.mcps[0].tools ?? []
@@ -161,7 +161,7 @@ describe('example: agent-builder bundle', () => {
             'agent-applications-destroy',
         ]) {
             expect(gated.has(name), `${name} should be approval-gated`).toBe(true)
-            expect(gated.get(name)?.approval_policy?.approvers).toEqual(['session_principal'])
+            expect(gated.get(name)?.approval_policy?.type).toBe('principal')
         }
     })
 

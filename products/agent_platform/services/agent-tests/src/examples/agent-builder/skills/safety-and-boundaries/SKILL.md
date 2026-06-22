@@ -145,6 +145,38 @@ Drafts are recoverable in the sense that the revision row
 persists — but the bundle content is lost unless the user has it
 elsewhere. Treat it as final.
 
+## Choosing an approval type for tools you gate
+
+When you build an agent, gate any tool whose call you'd want a human to
+confirm with `requires_approval: true` (on a native/custom `tools[]` entry
+or an `mcps[].tools[]` entry). A gated call **never auto-dispatches** — it
+always queues for an explicit human decision, because the asker being the
+asker is not consent to the specific call the model emitted (a prompt
+injection could have steered it). You then pick **who** decides via
+`approval_policy.type`:
+
+- **`principal`** (the default) — the person who drove the session decides,
+  in-place: a Slack **Approve / Reject** button in the thread, or the
+  approval card in PostHog Code. This is a _generic identity match_ (the
+  decider must be the session's own principal) — it works for a Slack or
+  embedded-app user with no PostHog account. Use it for the common case:
+  an in-the-loop confirmation of a reversible-ish, driver-authoritative
+  action ("send this reply", "create this issue", a `promote` the builder's
+  own driver is walking through).
+- **`agent`** — the agent's **owners** (team admins) sign off in the PostHog
+  console, not in the conversation. Use it for owner-domain or high-blast-
+  radius actions where you don't want the session principal _alone_ to
+  authorise: spending money, touching the owner's production data, or any
+  agent that runs in a **shared / public context** where the asker may be a
+  low-trust participant. This is the only PostHog-authoritative gate.
+
+Rule of thumb: if the person in the conversation is the right authority,
+`principal`; if it needs someone who _owns the agent_ regardless of who's
+driving, `agent`. When unsure, `principal` — it still forces a deterministic
+human decision, just a lighter-weight one. (`ttl_ms` bounds how long the
+request waits before it auto-expires; `allow_edit` lets the approver tweak
+the tool args before it runs.)
+
 ## Things that aren't on the list but should feel risky
 
 A non-exhaustive list of "feels off — double-check".

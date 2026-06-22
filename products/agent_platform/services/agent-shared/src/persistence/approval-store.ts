@@ -15,7 +15,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { AssistantMessageRecord } from '../spec/spec'
+import { ApprovalType, AssistantMessageRecord } from '../spec/spec'
 
 export type ApprovalRequestState = 'queued' | 'approving' | 'dispatched' | 'dispatched_failed' | 'rejected' | 'expired'
 
@@ -32,8 +32,13 @@ export interface ApprovalRequest {
     args_hash: Buffer
     /** Snapshot of the assistant message that emitted the call. */
     assistant_message: AssistantMessageRecord
-    /** Resolved approver policy at request time — v0 always `["team_admins"]`. */
-    approver_scope: { approvers: string[]; allow_edit: boolean; allow_agent_approver: boolean }
+    /**
+     * Resolved approval policy at request time. `type` decides who may clear it:
+     * `principal` (the session principal, via the ingress decision API) or
+     * `agent` (the agent's owners, via the console). `allow_edit` gates
+     * approver-edited args.
+     */
+    approver_scope: { type: ApprovalType; allow_edit: boolean }
     state: ApprovalRequestState
     decision_by: string | null
     decision_at: string | null

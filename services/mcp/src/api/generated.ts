@@ -7520,7 +7520,7 @@ export namespace Schemas {
     export type AgentApprovalRequestAssistantMessage = { [key: string]: unknown };
 
     /**
-     * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+     * Resolved approval policy (type: principal|agent, allow_edit) at request time.
      */
     export type AgentApprovalRequestApproverScope = { [key: string]: unknown };
 
@@ -7556,7 +7556,7 @@ export namespace Schemas {
       decided_args: AgentApprovalRequestDecidedArgs;
       /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
       assistant_message: AgentApprovalRequestAssistantMessage;
-      /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+      /** Resolved approval policy (type: principal|agent, allow_edit) at request time. */
       approver_scope: AgentApprovalRequestApproverScope;
       /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
        *
@@ -8155,15 +8155,13 @@ export namespace Schemas {
       id: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
     } | {
       kind: 'custom';
@@ -8171,15 +8169,13 @@ export namespace Schemas {
       path: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
       requires_identity?: string;
     } | {
@@ -8216,15 +8212,13 @@ export namespace Schemas {
       name: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
     };
 
@@ -33872,15 +33866,13 @@ export namespace Schemas {
       id: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
     } | {
       kind: 'custom';
@@ -33888,15 +33880,13 @@ export namespace Schemas {
       path: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
       requires_identity?: string;
     } | {
@@ -33933,15 +33923,13 @@ export namespace Schemas {
       name: string;
       requires_approval?: boolean;
       approval_policy?: {
-      /** @minItems 1 */
-      approvers?: ('team_admins' | 'session_principal')[];
+      type?: 'principal' | 'agent';
       allow_edit?: boolean;
       /**
          * @minimum 60000
          * @maximum 604800000
          */
       ttl_ms?: number;
-      allow_agent_approver?: boolean;
     };
     };
 

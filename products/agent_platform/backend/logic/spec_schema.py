@@ -42,12 +42,10 @@ from typing import Any
 _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "approvers": {
-            "type": "array",
-            "minItems": 1,
-            "items": {"type": "string", "enum": ["team_admins", "session_principal"]},
-            "default": ["team_admins"],
-        },
+        # `principal` (default) — the session's principal clears it (a generic
+        # identity match, decided at the lightweight ingress API). `agent` — the
+        # agent's owners (created_by + team admins) clear it in the console.
+        "type": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
         "allow_edit": {"type": "boolean", "default": False},
         "ttl_ms": {
             "type": "integer",
@@ -55,7 +53,6 @@ _APPROVAL_POLICY_JSON_SCHEMA: dict[str, Any] = {
             "maximum": 7 * 24 * 60 * 60 * 1000,
             "default": 24 * 60 * 60 * 1000,
         },
-        "allow_agent_approver": {"type": "boolean", "default": False},
     },
     "additionalProperties": False,
 }
@@ -387,32 +384,8 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "properties": {
                                         "name": {"type": "string", "minLength": 1},
                                         "requires_approval": {"type": "boolean", "default": False},
-                                        "approval_policy": {
-                                            "type": "object",
-                                            "properties": {
-                                                "approvers": {
-                                                    "type": "array",
-                                                    "minItems": 1,
-                                                    "items": {
-                                                        "type": "string",
-                                                        "enum": ["team_admins", "session_principal"],
-                                                    },
-                                                    "default": ["team_admins"],
-                                                },
-                                                "allow_edit": {"type": "boolean", "default": False},
-                                                "ttl_ms": {
-                                                    "type": "integer",
-                                                    "minimum": 60000,
-                                                    "maximum": 7 * 24 * 60 * 60 * 1000,
-                                                    "default": 24 * 60 * 60 * 1000,
-                                                },
-                                                "allow_agent_approver": {
-                                                    "type": "boolean",
-                                                    "default": False,
-                                                },
-                                            },
-                                            "additionalProperties": False,
-                                        },
+                                        # Same block as the native/custom tool refs — keep in sync.
+                                        "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
                                     },
                                     "required": ["name"],
                                     "additionalProperties": False,

@@ -300,33 +300,61 @@ export const TriggerSchema = z.discriminatedUnion('type', [
 ])
 
 /**
- * Approval policy attached to a tool ref. Authoritative defaults live here —
- * the dispatcher reads `ToolRef.approval_policy` directly after Zod parsing,
- * so omitting fields in the spec falls through to these values.
+ * Approval `type` — who clears a gated call. Two independent authorities:
+ *   - `principal` (default) — the session's principal: whoever drove this
+ *     session. A *generic identity match* (slack user id / jwt sub / posthog
+ *     uuid == the session principal), NOT a PostHog-authority check, so it works
+ *     for a Slack or embedded-app asker with no PostHog account. Decided via the
+ *     lightweight ingress decision API (a Slack button, a client tool, or the
+ *     PostHog Code approval card).
+ *   - `agent` — the agent's OWNERS: `created_by` + admins of the owning team.
+ *     The one intrinsically-PostHog authority; decided only in the authenticated
+ *     console / approvals inbox.
  *
- * `approvers` is a closed set in v0 (`team_admins` only); see plan §6.1 for
- * why richer scopes are deferred.
+ * Neither auto-dispatches: the owner/principal being the *asker* is not consent
+ * to the specific call the model emitted (prompt injection in content the agent
+ * read could steer it), so every gated call queues for an explicit human action.
  */
-/**
- * Approver scopes accepted in v0:
- *   - `team_admins` — any user with the `org_admin` / `team_admin` role on
- *     the owning team. The default scope on every gated tool.
- *   - `session_principal` — the auth-time principal stored on the session
- *     row (NOT the most recent /send sender — see B1 in
- *     `runtime-mcps.md` "Resolved design"). Marks the session owner as the
- *     approver. Unlike `team_admins`, this is NOT a per-asker fast-path:
- *     the owner being the asker is not consent to the specific gated call
- *     the model emitted (prompt injection in content the agent reads can
- *     steer that call), so a `session_principal` gate always queues for an
- *     explicit human decision and never auto-dispatches. Decision-side
- *     routing — letting the session owner clear the queued approval rather
- *     than only a team admin — widens later via approver-scope routing in
- *     `approval-gated-tools.md` §6.
- */
-export const ApproverScopeSchema = z.enum(['team_admins', 'session_principal'])
+export const ApprovalTypeSchema = z.enum(['principal', 'agent'])
+export type ApprovalType = z.infer<typeof ApprovalTypeSchema>
 
-export const ApprovalPolicySchema = z.object({
-    approvers: z.array(ApproverScopeSchema).min(1).default(['team_admins']),
+/**
+ * Map a pre-rebuild `approvers[]` scope to the new `type`, so specs frozen
+ * before the principal/agent split keep parsing. `team_admins` was the owner
+ * authority → `agent`; `session_principal` → `principal`.
+ */
+function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
+    if (!Array.isArray(approvers)) {
+        return undefined
+    }
+    if (approvers.includes('team_admins')) {
+        return 'agent'
+    }
+    if (approvers.includes('session_principal')) {
+        return 'principal'
+    }
+    return undefined
+}
+
+/**
+ * Approval policy attached to a tool ref / MCP tool entry. Authoritative
+ * defaults live here — the dispatcher reads `approval_policy` directly after Zod
+ * parsing, so omitting fields falls through to these values.
+ */
+export const ApprovalPolicySchema = z.preprocess((raw) => {
+    // Back-compat: pre-rebuild specs carry `approvers[]` + `allow_agent_approver`
+    // instead of `type`. Derive `type` from the old scope and drop the legacy
+    // keys so old frozen revisions still validate.
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).type === undefined) {
+        const obj = { ...(raw as Record<string, unknown>) }
+        const type = legacyApproversToApprovalType(obj.approvers)
+        delete obj.approvers
+        delete obj.allow_agent_approver
+        return type ? { ...obj, type } : obj
+    }
+    return raw
+}, z.object({
+    type: ApprovalTypeSchema.default('principal'),
     allow_edit: z.boolean().default(false),
     ttl_ms: z
         .number()
@@ -334,14 +362,12 @@ export const ApprovalPolicySchema = z.object({
         .min(60_000) // 1 minute
         .max(7 * 24 * 60 * 60 * 1000) // 7 days
         .default(24 * 60 * 60 * 1000), // 24h
-    allow_agent_approver: z.boolean().default(false),
-})
+}))
 
 const DEFAULT_APPROVAL_POLICY = {
-    approvers: ['team_admins' as const],
+    type: 'principal' as const,
     allow_edit: false,
     ttl_ms: 24 * 60 * 60 * 1000,
-    allow_agent_approver: false,
 }
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
@@ -775,7 +801,6 @@ export function triggerAuthConfig(trigger: Trigger): AuthConfig | null {
 }
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
-export type ApproverScope = z.infer<typeof ApproverScopeSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type McpToolEntry = z.infer<typeof McpToolEntrySchema>
 export type SecretRef = z.infer<typeof SecretRefSchema>

@@ -30,7 +30,7 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import { IntegrationHostValidator, McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
@@ -250,15 +250,6 @@ export interface BuildClusterOpts {
      */
     model?: Model<string>
     /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23
-     * step 3). The harness doesn't carry a real
-     * `posthog_organizationmembership` table, so tests stub the auth
-     * decision directly — typically by inspecting the latest user-turn's
-     * sender id. Omit to preserve B.2 v0 behaviour (every gated call
-     * queues regardless of asker).
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
-    /**
      * Override the MCP transport factory. Defaults to the runner's own
      * `StreamableHTTPClientTransport`. Pair an in-process `McpServer` via
      * `InMemoryTransport.createLinkedPair()` here to drive `spec.mcps[]`
@@ -439,7 +430,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveModel: resolveModelForHarness,
         approvals,
         buildApprovalUrl: (requestId) => `/approvals?request=${requestId}`,
-        isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
         tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,

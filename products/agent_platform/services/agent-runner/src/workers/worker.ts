@@ -52,7 +52,6 @@ import {
 
 import { runSession } from '../loop/driver'
 import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
-import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -180,14 +179,6 @@ export interface WorkerDeps {
     identities?: IdentityStore
     /** OAuth callback base; `/link/<provider>/callback` is appended. */
     linkRedirectBaseUrl?: string
-    /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
-     * The driver passes it through to `approval.ts` so a gated call from a
-     * user who already satisfies the approver scope dispatches directly
-     * instead of queueing. Omit to keep the always-queue default.
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
     /**
      * Override the MCP transport factory. Defaults to
      * `StreamableHTTPClientTransport`. The e2e harness substitutes an
@@ -574,7 +565,6 @@ export class Worker {
                 identityLinks: this.deps.identityLinks,
                 identities: this.deps.identities,
                 linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
-                isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
                 mcpFailures,
                 http: this.deps.http,

@@ -225,7 +225,7 @@ Compare the `queued` approval's timestamp against now.
 **Action:** if the user is surprised a gated action never happened,
 explain it was waiting on a human approval that expired, the session
 was re-queued, and the model moved on. Suggest a longer TTL, a
-different approver list, or removing the approval requirement if it
+different approval `type`, or removing the approval requirement if it
 was paranoia.
 
 ### F. Queued forever / never picked up

@@ -655,7 +655,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_name: '@posthog/team-delete',
             proposed_args: { team_id: 42, dry_run: false },
             assistant_message: asstMsg,
-            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            approver_scope: { type: 'agent' as const, allow_edit: false },
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -740,7 +740,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_call_id: 'tc_x',
             tool_name: 'tool.dispatch',
             assistant_message: asstMsg,
-            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            approver_scope: { type: 'agent' as const, allow_edit: false },
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 

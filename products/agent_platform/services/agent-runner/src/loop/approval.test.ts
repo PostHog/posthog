@@ -87,9 +87,8 @@ function makeStubStore(): ApprovalStore {
 }
 
 const POLICY: ApprovalPolicy = {
-    approvers: ['team_admin'],
+    type: 'principal',
     allow_edit: false,
-    allow_agent_approver: false,
     ttl_ms: 60_000,
 }
 
@@ -98,7 +97,7 @@ function parseEnvelope(text: string): { approval: Record<string, unknown> } {
 }
 
 describe('queueApprovalResult: model-facing envelope', () => {
-    it('includes approver_hint + approval_url for the default (non-posthog-code) session', async () => {
+    it('includes a principal approver_hint + approval_url for the default (non-posthog-code) session', async () => {
         const store = makeStubStore()
         const out = await queueApprovalResult({
             approvals: store,
@@ -114,8 +113,28 @@ describe('queueApprovalResult: model-facing envelope', () => {
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval).toMatchObject({
             state: 'queued',
-            approver_hint: expect.stringMatching(/admin/i),
+            approver_hint: expect.stringMatching(/started this session/i),
             approval_url: expect.stringContaining('https://console.example.com/approvals?request='),
+        })
+    })
+
+    it('uses an owner/admin approver_hint for an agent-type policy', async () => {
+        const store = makeStubStore()
+        const out = await queueApprovalResult({
+            approvals: store,
+            buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
+            session: makeSession(),
+            revisionId: TEST_REV_ID,
+            turn: 1,
+            toolName: '@posthog/memory-write',
+            toolCallId: 'tc-1',
+            args: { note: 'apples' },
+            policy: { ...POLICY, type: 'agent' },
+        })
+        const envelope = parseEnvelope((out.content[0] as { text: string }).text)
+        expect(envelope.approval).toMatchObject({
+            state: 'queued',
+            approver_hint: expect.stringMatching(/owner or admin/i),
         })
     })
 

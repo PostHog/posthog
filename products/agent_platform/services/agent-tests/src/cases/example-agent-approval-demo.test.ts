@@ -85,19 +85,18 @@ describe('example: agent-approval-demo bundle', () => {
             id: string
             requires_approval?: boolean
             approval_policy?: {
-                approvers?: string[]
+                type?: string
                 allow_edit?: boolean
-                allow_agent_approver?: boolean
                 ttl_ms?: number
             }
         }>
         const write = tools.find((t) => t.id === '@posthog/memory-write')
         expect(write).toBeTruthy()
         expect(write!.requires_approval).toBe(true)
-        expect(write!.approval_policy?.approvers).toEqual(['team_admins'])
+        // `agent` — the agent's owners (team admins) approve in the console.
+        expect(write!.approval_policy?.type).toBe('agent')
         // allow_edit so the console drawer surfaces the JSON editor.
         expect(write!.approval_policy?.allow_edit).toBe(true)
-        expect(write!.approval_policy?.allow_agent_approver).toBe(false)
 
         for (const id of ['@posthog/memory-read', '@posthog/memory-search']) {
             const open = tools.find((t) => t.id === id)

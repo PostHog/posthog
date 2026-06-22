@@ -183,19 +183,19 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesIt
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
@@ -208,12 +208,12 @@ export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
@@ -496,10 +496,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -511,11 +512,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         .max(agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsMax)
                                         .default(
                                             agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyTtlMsDefault
-                                        ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsCreateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault
                                         ),
                                 })
                                 .optional(),
@@ -529,10 +525,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .default(agentApplicationsRevisionsCreateBodySpecToolsItemTwoRequiresApprovalDefault),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -544,11 +541,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         .max(agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax)
                                         .default(
                                             agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault
-                                        ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                         ),
                                 })
                                 .optional(),
@@ -613,10 +605,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                             ),
                                         approval_policy: zod
                                             .object({
-                                                approvers: zod
-                                                    .array(zod.enum(['team_admins', 'session_principal']))
-                                                    .min(1)
-                                                    .default([`team_admins`]),
+                                                type: zod
+                                                    .enum(['principal', 'agent'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault
+                                                    ),
                                                 allow_edit: zod
                                                     .boolean()
                                                     .default(
@@ -632,11 +625,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     )
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault
-                                                    ),
-                                                allow_agent_approver: zod
-                                                    .boolean()
-                                                    .default(
-                                                        agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                                     ),
                                             })
                                             .optional(),
@@ -883,19 +871,19 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuth
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
@@ -908,12 +896,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoRequiresApprovalDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault = `principal`
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowEditDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault = 86400000
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
 
@@ -1200,10 +1188,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 ),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -1220,11 +1209,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         .default(
                                             agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyTtlMsDefault
                                         ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneApprovalPolicyAllowAgentApproverDefault
-                                        ),
                                 })
                                 .optional(),
                         }),
@@ -1239,10 +1223,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                 ),
                             approval_policy: zod
                                 .object({
-                                    approvers: zod
-                                        .array(zod.enum(['team_admins', 'session_principal']))
-                                        .min(1)
-                                        .default([`team_admins`]),
+                                    type: zod
+                                        .enum(['principal', 'agent'])
+                                        .default(
+                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTypeDefault
+                                        ),
                                     allow_edit: zod
                                         .boolean()
                                         .default(
@@ -1258,11 +1243,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         )
                                         .default(
                                             agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsDefault
-                                        ),
-                                    allow_agent_approver: zod
-                                        .boolean()
-                                        .default(
-                                            agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                         ),
                                 })
                                 .optional(),
@@ -1329,10 +1309,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                             ),
                                         approval_policy: zod
                                             .object({
-                                                approvers: zod
-                                                    .array(zod.enum(['team_admins', 'session_principal']))
-                                                    .min(1)
-                                                    .default([`team_admins`]),
+                                                type: zod
+                                                    .enum(['principal', 'agent'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTypeDefault
+                                                    ),
                                                 allow_edit: zod
                                                     .boolean()
                                                     .default(
@@ -1348,11 +1329,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     )
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsDefault
-                                                    ),
-                                                allow_agent_approver: zod
-                                                    .boolean()
-                                                    .default(
-                                                        agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyAllowAgentApproverDefault
                                                     ),
                                             })
                                             .optional(),

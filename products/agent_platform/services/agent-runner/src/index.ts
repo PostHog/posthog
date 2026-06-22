@@ -61,7 +61,6 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
-import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -199,19 +198,13 @@ async function main(): Promise<void> {
         })
     }
 
-    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-    // Lets a Slack user who's already a team admin drive a gated tool
-    // directly via chat instead of going through the queued-approval UI.
-    // Reuses the same identity table the ingress writes through. Threaded
-    // into `WorkerDeps.isAskerInApproverScope` → driver → gated tool's
-    // pre-queue check in build-agent-tools.
+    // Principal → agent_user mapping the ingress writes through; consulted by
+    // the runtime identity providers (spec.identity_providers).
     const identities = new PgIdentityStore(agentDb)
-    // Persistent linked-credential store: shared by the per-asker auth check
-    // (reads the established subject) and the runtime identity providers.
+    // Persistent linked-credential store backing the runtime identity providers.
     const identityCredentials = new PgIdentityCredentialStore(agentDb, {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
-    const isAskerInApproverScope = makePerAskerAuth({ credentials: identityCredentials, posthogDb })
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     // ai-gateway is a cluster-internal service — use the direct client so the
     // call doesn't hit smokescreen (which would refuse it as RFC1918). The
@@ -350,7 +343,6 @@ async function main(): Promise<void> {
         maxOutputTokens: config.maxOutputTokens,
         memoryStore,
         tabularStore,
-        isAskerInApproverScope,
         // Per-principal identity linking (spec.identity_providers): reuse the
         // same agent DB + encryption the credential broker uses.
         identityCredentials,

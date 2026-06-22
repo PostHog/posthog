@@ -68,6 +68,7 @@ import {
     MemoryStore,
     NoopAnalyticsSink,
     parseClientToolResultMarker,
+    postSlackApprovalButtons,
     postSlackReply,
     Sandbox,
     SecretBroker,
@@ -88,7 +89,6 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
-import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -152,16 +152,6 @@ export interface RunSessionDeps {
      * security hole). No mock variant. */
     approvals: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
-    /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     * Called inside the gated tool's `execute` before queueing: when the
-     * most recent user-turn's sender themselves satisfies the tool's
-     * `approver_scope`, the call is dispatched directly via the original
-     * `realExecute` (no queue, no UI round-trip). Errors fall through to
-     * the queue path so a transient lookup failure can't strand a gated
-     * call. Omit to keep the always-queue default.
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
     /**
      * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
      * so native `@posthog/memory-*` tools work; absent → memory tools return
@@ -534,35 +524,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                       ? mcpGate.approval_policy
                       : null
                 if (policy) {
-                    const real = realExecute.get(id)
                     tool.execute = async (toolCallId, args) => {
-                        // Per-asker shortcut (#23 step 3): when the most recent
-                        // user-turn's sender already satisfies the tool's
-                        // approver scope, dispatch the real tool directly and
-                        // skip the queue. The model sees a normal tool_result
-                        // either way. Best-effort — a thrown check falls through
-                        // to the queue path so a transient DB blip can't strand
-                        // a gated call as never-queued, never-executed.
-                        if (real && deps.isAskerInApproverScope) {
-                            try {
-                                const allowed = await deps.isAskerInApproverScope(
-                                    session.conversation,
-                                    session.team_id,
-                                    policy.approvers,
-                                    session.principal
-                                )
-                                if (allowed) {
-                                    log('info', 'tool.dispatch.per_asker_authorised', { tool: id })
-                                    return real(toolCallId, (args ?? {}) as Record<string, unknown>)
-                                }
-                            } catch (err) {
-                                log('warn', 'tool.dispatch.per_asker_check_failed', {
-                                    tool: id,
-                                    err: (err as Error).message,
-                                })
-                            }
-                        }
-                        return queueApprovalResult({
+                        // Every gated call queues — there is no auto-dispatch.
+                        // Being the asker is not consent to the specific call the
+                        // model emitted (a prompt injection in content the agent
+                        // read could have steered it), so a deterministic human
+                        // decision is always required: `principal` clears it via
+                        // the ingress decision API, `agent` via the console.
+                        const queued = await queueApprovalResult({
                             approvals,
                             buildApprovalUrl: deps.buildApprovalUrl,
                             session,
@@ -575,6 +544,25 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             args: (args ?? {}) as Record<string, unknown>,
                             policy,
                         })
+                        // For a `principal` approval on a Slack session, post
+                        // Approve/Reject buttons into the thread so the session
+                        // owner can decide in-place (the ingress interactivity
+                        // handler enforces principal-match on the click). Skip on
+                        // a deduped re-queue so we don't spam the same buttons.
+                        // Best-effort — a Slack hiccup must not break the loop.
+                        const reqId = queued.details?.requestId
+                        if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
+                            void postSlackApprovalButtons(deps.http, {
+                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                                channel: slackReply.channel,
+                                thread_ts: slackReply.thread_ts,
+                                sessionId: session.id,
+                                requestId: reqId,
+                                toolName: id,
+                                logger: { warn: (meta, msg) => log('warn', msg, meta) },
+                            }).catch(() => {})
+                        }
+                        return queued
                     }
                 }
             }

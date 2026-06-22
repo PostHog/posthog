@@ -246,17 +246,17 @@
                 {
                     "name": "agent-applications-revisions-promote-create",
                     "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 },
                 {
                     "name": "agent-applications-revisions-archive-create",
                     "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 },
                 {
                     "name": "agent-applications-destroy",
                     "requires_approval": true,
-                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
                 }
             ]
         }

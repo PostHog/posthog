@@ -27,6 +27,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
@@ -128,6 +129,8 @@ async function main(): Promise<void> {
         revisions: new PgRevisionStore(agentDb),
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
+        // Backs the Slack principal-decision handler (decide + wake).
+        approvals: new PgApprovalStore(agentDb),
         bus,
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,

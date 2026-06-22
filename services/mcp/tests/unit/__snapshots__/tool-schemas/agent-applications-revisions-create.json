@@ -234,28 +234,20 @@
                                             "properties": {
                                                 "approval_policy": {
                                                     "properties": {
-                                                        "allow_agent_approver": {
-                                                            "default": false,
-                                                            "type": "boolean"
-                                                        },
                                                         "allow_edit": {
                                                             "default": false,
                                                             "type": "boolean"
-                                                        },
-                                                        "approvers": {
-                                                            "default": ["team_admins"],
-                                                            "items": {
-                                                                "enum": ["team_admins", "session_principal"],
-                                                                "type": "string"
-                                                            },
-                                                            "minItems": 1,
-                                                            "type": "array"
                                                         },
                                                         "ttl_ms": {
                                                             "default": 86400000,
                                                             "maximum": 604800000,
                                                             "minimum": 60000,
                                                             "type": "number"
+                                                        },
+                                                        "type": {
+                                                            "default": "principal",
+                                                            "enum": ["principal", "agent"],
+                                                            "type": "string"
                                                         }
                                                     },
                                                     "type": "object"
@@ -376,28 +368,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
@@ -421,28 +405,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"

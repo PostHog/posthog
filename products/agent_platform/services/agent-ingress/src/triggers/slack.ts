@@ -16,7 +16,15 @@ import { createLogger } from '@posthog/agent-shared'
 
 const log = createLogger('slack-trigger')
 
-import { AgentApplication, AgentRevision, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@posthog/agent-shared'
+import {
+    AgentApplication,
+    AgentRevision,
+    applyApprovalDecision,
+    decodeApprovalActionValue,
+    principalsMatch,
+    SessionPrincipal,
+    SLACK_BOT_TOKEN_KEY,
+} from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -297,8 +305,19 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         return
     }
     const action = payload.actions?.[0]
-    const decoded = action ? decodeElevationActionValue(action.value) : null
-    if (!action || !decoded) {
+    if (!action) {
+        res.status(400).json({ error: 'no_action' })
+        return
+    }
+    // Tool-approval buttons (`principal`-type approvals) and elevation-grant
+    // buttons share this one interactivity endpoint; dispatch on the value tag.
+    const approvalAction = decodeApprovalActionValue(action.value)
+    if (approvalAction) {
+        await handleApprovalDecisionAction(ctx, payload, approvalAction)
+        return
+    }
+    const decoded = decodeElevationActionValue(action.value)
+    if (!decoded) {
         res.status(400).json({ error: 'no_elevation_action' })
         return
     }
@@ -361,6 +380,76 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         return
     }
     res.status(400).json({ error: 'unknown_decision' })
+}
+
+/**
+ * Decide a `principal`-type tool approval from a Slack button click. The
+ * authority is a generic identity match — only the session's own principal may
+ * decide (the clicking Slack user must be the session owner), which is NOT a
+ * PostHog-authority check. Slack's signature (verified by the guard) makes the
+ * clicker id trustworthy; `principalsMatch` enforces the owner check; the shared
+ * `applyApprovalDecision` runs the decide + wake against the approval store.
+ */
+async function handleApprovalDecisionAction(
+    ctx: RouteCtx,
+    payload: SlackInteractivityPayload,
+    decoded: { sessionId: string; requestId: string; decision: 'approve' | 'reject' }
+): Promise<void> {
+    const { res, deps } = ctx
+    if (!deps.approvals) {
+        res.status(500).json({ error: 'approvals_not_wired' })
+        return
+    }
+    const { sessionId, requestId, decision } = decoded
+    // sessionId comes from the (attacker-influenceable) action value — scope it
+    // to the resolved agent so a decision can't be applied to another agent's
+    // session. Mismatch reads as not-found.
+    const session = await getOwnedSession(ctx, sessionId)
+    if (!session) {
+        res.status(404).json({ error: 'session_not_found' })
+        return
+    }
+    const workspaceId = payload.team?.id ?? payload.user?.team_id ?? 'unknown'
+    const clickerId = payload.user?.id ?? ''
+    const clicker: SessionPrincipal = {
+        kind: 'slack',
+        workspace_id: workspaceId,
+        slack_user_id: clickerId,
+        agent_user_id: await resolveSlackUserId(deps, session.team_id, session.application_id, workspaceId, clickerId),
+    }
+    // Principal-match: only the person who drove this session may decide their
+    // own gated call. Anyone else (even another workspace participant) is
+    // refused with an ephemeral note that doesn't pollute the thread.
+    if (!principalsMatch(session.principal, clicker)) {
+        res.json({
+            response_type: 'ephemeral',
+            replace_original: false,
+            text: 'Only the person who started this session can decide this approval.',
+        })
+        return
+    }
+    const result = await applyApprovalDecision(
+        { approvals: deps.approvals, queue: deps.queue },
+        {
+            requestId,
+            applicationId: session.application_id,
+            decision,
+            decidedBy: clicker.agent_user_id ?? clicker.slack_user_id,
+        }
+    )
+    if (!result.ok) {
+        const text =
+            result.error === 'not_queued'
+                ? 'This request has already been decided.'
+                : 'This approval request could not be found.'
+        res.json({ response_type: 'ephemeral', replace_original: false, text })
+        return
+    }
+    res.json({
+        response_type: 'in_channel',
+        replace_original: true,
+        text: decision === 'approve' ? '✓ Approved.' : '✗ Rejected.',
+    })
 }
 
 /**

@@ -69,6 +69,8 @@ export interface ToolResultDetails {
     queued?: boolean
     /** The approval request id, when `queued`. */
     requestId?: string
+    /** True when the queue deduped onto an existing row (no new request). */
+    deduped?: boolean
 }
 
 /**

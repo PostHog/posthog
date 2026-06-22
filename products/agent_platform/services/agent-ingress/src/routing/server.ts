@@ -8,6 +8,9 @@ import express, { Express, Request, Response } from 'express'
 import { z } from 'zod'
 
 import type {
+    AgentApplication,
+    AgentRevision,
+    ApprovalStore,
     EncryptedFields,
     IdentityCredentialStore,
     IdentityLinkStateStore,
@@ -15,11 +18,13 @@ import type {
     SecretResolver,
 } from '@posthog/agent-shared'
 import {
+    applyApprovalDecision,
     buildIdentityRegistry,
     createLogger,
     handleMetricsRequest,
     isDev,
     RevisionStore,
+    type SessionPrincipal,
     SessionQueue,
     triggerAuthConfig,
 } from '@posthog/agent-shared'
@@ -29,7 +34,7 @@ const log = createLogger('ingress')
 import { SessionEventBus } from '@posthog/agent-shared'
 import type { AuthConfig } from '@posthog/agent-shared'
 
-import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
 import { mountTrigger } from '../triggers/mount'
@@ -104,6 +109,13 @@ export interface BuildAppOpts {
     /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
     identities?: IdentityStore
     /**
+     * Approval store — backs the principal-decision surfaces (the Slack
+     * interactivity handler today; the `POST /approvals/:id/decide` route).
+     * Wired in prod from the agent DB pool; omitted in tests that don't exercise
+     * approvals.
+     */
+    approvals?: ApprovalStore
+    /**
      * Shared HMAC signing key with Django for the preview-proxy gate on
      * non-live revision invokes (aud = `agent-ingress.preview`). When
      * unset, the gate is bypassed (dev / harness).
@@ -138,6 +150,48 @@ export interface BuildAppOpts {
      *  endpoints from this in the link callback. Without it the callback can't
      *  rebuild the posthog provider ("Unknown provider"). */
     posthogApiBaseUrl?: string
+}
+
+/**
+ * Authenticate an approval-decision request as it would have been authenticated
+ * at the originating trigger: walk the agent's chat/mcp trigger auth configs
+ * (the surfaces that mint posthog/jwt principals) and return the first verified
+ * principal. Null when no configured mode authenticates the request.
+ */
+async function authenticatePrincipalDecider(
+    req: Request,
+    application: AgentApplication,
+    revision: AgentRevision,
+    provider: AuthProvider
+): Promise<SessionPrincipal | null> {
+    for (const trigger of revision.spec.triggers) {
+        if (trigger.type !== 'chat' && trigger.type !== 'mcp') {
+            continue
+        }
+        const authConfig = triggerAuthConfig(trigger)
+        if (!authConfig) {
+            continue
+        }
+        const result = await authorize(req, application, revision, authConfig, provider)
+        if (result.ok) {
+            return result.principal
+        }
+    }
+    return null
+}
+
+/** Stable id of the decider, by principal kind — stored as the approval's `decided_by`. */
+function principalDeciderId(p: SessionPrincipal): string {
+    switch (p.kind) {
+        case 'posthog':
+            return p.user_id
+        case 'jwt':
+            return p.sub
+        case 'slack':
+            return p.agent_user_id ?? p.slack_user_id
+        default:
+            return 'unknown'
+    }
 }
 
 /** Minimal self-contained HTML for the OAuth callback result page. */
@@ -272,6 +326,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         authProvider,
         signingSecretResolver: opts.slackSigningSecretResolver ?? UNCONFIGURED_SLACK_SIGNING_SECRET_RESOLVER,
         identities: opts.identities,
+        approvals: opts.approvals,
         broker: opts.credentialBroker,
         http: opts.http,
         routingMode: opts.routingMode,
@@ -279,6 +334,82 @@ export function buildApp(opts: BuildAppOpts): Express {
         publicBaseUrl: opts.publicBaseUrl,
     } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
+
+    // Principal tool-approval decisions — the lightweight, identity-matched
+    // counterpart to the Slack interactivity handler, for posthog (PostHog Code)
+    // and jwt principals. Authenticated by the same verifier the agent's
+    // chat/mcp trigger uses, then required to BE the session principal — a
+    // generic identity match, NOT a PostHog-authority check. `agent`-type
+    // approvals are rejected here; team admins decide those in the console.
+    const ApprovalDecideBodySchema = z.object({
+        decision: z.enum(['approve', 'reject']),
+        reason: z.string().optional(),
+        edited_args: z.record(z.string(), z.unknown()).optional(),
+    })
+    // Mount-relative (like the trigger routes) so a client appends it to the
+    // same per-agent ingress base it uses for `/send` (PostHog Code does). The
+    // `:slug` is unused — the row is resolved from the approval id, not the
+    // slug — but keeping the path under the mount matches how clients address
+    // the ingress. In domain mode `mount` is '' so it's `/approvals/:id/decide`.
+    app.post(
+        `${mount}/approvals/:id/decide`,
+        asyncHandler(async (req: Request, res: Response) => {
+            if (!opts.approvals) {
+                res.status(500).json({ error: 'approvals_not_configured' })
+                return
+            }
+            const parsed = ApprovalDecideBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+                return
+            }
+            const row = await opts.approvals.get(req.params.id)
+            // `agent`-type rows are decided in the console — collapse to not-found
+            // here so this surface never leaks or decides an owner-gated request.
+            if (!row || row.approver_scope.type === 'agent') {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            const application = await opts.revisions.getApplication(row.application_id)
+            const revision = application ? await opts.revisions.getRevision(row.revision_id) : null
+            const session = await opts.queue.getForApplication(row.session_id, row.application_id)
+            if (!application || !revision || !session) {
+                res.status(404).json({ error: 'not_found' })
+                return
+            }
+            const caller = await authenticatePrincipalDecider(req, application, revision, authProvider)
+            if (!caller) {
+                res.status(401).json({ error: 'unauthenticated' })
+                return
+            }
+            // Principal-match: only the person who drove this session may clear
+            // their own gated call.
+            if (!principalsMatch(session.principal, caller)) {
+                res.status(403).json({ error: 'not_session_principal' })
+                return
+            }
+            const result = await applyApprovalDecision(
+                { approvals: opts.approvals, queue: opts.queue },
+                {
+                    requestId: row.id,
+                    applicationId: row.application_id,
+                    decision: parsed.data.decision,
+                    decidedBy: principalDeciderId(caller),
+                    reason: parsed.data.reason,
+                    editedArgs: parsed.data.edited_args,
+                }
+            )
+            if (!result.ok) {
+                const status =
+                    result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                res.status(status).json(
+                    result.state ? { error: result.error, state: result.state } : { error: result.error }
+                )
+                return
+            }
+            res.json({ ok: true, state: result.state })
+        })
+    )
 
     // Self-describing schemas. The response cascades from `spec.triggers` ∩
     // `TRIGGER_MODULES`: only modules whose type is configured on this agent

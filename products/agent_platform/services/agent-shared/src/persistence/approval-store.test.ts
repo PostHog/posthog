@@ -51,9 +51,8 @@ function buildInput(overrides: Partial<UpsertApprovalRequestInput> = {}): Upsert
         proposed_args: { team_id: 42 },
         assistant_message: fauxAssistantMessage(),
         approver_scope: {
-            approvers: ['team_admins'],
+            type: 'agent',
             allow_edit: false,
-            allow_agent_approver: false,
         },
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         ...overrides,
