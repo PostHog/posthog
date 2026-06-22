@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconDashboard } from '@posthog/icons'
 
-import { getProductIcon } from 'scenes/onboarding/utils'
+import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { NavLink } from './NavLink'
 import {

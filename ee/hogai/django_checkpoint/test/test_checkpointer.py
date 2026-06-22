@@ -644,11 +644,12 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         ]
         self.assertGreater(len(checkpoints), 0)
 
-        # The write side still produces lc markers at this langgraph version
+        # langgraph-checkpoint 4.x writes plain JSON: pydantic models in metadata are
+        # stored as their kwargs dicts, without lc constructor markers
         metadata_by_source = {checkpoint.metadata["source"]: checkpoint.metadata for checkpoint in checkpoints}
         raw_input_state = metadata_by_source["input"]["writes"]["__start__"]
-        self.assertEqual(raw_input_state["lc"], 2)
-        self.assertEqual(raw_input_state["type"], "constructor")
+        self.assertNotIn("lc", raw_input_state)
+        self.assertEqual(raw_input_state["messages"][0]["content"], "hi")
 
         raw_by_id = {str(checkpoint.id): checkpoint for checkpoint in checkpoints}
         loaded_tuples = [result async for result in saver.alist(config)]

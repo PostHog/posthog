@@ -323,7 +323,7 @@ class SignupIPThrottle(IPThrottle):
     """
 
     scope = "signup_ip"
-    rate = "5/day"
+    rate = settings.SIGNUP_IP_THROTTLE_RATE
 
 
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
@@ -357,6 +357,18 @@ class SignupResendInviteThrottle(UserOrEmailRateThrottle):
 
     scope = "signup_resend_invite"
     rate = "5/hour"
+
+
+# Requesting PostHog AI access emails the org admins, so cap it per user and per IP
+# to keep a single member (or a shared-IP burst) from spamming admins' inboxes.
+class PostHogAIAccessRequestUserThrottle(UserRateThrottle):
+    scope = "posthog_ai_access_request_user"
+    rate = "1/day"
+
+
+class PostHogAIAccessRequestIPThrottle(IPThrottle):
+    scope = "posthog_ai_access_request_ip"
+    rate = "1/day"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):

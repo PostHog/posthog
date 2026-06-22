@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -120,6 +121,7 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PRODUCTBOARD,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Productboard",
             caption="""Enter your Productboard public API access token to sync your Productboard data into the PostHog Data warehouse.
 

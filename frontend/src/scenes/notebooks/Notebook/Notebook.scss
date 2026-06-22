@@ -550,7 +550,11 @@
             flex: 1;
 
             // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
+            padding-bottom: 6rem;
+        }
+
+        .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+            padding-bottom: 6rem;
         }
 
         .NotebookColumn--left.NotebookColumn--showing {
@@ -693,6 +697,20 @@ body:has(.Notebook--markdown-v2),
     .Notebook_content {
         padding: 0;
     }
+}
+
+.NotebookPresence__ai-bubble {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    color: var(--white);
+    background: var(--notebook-ai-presence-color, var(--color-accent));
+    border: 0;
+    border-radius: 50%;
 }
 
 // Google-Docs-style remote presence carets + name flag.

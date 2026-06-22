@@ -33,13 +33,14 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
-setting (defaults to the Cloud dogfooding team on Cloud, empty elsewhere).
-The runtime read-path gate (`is_precompute_enabled_for_team`) consults the
-*same* setting to bypass the org rollout flag, so warmer and reader read
-one source of truth and cannot drift. Enrolling or removing a team is a
-deploy-time change to the env var (Django + Dagster pods), not
-runtime-overridable.
+The audience is the union of `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` and
+`WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` (each defaults to the
+Cloud dogfooding team on Cloud, empty elsewhere). The runtime read-path gate
+(`is_precompute_enabled_for_team`) treats membership in *either* list as
+enrollment, so warmer and reader read the same sources and cannot drift —
+a team enrolled solely as unrestricted still gets its baseline warmed.
+Enrolling or removing a team is a deploy-time change to the env vars
+(Django + Dagster pods), not runtime-overridable.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
@@ -63,7 +64,7 @@ import dagster
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebStatsBreakdown
+from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
 from posthog.hogql.constants import LimitContext
 
@@ -77,6 +78,11 @@ from posthog.models import Team
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
+
+# Pre-warm the HogQL bytecode VM at code-location load, while /code is on sys.path: the query path
+# imports common.hogvm lazily, and the Dagster grpc process can't resolve it on first query, so
+# caching it here keeps that lazy import a hit.
+import common.hogvm.python.execute  # noqa: F401
 
 logger = structlog.get_logger(__name__)
 
@@ -181,7 +187,19 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not is_cloud():
         return [], "not_cloud", {}
 
-    team_ids = list(settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS)
+    # Union both enrollment lists: unrestricted teams are implicitly enrolled
+    # (see `is_precompute_enabled_for_team`), so a team enrolled solely via
+    # `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` must still get its
+    # baseline warmed — otherwise its reads land on cold on-demand inserts.
+    # dict.fromkeys preserves order and dedupes teams in both lists.
+    team_ids = list(
+        dict.fromkeys(
+            [
+                *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS,
+                *settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS,
+            ]
+        )
+    )
     diag = {"teams_configured": len(team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag
@@ -273,13 +291,13 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
             EAGER_PRECOMPUTE_BASELINE_WARMED.labels(query_kind=label).inc()
             warmed += 1
             # Self-check the warm actually did its job: the tile must resolve to a
-            # precompute read, not fall through to raw. `usedLazyPrecompute` is only
+            # precompute read, not fall through to raw. `preComputeStrategy == LAZY_PRECOMPUTE` is only
             # True when the read passed the lazy executor's TTL freshness filter
             # (`created_at + TTL >= now`, TTL = 15min today … 7d old), so True is a
             # guarantee the precomputed value is well within the 2h threshold. A tile
             # that comes back `not True` warmed nothing useful — surface it loudly so a
             # stale/missing precompute or a non-precomputable breakdown can't hide.
-            if getattr(response, "usedLazyPrecompute", None) is not True:
+            if getattr(response, "preComputeStrategy", None) != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE:
                 EAGER_PRECOMPUTE_BASELINE_NOT_PRECOMPUTED.labels(query_kind=label).inc()
                 with _OP_LOG_LOCK:
                     context.log.warning(

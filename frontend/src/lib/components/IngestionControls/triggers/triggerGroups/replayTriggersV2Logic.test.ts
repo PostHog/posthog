@@ -13,7 +13,10 @@ describe('replayTriggersV2Logic', () => {
     beforeEach(() => {
         useMocks({
             patch: {
-                'api/environments/:id': (req) => [200, { id: 1, ...(req.body as Record<string, any>) }],
+                'api/environments/:id': async ({ request }) => [
+                    200,
+                    { id: 1, ...((await request.json()) as Record<string, any>) },
+                ],
             },
         })
         initKeaTests()

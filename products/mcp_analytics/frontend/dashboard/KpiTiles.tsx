@@ -1,8 +1,8 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
-import { Card, CardContent } from '@posthog/quill-primitives'
+import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
@@ -15,6 +15,9 @@ interface TileSpec {
     format: (n: number) => string
     color: string
     loading: boolean
+    // Overrides the default "vs. prior" comparison line — used to flag a tile
+    // whose value isn't scoped by the dashboard filters.
+    subtitle?: string
 }
 
 function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
@@ -27,8 +30,8 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
             <Card size="sm" className="flex-1 transition-transform group-hover/tile:-translate-y-0.5">
                 {tile.loading ? (
                     <CardContent className="flex flex-col gap-2">
-                        <LemonSkeleton className="h-3 w-16" />
-                        <LemonSkeleton className="h-7 w-20" />
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-7 w-20" />
                     </CardContent>
                 ) : (
                     <CardContent>
@@ -41,7 +44,10 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                             color={tile.color}
                             goodDirection={metric.goodDirection}
                             formatValue={tile.format}
-                            subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
+                            subtitle={
+                                tile.subtitle ??
+                                (hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined)
+                            }
                             sparklineHeight={50}
                             sparklineClassName="mt-3 -mx-3 -mb-3"
                         />
@@ -103,11 +109,15 @@ export function KpiTiles({
             format: formatNumber,
             color: theme.colors[6],
             loading: false,
+            // Clusters come from the latest clustering snapshot across all sessions, so
+            // unlike the other tiles this count isn't scoped by the date or test-account
+            // filters. Label it so the grid doesn't read as a single consistent scope.
+            subtitle: 'Latest run · all sessions',
         },
     ]
 
     return (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(175px,1fr))] gap-3">
             {tiles.map((tile) => (
                 <KPITile key={tile.label} tile={tile} theme={theme} />
             ))}

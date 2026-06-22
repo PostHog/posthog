@@ -1,5 +1,6 @@
 import types
 import typing
+import reprlib
 import builtins
 import operator
 import functools
@@ -9,6 +10,49 @@ import dataclasses
 META_KEY = "_SOURCE_CONFIG_META"
 
 _T = typing.TypeVar("_T")
+
+_SECRET_FIELD_NAME_SUBSTRINGS: tuple[str, ...] = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "key",
+    "credential",
+    "certificate",
+    "root_ca",
+    "connection_string",
+    "authorization",
+    "manifest_json",
+)
+
+REDACTED_VALUE_REPR = "'***'"
+
+
+def _is_secret_field_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(substring in lowered for substring in _SECRET_FIELD_NAME_SUBSTRINGS)
+
+
+@reprlib.recursive_repr()
+def _redacting_repr(self: typing.Any) -> str:
+    """`__repr__` for config classes that redacts the values of secret-bearing fields.
+
+    Nested config values render via their own (also redacting) repr, so secrets stay
+    redacted at every level. A `None` value is shown as-is — there is nothing to leak and
+    it usefully signals the secret is unset.
+    """
+    field_reprs = []
+    for field in dataclasses.fields(self):
+        if not field.repr:
+            continue
+        value = getattr(self, field.name)
+        # A nested config (e.g. BigQuery's `key_file`) renders via its own redacting repr so
+        # its non-secret fields stay visible; only a raw secret value is masked wholesale.
+        if value is not None and _is_secret_field_name(field.name) and not is_config(value):
+            field_reprs.append(f"{field.name}={REDACTED_VALUE_REPR}")
+        else:
+            field_reprs.append(f"{field.name}={value!r}")
+    return f"{type(self).__name__}({', '.join(field_reprs)})"
 
 
 class _Dataclass(typing.Protocol):
@@ -214,7 +258,13 @@ def to_config(
                 # be set
                 assert field_type_meta
 
-                if field_nested_key in d:
+                if field_nested_key in d and isinstance(d[field_nested_key], dict):
+                    # Only recurse into a nested config when the value is actually a
+                    # mapping. A scalar under this key (e.g. a select field submitted
+                    # flat as `auth_method: "oauth"` instead of nested) is not a nested
+                    # config — fall through to the flat-structure path below. This mirrors
+                    # the guard in `validate_config`; without it `validate_config` accepts
+                    # the payload while `to_config` raises an unhandled `TypeError`.
                     try:
                         value = to_config(config_type, d[field_nested_key], prefixes)
                     except TypeError:
@@ -525,6 +575,13 @@ def config(
 
     def wrap(cls: type[_T]) -> type[_T]:
         def from_dict(cls, d: dict[str, typing.Any]):
+            if not isinstance(d, dict):
+                # Stored config (e.g. an `EncryptedJSONField`) can occasionally come back as a
+                # non-mapping (a double-encoded string). Fail with an actionable message instead
+                # of the opaque `TypeError: string indices must be integers` raised when `to_config`
+                # tries to index into it.
+                raise TypeError(f"Cannot build '{cls.__name__}' from {type(d).__name__}; expected a mapping")
+
             if prefix:
                 prefixes = (prefix,)
             else:
@@ -549,6 +606,9 @@ def config(
         setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010
         setattr(cls, "validate_dict", classmethod(validate_dict))  # noqa: B010
         setattr(cls, "__source_config_meta", MetaConfig(prefix=prefix))  # noqa: B010
+        # Override the dataclass-generated repr so credentials never reach logs or
+        # error-tracking stack-frame locals.
+        cls.__repr__ = _redacting_repr  # type: ignore[method-assign]
 
         return cls
 
@@ -575,11 +635,14 @@ def str_to_int(s: str | int) -> int:
         return int(s)
 
 
-def str_to_optional_int(s: str | int | None) -> int | None:
+def str_to_optional_int(s: str | int | float | None) -> int | None:
     """A converter to return a str to optional int."""
-    if isinstance(s, int):
-        return s
-    elif s is None or s.strip() == "":
+    if s is None:
+        return None
+    elif isinstance(s, int | float):
+        # Covers ints, bools, and floats (e.g. numeric JSON values from the frontend).
+        return int(s)
+    elif s.strip() == "":
         return None
     else:
         return int(s)

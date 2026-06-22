@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class RechargeSource(ResumableSource[RechargeSourceConfig, RechargeResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RECHARGE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Recharge",
             caption="""Enter your Recharge API token to automatically pull your Recharge subscription data into the PostHog Data warehouse.
 

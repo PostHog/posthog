@@ -2,7 +2,7 @@ import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { getPersonalApiKeysListUrl } from 'products/platform_features/frontend/generated/api'
 import type { OrganizationPersonalAPIKeyApi } from 'products/platform_features/frontend/generated/api.schemas'

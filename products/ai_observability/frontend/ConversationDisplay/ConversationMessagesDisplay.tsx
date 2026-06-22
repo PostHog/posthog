@@ -9,7 +9,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
@@ -404,7 +404,11 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
     }
 
-    if (item.type === 'text' && 'text' in item && typeof item.text === 'string') {
+    if (
+        (item.type === 'text' || item.type === 'input_text' || item.type === 'output_text') &&
+        'text' in item &&
+        typeof item.text === 'string'
+    ) {
         return searchQuery?.trim() ? (
             <SearchHighlight string={item.text} substring={searchQuery} className="whitespace-pre-wrap" />
         ) : (
@@ -414,6 +418,10 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
 
     if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
         return <ImageMessageDisplay message={{ content: { type: 'image', image: item.image } }} />
+    }
+
+    if (item.type === 'input_image' && typeof item.image_url === 'string') {
+        return <ImageMessageDisplay message={{ content: { type: 'image', image: item.image_url } }} />
     }
 
     if (isOpenAIImageURLMessage(item)) {

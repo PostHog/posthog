@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
+    _to_list_array,
     append_partition_key_to_table,
     evolve_pyarrow_schema,
     normalize_table_column_names,
@@ -64,6 +65,39 @@ def test_table_from_py_list_inconsistent_other_types():
             ]
         )
     )
+
+
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+    with pytest.raises(TypeError) as exc_info:
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+
+    message = str(exc_info.value)
+    # Preserves the original phrase so source non-retryable matching still fires
+    assert "must be real number, not str" in message
+    # Names the column and shows the offending text and blank cells
+    assert "revenue" in message
+    assert "N/A" in message
+    assert "<blank>" in message
+
+
+@pytest.mark.parametrize(
+    "values,expected,type_check",
+    [
+        # Single float type -> float path
+        ([1.5, None, 2.5, None], [1.5, None, 2.5, None], pa.types.is_floating),
+        # Mixed numeric types -> decimal conversion path (len(unique_types_in_column) > 1)
+        (
+            [1.5, None, decimal.Decimal("2.5"), None],
+            [decimal.Decimal("1.5"), None, decimal.Decimal("2.5"), None],
+            pa.types.is_decimal,
+        ),
+    ],
+)
+def test_table_from_py_list_numeric_column_with_none_gaps(values, expected, type_check):
+    table = table_from_py_list([{"column": value} for value in values])
+
+    assert table.column("column").to_pylist() == expected
+    assert type_check(table.schema.field("column").type)
 
 
 def test_table_from_py_list_inconsistent_types_with_none():
@@ -197,6 +231,40 @@ def test_table_from_py_list_with_null_filled_binary_column():
     )
 
 
+@pytest.mark.parametrize(
+    "error_msg, large_type, values",
+    [
+        (
+            "offset overflow while concatenating arrays, consider casting input from `binary` to `large_binary` first.",
+            pa.large_binary(),
+            [b"a", b"b", b"c"],
+        ),
+        (
+            "offset overflow while concatenating arrays, consider casting input from `string` to `large_string` first.",
+            pa.large_string(),
+            ["a", "b"],
+        ),
+    ],
+)
+def test_to_list_array_offset_overflow_falls_back_to_large_type(error_msg, large_type, values):
+    # A column whose chunk exceeds 2GB makes `combine_chunks()` overflow the int32 offset;
+    # the helper must recover by casting to the large-offset variant instead of raising.
+    overflowing = MagicMock(spec=pa.ChunkedArray)
+    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(error_msg)
+    overflowing.cast.return_value = pa.chunked_array([pa.array(values, type=large_type)])
+
+    assert _to_list_array(overflowing) == values
+    overflowing.cast.assert_called_once_with(large_type)
+
+
+def test_to_list_array_reraises_unrelated_arrow_invalid():
+    failing = MagicMock(spec=pa.ChunkedArray)
+    failing.combine_chunks.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        _to_list_array(failing)
+
+
 def test_table_from_py_list_with_mixed_decimal_float_sizes():
     table = table_from_py_list([{"column": decimal.Decimal(1.0)}, {"column": 1000.01}])
 
@@ -327,6 +395,35 @@ def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
     expected_schema = pa.schema([pa.field("column", pa.decimal128(9, 4))])
     assert table.equals(pa.table({"column": pa.array([decimal.Decimal("12345.6789")], type=pa.decimal128(9, 4))}))
     assert table.schema.equals(expected_schema)
+
+
+def test_table_from_py_list_int_column_exceeding_int64_promoted_to_decimal():
+    # Python ints are unbounded; a value past int64 overflows pyarrow's inferred int64 type with
+    # "Python int too large to convert to C long". It should be promoted to decimal instead.
+    over_int64 = 2**63 + 1
+
+    table = table_from_py_list([{"column": over_int64}, {"column": 1}, {"column": None}])
+
+    assert pa.types.is_decimal(table.schema.field("column").type)
+    assert table.column("column").to_pylist() == [decimal.Decimal(over_int64), decimal.Decimal(1), None]
+
+
+def test_table_from_py_list_huge_int_column_falls_back_to_string():
+    # A value too large even for decimal256 (76 digits) must not crash the sync — keep it as text.
+    enormous = int("1" * 340)
+
+    table = table_from_py_list([{"column": enormous}, {"column": 5}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(enormous), "5"]
+
+
+def test_table_from_py_list_normal_int_column_stays_int64():
+    # Values within int64 are unaffected by the overflow handling.
+    table = table_from_py_list([{"column": 1}, {"column": 2}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.int64()
+    assert table.column("column").to_pylist() == [1, 2, None]
 
 
 @pytest.mark.parametrize(

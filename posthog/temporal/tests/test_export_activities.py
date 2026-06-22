@@ -11,7 +11,6 @@ from django.conf import settings
 import temporalio.workflow
 from asgiref.sync import sync_to_async
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from selenium.common import TimeoutException
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -124,7 +123,6 @@ async def test_export_asset_activity_propagates_user_errors(mock_exporter: Magic
     [
         (TimeoutError("Timeout while waiting for the page to load"), False),
         (PlaywrightTimeoutError("Timeout 30000ms exceeded"), False),
-        (TimeoutException("renderer timed out"), False),
         (ExportCancelled("export canceled"), True),
         (ValueError("bad input"), True),
     ],

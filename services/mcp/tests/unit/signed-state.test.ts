@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, type Mock, vi } from 'vitest'
 
 import {
     loadSigningKeyFromEnv,
     NonceLedger,
+    type NonceLedgerRedis,
     SignedStateAlreadyConsumed,
     SignedStateCodec,
     SignedStateExpired,
@@ -138,7 +139,7 @@ describe('loadSigningKeyFromEnv', () => {
 })
 
 describe('NonceLedger', () => {
-    function makeRedis(): { redis: { set: ReturnType<typeof vi.fn> }; store: Map<string, string> } {
+    function makeRedis(): { redis: { set: Mock<NonceLedgerRedis['set']> }; store: Map<string, string> } {
         const store = new Map<string, string>()
         const redis = {
             set: vi.fn(async (key: string, value: string, ..._args: (string | number)[]) => {

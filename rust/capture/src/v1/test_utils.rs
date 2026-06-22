@@ -8,10 +8,29 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
+use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
+use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::PreparedEvent;
 use crate::v1::sinks::Destination;
+
+/// Serialize publishable events into `PreparedEvent`s for driving sinks in tests.
+/// Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit) via `?Sized`.
+pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
+    events
+        .iter()
+        .filter(|e| e.should_publish())
+        .map(|e| PreparedEvent {
+            uuid: e.uuid(),
+            destination: e.destination().clone(),
+            payload: e.serialize(ctx).expect("test payload must serialize"),
+            headers: e.headers(ctx),
+            partition_key: e.partition_key(ctx),
+        })
+        .collect()
+}
 
 pub fn raw_obj(s: &str) -> Box<RawValue> {
     RawValue::from_string(s.to_owned()).unwrap()
@@ -26,8 +45,8 @@ pub fn default_options() -> Options {
     }
 }
 
-pub fn test_context() -> Context {
-    Context {
+pub fn test_context() -> RequestContext {
+    RequestContext {
         api_token: "phc_test_token".to_string(),
         user_agent: "test-agent/1.0".to_string(),
         content_type: "application/json".to_string(),
@@ -37,13 +56,22 @@ pub fn test_context() -> Context {
         request_id: Uuid::new_v4(),
         client_timestamp: Utc::now(),
         client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        query: Query::default(),
+        raw_query: None,
         method: Method::POST,
         path: CAPTURE_V1_PATH,
         server_received_at: Utc::now(),
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
         historical_migration: false,
+    }
+}
+
+/// Analytics-mode context wrapping [`test_context`] for tests that drive
+/// `process_batch` (which takes `&mut analytics::Context`).
+pub fn test_analytics_context() -> AnalyticsContext {
+    AnalyticsContext {
+        req: test_context(),
+        query: Query::default(),
     }
 }
 
@@ -386,16 +414,13 @@ impl WrappedEventMut for WrappedEvent {
 /// and its inner data field round-trips through RawEvent.
 pub fn assert_round_trip(
     wrapped: &WrappedEvent,
-    ctx: &Context,
+    ctx: &RequestContext,
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
     use crate::v1::sinks::event::Event as SinkEvent;
 
-    let mut buf = String::new();
-    wrapped
-        .serialize_into(ctx, &mut buf)
-        .expect("serialize_into failed");
+    let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =
-        serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+        serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =
         serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
 
@@ -802,6 +827,7 @@ impl TestStateBuilder {
             overflow_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
+            capture_v1_scatter_gather_min_batch: 8,
         };
 
         TestState {

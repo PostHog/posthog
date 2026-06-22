@@ -9,7 +9,7 @@ import {
     useRef,
 } from 'react'
 
-import { shouldUseMarkdownPaste } from './documentModel'
+import { getTaskItemShortcut, shouldUseMarkdownPaste } from './documentModel'
 import { getInlineLinkPasteResult, getSelectionRange } from './domSelection'
 import { RestoreSelectionRequest, TextSelectionPointerStartEvent } from './editorTypes'
 import { splitInlineNodesAt } from './inlineContent'
@@ -126,12 +126,44 @@ export function EditableListBlock({
 
     const handleListBlockInput = (event: FormEvent<HTMLDivElement>): void => {
         event.stopPropagation()
+        if (event.target instanceof HTMLInputElement) {
+            // Checkbox toggles go through onChange, not the contenteditable input flow
+            return
+        }
         const element = getListItemContentElement(event.target) ?? getActiveListItemContentElement()
         if (!element) {
             return
         }
 
-        updateListItemChildrenFromElement(element)
+        const details = getListItemDetails(element)
+        if (!details) {
+            return
+        }
+
+        const children = htmlElementToInlineNodes(element)
+        const taskShortcut =
+            details.item.checked === undefined && !(details.item.ordered ?? node.ordered)
+                ? getTaskItemShortcut(children)
+                : null
+        if (taskShortcut) {
+            const selection = getSelectionRange(element, node.id)
+            const caretOffset = Math.max(0, (selection?.start ?? taskShortcut.markerLength) - taskShortcut.markerLength)
+            updateListItem(details.itemIndex, details.itemId, (item) => ({
+                ...item,
+                checked: taskShortcut.checked,
+                children: taskShortcut.children,
+            }))
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                listItemIndex: details.itemIndex,
+                listItemId: details.itemId,
+                start: caretOffset,
+                end: caretOffset,
+            }
+            return
+        }
+
+        updateListItemChildren(details.itemIndex, details.itemId, children)
     }
 
     const handleListBlockPaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
@@ -200,11 +232,36 @@ export function EditableListBlock({
         updateListItemChildrenFromElement(element)
     }
 
+    const toggleListItemChecked = (itemIndex: number, itemId: string | undefined): void => {
+        updateListItem(itemIndex, itemId, (item) => ({ ...item, checked: !item.checked }))
+    }
+
     const renderListItems = (items: RenderedListItem[], ordered: boolean): ReactNode =>
         items.map((item) => {
             const itemOrdered = item.ordered ?? ordered
+            const isTaskItem = !itemOrdered && item.checked !== undefined
             return (
-                <li key={`${node.id}:${item.id ?? item.keyPath}`}>
+                <li
+                    key={`${node.id}:${item.id ?? item.keyPath}`}
+                    className={isTaskItem ? 'MarkdownNotebook__list-item--task' : undefined}
+                >
+                    {isTaskItem ? (
+                        // The checkbox replaces the bullet; contentEditable={false} keeps the caret
+                        // and text selection out of it inside the editable list block.
+                        <span
+                            className="MarkdownNotebook__task-checkbox"
+                            contentEditable={false}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={!!item.checked}
+                                disabled={mode !== 'edit'}
+                                onChange={() => toggleListItemChecked(item.index, item.id)}
+                            />
+                        </span>
+                    ) : null}
                     <EditableListItemContent node={node} item={item} setListItemRef={setListItemRef} />
                     {item.childrenItems.length
                         ? renderItems(item.childrenItems, item.childrenItems[0].ordered ?? itemOrdered)

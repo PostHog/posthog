@@ -577,6 +577,8 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 </Popover>
 ```
 
+`PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
+
 ### Tooltip
 
 ```tsx
@@ -731,6 +733,43 @@ const range = getPaginationRange(pageCount, pageIndex)
 ### Table
 
 Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches.
+
+**Backgrounds: transparent by default, opaque when sticky.** Plain cells and headers are transparent, so a `Table` inherits whatever surface it sits on (inside a `Card`, a tinted panel). Sticky parts (`stickyHeader`, `stickyHeader="page"`, `sticky="left"/"right"`) get an opaque background automatically — they'd otherwise bleed scrolled-under content — so you don't add `bg-background` yourself. It defaults to the app background; if the table sits on a different surface, override the inherited `--quill-table-sticky-bg` custom property on the `Table` so the frozen cells match — e.g. inside a `Card`, `className="[--quill-table-sticky-bg:var(--card)]"`.
+
+**Empty state — use `TableEmpty`, not a hand-rolled cell.** Drop `TableEmpty` in where a `TableBody` would go; it renders its own `tbody > tr > td` with a full-span `colSpan` (defaults huge, browsers clamp to the real column count) and centers its content. Put `<Empty>` or plain text inside — no manual `colSpan`, no `h-full`. To make it fill the body area, give the `Table` a height (e.g. `className="h-full"` with a height-bounded container); otherwise it sizes to its content. Don't put an `<Empty>` (a `div`) as a direct child of `Table` — that's invalid table markup and the browser hoists it out of the grid.
+
+```tsx
+<Table fullWidth className="h-full">
+  <TableHeader>{/* … */}</TableHeader>
+  <TableEmpty>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <InboxIcon />
+        </EmptyMedia>
+        <EmptyTitle>No members yet</EmptyTitle>
+        <EmptyDescription>Invite teammates to start collaborating.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button>Invite member</Button>
+      </EmptyContent>
+    </Empty>
+  </TableEmpty>
+</Table>
+```
+
+**Table in a Card — let the table own the edges.** A `Table` sits flush inside a `Card` because its cells are transparent (they inherit the card surface). Put `gap-0 pb-0` on the `Card` and `p-0` on the `CardContent` so the table reaches the card's rounded edges with no double padding, and use `fullWidth` on the `Table`. For an empty/loading table that should fill a tall card, build the height chain `Card min-h-* → CardContent flex-1 → Table h-full` so `TableEmpty` stretches to the body area.
+
+```tsx
+<Card className="gap-0 pb-0">
+  <CardHeader>
+    <CardTitle>Members</CardTitle>
+  </CardHeader>
+  <CardContent className="p-0">
+    <Table fullWidth>{/* … */}</Table>
+  </CardContent>
+</Card>
+```
 
 ### Menubar
 
