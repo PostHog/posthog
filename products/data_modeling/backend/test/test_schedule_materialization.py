@@ -47,3 +47,17 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         sync_wf.assert_called_once()
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval == timedelta(hours=12)
+
+    def test_disables_materialization_when_v2_lookup_fails(self):
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, side_effect=Exception("temporal unavailable")),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+        ):
+            self.sq.schedule_materialization()
+        sync_wf.assert_not_called()
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is False

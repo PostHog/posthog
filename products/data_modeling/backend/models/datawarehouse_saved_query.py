@@ -178,16 +178,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             unpause_saved_query_schedule,
         )
 
-        # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
-        # create or revive a per-query v1 schedule, and clear any lingering frequency that would
-        # cause one to be recreated.
-        if self.id in get_v2_saved_query_ids([self.id]):
-            if self.sync_frequency_interval is not None:
-                self.sync_frequency_interval = None
-                self.save(update_fields=["sync_frequency_interval"])
-            return
-
         try:
+            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
+            # fails, we honor the failure contract below rather than leaving is_materialized=True
+            # with no schedule backing it.
+            if self.id in get_v2_saved_query_ids([self.id]):
+                if self.sync_frequency_interval is not None:
+                    self.sync_frequency_interval = None
+                    self.save(update_fields=["sync_frequency_interval"])
+                return
+
             self.setup_model_paths()
 
             schedule_exists = saved_query_workflow_exists(self)
