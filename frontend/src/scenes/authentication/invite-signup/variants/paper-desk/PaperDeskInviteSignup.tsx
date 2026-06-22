@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { type ReactNode, useEffect } from 'react'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { PostHogLogo } from 'lib/brand/v2'
 import { JudgeHog } from 'lib/components/hedgehogs'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
@@ -55,7 +55,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
                 <span className="PaperDesk__inviteHeader-mark inline-flex opacity-90">
-                    <Logomark />
+                    <PostHogLogo wordmark={false} className="h-7 w-auto" />
                 </span>
             </div>
             <div className="text-center">

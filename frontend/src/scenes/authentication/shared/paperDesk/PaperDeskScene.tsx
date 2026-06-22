@@ -2,7 +2,7 @@ import './PaperDesk.scss'
 
 import { type ReactNode } from 'react'
 
-import { Logo } from 'lib/brand/Logo'
+import { PostHogLogo } from 'lib/brand/v2'
 
 import { Typewriter } from './Typewriter'
 
@@ -32,7 +32,7 @@ export function PaperDeskCard({
         <>
             {top === undefined ? (
                 <span className="PaperDesk__logo block mb-4">
-                    <Logo />
+                    <PostHogLogo className="h-8 w-auto" />
                 </span>
             ) : (
                 top
