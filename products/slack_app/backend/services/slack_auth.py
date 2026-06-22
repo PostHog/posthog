@@ -116,8 +116,9 @@ def classify_slack_api_error(exc: "SlackApiError") -> tuple[str | None, bool]:
     """Return ``(error_code, is_token_broken)``. Centralizes the
     ``exc.response.get("error") + membership check`` dance so every call site
     (resolver eager-check, ``get_slack_email_for_user``, ``get_cached_bot_user_id``)
-    decides "demote this install" against the same rule. ``error_code`` is
-    ``None`` when Slack didn't attach a recognizable error to the exception.
+    decides "drop this install from the candidate list" against the same rule.
+    ``error_code`` is ``None`` when Slack didn't attach a recognizable error to
+    the exception.
     """
     error_code = exc.response.get("error") if exc.response else None
     if not isinstance(error_code, str):
@@ -130,8 +131,8 @@ def _resolve_one_candidate_state(
 ) -> SlackIntegrationAuthState | None:
     """Return the auth-state verdict for ``candidate``, populating the cache via
     ``auth.test`` on miss. Returns ``None`` when the verdict is unknown
-    (transient failure, non-auth-class Slack error) so the caller can preserve
-    today's pre-cache ordering for that install.
+    (transient failure, non-auth-class Slack error). The caller drops these
+    candidates from the resulting list — see ``check_integrations_auth_and_filter``.
     """
     cached = get_cached_auth_state(candidate.id)
     if cached is not None:
@@ -156,9 +157,19 @@ def _resolve_one_candidate_state(
                 slack_user_id=slack_user_id,
                 error_code=error_code,
             )
-            return get_cached_auth_state(candidate.id)
-        # Non-auth-class Slack error: don't pollute the cache; leave the
-        # candidate "unknown" so the resolver keeps it in the running.
+            # Return the state we just wrote rather than re-reading from the
+            # cache: under eviction or a concurrent invalidate the read-back
+            # could come up None, which the caller would treat as "unknown"
+            # and drop a candidate we just confirmed is broken (vs the
+            # symmetric problem on the ok path of dropping a freshly-healthy
+            # candidate). Constructing inline is also one less Redis hop.
+            return SlackIntegrationAuthState(
+                ok=False, bot_user_id=None, error_code=error_code, checked_at=timezone.now()
+            )
+        # Non-auth-class Slack error (``ratelimited``, ``internal_error``, etc):
+        # don't pollute the cache. The candidate is treated as unknown — and
+        # under the current ``drop unhealthy`` contract that means dropped
+        # from this mention's candidate list. The next mention re-probes.
         logger.warning(
             "slack_app_auth_test_non_auth_error",
             integration_id=candidate.id,
@@ -169,7 +180,8 @@ def _resolve_one_candidate_state(
         return None
     except Exception:
         # Transient (network blip, Slack 5xx): refusing to brick the workspace
-        # for the full TTL on a one-off failure is intentional.
+        # for the full TTL on a one-off failure is intentional. Same as the
+        # non-auth Slack error path above — dropped this mention, retried next.
         logger.warning(
             "slack_app_auth_test_transient_failure",
             integration_id=candidate.id,
@@ -180,11 +192,11 @@ def _resolve_one_candidate_state(
         return None
 
     bot_user_id = response.get("user_id")
-    write_auth_state_ok(
-        candidate.id,
-        bot_user_id if isinstance(bot_user_id, str) and bot_user_id else None,
-    )
-    return get_cached_auth_state(candidate.id)
+    bot_user_id_value = bot_user_id if isinstance(bot_user_id, str) and bot_user_id else None
+    write_auth_state_ok(candidate.id, bot_user_id_value)
+    # See note on the write_auth_state_broken path above — return the just-
+    # written state rather than re-reading from the cache.
+    return SlackIntegrationAuthState(ok=True, bot_user_id=bot_user_id_value, error_code=None, checked_at=timezone.now())
 
 
 def check_integrations_auth_and_filter(
@@ -210,12 +222,25 @@ def check_integrations_auth_and_filter(
     Buckets that get **dropped**:
 
     - **unknown** — cache miss survived eager populate because ``auth.test``
-      transiently errored (Slack 5xx, network blip). The cache is left
-      untouched so the next mention retries, but we don't ship the user a
-      probably-broken probe in the meantime.
+      transiently errored (Slack 5xx, network blip, ``ratelimited`` /
+      ``internal_error`` from Slack). The cache is left untouched so the next
+      mention retries, but we don't ship the user a probably-broken probe in
+      the meantime.
     - **broken** — cached ``ok=false``. Recovery paths: the 6h TTL expires,
       the OAuth reconnect callback invalidates the entry, or a subsequent
       ``auth.test`` succeeds (the cache also expires naturally).
+
+    **Known trade-off**: a Slack control-plane outage that makes ``auth.test``
+    fail transiently for every install puts the workspace into the empty-result
+    path for the duration of the outage — every Slack surface (mentions,
+    link_shared/unfurl, member_joined_channel onboarding, cross-region routing
+    probe) silently drops events even though the install's stored bot token
+    may still work for other Slack endpoints (``chat.postMessage``,
+    ``chat.unfurl``). The bet is that auth.test failures genuinely correlate
+    with downstream-call failures more often than not, and that "silent drop
+    during a Slack incident" is acceptable for the recovery simplicity it
+    buys. If that bet stops holding, the fix is to expose a per-call-site
+    ``require_healthy`` switch so link_shared / unfurl can opt out.
 
     Slack ``auth.test`` is Tier 4 (100+/min/workspace) so the per-mention cost
     is fine even for orgs with many installs on the same workspace. Concurrent
@@ -252,10 +277,12 @@ def check_integrations_auth_and_filter(
     if broken or unknown:
         # ``candidates`` is workspace-homogeneous (the resolver's DB query
         # filters by ``integration_id=slack_team_id``), so reading the
-        # workspace ID off any one row is safe. Escalate to ``warning`` when
-        # the filter left nothing — that's the case where support needs the
-        # log line to explain why a mention went unanswered.
-        log = logger.warning if not result else logger.info
+        # workspace ID off any one row is safe. Escalate to ``warning`` only
+        # when the filter left nothing AND we know at least one install is
+        # actually broken — a Slack 5xx that wipes every candidate into the
+        # ``unknown`` bucket would otherwise spam warning logs for every
+        # workspace during a Slack incident.
+        log = logger.warning if not result and broken else logger.info
         log(
             "slack_app_load_integrations_filtered",
             slack_team_id=candidates[0].integration_id,

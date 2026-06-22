@@ -43,16 +43,13 @@ class TestResolveIntegration:
             sensitive_config={"access_token": "xoxb-other"},
         )
         # These tests assert routing precedence (thread > user_default > etc),
-        # not auth-state filtering. Pre-seed every integration as healthy so
-        # ``load_integrations``' eager ``auth.test`` short-circuits on cache
-        # hit and the precedence ladder is exercised against a stable full
-        # candidate list.
-        for integration in (
-            self.integration_a,
-            self.integration_b,
-            self.integration_c,
-            self.integration_other_workspace,
-        ):
+        # not auth-state filtering. Pre-seed every WORKSPACE-scoped integration
+        # as healthy so ``load_integrations``' eager ``auth.test`` short-circuits
+        # on cache hit and the precedence ladder is exercised against a stable
+        # full candidate list. ``integration_other_workspace`` is intentionally
+        # not seeded — it has a different ``integration_id`` and never enters
+        # the candidate set.
+        for integration in (self.integration_a, self.integration_b, self.integration_c):
             write_auth_state_ok(integration.id, bot_user_id="U_BOT")
         yield
         cache.clear()
@@ -612,11 +609,19 @@ class TestLoadIntegrationsAuthStateFilter:
         # the resolver's "out-of-set" handling in ``resolve_from_candidates``
         # walks past the dead mapping rather than honoring a target the bot
         # can't actually reach.
+        #
+        # Setup deliberately leaves only ONE healthy sibling (``new``): ``old``
+        # is broken and dropped, ``mid`` is also marked broken so the auth
+        # filter strips it too. That collapses the candidate list to ``[new]``
+        # and the resolver falls through past the dead thread mapping to
+        # ``sole_candidate``. Without this constraint the assertion below
+        # would have to accept ``needs_picker`` with an empty ``integration``,
+        # which can pass vacuously if the resolver silently breaks.
         from products.slack_app.backend.models import SlackThreadTaskMapping
         from products.slack_app.backend.services.slack_auth import write_auth_state_broken, write_auth_state_ok
 
-        # ``old`` is broken; ``new`` is the healthy sibling on the same workspace.
         write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
+        write_auth_state_broken(self.integration_mid.id, error_code="invalid_auth")
         write_auth_state_ok(self.integration_new.id, bot_user_id="U_NEW_BOT")
 
         # Thread mapping points at the broken ``old`` install. ``team`` /
@@ -643,9 +648,9 @@ class TestLoadIntegrationsAuthStateFilter:
             thread_ts="123.456",
         )
 
-        # ``old`` was dropped; the thread mapping has nothing in the candidate
-        # set to resolve through. The resolver must not return ``old`` as the
-        # chosen target — that's the whole point of dropping rather than
-        # demoting.
-        assert self.integration_old.id not in {c.id for c in result.candidates}
-        assert result.integration != self.integration_old
+        # The healthy sibling is the one the resolver routes to. Strong
+        # assertions (instead of ``!= integration_old``) so a regression that
+        # returns ``None`` or picks the wrong install fails loudly.
+        assert {c.id for c in result.candidates} == {self.integration_new.id}
+        assert result.integration == self.integration_new
+        assert result.source == "sole_candidate"
