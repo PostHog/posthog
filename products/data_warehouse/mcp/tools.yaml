@@ -425,7 +425,21 @@ tools:
         enabled: false
     warehouse-tables-refresh-schema-create:
         operation: warehouse_tables_refresh_schema_create
-        enabled: false
+        enabled: true
+        scopes:
+            - warehouse_table:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Refresh table schema from source
+        description: >
+            Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying
+            source files and overwrite its stored column list. Use this when the source schema has evolved
+            (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to
+            resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed.
+            Does not apply to tables managed by an external data source sync (those refresh on their own
+            schedule); for those, trigger a sync instead.
     warehouse-tables-retrieve:
         operation: warehouse_tables_retrieve
         enabled: false
