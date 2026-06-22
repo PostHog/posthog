@@ -282,9 +282,9 @@ class PostgresAdapter:
                             connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
-                            cursor.execute(
+                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
                                 request.sql, request.values or None
-                            )  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
+                            )
                             results = cursor.fetchall()
                             description = cursor.description or []
         except (psycopg.Error, ExposedHogQLError) as error:

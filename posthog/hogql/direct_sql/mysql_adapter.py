@@ -169,9 +169,9 @@ class MySQLAdapter:
                         except pymysql.MySQLError:
                             pass
                         cursor.execute("START TRANSACTION READ ONLY")
-                        cursor.execute(
+                        cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
                             request.sql, request.values or None
-                        )  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
+                        )
                         results = cursor.fetchall()
                         description = cursor.description or []
         except (pymysql.MySQLError, ExposedHogQLError) as error:
