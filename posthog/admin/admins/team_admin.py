@@ -429,28 +429,31 @@ class TeamAdmin(admin.ModelAdmin):
         name_plural = request.POST.get("name_plural", "").strip()
 
         default_columns_raw = request.POST.get("default_columns", "").strip()
-        default_columns: list[str] | None = None
+        parsed_default_columns: list[str] | None = None
         if default_columns_raw:
             try:
                 parsed = json.loads(default_columns_raw)
                 if not isinstance(parsed, list):
                     raise ValueError
-                default_columns = parsed
+                parsed_default_columns = parsed
             except (json.JSONDecodeError, ValueError):
                 messages.error(request, "Default columns must be a valid JSON array.")
                 return redirect(
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
 
+        update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
             "project_id": team.project_id,
             "group_type_index": group_type_index,
-            "update_mask": ["name_singular", "name_plural", "default_columns"],
             "name_singular": name_singular,
             "name_plural": name_plural,
         }
-        if default_columns is not None:
-            update_kwargs["default_columns"] = json.dumps(default_columns).encode()
+        if default_columns_raw:
+            update_mask.append("default_columns")
+            if parsed_default_columns is not None:
+                update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        update_kwargs["update_mask"] = update_mask
 
         try:
             client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**update_kwargs))
