@@ -1,4 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -44,12 +45,14 @@ const meta: Meta<StoryArgs> = {
                 '/api/signup/not-found/': () => [404, { detail: 'Invite not found or already used.' }],
             },
             post: {
-                '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
-                [`/api/signup/${MOCK_INVITE_ID}`]: (_, __, ctx) => [
-                    ctx.delay(1000),
-                    ctx.status(200),
-                    ctx.json({ success: true }),
-                ],
+                '/api/signup': async () => {
+                    await delay(1000)
+                    return HttpResponse.json({ success: true })
+                },
+                [`/api/signup/${MOCK_INVITE_ID}`]: async () => {
+                    await delay(1000)
+                    return HttpResponse.json({ success: true })
+                },
             },
         }),
     ],

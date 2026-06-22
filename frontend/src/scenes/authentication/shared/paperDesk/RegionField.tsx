@@ -1,10 +1,9 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonLabel, LemonModal } from '@posthog/lemon-ui'
+import { LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { countryCodeToFlag } from 'lib/utils/country'
@@ -106,37 +105,36 @@ export function RegionField(): JSX.Element | null {
         setDevRegion(region)
     }
 
+    const options: LemonSelectOptions<Region> = REGIONS.map((region) => ({
+        value: region.value,
+        label: (
+            <span className="flex items-center gap-2">
+                <MiniFlag region={region.value} />
+                <span>{region.label}</span>
+            </span>
+        ),
+    }))
+
     return (
         <>
             <RegionModal open={modalOpen} onClose={() => setModalOpen(false)} />
             <div className="flex flex-col gap-2">
                 <LemonLabel onExplanationClick={() => setModalOpen(true)}>Data region</LemonLabel>
-                <div
-                    role="radiogroup"
-                    className="flex gap-1 p-1 bg-[#fbfbf9] border-[1.5px] border-[#c5c6bd] rounded-lg"
-                >
-                    {REGIONS.map((region) => {
-                        const on = activeRegion === region.value
+                <LemonSelect<Region>
+                    value={activeRegion}
+                    options={options}
+                    fullWidth
+                    onChange={(value) => value && selectRegion(value)}
+                    renderButtonContent={(leaf) => {
+                        const region = leaf?.value ?? activeRegion
                         return (
-                            <button
-                                key={region.value}
-                                type="button"
-                                role="radio"
-                                aria-checked={on}
-                                className={clsx(
-                                    'PaperDesk__region-option flex flex-1 gap-2 items-center justify-center min-w-0 py-2 px-1.5 font-sans text-sm cursor-pointer border rounded transition-[background-color,border-color] duration-[140ms]',
-                                    on
-                                        ? 'font-semibold text-primary bg-white border-warning shadow-sm'
-                                        : 'font-medium text-secondary bg-transparent border-transparent'
-                                )}
-                                onClick={() => selectRegion(region.value)}
-                            >
-                                <MiniFlag region={region.value} />
-                                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{region.label}</span>
-                            </button>
+                            <span className="flex items-center gap-2">
+                                <MiniFlag region={region} />
+                                <span>{REGIONS.find((r) => r.value === region)?.label}</span>
+                            </span>
                         )
-                    })}
-                </div>
+                    }}
+                />
             </div>
         </>
     )

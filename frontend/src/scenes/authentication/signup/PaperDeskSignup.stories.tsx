@@ -1,4 +1,5 @@
 import type { Meta, StoryFn } from '@storybook/react'
+import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -42,7 +43,12 @@ const meta: Meta<StoryArgs> = {
     decorators: [
         mswDecorator({
             get: { '/api/users/@me': () => [500, null] },
-            post: { '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })] },
+            post: {
+                '/api/signup': async () => {
+                    await delay(1000)
+                    return HttpResponse.json({ success: true })
+                },
+            },
         }),
     ],
     argTypes: {
