@@ -34,7 +34,7 @@ export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> =
     percentage: '%',
     percentage_scaled: '%',
     currency: '$',
-    short: 'nr',
+    short: 'Short',
 }
 // this function needs to support a trendsFilter as part of an insight query and
 // legacy trend filters, as we still return these as part of a data response
