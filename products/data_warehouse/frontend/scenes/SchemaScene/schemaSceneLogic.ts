@@ -66,6 +66,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         _setCurrentSection: (section: SchemaConfigurationSection) => ({ section }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
+        setResyncingSchema: (resyncing: boolean) => ({ resyncing }),
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -138,7 +139,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             false as boolean,
             {
                 resyncSchema: () => true,
-                loadSchema: () => false,
+                setResyncingSchema: (_, { resyncing }) => resyncing,
             },
         ],
     })),
@@ -235,6 +236,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             } catch (e: any) {
                 lemonToast.error(e?.message || "Couldn't start resync")
             } finally {
+                actions.setResyncingSchema(false)
                 actions.loadSchema()
             }
         },
