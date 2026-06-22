@@ -1779,7 +1779,7 @@ def register_persons_files_with_duckling(
 @asset(
     partitions_def=duckling_events_partitions_def,
     name="duckling_events_backfill",
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **EVENTS_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
@@ -1949,7 +1949,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 @asset(
     partitions_def=duckling_persons_partitions_def,
     name="duckling_persons_backfill",
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **PERSONS_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **PERSONS_CONCURRENCY_TAG},
 )
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
@@ -2462,8 +2462,7 @@ duckling_events_backfill_job = define_asset_job(
     name="duckling_events_backfill_job",
     selection=["duckling_events_backfill"],
     tags={
-        "owner": JobOwners.TEAM_DATA_STACK.value,
-        "disable_slack_notifications": True,
+        "owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value,
         **EVENTS_CONCURRENCY_TAG,
     },
 )
@@ -2667,8 +2666,7 @@ duckling_persons_backfill_job = define_asset_job(
     name="duckling_persons_backfill_job",
     selection=["duckling_persons_backfill"],
     tags={
-        "owner": JobOwners.TEAM_DATA_STACK.value,
-        "disable_slack_notifications": True,
+        "owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value,
         **PERSONS_CONCURRENCY_TAG,
     },
 )
