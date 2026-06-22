@@ -1300,6 +1300,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        home_quick_action = request.validated_data.get("home_quick_action")
         if run_source == RunSource.SIGNAL_REPORT:
             pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -1317,6 +1318,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "home_quick_action": home_quick_action,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}

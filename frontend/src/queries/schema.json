@@ -21292,7 +21292,11 @@
                 "Lightfield",
                 "Appstack",
                 "Razorpay",
-                "Custom"
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },

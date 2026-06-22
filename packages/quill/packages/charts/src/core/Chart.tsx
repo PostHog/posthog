@@ -16,6 +16,7 @@ import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
+import { useYAxisMaps } from './hooks/useYAxisMaps'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -97,7 +98,7 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     onPointClick,
     onDateRangeZoom,
     className,
@@ -123,14 +124,43 @@ export function Chart<Meta = unknown>({
         animateHover,
         margins: marginsOverride,
         maxCategoryLabelWidth,
+        yAxes,
     } = config ?? {}
+
+    // Per-axis tick formatters, sides, and right-axis title for multi-axis charts. Each gutter
+    // formats against its own axis config; absent here, an axis auto-formats against its ticks.
+    const {
+        formatters: yAxisFormatters,
+        positions: yAxisPositions,
+        labelRight: yAxisLabelRight,
+    } = useYAxisMaps(yAxes)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        showTotal: tooltipShowTotal,
+        totalLabel: tooltipTotalLabel,
+        totalFormatter: tooltipTotalFormatter,
     } = tooltipConfig ?? {}
+
+    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () =>
+            renderTooltipProp ??
+            ((ctx: TooltipContext<Meta>) => (
+                <DefaultTooltip
+                    {...ctx}
+                    valueFormatter={tooltipValueFormatter}
+                    showTotal={tooltipShowTotal}
+                    totalLabel={tooltipTotalLabel}
+                    totalFormatter={tooltipTotalFormatter}
+                />
+            )),
+        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+    )
 
     const margins = useChartMargins({
         series,
@@ -145,6 +175,9 @@ export function Chart<Meta = unknown>({
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisLabelRight,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -268,6 +301,7 @@ export function Chart<Meta = unknown>({
                         xTickFormatter={xTickFormatter}
                         yTickFormatter={resolvedYFormatter}
                         userYTickFormatter={yTickFormatter}
+                        yAxisFormatters={yAxisFormatters}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
@@ -278,6 +312,7 @@ export function Chart<Meta = unknown>({
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
                         yAxisLabel={yAxisLabel}
+                        yAxisLabelRight={yAxisLabelRight}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
