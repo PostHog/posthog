@@ -1639,13 +1639,11 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # Should have been deduplicated to a single condition
-        # The IN clause should contain only one hash, not three
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause after deduplication")
-
-        # Should have HAVING countIf(...) = 1 (not 3) because duplicates were removed
-        self.assertIn(", 1)", query_str)  # countIf(...), 1) in equals function
+        # Deduplicated to a single condition → cheaper one-pass query: `condition = hash`
+        # equality, no IN clause and no cross-condition counting.
+        self.assertIn("equals(precalculated_person_properties.condition,", query_str.lower())
+        self.assertNotIn("in(precalculated_person_properties.condition,", query_str.lower())
+        self.assertNotIn("countif", query_str.lower())
 
         # Should NOT use INTERSECT since all properties merged into one
         self.assertNotIn("INTERSECT DISTINCT", query_str)
@@ -1765,7 +1763,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 [],
             ),
             (
-                # Single person property → single scan, threshold = 1
+                # Single person property → cheaper one-pass query (no cross-condition counting)
                 "single_property",
                 {
                     "type": "AND",
@@ -1785,8 +1783,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                ["greaterorequals(countif(equals(latest_matches, 1)), 1)"],
-                ["intersect distinct", "union distinct"],
+                ["equals(argmax(precalculated_person_properties.matches"],
+                ["intersect distinct", "union distinct", "countif"],
             ),
             (
                 # Negated person property → falls through (single-scan must NOT fire)

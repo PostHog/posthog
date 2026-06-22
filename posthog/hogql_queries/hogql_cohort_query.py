@@ -1197,6 +1197,34 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             ),
         )
 
+    def _build_single_condition_query(self, condition_hash: str) -> ast.SelectQuery:
+        """One-pass query for a single condition: latest match per person via argMax.
+
+        No outer aggregation is needed when there's only one condition, so this avoids the
+        second GROUP BY pass that the counting query below would otherwise do for N=1.
+        """
+        query_str = """
+            SELECT
+                person_id as id
+            FROM precalculated_person_properties
+            WHERE
+                team_id = {team_id}
+                AND condition = {condition_hash}
+            GROUP BY person_id
+            HAVING argMax(matches, (_timestamp, _offset)) = 1
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hash": ast.Constant(value=condition_hash),
+                },
+            ),
+        )
+
     def _build_count_match_query(self, hashes: list[str], operator: PropertyOperatorType) -> ast.SelectQuery:
         """Build a single-scan query counting how many of `hashes` each person matches.
 
@@ -1215,6 +1243,10 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         exceed N. The two are equivalent, and a single operator keeps one query path.
         """
         deduplicated = self._deduplicate_hashes(hashes)
+        # A single condition needs no cross-condition counting; use the cheaper one-pass query.
+        if len(deduplicated) == 1:
+            return self._build_single_condition_query(deduplicated[0])
+
         threshold = len(deduplicated) if operator == PropertyOperatorType.AND else 1
 
         query_str = """
@@ -1281,27 +1313,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     f"All realtime cohorts MUST have conditionHash for person property filters. Property: {prop}"
                 )
 
-            query_str = """
-                SELECT
-                    person_id as id
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition = {condition_hash}
-                GROUP BY person_id
-                HAVING argMax(matches, (_timestamp, _offset)) = 1
-            """
-
-            return cast(
-                ast.SelectQuery,
-                parse_select(
-                    query_str,
-                    {
-                        "team_id": ast.Constant(value=self.team.pk),
-                        "condition_hash": ast.Constant(value=condition_hash),
-                    },
-                ),
-            )
+            return self._build_single_condition_query(condition_hash)
 
     def _collect_person_property_hashes(
         self, prop_group: PropertyGroup
