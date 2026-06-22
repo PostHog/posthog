@@ -56,17 +56,17 @@ from posthog.models.file_system.file_system import (
     surface_q,
 )
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.file_system.file_system_view_log import (
-    annotate_file_system_with_view_logs,
-    get_recent_file_system_items,
-    recent_view_logs,
-)
+from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
+
+# Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
+# them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
+RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -418,24 +418,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param)
-            elif order_by_param == "-last_viewed_at" and self.request.user.is_authenticated:
-                # Reached only for "search within Recents": `list()` short-circuits the unfiltered
-                # Recents widget to `_list_recents` (view-log-first). Here a `search` filter has
-                # already bounded the row set, so the join + sort is cheap.
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
-            elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
             else:
+                # `last_viewed_at` ordering (Recents, with or without a search term) is served
+                # view-log-first in `_list_recents`, so it never reaches this queryset path.
                 queryset = queryset.order_by("-created_at")
         elif self.action == "list":
             if depth_param is not None:
@@ -454,13 +439,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         order_by_param = request.query_params.get("order_by")
-        # The unfiltered Recents widget (the high-volume, timeout-prone path) is served view-log-first.
-        # A `search` term bounds the set to a small size, so that case keeps the join path below.
-        if (
-            order_by_param in ("-last_viewed_at", "last_viewed_at")
-            and not request.query_params.get("search")
-            and request.user.is_authenticated
-        ):
+        # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
+        # search term — one query function, no join, no COUNT(*).
+        if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
             return self._list_recents(request, descending=order_by_param == "-last_viewed_at")
 
         response = super().list(request, *args, **kwargs)
@@ -484,7 +465,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Serve the Recents widget view-log-first (see `get_recent_file_system_items`).
 
         Avoids both the un-indexable sort on a joined column and the pagination `COUNT(*)` — the
-        widget only ever needs the first page, so we return the rows directly.
+        widget only ever needs the first page, so we return the rows directly. A `search` term just
+        filters the hydration: we scan a wider window of recent views and let the text filter trim
+        it, so search-within-Recents shares the exact same query path.
         """
         try:
             limit = int(request.query_params.get("limit", FileSystemsLimitOffsetPagination.default_limit))
@@ -494,19 +477,26 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         not_type_param = request.query_params.get("not_type")
         exclude_types = [not_type_param] if not_type_param else None
+        search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
         if self.user_access_control:
             base_queryset = self.user_access_control.filter_and_annotate_file_system_queryset(base_queryset)
+        if search_param:
+            base_queryset = self._apply_search_to_queryset(
+                base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
+            )
 
         items = get_recent_file_system_items(
             team_id=self.team.id,
             user_id=request.user.id,
             surface=self.file_system_surface,
-            limit=limit,
+            # When searching, the text filter does the narrowing, so scan a wider recency window.
+            limit=RECENTS_SEARCH_SCAN_LIMIT if search_param else limit,
             exclude_types=exclude_types,
             file_system_queryset=base_queryset,
         )
+        items = items[:limit]
         if not descending:
             items = list(reversed(items))
 

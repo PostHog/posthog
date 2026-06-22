@@ -433,6 +433,27 @@ class TestFileSystemOrdering(APIBaseTest):
         # `a` was viewed earlier than `b`, so ascending puts it first.
         assert [item["ref"] for item in response.json()["results"]] == ["a", "b"]
 
+    def test_recents_with_search_filters_viewed_items(self) -> None:
+        timestamp = now()
+
+        for path, ref in (("Revenue/Dashboard", "rev"), ("Growth/Dashboard", "growth")):
+            FileSystem.objects.create(
+                team=self.team, path=path, depth=2, type="insight", ref=ref, shortcut=False, created_by=self.user
+            )
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="insight", ref=ref, viewed_at=timestamp - timedelta(minutes=1)
+            )
+
+        # Search-within-Recents shares the view-log-first path: it returns only viewed items whose
+        # path matches the term.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "not_type": "folder", "search": "revenue"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [item["path"] for item in response.json()["results"]] == ["Revenue/Dashboard"]
+
 
 class TestFileSystemSearchNameOnly(APIBaseTest):
     def setUp(self) -> None:

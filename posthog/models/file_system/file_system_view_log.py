@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
-from django.db.models import F, FilteredRelation, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -101,30 +101,6 @@ def log_file_system_view(
     except IntegrityError:
         # Another request may have created the row after our update attempt.
         FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
-
-
-def annotate_file_system_with_view_logs(
-    *, team_id: int, user_id: int, queryset: Optional[QuerySet] = None
-) -> QuerySet[FileSystem]:
-    """Left-join each FileSystem row to the user's view log and expose ``last_viewed_at``.
-
-    Only used for the "search within Recents" path, where a text filter already bounds the row set
-    to a small size. The unfiltered Recents widget must NOT use this — ordering the whole tree by
-    the joined column forces a full scan and sort; it goes through `get_recent_file_system_items`.
-    """
-    queryset = queryset or FileSystem.objects.all()
-    base_qs = queryset.filter(team_id=team_id).alias(
-        matching_view_logs=FilteredRelation(
-            "team__filesystemviewlog",
-            condition=(
-                Q(team__filesystemviewlog__user_id=user_id)
-                & Q(team__filesystemviewlog__type=models.F("type"))
-                & Q(team__filesystemviewlog__ref=models.F("ref"))
-            ),
-        )
-    )
-
-    return base_qs.annotate(last_viewed_at=F("matching_view_logs__viewed_at"))
 
 
 def recent_view_logs(
