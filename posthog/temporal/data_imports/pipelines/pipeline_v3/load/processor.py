@@ -288,8 +288,6 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
     close_old_connections()
     try:
         schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
