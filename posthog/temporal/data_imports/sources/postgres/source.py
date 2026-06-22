@@ -290,6 +290,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,
+            # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once
+            # Temporal wraps the failure (the stringified ApplicationError carries the class name); the
+            # activity-level check sees the raw `str(e)`, which is the bare message with no class name.
+            # Without a message key the timeout goes unrecognised there and the activity burns its full
+            # retry budget re-running the same futile statement-timeout query before the workflow gives
+            # up. Match the index-guidance fragment every postgres statement-timeout message shares.
+            "has an appropriate index": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA

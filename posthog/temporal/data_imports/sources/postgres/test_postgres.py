@@ -615,6 +615,38 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient error should remain retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message (what `_handle_import_error` sees via str(e)) — no class name.
+            # The standard incremental-read path (postgres.py) and the partitioned-table window path
+            # word the guidance slightly differently but share the "appropriate index" fragment.
+            "10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+            "window 2024-01-01..2024-02-01 hit statement_timeout after 5 retries. Please ensure updated_at has an appropriate index.",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: 10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+        ],
+    )
+    def test_statement_timeout_query_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Statement-timeout error should be non-retryable: {error_msg}"
+
+    def test_statement_timeout_raw_message_matches_index_fragment_not_class_name(self, source):
+        # The raw activity-level message doesn't carry the class name, so the "QueryTimeoutException"
+        # key can't catch it there — confirm the dedicated message fragment is what recognises it.
+        error_msg = str(
+            _statement_timeout_as_non_retryable(
+                psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert "QueryTimeoutException" not in error_msg
+        assert "has an appropriate index" in non_retryable
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
+
 
 class TestPostgresSourceSetupRecoveryConflictRetry:
     @staticmethod
