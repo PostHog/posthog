@@ -98,6 +98,9 @@ def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricM
         basic_attributes["workflow_type"] = workflow.info().workflow_type
 
     else:
+        if settings.DEBUG or settings.TEST:
+            return MetricMeter.noop
+
         raise RuntimeError("Not within workflow or activity context")
 
     if additional_attributes:
