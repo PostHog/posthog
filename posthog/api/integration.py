@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
@@ -1301,6 +1302,17 @@ class IntegrationViewSet(
             requesting_user_id=cast(User, request.user).id,
             kind=serializer.validated_data["kind"],
             reason=serializer.validated_data["reason"],
+        )
+        # Keep the free-text reason out of properties (PII + cardinality); a length signal is enough.
+        report_user_action(
+            cast(User, request.user),
+            "integration access requested",
+            {
+                "integration_kind": serializer.validated_data["kind"],
+                "requester_level": requesting_level,
+                "reason_length": len(serializer.validated_data["reason"]),
+            },
+            team=self.team,
         )
         return Response({"success": True})
 

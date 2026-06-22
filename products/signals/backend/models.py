@@ -823,6 +823,10 @@ class SignalReportTask(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["report", "task"], name="unique_signal_report_task"),
         ]
+        indexes = [
+            # Billing and PR-URL lookups traverse this bridge by report filtered on relationship.
+            models.Index(fields=["report", "relationship"], name="signals_report_task_rel_idx"),
+        ]
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
