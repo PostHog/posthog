@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45 } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconExpand45, IconKeyboard } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -63,23 +63,39 @@ export const LogsViewerToolbar = ({
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
                     <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
                 )}
-                <span className="text-muted text-xs flex items-center gap-1">
-                    <KeyboardShortcut arrowup />
-                    <KeyboardShortcut arrowdown />
-                    or
-                    <KeyboardShortcut j />
-                    <KeyboardShortcut k />
-                    navigate
-                    <span className="mx-1">·</span>
-                    <KeyboardShortcut enter />
-                    expand
-                    <span className="mx-1">·</span>
-                    <KeyboardShortcut p />
-                    prettify
-                    <span className="mx-1">·</span>
-                    <KeyboardShortcut r />
-                    refresh
-                </span>
+                <Tooltip
+                    title={
+                        <div className="flex flex-col gap-1.5 p-1">
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Navigate</span>
+                                <span className="flex items-center gap-1">
+                                    <KeyboardShortcut arrowup />
+                                    <KeyboardShortcut arrowdown />
+                                    or
+                                    <KeyboardShortcut j />
+                                    <KeyboardShortcut k />
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Expand</span>
+                                <KeyboardShortcut enter />
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Prettify</span>
+                                <KeyboardShortcut p />
+                            </div>
+                            <div className="flex items-center justify-between gap-4">
+                                <span>Refresh</span>
+                                <KeyboardShortcut r />
+                            </div>
+                        </div>
+                    }
+                >
+                    <span className="text-muted text-xs flex items-center gap-1 cursor-help">
+                        <IconKeyboard className="text-base" />
+                        Shortcuts
+                    </span>
+                </Tooltip>
             </div>
         </div>
     )
