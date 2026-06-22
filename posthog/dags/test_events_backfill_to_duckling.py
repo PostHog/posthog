@@ -654,7 +654,6 @@ class TestDuckLakeAddDataFilesPartitioning:
                     'user1'::VARCHAR AS distinct_id,
                     ''::VARCHAR AS elements_chain,
                     '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS created_at,
-                    '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS captured_at,
                     'person-1'::VARCHAR AS person_id,
                     '2026-03-30 12:00:00+00'::TIMESTAMPTZ AS person_created_at,
                     '{{}}'::VARCHAR AS person_properties,
@@ -1172,6 +1171,10 @@ class TestRegisterFilesWithDuckling:
         assert conn.execute.call_count == 3
         calls = _registered_call_strings(conn)
         assert all("ducklake_add_data_files" in c for c in calls)
+        # allow_missing => true must be on every CALL — it's what lets the backfill
+        # tolerate columns the live ingestion path added to the duckling table via
+        # schema evolution but the backfill export doesn't carry.
+        assert all("allow_missing => true" in c for c in calls)
         assert all(f"'{path}'" in calls[i] for i, path in enumerate(files))
 
     @parameterized.expand(
@@ -1230,7 +1233,6 @@ def _events_rows_select(n_rows, uuid_prefix, ts):
             ('user-' || i)::VARCHAR AS distinct_id,
             ''::VARCHAR AS elements_chain,
             '{ts}'::TIMESTAMPTZ AS created_at,
-            '{ts}'::TIMESTAMPTZ AS captured_at,
             ('person-' || i)::VARCHAR AS person_id,
             '{ts}'::TIMESTAMPTZ AS person_created_at,
             '{{}}'::VARCHAR AS person_properties,
@@ -1373,3 +1375,33 @@ class TestFannedOutLayoutRoundTrip:
 
         # Exactly the re-run's rows — no duplication, orphaned run1 files not counted.
         assert self._count(conn) == 30
+
+    def test_allow_missing_handles_schema_evolution(self, lake):
+        """When the duckling table has a column the backfill export doesn't (schema
+        evolution from the live ingestion path), allow_missing => true lets
+        registration succeed with NULL fill. Without the flag, the same file is
+        rejected — proving the flag is load-bearing, not decorative."""
+        conn, root = lake
+
+        # Simulate the live ingestion path adding a column the backfill doesn't export.
+        conn.execute(f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.events ADD COLUMN captured_at TIMESTAMPTZ")
+
+        # Write a fanned-out day WITHOUT captured_at — exactly what the backfill exports.
+        file_glob = self._write_fanned_out_day(conn, root, "run1", n_files=1, rows_per_file=5)
+        single_file = file_glob.replace("_*.parquet", "_0.parquet")
+
+        # Negative control: without allow_missing, the same file is rejected with the
+        # same class of error that broke the prod backfill.
+        with pytest.raises(duckdb.Error, match="captured_at"):
+            conn.execute(
+                f"CALL ducklake_add_data_files('{DUCKLAKE_ALIAS}', 'events', '{single_file}', schema => 'posthog')"
+            )
+
+        # The fix: register_files_with_duckling passes allow_missing => true.
+        self._delete_day(conn)
+        assert self._register(conn, file_glob) == 1
+        assert self._count(conn) == 5
+
+        # The missing column is NULL-filled for every backfilled row.
+        cap_vals = [r[0] for r in conn.execute(f"SELECT captured_at FROM {DUCKLAKE_ALIAS}.posthog.events").fetchall()]
+        assert cap_vals == [None] * 5
