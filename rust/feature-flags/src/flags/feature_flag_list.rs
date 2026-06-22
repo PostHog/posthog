@@ -2,8 +2,8 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
-    HypercacheFlagsWrapper,
+    default_has_experiment, EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+    FlagPropertyGroup, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -194,11 +194,9 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
-                        // The PG fallback query doesn't compute experiment linkage. Default to
-                        // true so SDKs keep all $feature_flag_called properties during this rare,
-                        // transient cache-miss fallback — over-preserving wastes bytes, whereas
-                        // defaulting to false could strip experiment-exposure data we can't recover.
-                        has_experiment: true,
+                        // The PG fallback query doesn't compute experiment linkage, so fall back
+                        // to the shared default (true) for this rare, transient cache-miss path.
+                        has_experiment: default_has_experiment(),
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
