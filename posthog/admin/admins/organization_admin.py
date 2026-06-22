@@ -107,7 +107,8 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
         )
 
     for model_name, display_name in BULK_DELETE_PERSONS_DB_MODELS.items():
-        assert model_name in PERSONS_DB_MODELS, f"{model_name} not in PERSONS_DB_MODELS"
+        if model_name not in PERSONS_DB_MODELS:
+            raise ValueError(f"{model_name} is listed in BULK_DELETE_PERSONS_DB_MODELS but not in PERSONS_DB_MODELS")
         results.append(
             {
                 "name": display_name,
