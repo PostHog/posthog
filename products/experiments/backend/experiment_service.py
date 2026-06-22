@@ -1,7 +1,7 @@
 """Experiment service — single source of truth for experiment business logic."""
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -49,6 +49,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
+    get_excluded_variants,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -201,6 +202,21 @@ class ExperimentService:
 
         variant_keys = {v["key"] for v in variants}
         baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
+        ExperimentService._validate_excluded_variant_keys(excluded_variants, variant_keys, baseline_key)
+
+    @staticmethod
+    def _validate_excluded_variant_keys(
+        excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
+    ) -> None:
+        """Semantic checks for excluded variants against an already-resolved variant set.
+
+        Variant keys come from the linked feature flag (the source of truth), so the canonical
+        `excluded_variants` path validates without re-sending `feature_flag_variants`.
+        """
+        if not excluded_variants:
+            return
+
+        variant_key_set = set(variant_keys)
 
         holdout_excluded = {k for k in excluded_variants if k.startswith("holdout-")}
         if holdout_excluded:
@@ -209,12 +225,35 @@ class ExperimentService:
         if baseline_key in excluded_variants:
             raise ValidationError(f"baseline variant cannot be excluded ('{baseline_key}')")
 
-        unknown = set(excluded_variants) - variant_keys
+        unknown = set(excluded_variants) - variant_key_set
         if unknown:
             raise ValidationError(f"unknown variants for this experiment: {sorted(unknown)}")
 
-        if not variant_keys - set(excluded_variants) - {baseline_key}:
+        if not variant_key_set - set(excluded_variants) - {baseline_key}:
             raise ValidationError("at least one test variant must remain in analysis")
+
+    @staticmethod
+    def validate_excluded_variants(value: list[str] | None) -> None:
+        """Shape check for the canonical excluded_variants list (the serializer also enforces
+        this via ListField, but direct service callers don't go through it).
+
+        Semantic checks (holdout/baseline/unknown/at-least-one-remains) run in create/update
+        against the resolved feature-flag variants — see ``_validate_excluded_variant_keys``.
+        """
+        if value is None:
+            return
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValidationError("excluded_variants must be a list of strings")
+
+    @staticmethod
+    def _merge_excluded_variants_into_parameters(parameters: dict | None, excluded_variants: list[str] | None) -> dict:
+        """Mirror the canonical excluded_variants into the legacy `parameters` blob."""
+        merged = dict(parameters or {})
+        if excluded_variants is None:
+            merged.pop("excluded_variants", None)
+        else:
+            merged["excluded_variants"] = list(excluded_variants)
+        return merged
 
     RUNNING_TIME_CALCULATION_KEYS = (
         "minimum_detectable_effect",
@@ -723,6 +762,7 @@ class ExperimentService:
         type: str = "product",
         parameters: dict | None = None,
         running_time_calculation: dict | None = None,
+        excluded_variants: list[str] | None = None,
         metrics: list[dict] | None = None,
         metrics_secondary: list[dict] | None = None,
         secondary_metrics: list[dict] | None = None,
@@ -762,12 +802,19 @@ class ExperimentService:
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
         self.validate_running_time_calculation(running_time_calculation)
+        self.validate_excluded_variants(excluded_variants)
         # Dual-write during the parameters deprecation window: running_time_calculation is
         # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
         if running_time_calculation is not None:
             parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
         else:
             running_time_calculation = self._running_time_calculation_from_parameters(parameters)
+        # Same dual-write for excluded_variants: the canonical column wins over legacy
+        # `parameters` when supplied; otherwise derive the column from `parameters`.
+        if excluded_variants is not None:
+            parameters = self._merge_excluded_variants_into_parameters(parameters, excluded_variants)
+        else:
+            excluded_variants = (parameters or {}).get("excluded_variants")
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -795,6 +842,13 @@ class ExperimentService:
         used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
 
+        # Validate excluded_variants against the variants the flag actually ends up with,
+        # mirroring the baseline check above. Resolving against the flag (not the request
+        # payload) is what lets the excluded_variants path skip re-sending feature_flag_variants.
+        if excluded_variants:
+            baseline_key = (stats_config or {}).get("baseline_variant_key", "control")
+            self._validate_excluded_variant_keys(excluded_variants, used_variant_keys, baseline_key)
+
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
@@ -811,7 +865,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
-                    excluded_variants=(parameters or {}).get("excluded_variants"),
+                    excluded_variants=excluded_variants,
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
@@ -821,7 +875,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
-                    excluded_variants=(parameters or {}).get("excluded_variants"),
+                    excluded_variants=excluded_variants,
                 )
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
@@ -851,6 +905,7 @@ class ExperimentService:
             "type": type,
             "parameters": parameters,
             "running_time_calculation": running_time_calculation,
+            "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
             "metrics_secondary": metrics_secondary if metrics_secondary is not None else [],
             "secondary_metrics": secondary_metrics if secondary_metrics is not None else [],
@@ -1307,7 +1362,7 @@ class ExperimentService:
                         experiment.start_date,
                         experiment.stats_config,
                         experiment.exposure_criteria,
-                        excluded_variants=(experiment.parameters or {}).get("excluded_variants"),
+                        excluded_variants=get_excluded_variants(experiment),
                     ),
                 )
 
@@ -2008,6 +2063,17 @@ class ExperimentService:
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
+        # Validate excluded_variants on the canonical column path against the resolved flag
+        # variants — no feature_flag_variants resend required (the legacy
+        # `parameters.excluded_variants` path is still validated in the serializer).
+        if "excluded_variants" in update_data:
+            new_excluded = update_data["excluded_variants"]
+            if new_excluded:
+                variant_keys = self._resolved_variant_keys(experiment, update_data)
+                effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+                baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
+                self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
+
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
         # unique; validating the stored arrays would block a soft-delete (or any
@@ -2020,8 +2086,16 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
-        new_parameters = update_data.get("parameters", experiment.parameters)
-        excluded_variants = (new_parameters or {}).get("excluded_variants")
+        # Canonical excluded_variants for fingerprints: prefer an explicit column update, then
+        # legacy parameters in the payload, then the stored canonical value. Computed here
+        # (before the dual-write below) so a new client PATCHing only excluded_variants still
+        # fingerprints with the new exclusions.
+        if "excluded_variants" in update_data:
+            excluded_variants = update_data["excluded_variants"]
+        elif "parameters" in update_data:
+            excluded_variants = (update_data["parameters"] or {}).get("excluded_variants")
+        else:
+            excluded_variants = get_excluded_variants(experiment)
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -2065,6 +2139,18 @@ class ExperimentService:
             update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
                 update_data["parameters"]
             )
+
+        # --- excluded_variants dual-write -----------------------------------
+        # Mirror the canonical excluded_variants column into legacy `parameters`. Runs after the
+        # running-time block so it reads the already-merged `parameters` (they touch disjoint
+        # keys). The column wins when both are sent.
+        if "excluded_variants" in update_data:
+            update_data["parameters"] = self._merge_excluded_variants_into_parameters(
+                update_data.get("parameters", experiment.parameters),
+                update_data["excluded_variants"],
+            )
+        elif "parameters" in update_data:
+            update_data["excluded_variants"] = (update_data["parameters"] or {}).get("excluded_variants")
 
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
@@ -2119,6 +2205,7 @@ class ExperimentService:
             "filters",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "archived",
             "deleted",
             "secondary_metrics",
@@ -2144,6 +2231,7 @@ class ExperimentService:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
         self.validate_running_time_calculation(update_data.get("running_time_calculation"))
+        self.validate_excluded_variants(update_data.get("excluded_variants"))
 
         if not experiment.is_draft:
             if "feature_flag_variants" in update_data.get("parameters", {}):

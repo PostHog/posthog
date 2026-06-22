@@ -31,6 +31,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    get_excluded_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -5208,3 +5209,46 @@ class TestValidateExperimentParametersExcludedVariants:
     def test_excluded_variants_without_feature_flag_variants_raises(self):
         with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
             ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
+
+
+class TestGetExcludedVariants:
+    @pytest.mark.parametrize(
+        "column,parameters,expected",
+        [
+            (None, None, []),
+            (None, {}, []),
+            # the column is canonical, including an explicit empty list
+            (["test-2"], {"excluded_variants": ["legacy"]}, ["test-2"]),
+            ([], {"excluded_variants": ["legacy"]}, []),
+            # falls back to legacy parameters only when the column is None (never set)
+            (None, {"excluded_variants": ["legacy"]}, ["legacy"]),
+        ],
+    )
+    def test_precedence(self, column, parameters, expected):
+        experiment = Experiment(excluded_variants=column, parameters=parameters)
+        assert get_excluded_variants(experiment) == expected
+
+
+class TestValidateExcludedVariants:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            [],
+            ["test-2"],
+            ["test-1", "test-2"],
+        ],
+    )
+    def test_valid(self, value):
+        ExperimentService.validate_excluded_variants(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "test-2",
+            [123],
+        ],
+    )
+    def test_invalid_raises(self, value):
+        with pytest.raises(ValidationError, match="must be a list of strings"):
+            ExperimentService.validate_excluded_variants(value)

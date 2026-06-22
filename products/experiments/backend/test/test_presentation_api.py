@@ -7094,6 +7094,152 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestExperimentExcludedVariants(APILicensedTest):
+    THREE_VARIANTS = [
+        {"key": "control", "rollout_percentage": 34},
+        {"key": "test-1", "rollout_percentage": 33},
+        {"key": "test-2", "rollout_percentage": 33},
+    ]
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Excluded variants experiment",
+            "feature_flag_key": "excluded-variants-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_legacy_parameters_populates_column(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    def test_create_with_excluded_variants_mirrors_into_parameters(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS},
+            excluded_variants=["test-2"],
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    def test_update_excluded_variants_does_not_require_feature_flag_variants(self):
+        """The headline of the parameters split: excluding a variant no longer requires
+        re-sending feature_flag_variants, because validation resolves against the flag."""
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # Legacy mirror updated, and the variants stored in parameters survive the merge
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
+
+    def test_update_excluded_variants_does_not_touch_feature_flag(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    def test_update_parameters_derives_column(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+
+        # parameters replaces wholesale, so dropping the key clears the canonical column too
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        experiment.refresh_from_db()
+        self.assertIsNone(experiment.excluded_variants)
+
+    def test_excluded_variants_wins_when_both_sent(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {
+                "parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-1"]},
+                "excluded_variants": ["test-2"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", ["does-not-exist"]),
+            ("baseline_excluded", ["control"]),
+            ("all_test_variants_excluded", ["test-1", "test-2"]),
+        ]
+    )
+    def test_update_excluded_variants_validates_against_flag_variants(self, _name: str, excluded_variants: list):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": excluded_variants},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("non_list", "test-2"),
+            ("non_string_element", [123]),
+        ]
+    )
+    def test_invalid_excluded_variants_rejected(self, _name: str, value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid excluded variants",
+                "feature_flag_key": "invalid-excluded-variants-flag",
+                "excluded_variants": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def _calculate(self, payload: dict[str, Any]):
         return self.client.post(
