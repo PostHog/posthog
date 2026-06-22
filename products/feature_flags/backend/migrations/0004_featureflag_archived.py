@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("feature_flags", "0002_migrate_feature_flags_models"),
+        ("feature_flags", "0003_evaluationcontext_hidden_from_suggestions"),
     ]
 
     operations = [
