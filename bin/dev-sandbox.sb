@@ -60,6 +60,7 @@
     (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
     (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
