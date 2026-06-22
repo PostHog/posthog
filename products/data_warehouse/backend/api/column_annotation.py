@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -115,7 +115,8 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # A PATCH/PUT can re-point the annotation at a different (same-team) table the user is denied,
         # so re-check editor access on the resolved target table — falling back to the current one.
-        table = serializer.validated_data.get("table") or serializer.instance.table
+        annotation = cast(WarehouseColumnAnnotation, serializer.instance)
+        table = serializer.validated_data.get("table") or annotation.table
         if not self.user_access_control.check_access_level_for_object(table, required_level="editor"):
             raise PermissionDenied("You do not have permission to annotate this warehouse table.")
         serializer.save(
