@@ -1291,14 +1291,15 @@ describe('Hog Executor', () => {
         })
 
         describe('aws_sigv4', () => {
-            // The queue payload carries only input-key references; credentials are
-            // resolved fresh from `invocation.hogFunction.inputs` at fetch time, so
-            // secrets stay out of the plaintext `cyclotron_jobs.state` blob. The
-            // tests below populate inputs to mirror what hog-function-manager.service
-            // would after decrypting `encrypted_inputs`.
+            // `secret: true` HogFunction inputs land in `encrypted_inputs` after
+            // Django's `move_secret_inputs` runs on save. The Node manager decrypts
+            // `encrypted_inputs` in memory before the executor sees the function, so
+            // by the time we reach the fetch path it's a plaintext map keyed by
+            // input name. Seed *that* field — not `inputs` — so the tests mirror the
+            // production data shape for the Kinesis template.
             const seedAwsCredentialInputs = (invocation: CyclotronJobInvocationHogFunction) => {
-                invocation.hogFunction.inputs = {
-                    ...(invocation.hogFunction.inputs ?? {}),
+                invocation.hogFunction.encrypted_inputs = {
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
                     aws_access_key_id: { value: 'AKIDEXAMPLE' },
                     aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
                 } as any
@@ -1415,6 +1416,36 @@ describe('Hog Executor', () => {
                 await executor.executeFetch(invocation)
 
                 expect(receivedAuth).not.toContain('STALE')
+                expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // Defense in depth for an unusual case: if a custom template wires
+            // up the credential as a non-secret input (`secret: false`), the value
+            // will live on `inputs` rather than `encrypted_inputs`. The lookup
+            // must fall through to `inputs` so signing still works.
+            it('falls back to plaintext inputs when encrypted_inputs does not carry the credential', async () => {
+                let receivedAuth: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+
+                await executor.executeFetch(invocation)
+
                 expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
             })
 

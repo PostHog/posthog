@@ -271,6 +271,109 @@ describe('CDP Consumer loop', () => {
             ])
         })
 
+        // E2E coverage for the AWS SigV4 fetch-time signing path. The regression this
+        // guards against: secrets land in `encrypted_inputs` after `move_secret_inputs`
+        // runs on save, so the executor has to look them up there — not in `inputs`,
+        // which is empty for `secret: true` keys. If we ever break that lookup the
+        // upstream gets an unsigned request and AWS 401s. Also covers retry — the
+        // second attempt must carry a freshly-signed Authorization header, not a
+        // reused stale one from the first attempt.
+        it('should sign aws sigv4 fetches from encrypted_inputs on both initial attempt and retry', async () => {
+            const ACCESS_KEY = 'AKIDEXAMPLE'
+            const SECRET_KEY = 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY'
+
+            const sigv4FetchCalls: Array<{ url: string; opts: any }> = []
+            let kinesisCallCount = 0
+            mockFetch.mockImplementation((url: string, opts: any) => {
+                if (url.includes('kinesis.')) {
+                    sigv4FetchCalls.push({ url, opts })
+                    kinesisCallCount++
+                    if (kinesisCallCount === 1) {
+                        return Promise.resolve({
+                            status: 500,
+                            json: () => Promise.resolve({}),
+                            text: () => Promise.resolve(''),
+                            headers: {},
+                            dump: () => Promise.resolve(),
+                        })
+                    }
+                }
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve('{"ok":true}'),
+                    headers: { 'Content-Type': 'application/json' },
+                    dump: () => Promise.resolve(),
+                })
+            })
+
+            const hog = `
+            let res := fetch('https://kinesis.us-east-1.amazonaws.com', {
+                'method': 'POST',
+                'headers': {
+                    'Content-Type': 'application/x-amz-json-1.1',
+                    'X-Amz-Target': 'Kinesis_20131202.PutRecord',
+                },
+                'body': '{"StreamName":"s","PartitionKey":"p","Data":"ZA=="}',
+                'aws_sigv4': {
+                    'service': 'kinesis',
+                    'region': 'us-east-1',
+                    'access_key_id_input': 'aws_access_key_id',
+                    'secret_access_key_input': 'aws_secret_access_key',
+                },
+            });
+            print('Fetch response:', res);
+            `
+
+            await insertHogFunction({
+                type: 'destination',
+                hog,
+                bytecode: await compileHog(hog),
+                inputs_schema: [
+                    { key: 'aws_access_key_id', type: 'string', label: 'AKID', secret: true, required: true },
+                    { key: 'aws_secret_access_key', type: 'string', label: 'SK', secret: true, required: true },
+                ],
+                inputs: {},
+                // Mirror what Django's `move_secret_inputs` produces in prod: secret
+                // inputs are Fernet-encrypted on `encrypted_inputs`. The Node manager
+                // detects the string form and decrypts back to the plaintext map shape
+                // before the executor sees the function.
+                encrypted_inputs: hub.encryptedFields.encrypt(
+                    JSON.stringify({
+                        aws_access_key_id: { value: ACCESS_KEY },
+                        aws_secret_access_key: { value: SECRET_KEY },
+                    })
+                ),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            } as any)
+
+            // The default `fnFetchNoFilters` from beforeEach also matches this event;
+            // we expect both to fire, but we only inspect the Kinesis ones.
+            await eventsConsumer.processBatch([globals])
+
+            await waitForExpect(() => {
+                expect(sigv4FetchCalls.length).toBeGreaterThanOrEqual(2)
+            }, 5000).catch((e) => {
+                logger.warn('[TESTS] Expected two Kinesis fetch attempts (initial + retry)', {
+                    sigv4FetchCount: sigv4FetchCalls.length,
+                    allFetchCalls: mockFetch.mock.calls.length,
+                })
+                throw e
+            })
+
+            // Every attempt (including the retry) must carry a fresh SigV4 Authorization
+            // header derived from the decrypted `encrypted_inputs` map. A regression in
+            // the lookup path would either crash with the "input not found" error or
+            // ship an unsigned request — both visible here.
+            for (const { opts } of sigv4FetchCalls.slice(0, 2)) {
+                const headers = (opts?.headers ?? {}) as Record<string, string>
+                const auth = headers['Authorization'] ?? headers.authorization
+                expect(auth).toMatch(
+                    /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/\d{8}\/us-east-1\/kinesis\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[a-f0-9]{64}$/
+                )
+            }
+        })
+
         it('should handle fetch failures with retries', async () => {
             mockFetch.mockImplementation(() => {
                 return Promise.resolve({

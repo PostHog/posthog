@@ -800,17 +800,21 @@ export class HogExecutorService {
         // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
         // regenerated here and never persisted back to queueParameters.
         //
-        // Credentials are resolved from `hogFunction.inputs` by key name — never
-        // from the queue payload itself — so `secret: true` inputs stay out of the
-        // plaintext `cyclotron_jobs.state` blob.
+        // Credentials are resolved by key name — never from the queue payload —
+        // so `secret: true` inputs stay out of the plaintext `cyclotron_jobs.state`
+        // blob. `secret: true` inputs land in `encrypted_inputs` (Django's
+        // `move_secret_inputs` strips them from `inputs` on save and the Node
+        // manager decrypts `encrypted_inputs` in memory). Check `encrypted_inputs`
+        // first so the typical Kinesis path resolves; fall back to `inputs` for
+        // the unusual case of a non-secret credential.
         let signedHeaders = headers
         if (params.aws_sigv4) {
             const sigv4 = params.aws_sigv4
-            const accessKeyId = invocation.hogFunction.inputs?.[sigv4.access_key_id_input]?.value
-            const secretAccessKey = invocation.hogFunction.inputs?.[sigv4.secret_access_key_input]?.value
-            const sessionToken = sigv4.session_token_input
-                ? invocation.hogFunction.inputs?.[sigv4.session_token_input]?.value
-                : undefined
+            const lookupInput = (key: string): unknown =>
+                invocation.hogFunction.encrypted_inputs?.[key]?.value ?? invocation.hogFunction.inputs?.[key]?.value
+            const accessKeyId = lookupInput(sigv4.access_key_id_input)
+            const secretAccessKey = lookupInput(sigv4.secret_access_key_input)
+            const sessionToken = sigv4.session_token_input ? lookupInput(sigv4.session_token_input) : undefined
 
             if (typeof accessKeyId !== 'string' || typeof secretAccessKey !== 'string') {
                 const missing = [
