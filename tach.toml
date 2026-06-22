@@ -137,6 +137,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
 path = "products.alerts"
 depends_on = [
     "ee",
@@ -690,7 +695,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface

@@ -313,12 +313,15 @@ export const TriggerSchema = z.discriminatedUnion('type', [
  *     the owning team. The default scope on every gated tool.
  *   - `session_principal` — the auth-time principal stored on the session
  *     row (NOT the most recent /send sender — see B1 in
- *     `runtime-mcps.md` "Resolved design"). Used by the concierge so the
- *     session owner can authorise their own destructive call without
- *     round-tripping through a team admin; a second user posting to a
- *     resumed session can't bypass the gate. v0 is per-asker fast-path
- *     only — queued-approval routing to the session principal widens
- *     later via approver-scope routing in `approval-gated-tools.md` §6.
+ *     `runtime-mcps.md` "Resolved design"). Marks the session owner as the
+ *     approver. Unlike `team_admins`, this is NOT a per-asker fast-path:
+ *     the owner being the asker is not consent to the specific gated call
+ *     the model emitted (prompt injection in content the agent reads can
+ *     steer that call), so a `session_principal` gate always queues for an
+ *     explicit human decision and never auto-dispatches. Decision-side
+ *     routing — letting the session owner clear the queued approval rather
+ *     than only a team admin — widens later via approver-scope routing in
+ *     `approval-gated-tools.md` §6.
  */
 export const ApproverScopeSchema = z.enum(['team_admins', 'session_principal'])
 

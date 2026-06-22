@@ -5,7 +5,7 @@
  * can dispatch the tool directly instead of queueing for someone else to
  * approve.
  *
- * Scopes supported in v0:
+ * Fast-path scopes (skip the queue, run the real tool):
  *   - `team_admins` — the original B.2 v0 scope. Resolution:
  *     - `sender.kind === 'slack'`: `sender.id` is an `agent_user.id`. Read the
  *       PostHog subject (uuid) the principal proved via an identity-establishing
@@ -15,35 +15,34 @@
  *       (chat /run with an admin's token) is a sensible follow-up but adds
  *       a second resolution path that step 3 doesn't need to demo the
  *       Slack scenario.
- *   - `session_principal` (PR 7) — the session-owner-self-authorise case.
- *     Matches the most-recent user-turn sender against `session.principal`
- *     (auth-time identity stored on the session row) using the same strict
- *     `principalsMatch` comparison the trigger edge uses for /send. Stable
- *     across resume — a second user posting to a resumed session can't
- *     bypass the gate by being whoever-spoke-last. Per-asker fast-path
- *     only; queued-approval routing to the session principal widens later.
+ *
+ * NOT a fast-path:
+ *   - `session_principal` — marks "the session owner is the approver", but the
+ *     owner being the *asker* is not consent to the specific gated call the model
+ *     emitted, so it never self-authorises here; it always queues for an explicit
+ *     out-of-band human decision. (Adopts master's "approval bypass for
+ *     session-principal tools" fix. The team-admin resolution still uses the
+ *     branch's established-subject model rather than master's `posthog_user_id` —
+ *     reconciling the two is a deliberate follow-up.)
  */
 
 import type { Pool } from 'pg'
 
-import { ConversationMessage, IdentityCredentialStore, principalsMatch, SessionPrincipal } from '@posthog/agent-shared'
+import { ConversationMessage, IdentityCredentialStore, SessionPrincipal } from '@posthog/agent-shared'
 
 /** PostHog's `OrganizationMembership.Level` values — keep in sync with the Django enum. */
 const ADMIN_LEVEL = 8
 
 /**
  * The check the dispatcher runs against the active session conversation.
- * Returns true when the most-recent user turn's sender satisfies one of the
- * scopes in `approverScope`. Returning false defers to the normal queue
- * path; the model never sees the difference.
+ * Returns true when the most-recent user turn's sender satisfies a fast-path
+ * scope (today: `team_admins` only). Returning false defers to the normal
+ * queue path; the model never sees the difference.
  *
- * `sessionPrincipal` is the auth-time identity persisted on the session row
- * — used for the `session_principal` scope match. Anonymous principals
- * (public agents) are explicitly excluded: the public verifier stores
- * `{ kind: 'anonymous' }` — not null — in the session row, and
- * `principalsMatch` returns true for any two anonymous principals, which
- * would let every caller bypass the gate. The `session_principal` scope is
- * only meaningful for authenticated sessions with a unique identity.
+ * `sessionPrincipal` (the auth-time identity on the session row) is accepted
+ * for signature/forward-compatibility but is NOT consumed: `session_principal`
+ * is deliberately not a self-authorising fast-path, so a sender↔principal match
+ * never clears the gate here.
  */
 export type IsAskerInApproverScope = (
     conversation: ConversationMessage[],
@@ -59,22 +58,19 @@ export interface MakePerAskerAuthDeps {
 
 /** Production factory — closes over the credential store + posthog DB pool. */
 export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverScope {
-    return async (conversation, teamId, approverScope, sessionPrincipal) => {
-        const sender = findLastUserSender(conversation)
-        // `session_principal` is a pure equality check against the
-        // auth-time principal on the session row — no DB roundtrip. Cheap;
-        // check first so we don't burn a posthog DB query on every gated
-        // call for a concierge-style spec. Anonymous principals are excluded:
-        // `principalsMatch` treats any two anonymous principals as equal, so on
-        // a public agent every caller would self-authorise the gate.
-        if (approverScope.includes('session_principal') && sessionPrincipal && sessionPrincipal.kind !== 'anonymous') {
-            if (sender && principalsMatch(sessionPrincipal, sender)) {
-                return true
-            }
-        }
+    // `sessionPrincipal` (4th arg) is intentionally not consumed: `session_principal`
+    // is NOT a self-authorising fast-path. The owner being the *asker* is not consent
+    // to the specific gated call the model emitted — a prompt injection in content the
+    // agent read could steer a destructive call while the legitimate owner is still the
+    // last sender. So it always defers to the queue; only `team_admins` fast-paths.
+    // (Adopts master's "approval bypass for session-principal tools" fix. Reconciling
+    // team-admin resolution — PostHog `posthog_user_id` vs the established subject — is
+    // a deliberate follow-up; the approvals system needs a broader rethink.)
+    return async (conversation, teamId, approverScope) => {
         if (!approverScope.includes('team_admins')) {
             return false
         }
+        const sender = findLastUserSender(conversation)
         if (!sender) {
             return false
         }

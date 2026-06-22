@@ -227,6 +227,7 @@ class UsageReportCounters:
     node_events_count_in_period: int
     openclaw_events_count_in_period: int
     posthog_pi_events_count_in_period: int
+    posthog_ai_events_count_in_period: int
     edge_events_count_in_period: int
     convex_events_count_in_period: int
     android_events_count_in_period: int
@@ -670,6 +671,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("js", None, "web_lite_events"),
         ("posthog-node", "posthog-openclaw", "openclaw_events"),
         ("posthog-node", "@posthog/pi", "posthog_pi_events"),
+        ("posthog-node", "posthog-ai", "posthog_ai_events"),
         ("posthog-node", None, "node_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
@@ -731,6 +733,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "openclaw_events": {},
             "posthog_pi_events": {},
+            "posthog_ai_events": {},
             "edge_events": {},
             "convex_events": {},
             "android_events": {},
@@ -2166,6 +2169,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_openclaw_events_count_in_period": all_metrics["openclaw_events"],
         "teams_with_posthog_pi_events_count_in_period": all_metrics["posthog_pi_events"],
+        "teams_with_posthog_ai_events_count_in_period": all_metrics["posthog_ai_events"],
         "teams_with_edge_events_count_in_period": all_metrics["edge_events"],
         "teams_with_convex_events_count_in_period": all_metrics["convex_events"],
         "teams_with_android_events_count_in_period": all_metrics["android_events"],
@@ -2521,6 +2525,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
         openclaw_events_count_in_period=all_data["teams_with_openclaw_events_count_in_period"].get(team.id, 0),
         posthog_pi_events_count_in_period=all_data["teams_with_posthog_pi_events_count_in_period"].get(team.id, 0),
+        posthog_ai_events_count_in_period=all_data["teams_with_posthog_ai_events_count_in_period"].get(team.id, 0),
         edge_events_count_in_period=all_data["teams_with_edge_events_count_in_period"].get(team.id, 0),
         convex_events_count_in_period=all_data["teams_with_convex_events_count_in_period"].get(team.id, 0),
         android_events_count_in_period=all_data["teams_with_android_events_count_in_period"].get(team.id, 0),

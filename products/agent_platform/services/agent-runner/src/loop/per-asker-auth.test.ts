@@ -181,22 +181,26 @@ describe('makePerAskerAuth', () => {
         expect(await isAuthed(conv, 7, [], null)).toBe(false)
     })
 
-    describe('session_principal scope (PR 7 — concierge fast-path)', () => {
+    describe('session_principal scope (NOT a fast-path — injection guard)', () => {
         const alice: SessionPrincipal = { kind: 'posthog', user_id: 'alice', team_id: 7 }
         const bob: SessionPrincipal = { kind: 'posthog', user_id: 'bob', team_id: 7 }
 
-        it('returns true when the session principal matches the most recent user-turn sender', async () => {
-            // Fast-path authorises without touching the posthog DB (the fake's
-            // query throws if called).
+        it('returns false even when the session principal matches the most recent user-turn sender', async () => {
+            // Regression guard for the "approval bypass for session-principal tools"
+            // finding. Alice authed the session and is the asker — but that is NOT
+            // consent to the specific gated call (a prompt injection could have steered
+            // it). session_principal must NOT self-authorise; it defers to the queue. A
+            // session_principal-only scope short-circuits to false before any DB hit —
+            // the posthog DB fake throws if called.
             const isAuthed = makePerAskerAuth({
                 credentials: credentials(),
                 posthogDb: {
                     async query() {
-                        throw new Error('should not hit posthog DB on the session_principal fast path')
+                        throw new Error('session_principal must not touch the posthog DB — it never fast-paths')
                     },
                 } as unknown as import('pg').Pool,
             })
-            expect(await isAuthed([userMsg('promote it', alice)], 7, ['session_principal'], alice)).toBe(true)
+            expect(await isAuthed([userMsg('promote it', alice)], 7, ['session_principal'], alice)).toBe(false)
         })
 
         it('returns false when the last sender is a different principal than the session owner', async () => {
