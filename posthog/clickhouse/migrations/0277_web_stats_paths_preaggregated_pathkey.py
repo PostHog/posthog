@@ -6,10 +6,8 @@ from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import 
 )
 
 operations = [
-    # Parallel "breakdown-key colocation" layout of web_stats_paths_preaggregated
-    # (see the SQL file + lazy_computation/CONSISTENCY.md). Same AUX-sharded +
-    # DATA-distributed topology as the original (migration 0260) so the runner can
-    # A/B the two tables.
+    # Breakdown-key colocation variant of web_stats_paths_preaggregated; same
+    # AUX-sharded + DATA-distributed topology as migration 0260.
     run_sql_with_exceptions(
         SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL(),
         node_roles=[NodeRole.AUX],

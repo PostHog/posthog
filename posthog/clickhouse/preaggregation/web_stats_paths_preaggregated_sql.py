@@ -111,34 +111,10 @@ def TRUNCATE_WEB_STATS_PATHS_PREAGGREGATED_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()}"
 
 
-# --- Breakdown-key colocation layout (parallel experiment for the PATHS tile;
-# see lazy_computation/CONSISTENCY.md). Same columns as the table above, but the
-# breakdown (path) drives both the sort key and the shard key, so high-cardinality
-# reads stay local and aggregate in parallel. Kept as a parallel table so the lazy
-# paths runner can A/B it against the original before we commit.
-#
-# Two changes vs the table above, both targeting the read:
-#   1. ORDER BY leads with `time_window_start` then `breakdown_value` (job_id
-#      moves to last). A time-range read range-skips via the primary index and
-#      the outer `GROUP BY breakdown_value` reads co-located rows — mirroring v2
-#      `web_pre_aggregated_stats`, where `pathname` sits high in the sort key and
-#      a 30d read finishes in ~100ms. The original leads with the random `job_id`
-#      UUID, so `job_id IN (...)` seeks scattered key ranges.
-#   2. Sharded by `sipHash64(breakdown_value)` instead of `sipHash64(job_id)`, so
-#      a single large job's paths spread across shards and the read fans out to
-#      aggregate in parallel — instead of pinning the whole job to one shard. See
-#      the "shard by breakdown_value" note in lazy_computation/CONSISTENCY.md.
-#
-# Read-side requirements (for the follow-up wiring — the layout only makes these
-# possible, it does not enable them):
-#   a. Filter by `time_window_start` range so the primary index range-skips.
-#      `job_id` is now last in the sort key, so `job_id IN (...)` no longer prunes
-#      — keep it only as a freshness post-filter, not the range selector.
-#   b. `SET optimize_distributed_group_by_sharding_key = 1` on the read to get the
-#      shard-local short-circuit (a query-level setting, not part of the DDL).
-#
-# Partitioning/TTL stay on `expires_at` so short-TTL recomputes still drop in
-# whole parts (read locality must not reintroduce stale-recompute scans).
+# Breakdown-key colocation variant of the table above — an A/B experiment for the
+# PATHS tile. Same columns; the breakdown (path) leads both the sort key and the
+# shard key so high-cardinality reads stay shard-local. Rationale and the read-side
+# requirements live in lazy_computation/CONSISTENCY.md and the PR description.
 TABLE_PATHKEY_BASE_NAME = "web_stats_paths_preaggregated_pathkey"
 
 

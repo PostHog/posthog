@@ -328,11 +328,8 @@ _PATHKEY_MIRROR_COLUMNS = (
     "uniq_users_state, sum_pageviews_state, avg_bounce_state, computed_at, expires_at"
 )
 
-# Quorum + synchronous distribution so the copied rows are durable on the pathkey
-# shards by the time the INSERT returns (matches the primary insert's settings).
-# Disabled under TEST/DEBUG single-node ClickHouse for the same reason the executor
-# disables it there. `load_balancing=in_order` reads the just-written replica of the
-# source table (read-your-writes), mirroring the read path.
+# Mirror the primary insert's durability settings (quorum + synchronous
+# distribution), disabled on single-node TEST/DEBUG like the executor does.
 _PATHKEY_MIRROR_SETTINGS: dict = {
     "insert_distributed_sync": 1,
     "insert_quorum": 0 if TEST or DEBUG else "auto",
@@ -341,18 +338,9 @@ _PATHKEY_MIRROR_SETTINGS: dict = {
 
 
 def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
-    """Best-effort copy of precomputed PATHS rows into the colocated `_pathkey`
-    table variant for A/B read comparison (PR #64948).
-
-    Copies the already-aggregated rows for `job_ids` from the original table into
-    the pathkey table — no event re-scan. The distributed INSERT reshards by
-    `sipHash64(breakdown_value)`, giving the pathkey table its colocation layout.
-    Idempotent: the pathkey table is a ReplacingMergeTree keyed on the same rows
-    (ver=`computed_at`), so a repeated copy collapses on merge.
-
-    Never raises — a failed mirror must not affect the primary read. Runs at
-    cache-miss frequency (the ~6h HogQL result cache fronts these reads).
-    """
+    """Best-effort copy of precomputed PATHS rows for `job_ids` into the colocated
+    pathkey table (PR #64948). Idempotent (ReplacingMergeTree) and never raises —
+    a failed mirror must not affect the primary read."""
     if not job_ids:
         return
 
