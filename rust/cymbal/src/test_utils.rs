@@ -10,7 +10,8 @@ use mockall::mock;
 use sqlx::PgPool;
 
 use crate::{
-    app_context::AppContext, config::Config, error::UnhandledError, symbol_store::BlobClient,
+    app_context::AppContext, config::Config, error::UnhandledError,
+    symbolication::symbol_store::BlobClient,
 };
 
 mock! {

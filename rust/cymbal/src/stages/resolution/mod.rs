@@ -6,7 +6,6 @@ pub mod exception;
 pub mod frame;
 pub mod properties;
 pub mod remote;
-pub mod symbol;
 
 use crate::{
     app_context::AppContext,
@@ -18,8 +17,8 @@ use crate::{
         frame::FrameResolver,
         properties::PropertiesResolver,
         remote::resolver::{resolve_batch, RemoteResolutionContext},
-        symbol::SymbolResolver,
     },
+    symbolication::symbol::SymbolResolver,
     types::{
         batch::Batch,
         stage::{Stage, StageResult},

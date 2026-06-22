@@ -1,9 +1,11 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.apps import apps
 
 from parameterized import parameterized
 
@@ -22,7 +24,6 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
-from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -38,6 +39,11 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, Ma
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 
 def _make_trace_data(
@@ -515,6 +521,8 @@ class TestReadDataTool(BaseTest):
         assert "## Table `persons`" in result
         assert "## Table `sessions`" in result
         assert "## Table `groups`" in result
+        assert "- index (integer, aliased from group_type_index)" in result
+        assert "- key (string, aliased from group_key)" in result
         assert artifact is None
 
     async def test_list_tables_includes_warehouse_tables(self):
@@ -733,6 +741,25 @@ class TestReadDataTool(BaseTest):
         assert "Table `events` with fields:" in result
         assert "- event (string)" in result
         assert "- timestamp (datetime)" in result
+
+    async def test_table_schema_returns_posthog_field_aliases(self):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "groups"})
+
+        assert "Table `groups` with fields:" in result
+        assert "- index (integer, aliased from group_type_index)" in result
+        assert "- key (string, aliased from group_key)" in result
 
     async def test_table_schema_returns_error_when_table_not_found(self):
         """Test that data_warehouse_table returns an error message for unknown tables."""

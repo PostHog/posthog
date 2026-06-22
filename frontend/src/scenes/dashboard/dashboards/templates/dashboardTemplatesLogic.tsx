@@ -32,7 +32,7 @@ export type DashboardTemplatesLogicProps = DashboardTemplateProps & {
     templatesTabList?: boolean
 }
 
-export type DashboardTemplatesTabVisibility = 'all' | 'official' | 'project'
+export type DashboardTemplatesTabVisibility = 'all' | 'official' | 'project' | 'organization'
 
 /** List sort for the templates table (passed through to API when not searching). */
 export type DashboardTemplateTableOrdering = '' | 'template_name' | '-template_name' | 'created_at' | '-created_at'
@@ -148,6 +148,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                             listScope = 'global'
                         } else if (values.templatesTabVisibility === 'project') {
                             listScope = 'team'
+                        } else if (values.templatesTabVisibility === 'organization') {
+                            listScope = 'organization'
                         } else {
                             listScope = undefined
                         }

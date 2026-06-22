@@ -10,7 +10,9 @@ use crate::{
     frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
     sanitize_string,
-    symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
+    symbolication::symbol_store::{
+        chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
+    },
 };
 
 use super::utils::{add_raw_to_junk, get_sourcelocation_context};

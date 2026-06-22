@@ -86,6 +86,21 @@ export type CdpConfig = ClickhouseConfig & {
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
+    SES_RATE_LIMITER_VALKEY_HOST: string
+    SES_RATE_LIMITER_VALKEY_PORT: number
+    SES_RATE_LIMITER_VALKEY_PASSWORD: string
+    SES_RATE_LIMITER_VALKEY_TLS: boolean
+
+    CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
+    CDP_SES_RATE_LIMIT_CAPACITY: number
+    CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+
+    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
+    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
+    // (cheap), so flipping this on/off is purely a worker-side decision —
+    // rollback is a single env-var change with no SQL revert needed.
+    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
+
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -195,6 +210,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_DUAL_ENABLED: false,
         CDP_VALKEY_TLS: false,
+
+        SES_RATE_LIMITER_VALKEY_HOST: '',
+        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+        SES_RATE_LIMITER_VALKEY_TLS: false,
+
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
+        CDP_SES_RATE_LIMIT_CAPACITY: 50,
+        CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+
+        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',

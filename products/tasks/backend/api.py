@@ -245,8 +245,21 @@ def _github_credential_source_extra_state(
 #     task creator's server-side token injected into their sandbox.
 #   - sandbox_id is the credential-propagation target; a caller could otherwise repoint a visible
 #     run at a sandbox they control and capture the run owner's token on the next rotation.
-# All three are written only server-side (run creation + the temporal workflow), never via PATCH.
-_PROTECTED_RUN_STATE_KEYS = frozenset({"github_credential_source", "pr_authorship_mode", "sandbox_id"})
+#   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
+#     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
+#     provision an oversized or long-lived sandbox beyond what they're entitled to.
+# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+_PROTECTED_RUN_STATE_KEYS = frozenset(
+    {
+        "github_credential_source",
+        "pr_authorship_mode",
+        "sandbox_id",
+        "sandbox_cpu_cores",
+        "sandbox_memory_gb",
+        "sandbox_ttl_seconds",
+        "inactivity_timeout_seconds",
+    }
+)
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -1287,6 +1300,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        home_quick_action = request.validated_data.get("home_quick_action")
         if run_source == RunSource.SIGNAL_REPORT:
             pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -1304,6 +1318,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "provider": provider,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "home_quick_action": home_quick_action,
         }.items():
             if value is not None:
                 extra_state = extra_state or {}

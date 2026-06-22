@@ -184,7 +184,7 @@ def provision(organization_id: UUID | str, database_name: str | None) -> Respons
     name_error = validate_warehouse_name(database_name)
     if name_error:
         return Response({"error": name_error}, status=status.HTTP_400_BAD_REQUEST)
-    return _request(
+    resp = _request(
         "POST",
         organization_id,
         "/provision",
@@ -195,6 +195,50 @@ def provision(organization_id: UUID | str, database_name: str | None) -> Respons
             "data_store": {"type": "s3bucket"},
         },
     )
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _persist_duckgres_server(organization_id, database_name, resp.data)
+    return resp
+
+
+def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:
+    """Persist the org's DuckgresServer row from a successful provision response.
+
+    The Dagster duckling backfill connects via this row, so provisioning must leave it in
+    place. The connection mirrors `_present_connection` (the SNI host + "ducklake" database);
+    the password is returned only in this provision response, so it's read from `body`.
+
+    Best-effort: a persistence failure is logged but never raised, because the provision
+    password is shown to the user exactly once (here) and must not be lost to a DB hiccup —
+    the row can be reconciled later from the warehouse status.
+    """
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import derive_duckling_bucket, upsert_duckgres_server_for_org  # noqa: PLC0415
+
+    # Best-effort bucket derivation: a region without a managed-warehouse bucket convention
+    # (e.g. EU, where derive_duckling_bucket raises) must not block persisting the connection
+    # row. upsert treats None as "leave unset", so the bucket stays NULL and the backfill
+    # resolver falls back to derivation if it ever needs one.
+    try:
+        bucket: str | None
+        bucket_region: str | None
+        bucket, bucket_region = derive_duckling_bucket(str(organization_id))
+    except NotImplementedError:
+        bucket, bucket_region = None, None
+
+    try:
+        connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
+        upsert_duckgres_server_for_org(
+            organization_id,
+            host=connection["host"],
+            port=connection["port"],
+            database=connection["database"],
+            username=connection["username"],
+            password=body.get("password", ""),
+            bucket=bucket,
+            bucket_region=bucket_region,
+        )
+    except Exception:
+        logger.exception("Failed to persist DuckgresServer after provision", organization_id=str(organization_id))
 
 
 def deprovision(organization_id: UUID | str) -> Response:
