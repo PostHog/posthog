@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,7 +78,7 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -105,10 +105,20 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
         ),
     dismissal_reason: zod
-        .string()
+        .enum([
+            'already_fixed',
+            'report_unclear',
+            'analysis_wrong',
+            'wontfix_intentional',
+            'wontfix_irrelevant',
+            'other',
+        ])
+        .describe(
+            "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+        )
         .optional()
         .describe(
-            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side."
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -122,6 +132,73 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+        ),
+})
+
+/**
+ * Transition many reports to a new state in one call.
+ *
+ * Each id is processed independently: a report whose transition isn't allowed from its
+ * current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+ * rest still go through. Returns one result per requested id (in request order, after
+ * de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+ * inspect `results` / the counts to see what happened.
+ */
+export const SignalsReportsBulkStateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsReportsBulkStateCreateBodyDismissalNoteMax = 4000
+
+export const signalsReportsBulkStateCreateBodySnoozeForMax = 100000
+
+export const signalsReportsBulkStateCreateBodyIdsMax = 100
+
+export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
+    state: zod
+        .enum(['suppressed', 'potential'])
+        .describe('* `suppressed` - suppressed\n* `potential` - potential')
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+        ),
+    dismissal_reason: zod
+        .enum([
+            'already_fixed',
+            'report_unclear',
+            'analysis_wrong',
+            'wontfix_intentional',
+            'wontfix_irrelevant',
+            'other',
+        ])
+        .describe(
+            "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+        )
+        .optional()
+        .describe(
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…"
+        ),
+    dismissal_note: zod
+        .string()
+        .max(signalsReportsBulkStateCreateBodyDismissalNoteMax)
+        .optional()
+        .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+    snooze_for: zod
+        .number()
+        .min(1)
+        .max(signalsReportsBulkStateCreateBodySnoozeForMax)
+        .optional()
+        .describe(
+            "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+        ),
+    ids: zod
+        .array(zod.string())
+        .max(signalsReportsBulkStateCreateBodyIdsMax)
+        .describe(
+            'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.'
         ),
 })
 
@@ -174,7 +251,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 180 (every 3 hours).'),
+            .describe('Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -220,6 +297,18 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
     )
+
+/**
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * @summary Sync scout configs
+ */
+export const SignalsScoutConfigSyncParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * Return the team's deterministic project profile. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
@@ -513,7 +602,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."
             ),
     })
     .describe('Request body for `remember`.')

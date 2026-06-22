@@ -25,8 +25,6 @@ import duckdb
 import psycopg
 from psycopg import sql
 
-from posthog.utils import get_instance_region
-
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
@@ -248,56 +246,45 @@ def upsert_duckgres_server_for_org(
     database: str,
     username: str,
     password: str,
+    bucket: str | None = None,
+    bucket_region: str | None = None,
 ) -> DuckgresServer:
     """Create or update the org's DuckgresServer connection row.
 
     Called at managed-warehouse provision time so the org is immediately backfill-ready:
-    the Dagster duckling backfill resolves its connection from this row (via
-    get_duckgres_config_for_org). Idempotent — re-provisioning updates the existing row.
+    the Dagster duckling backfill resolves both its connection and its S3 bucket from this
+    row. Idempotent — re-provisioning updates the existing row. The bucket is persisted here
+    so the backfill reads the authoritative name rather than re-deriving it at read time.
     """
     from posthog.ducklake.models import DuckgresServer
 
+    defaults: dict[str, object] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "username": username,
+        "password": password,
+    }
+    if bucket is not None:
+        defaults["bucket"] = bucket
+    if bucket_region is not None:
+        defaults["bucket_region"] = bucket_region
+
     server, _ = DuckgresServer.objects.update_or_create(
         organization_id=organization_id,
-        defaults={
-            "host": host,
-            "port": port,
-            "database": database,
-            "username": username,
-            "password": password,
-        },
+        defaults=defaults,
     )
     return server
 
 
-# Managed-warehouse S3 bucket naming. The bucket is created by the duckgres Crossplane
-# composition (charts: crossplane-config) as "posthog-duckling-{organization_id}-{suffix}",
-# where the suffix identifies the managed-warehouse environment. The mapping is fixed per
-# deployment, so we derive it from the deployment region rather than reading it back.
-DUCKGRES_BUCKET_PREFIX = "posthog-duckling"
+# Managed-warehouse S3 bucket naming. The duckgres control plane is the single owner of
+# the per-org bucket name: it names the bucket, pins it on the Duckling CR's
+# spec.dataStore.bucketName, and returns it from the provision / warehouse-status API.
+# Production code reads it from there (persisted on DuckgresServer.bucket, self-healed from
+# warehouse status) — it is never re-derived, because a local re-derivation drifted from the
+# Crossplane composition (UUID hyphen-compaction + the mw- env suffix) and named buckets
+# that don't exist. The region is fixed for the single managed-warehouse deployment.
 DUCKGRES_BUCKET_REGION = "us-east-1"
-
-
-def _duckling_env_suffix() -> str:
-    """Managed-warehouse environment suffix for the org's S3 bucket name.
-
-    Mirrors the duckgres Crossplane composition, keyed off the deployment region. EU is not
-    enabled yet, so that path is a no-op (raises rather than fabricating a bucket name);
-    everything that isn't prod-US — hosted dev/staging, local dev — maps to "dev".
-    """
-    region = (get_instance_region() or "").upper()
-    if region == "EU":
-        raise NotImplementedError("Managed warehouse is not enabled in the EU region")
-    return "prod-us" if region == "US" else "dev"
-
-
-def derive_duckling_bucket(organization_id: str) -> tuple[str, str]:
-    """Derive the org's managed-warehouse S3 bucket name and region.
-
-    Deterministic — mirrors the duckgres Crossplane composition, which names the bucket
-    "posthog-duckling-{organization_id}-{suffix}". Returns (bucket_name, region).
-    """
-    return f"{DUCKGRES_BUCKET_PREFIX}-{organization_id}-{_duckling_env_suffix()}", DUCKGRES_BUCKET_REGION
 
 
 def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:

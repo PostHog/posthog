@@ -1253,6 +1253,10 @@ export class ApiClient {
                 const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
                 return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
             },
+
+            // Stickiness drills into one bar (`day` = active-interval count). The runner projects only
+            // `actor_id` with no `matching_events`, so there is no recordings column — same as lifecycle.
+            stickinessActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

@@ -875,23 +875,31 @@ class TestIsTransientConnectDrop:
 
 
 class TestConnectTransientRetry:
-    def test_retries_transient_drop_then_succeeds(self, mocker):
+    @pytest.mark.parametrize(
+        "fail_count,expected_sleeps",
+        [
+            # A single blip recovers on the second attempt.
+            (1, [2]),
+            # A drop that recovers on the 4th attempt — past the old 3-attempt window — must still
+            # be absorbed in-process rather than surfacing as error-tracking noise.
+            (3, [2, 4, 6]),
+        ],
+    )
+    def test_retries_transient_drop_then_succeeds(self, mocker, fail_count, expected_sleeps):
         sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
         conn = MagicMock()
         conn.__enter__.return_value = conn
+        drop = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
         mock_connect = mocker.patch(
             "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
-            side_effect=[
-                pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
-                conn,
-            ],
+            side_effect=[drop] * fail_count + [conn],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
             assert yielded is conn
 
-        assert mock_connect.call_count == 2
-        sleep.assert_called_once_with(1)
+        assert mock_connect.call_count == fail_count + 1
+        assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
@@ -1171,6 +1179,59 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.ProgrammingError(1146, "Table 'defaultdb.wealth_insights' doesn't exist")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "ProgrammingError: (1146, \"Table 'defaultdb.wealth_insights' doesn't exist\")",
+        ],
+    )
+    def test_table_not_found_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Table-not-found error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(
+                pymysql.err.OperationalError(
+                    1356, "View 'defaultdb.wealth_view' references invalid table(s) or column(s)"
+                )
+            ),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "OperationalError: (1356, \"View 'defaultdb.wealth_view' references invalid table(s) or column(s)\")",
+        ],
+    )
+    def test_invalid_view_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-view error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form.
+            str(
+                pymysql.err.OperationalError(
+                    1130,
+                    "Host 'ec2-52-4-194-122.compute-1.amazonaws.com' is not allowed to connect to this MySQL server",
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different host, same stable phrase.
+            "OperationalError: (1130, \"Host '10.0.1.5' is not allowed to connect to this MySQL server\")",
+        ],
+    )
+    def test_host_not_privileged_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-not-privileged error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

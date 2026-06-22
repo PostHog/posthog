@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     HedgehogActorSkinOption as HedgehogActorSkinOption,
     HideViewedRecordings as HideViewedRecordings,
     HogLanguage as HogLanguage,
+    HogQLAlertEvaluation as HogQLAlertEvaluation,
     HrefMatching as HrefMatching,
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
@@ -137,6 +138,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
@@ -170,6 +172,7 @@ from posthog.schema_enums import (
     MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
+    MetricSummary as MetricSummary,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -1630,14 +1633,6 @@ class LogAttributeResult(BaseModel):
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
-class LogValueResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str
-    name: str
-
-
 class LogsAlertStateChangeSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2678,6 +2673,14 @@ class SignalsScoutSignalExtra(BaseModel):
             "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
             " finding. Each scout maintains and evolves its own vocabulary over time;"
             " the harness normalizes and caps these at emit."
+        ),
+    )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
         ),
     )
     task_run_id: str = Field(
@@ -4290,8 +4293,21 @@ class AssistantTrendsFilter(BaseModel):
         default=True,
         description=(
             "Only applies when `display` is `Metric`. Show the change pill next to the"
-            " big number — the percentage change from the first to the last point of"
-            " the series over the selected date range."
+            " big number. What it compares follows `metricSummary`: `total`/`average`"
+            ' compare against the previous period when "compare to previous" is on'
+            " (otherwise first→last of the series), and `latest` is always first→last"
+            " of the series."
+        ),
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Only applies when `display` is `Metric`. Which summary the resting big"
+            " number shows: `total` (sum over the period), `average` (mean of the"
+            " points), or `latest` (last point). Hovering the sparkline always shows"
+            " the hovered point's value regardless of this setting. Also drives the"
+            " change pill: `total`/`average` compare against the previous period when"
+            ' "compare to previous" is on; `latest` compares first→last of the series.'
         ),
     )
     showAlertThresholdLines: bool | None = Field(
@@ -5298,6 +5314,34 @@ class HeatmapSettings(BaseModel):
     yAxisLabel: str | None = None
 
 
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str | None = Field(
+        default=None,
+        description=(
+            "Name of the result column to evaluate. When unset, the single numeric"
+            " column is used (an error if the result has more than one numeric column)."
+        ),
+    )
+    evaluation: HogQLAlertEvaluation = Field(
+        ...,
+        description=("How to read the result rows — an explicit choice, no implicit default."),
+    )
+    label_column: str | None = Field(
+        default=None,
+        description=(
+            "Column whose value labels the evaluated row(s) in breach messages: every"
+            " row in `any_row` mode, or the single evaluated row in"
+            " `last_row`/`first_row`. When unset, the first non-evaluated column is"
+            " used, falling back to the row number (any_row) or the value column name"
+            " (last_row/first_row)."
+        ),
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
+
+
 class HogQLAutocompleteResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5563,6 +5607,21 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogValueResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = Field(
+        default=None,
+        description=(
+            "Number of log records with this attribute value, over the current date"
+            " range, service, and resource filters."
+        ),
+    )
+    id: str
+    name: str
 
 
 class LogsAlertStateChangeSignalInput(BaseModel):
@@ -7728,6 +7787,10 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     metricChangeDecreaseColor: str | None = Field(
         default=None,
         description=("Metric display: change pill color when the metric decreased. Defaults to red."),
@@ -7751,6 +7814,16 @@ class TrendsFilter(BaseModel):
     metricShowChange: bool | None = Field(
         default=True,
         description="Show the period-over-period change pill on the Metric display.",
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Metric display: which summary the resting headline shows — the period"
+            " total, the average, or the latest point. Hovering the sparkline always"
+            " shows the hovered point's value. Also drives the change pill:"
+            ' total/average compare against the previous period when "compare to'
+            ' previous" is on; latest compares first→last of the series.'
+        ),
     )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
@@ -21250,6 +21323,34 @@ class AssistantRetentionActorsQuery(BaseModel):
     source: AssistantRetentionQuery = Field(
         ...,
         description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
+class AssistantStickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compareFilter` is enabled in the source."),
+    )
+    day: int = Field(
+        ...,
+        description=(
+            "The number of active intervals to drill into — the X-axis value of the"
+            " stickiness bar. Despite the name, this is an interval **count**, not a"
+            " date: for a daily insight, `day: 13` lists the users who were active on"
+            " exactly 13 days within the source's date range."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
+    )
+    source: AssistantStickinessQuery = Field(
+        ...,
+        description=("The source stickiness insight query whose bar we are drilling into."),
     )
 
 

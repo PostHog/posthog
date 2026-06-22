@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 
+use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 /// Kafka topic routing for a processed event.
@@ -152,6 +153,91 @@ pub trait SinkResult: Send + Sync {
     /// Time between batch enqueue and this event's ack completion.
     /// None if the event never entered the ack path (immediate error).
     fn elapsed(&self) -> Option<std::time::Duration>;
+}
+
+// ---------------------------------------------------------------------------
+// PreparedEvent
+// ---------------------------------------------------------------------------
+
+/// Storage-agnostic, fully-owned output of the serialize step. Produced by
+/// [`serialize_batch`](super::prepare::serialize_batch) and consumed by any
+/// [`Sink`](super::sink::Sink). Owns its payload (`Bytes`) so it can be cloned
+/// across multiple sinks (dual-write) without re-encoding and moved into
+/// spawned tasks. The Sink resolves `destination` to a concrete backend target
+/// and applies its own routing policy (e.g. nulling `partition_key`).
+#[derive(Debug, Clone)]
+pub struct PreparedEvent {
+    pub uuid: Uuid,
+    pub destination: Destination,
+    pub payload: bytes::Bytes,
+    pub headers: CapturedEventHeaders,
+    /// Raw key; the Sink decides whether to use or null it per routing policy.
+    pub partition_key: String,
+}
+
+// ---------------------------------------------------------------------------
+// SerializationFailure
+// ---------------------------------------------------------------------------
+
+/// `SinkResult` for an event that failed during the serialize step (before any
+/// sink saw it). Always fatal (non-retriable) and has no ack latency.
+#[derive(Debug, Clone)]
+pub struct SerializationFailure {
+    uuid: Uuid,
+    cause: &'static str,
+    detail: String,
+}
+
+impl SerializationFailure {
+    pub fn from_error(uuid: Uuid, detail: String) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_failed",
+            detail,
+        }
+    }
+
+    pub fn panicked(uuid: Uuid) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_panic",
+            detail: "serialization task panicked".to_string(),
+        }
+    }
+
+    pub fn is_panic(&self) -> bool {
+        self.cause == "serialization_panic"
+    }
+
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
+    pub fn detail_str(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl SinkResult for SerializationFailure {
+    fn key(&self) -> Uuid {
+        self.uuid
+    }
+
+    fn outcome(&self) -> Outcome {
+        Outcome::FatalError
+    }
+
+    fn cause(&self) -> Option<&'static str> {
+        Some(self.cause)
+    }
+
+    fn detail(&self) -> Option<Cow<'_, str>> {
+        Some(Cow::Borrowed(&self.detail))
+    }
+
+    fn elapsed(&self) -> Option<std::time::Duration> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

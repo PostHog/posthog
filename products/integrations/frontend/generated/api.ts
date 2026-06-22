@@ -13,6 +13,9 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
+    GoogleSearchConsoleSitesResponseApi,
+    IntegrationAccessRequestApi,
+    IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -537,6 +540,27 @@ export const integrationsGoogleConversionActionsRetrieve = async (
     })
 }
 
+export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
+}
+
+/**
+ * List the Search Console properties the connected Google account has access to.
+ */
+export const integrationsGoogleSearchConsoleSitesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<GoogleSearchConsoleSitesResponseApi> => {
+    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
+        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/jira_projects/`
 }
@@ -698,5 +722,25 @@ export const integrationsGithubOauthAuthorizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+export const getIntegrationsRequestAccessCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/request_access/`
+}
+
+/**
+ * Notify project admins that a member is requesting an integration be connected.
+ */
+export const integrationsRequestAccessCreate = async (
+    projectId: string,
+    integrationAccessRequestApi: IntegrationAccessRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccessRequestResponseApi> => {
+    return apiMutator<IntegrationAccessRequestResponseApi>(getIntegrationsRequestAccessCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationAccessRequestApi),
     })
 }

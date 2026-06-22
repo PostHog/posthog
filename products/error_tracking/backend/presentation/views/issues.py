@@ -46,8 +46,15 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
-    id = serializers.CharField(allow_null=True)
+    # User assignees carry an integer id, role assignees a UUID string. `CharField` would
+    # coerce the user id to a string, which the frontend assignee resolver compares with
+    # `===` against the numeric member id — failing to resolve and rendering "Unassigned".
+    id = serializers.SerializerMethodField()
     type = serializers.CharField()
+
+    @extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
+    def get_id(self, obj) -> int | str | None:
+        return obj.id
 
 
 class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):

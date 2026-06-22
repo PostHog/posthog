@@ -138,7 +138,7 @@ export interface ExternalDataSchemaApi {
     readonly incremental: boolean
     /** @nullable */
     readonly status: string | null
-    /** Sync strategy: incremental, full_refresh, append, or cdc.
+    /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
@@ -162,6 +162,13 @@ export interface ExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -271,7 +278,7 @@ export interface PatchedExternalDataSchemaApi {
     readonly incremental?: boolean
     /** @nullable */
     readonly status?: string | null
-    /** Sync strategy: incremental, full_refresh, append, or cdc.
+    /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
@@ -295,6 +302,13 @@ export interface PatchedExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -985,7 +999,14 @@ export const CreatedViaEnumApi = {
  * * `Streamlabs` - Streamlabs
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
+ * * `Appstack` - Appstack
+ * * `Razorpay` - Razorpay
+ * * `Neon` - Neon
+ * * `NewRelic` - NewRelic
  * * `Custom` - Custom
+ * * `Tile38` - Tile38
+ * * `Chatwoot` - Chatwoot
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1616,7 +1637,14 @@ export const ExternalDataSourceTypeEnumApi = {
     Streamlabs: 'Streamlabs',
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
+    Appstack: 'Appstack',
+    Razorpay: 'Razorpay',
+    Neon: 'Neon',
+    NewRelic: 'NewRelic',
     Custom: 'Custom',
+    Tile38: 'Tile38',
+    Chatwoot: 'Chatwoot',
 } as const
 
 /**
@@ -1681,6 +1709,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2344,7 +2374,14 @@ export interface ExternalDataSourceCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
-     * * `Custom` - Custom */
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
+     * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -2371,6 +2408,8 @@ export interface ExternalDataSourceCreateApi {
      * * `api` - api
      * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -2406,6 +2445,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2440,7 +2481,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     id: string
     /** Whether the schema should be queryable/synced. */
     should_sync?: boolean
-    /** Requested sync mode for the schema.
+    /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
@@ -3173,7 +3214,14 @@ export interface DatabaseSchemaRequestApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
-     * * `Custom` - Custom */
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
+     * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -3810,7 +3858,14 @@ export interface SourceSetupApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
-     * * `Custom` - Custom */
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
+     * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -3826,6 +3881,8 @@ export interface SourceSetupApi {
      * @nullable
      */
     description?: string | null
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export interface SourceSetupWebhookApi {
@@ -4485,7 +4542,14 @@ export interface SourceCredentialCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
-     * * `Custom` - Custom */
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
+     * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -4513,6 +4577,38 @@ export type ExternalDataSchemasListParams = {
     offset?: number
     /**
      * A search term.
+     */
+    search?: string
+}
+
+export type ExternalDataSchemasLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
      */
     search?: string
 }
