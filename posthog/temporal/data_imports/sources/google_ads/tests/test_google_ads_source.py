@@ -167,6 +167,28 @@ class TestGoogleAdsNonRetryableErrors:
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # `str(google.api_core.exceptions.Unauthenticated)` as it propagates from
+            # `GoogleAdsService.search` — gapic wraps the transport-level UNAUTHENTICATED as
+            # "401 {message}", so it carries the human message but not the bare status token.
+            (
+                "401 Request is missing required authentication credential. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
+        ],
+    )
+    def test_missing_auth_credential_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_missing_auth_credential_has_friendly_message(self):
+        friendly = self.non_retryable["Request is missing required authentication credential"]
+        assert friendly is not None
+        assert "reconnect" in friendly.lower()
+
     def test_other_model_does_not_exist_is_not_swallowed(self):
         # The pattern is model-specific so an unrelated model's DoesNotExist — which may be a real
         # bug — is not silently treated as non-retryable.
@@ -201,6 +223,7 @@ class TestGoogleAdsNonRetryableErrors:
             "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
             "access_not_configured",
+            "Request is missing required authentication credential",
         ],
     )
     def test_documented_patterns_present(self, pattern):
