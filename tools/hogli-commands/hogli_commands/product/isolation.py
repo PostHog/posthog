@@ -192,29 +192,45 @@ def contract_check_inputs(product_dir: Path) -> list[str]:
     return contract_task.get("inputs", [])
 
 
+# A contract-check input is "on the public surface" when it targets the facade, the presentation
+# layer, or the routes registration module. Anchored on the path separator so a near-miss like
+# backend/facade_legacy/** can't pass; removeprefix (not lstrip, which strips a char set) trims
+# only a literal "./" so a "../escape/**" can't be normalized into a surface path.
+_FACADE_PRESENTATION_PREFIXES = ("backend/facade/", "backend/presentation/")
+_ROUTES_PREFIXES = ("backend/routes.py", "backend/routes/")
+
+
+def _input_targets_facade_or_presentation(glob: str) -> bool:
+    return glob.removeprefix("./").startswith(_FACADE_PRESENTATION_PREFIXES)
+
+
 def _input_targets_surface(glob: str) -> bool:
-    """A contract-check input confined to the product's public surface (facade, presentation, or
-    routes) — i.e. it does not broaden the skip back out to all of backend/."""
-    normalized = glob.lstrip("./")
-    return normalized.startswith(
-        ("backend/facade", "backend/presentation", "backend/routes", "facade", "presentation", "routes")
-    )
+    return glob.removeprefix("./").startswith(_FACADE_PRESENTATION_PREFIXES + _ROUTES_PREFIXES)
 
 
 def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
-    """True only when contract-check inputs are confined to the public surface. A broad glob like
-    backend/** alongside a facade entry would keep the skip inert — every change still re-runs the
-    Django suite — so every positive input must target the surface, not merely one of them."""
+    """True only when contract-check inputs are confined to the public surface AND at least one
+    targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
+    skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
+    Negated globs ('!...') are excluded from the surface test."""
     inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
         return False
-    return all(_input_targets_surface(i) for i in inputs) and any("facade" in i or "presentation" in i for i in inputs)
+    return all(_input_targets_surface(i) for i in inputs) and any(
+        _input_targets_facade_or_presentation(i) for i in inputs
+    )
 
 
 def routes_in_turbo_inputs(product_dir: Path) -> bool:
-    """True if contract-check inputs watch the routes module — without it a routes-only
-    change is invisible to the skip and runs no Django suite."""
-    return any("routes" in i for i in contract_check_inputs(product_dir))
+    """True if contract-check inputs watch the routes module specifically — backend/routes.py or a
+    backend/routes/ package. Anchored and negation-aware, so a glob that merely contains 'routes',
+    or a negated exclusion like !backend/routes.py, doesn't falsely count the routes module as
+    watched (without it, a routes-only change is invisible to the skip and runs no Django suite)."""
+    return any(
+        i.removeprefix("./").startswith(_ROUTES_PREFIXES)
+        for i in contract_check_inputs(product_dir)
+        if not i.startswith("!")
+    )
 
 
 # ---------------------------------------------------------------------------

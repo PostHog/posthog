@@ -25,7 +25,7 @@ from hogli_commands.product.checks import (
     validate_interface_blocks,
     validate_tach_references,
 )
-from hogli_commands.product.isolation import has_narrowed_turbo_inputs
+from hogli_commands.product.isolation import has_narrowed_turbo_inputs, routes_in_turbo_inputs
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -357,6 +357,19 @@ class TestIsolationChainRoutes:
         result = chain_check.run(ctx)
         assert not result.issues
 
+    def test_narrowed_with_routes_package_dir_not_in_inputs_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # routes/ as a package directory (not a routes.py file) is the other form has_routes_module
+        # accepts — it must be demanded in the inputs the same way.
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "routes").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        # the message must point at the package glob, not backend/routes.py
+        assert any("backend/routes/**" in i for i in result.issues)
+
     def test_narrowed_without_routes_module_is_not_demanded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -390,11 +403,35 @@ class TestNarrowedTurboDetection:
             (["backend/**"], False),
             (["**/*.py"], False),
             ([], False),
+            # near-misses must not pass as surface (anchored on the path separator)
+            (["backend/facade_legacy/**"], False),
+            (["backend/routesmap/**"], False),
+            # a routes input whose path merely contains "presentation" is not a facade/presentation surface
+            (["backend/routes/presentation_router.py"], False),
         ],
     )
     def test_has_narrowed_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
         (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
         assert has_narrowed_turbo_inputs(tmp_path) is expected
+
+
+class TestRoutesInTurboInputs:
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/routes.py"], True),
+            (["backend/routes/**"], True),
+            (["backend/facade/**", "backend/presentation/**"], False),
+            # 'routes' substring in an unrelated glob must NOT count as watching the routes module
+            (["backend/presentation/routes_views.py"], False),
+            (["backend/logic/routes_helpers/**"], False),
+            # a negated routes exclusion must NOT count as watched
+            (["backend/facade/**", "!backend/routes.py"], False),
+        ],
+    )
+    def test_routes_in_turbo_inputs(self, tmp_path: Path, inputs: list[str], expected: bool) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        assert routes_in_turbo_inputs(tmp_path) is expected
 
 
 # ---------------------------------------------------------------------------

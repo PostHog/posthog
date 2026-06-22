@@ -705,11 +705,11 @@ class IsolationChainCheck(ProductCheck):
             has_narrowed and has_routes_module(ctx.backend_dir) and not routes_in_turbo_inputs(ctx.product_dir)
         )
         if routes_unwatched:
+            routes_glob = "backend/routes/**" if (ctx.backend_dir / "routes").is_dir() else "backend/routes.py"
             result.issues.append(
-                "turbo.json narrows contract-check inputs but omits backend/routes.py — routes.py is the "
+                f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
                 "product's route-registration entry point (public API surface, imported by core), so a "
-                'routes-only change would skip the Django suite. Add "backend/routes.py" to the '
-                "contract-check inputs"
+                f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
             )
 
         # Note: a product that has the contract-check script *and* deferred
@@ -717,9 +717,11 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            # needs_turn_on and routes_unwatched both point at turbo.json; neither can co-occur with
-            # the facade/turbo mismatch issues above the way they're gated, so turbo.json wins when
-            # either fires, otherwise the annotation belongs on facade/api.py.
+            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
+            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
+            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
+            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
+            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
             result.file = (
                 f"products/{ctx.name}/turbo.json"
                 if needs_turn_on or routes_unwatched
