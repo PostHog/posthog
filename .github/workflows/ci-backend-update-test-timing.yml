@@ -207,10 +207,16 @@ jobs:
                   # JUnit saw run; the run-set is already in the artifacts, so this adds no
                   # collection. The union above is untouched (item-mode + turbo-discover still
                   # read it); these are purely additive, cached per-segment below.
+                  # Non-fatal: --scope-to-junit hard-exits if a segment's JUnit is missing,
+                  # but the union .test_durations above is already built and MUST still be
+                  # cached/committed below. A JUnit miss just skips that segment's per-segment
+                  # file for the day; ci-backend then falls back to scoping the union.
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.core \
-                      --segment Core --junit-dir junit_artifacts --scope-to-junit
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Core per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.temporal \
-                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Temporal per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
 
                   # Also drop junit_artifacts — ghcommit-action defaults file_pattern
                   # to "." and chokes on leftover download dirs ("read junit_artifacts/:
@@ -256,18 +262,20 @@ jobs:
                   key: ${{ steps.durations-meta.outputs.cache_key }}
 
             - name: Save per-segment durations to Actions cache
-              # Nodeid-clean per-segment files for --split-granularity=file. ci-backend
-              # restores these by the posthog-test-durations-core- / -temporal- prefixes so a
-              # segment's file-mode plan is scoped to what it actually runs. Same per-day key
-              # shape as the union above; a miss falls back to the union (still correct, just
-              # the pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
+              # Nodeid-clean per-segment files for --split-granularity=file, restored by
+              # ci-backend via the posthog-segment-durations- prefix. The prefix MUST NOT
+              # start with posthog-test-durations- : the union restores match that prefix and
+              # take the newest entry, so a shared prefix would shadow the union .test_durations
+              # across every backend + dagster shard. Same per-day key shape as the union; a
+              # miss makes file-mode fall back to scoping the union (still correct, just the
+              # pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               continue-on-error: true
               with:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
-                  key: posthog-test-durations-segment-${{ steps.durations-meta.outputs.date }}
+                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}
 
             - name: Check for changes
               id: check-changes

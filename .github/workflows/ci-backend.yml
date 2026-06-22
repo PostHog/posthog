@@ -2235,17 +2235,20 @@ jobs:
             - name: Restore per-segment test durations from cache
               # File-granularity sharding plans from a per-segment file (.test_durations.core /
               # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
-              # union file's cross-segment contamination. Restore the newest over the committed
-              # fallbacks; a miss leaves the committed files and a total miss falls back to
-              # scoping the union (the "Run … tests" step omits --split-plan-path when absent).
+              # union file's cross-segment contamination. These are cache-only (NOT committed),
+              # written by the daily timing-update job on master so PR runs can restore them.
+              # On a miss the file is simply absent and the "Run … tests" step omits
+              # --split-plan-path, falling back to scoping the union (still correct, pre-fix
+              # balance). The posthog-segment-durations- prefix is deliberately distinct from
+              # the union's posthog-test-durations- so the two never shadow each other.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
-                  key: posthog-test-durations-segment-${{ github.run_id }}
+                  key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
-                      posthog-test-durations-segment-
+                      posthog-segment-durations-
 
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
@@ -2317,7 +2320,7 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                       # Scope the file-mode plan to Core's clean per-segment durations
-                      # (restored from cache / committed fallback) when the pinned pytest-split
+                      # (restored from the daily master cache) when the pinned pytest-split
                       # supports it, so the plan isn't poisoned by the union .test_durations's
                       # cross-segment tests — see AGENTS.md (CI). Only persons-on-events-off,
                       # non-compat Core matches the .core run-set; POE-on and compat run a
@@ -2427,7 +2430,7 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                       # Scope the file-mode plan to this segment's clean per-segment durations
-                      # (restored from cache / committed fallback) when the pinned pytest-split
+                      # (restored from the daily master cache) when the pinned pytest-split
                       # supports it, so the plan isn't poisoned by the union .test_durations —
                       # see AGENTS.md (CI). A missing file (cache miss, no fallback) is omitted
                       # and the plugin falls back to scoping the union.
