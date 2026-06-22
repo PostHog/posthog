@@ -1,9 +1,15 @@
+import { dayjs } from 'lib/dayjs'
+
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
+    ReplayScanner,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
 
 export type ScannerTemplateIcon =
     | 'bolt'
@@ -26,22 +32,22 @@ interface BaseTemplate {
     scanner_description: string
 }
 
-export interface MonitorTemplate extends BaseTemplate {
+interface MonitorTemplate extends BaseTemplate {
     scanner_type: 'monitor'
     scanner_config: MonitorScannerConfig
 }
 
-export interface SummarizerTemplate extends BaseTemplate {
+interface SummarizerTemplate extends BaseTemplate {
     scanner_type: 'summarizer'
     scanner_config: SummarizerScannerConfig
 }
 
-export interface ClassifierTemplate extends BaseTemplate {
+interface ClassifierTemplate extends BaseTemplate {
     scanner_type: 'classifier'
     scanner_config: ClassifierScannerConfig
 }
 
-export interface ScorerTemplate extends BaseTemplate {
+interface ScorerTemplate extends BaseTemplate {
     scanner_type: 'scorer'
     scanner_config: ScorerScannerConfig
 }
@@ -58,7 +64,7 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Dead-end pages',
         scanner_description: 'Flag sessions where the user appears stuck with no obvious next action.',
         scanner_config: {
-            prompt: 'Answer `yes` if the user appears stuck on a page — scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer `no`.',
+            prompt: 'Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.',
         },
     },
     {
@@ -70,7 +76,7 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Session summary',
         scanner_description: 'A short narrative summary of the session.',
         scanner_config: {
-            prompt: "Summarize what the user did in this session — which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+            prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
             length: 'medium',
         },
     },
@@ -97,14 +103,14 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Frustration score',
         scanner_description: 'Numeric score for how frustrated the user appeared.',
         scanner_config: {
-            prompt: 'Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration — rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.',
+            prompt: 'Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.',
             scale: { min: 0, max: 10, label: 'frustration' },
         },
     },
     {
         key: 'session_outcome',
         name: 'Session outcome',
-        description: 'Tag each session with what actually happened — task completed, abandoned, errored, etc.',
+        description: 'Tag each session with what actually happened: task completed, abandoned, errored, etc.',
         icon: 'check',
         scanner_type: 'classifier',
         scanner_name: 'Session outcome',
@@ -117,11 +123,44 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
 ] as const
 
-export type ScannerTemplateKey = (typeof defaultScannerTemplates)[number]['key']
-
 export function findScannerTemplate(key: string | undefined): ScannerTemplate | undefined {
     if (!key) {
         return undefined
     }
     return defaultScannerTemplates.find((t) => t.key === key)
+}
+
+export function newScanner(templateKey?: string | null): ReplayScanner {
+    const base = {
+        id: 'new',
+        enabled: true,
+        sampling_rate: 1,
+        query: { kind: NodeKind.RecordingsQuery },
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+        emits_signals: false,
+        scanner_version: 1,
+        last_swept_at: dayjs().toISOString(),
+        created_at: dayjs().toISOString(),
+        updated_at: dayjs().toISOString(),
+        created_by: null,
+    } as const
+
+    const template = findScannerTemplate(templateKey ?? undefined)
+    if (template) {
+        return {
+            ...base,
+            name: template.scanner_name,
+            description: template.scanner_description,
+            scanner_type: template.scanner_type,
+            scanner_config: template.scanner_config,
+        } as ReplayScanner
+    }
+    return {
+        ...base,
+        name: '',
+        description: '',
+        scanner_type: 'monitor',
+        scanner_config: { prompt: '' },
+    }
 }

@@ -297,7 +297,7 @@ async def _handle_streaming_request(
             },
         ) from e
 
-    async def stream_generator() -> AsyncGenerator[bytes, None]:
+    async def stream_generator() -> AsyncGenerator[bytes]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
         provider_start = time.monotonic()

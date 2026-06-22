@@ -230,6 +230,27 @@ export class PostgresRouter {
     }
 }
 
+/**
+ * Scope entry for a `PostgresRouter`. `start` constructs the router
+ * (which opens connection pools eagerly), `stop` ends every pool. Register
+ * this in a `Scope` so the router's lifetime is tied to the scope that
+ * owns it.
+ */
+export class PostgresRouterComponent {
+    constructor(
+        private readonly config: PostgresRouterConfig,
+        private readonly appName?: string
+    ) {}
+
+    start(): Promise<{ value: PostgresRouter; stop: () => Promise<void> }> {
+        const router = new PostgresRouter(this.config, this.appName)
+        return Promise.resolve({
+            value: router,
+            stop: () => router.end(),
+        })
+    }
+}
+
 function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     // Un-exported, use PostgresRouter to run PG queries
     client: Client | Pool | PoolClient,

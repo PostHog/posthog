@@ -12,10 +12,7 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
-from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_postgres_identifier
-from posthog.hogql.query import (
-    HogQLQueryExecutor,
+from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
     direct_postgres_session_setup_sql,
     get_runtime_direct_postgres_connection_metadata,
@@ -23,6 +20,10 @@ from posthog.hogql.query import (
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
 )
+from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
@@ -140,7 +141,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("ph3.without_team_id", sql)
         self.assertNotIn(".team_id", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_aliased_direct_postgres_table(self):
         source = ExternalDataSource.objects.create(
@@ -180,7 +181,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("ph3.posthog_activitylog", sql)
         self.assertIn("activitylog", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
@@ -227,7 +228,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("dashboard_cte", sql)
         self.assertIn("ph3.posthog_dashboard", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_struct_field_access(self):
         source = ExternalDataSource.objects.create(
@@ -279,7 +280,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn('(members.membership).type AS "membership.type"', sql)
         self.assertIn('(members.membership).tier AS "membership.tier"', sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_connection_metadata_function(self):
         source = ExternalDataSource.objects.create(
@@ -319,7 +320,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_generate_sql_for_direct_postgres_custom_connection_metadata_function(self):
         source = ExternalDataSource.objects.create(
@@ -359,7 +360,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("icu_collate_nl", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     @parameterized.expand(
         [
@@ -410,7 +411,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn(expected_sql_fragment, sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     @parameterized.expand(
         [
@@ -514,7 +515,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("ducklake.system.query_log", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(executor.direct_source_id, str(source.id))
 
     def test_direct_query_requires_selected_connection(self):
         source = ExternalDataSource.objects.create(
@@ -651,7 +652,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertIn("FROM\n    second_schema.posthog_team", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(second_source.id))
+        self.assertEqual(executor.direct_source_id, str(second_source.id))
 
     def test_selected_connection_rejects_clickhouse_only_tables(self):
         source = ExternalDataSource.objects.create(
@@ -735,10 +736,10 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("FROM\n    ph3.events", events_sql)
         self.assertIn("FROM\n    ph3.persons", persons_sql)
-        self.assertEqual(events_executor.direct_postgres_source_id, str(source.id))
-        self.assertEqual(persons_executor.direct_postgres_source_id, str(source.id))
+        self.assertEqual(events_executor.direct_source_id, str(source.id))
+        self.assertEqual(persons_executor.direct_source_id, str(source.id))
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_selected_connection_allows_table_less_sql(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -776,12 +777,12 @@ class TestDirectPostgresQuery(APIBaseTest):
         response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
-        assert executor.direct_postgres_sql is not None
-        self.assertIn("1 AS value", executor.direct_postgres_sql)
-        self.assertIn("LIMIT 100", executor.direct_postgres_sql)
+        self.assertEqual(executor.direct_source_id, str(source.id))
+        assert executor.direct_sql is not None
+        self.assertIn("1 AS value", executor.direct_sql)
+        self.assertIn("LIMIT 100", executor.direct_sql)
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_registers_lenient_date_loader_for_duckdb_style_dates(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -825,7 +826,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mocked_connection.execute.assert_called_once_with(f"USE {escape_postgres_identifier(job_inputs['schema'])}")
         mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_uses_duckdb_schema_without_hydrating_catalog(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -871,7 +872,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mocked_connection.execute.call_count, 1)
         mocked_cursor.execute.assert_called_once_with("SELECT * FROM system.query_log LIMIT 100", None)
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_uses_schema_for_duckdb_when_catalog_is_available(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -916,7 +917,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
     @patch("posthog.hogql.query.capture_exception")
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
         self, mock_connect, mock_capture_exception
     ):
@@ -967,7 +968,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mock_capture_exception.assert_not_called()
 
     @patch("posthog.hogql.query.capture_exception")
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1013,7 +1014,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mock_capture_exception.assert_called_once()
 
     @patch("posthog.hogql.query.capture_exception")
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1057,7 +1058,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
         mock_capture_exception.assert_not_called()
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1098,6 +1099,62 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+
+    @parameterized.expand(
+        [
+            ("explicit_read_write", "COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;"),
+            ("set_then_write", "SET default_transaction_read_only = off; UPDATE t SET a = 1;"),
+            ("two_selects", "SELECT 1; SELECT 2"),
+        ]
+    )
+    def test_ensure_single_direct_statement_rejects_multi_statement(self, _name: str, sql: str):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_single_direct_statement(sql)
+
+    @parameterized.expand(
+        [
+            ("plain_select", "SELECT 1 AS value"),
+            ("trailing_semicolon", "SELECT 1 AS value;"),
+            ("stray_empty_statements", "SELECT 1 AS value;   ;  "),
+            ("percent_literal", "SELECT name FROM t WHERE name LIKE '%admin%'"),
+            ("semicolon_in_literal", "SELECT 'a;b' AS value"),
+            ("dollar_quoted", "SELECT $$a;b;c$$ AS value"),
+        ]
+    )
+    def test_ensure_single_direct_statement_allows_single_statement(self, _name: str, sql: str):
+        self.assertEqual(ensure_single_direct_statement(sql), sql)
+
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_send_raw_query_rejects_multi_statement_before_execution(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            executor.execute()
+
+        mock_connect.assert_not_called()
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(
@@ -1148,11 +1205,11 @@ class TestDirectPostgresQuery(APIBaseTest):
     def test_execute_direct_postgres_query_raises_user_error_for_missing_source(self):
         missing_source_id = str(uuid4())
         executor = HogQLQueryExecutor(query="SELECT 1", team=self.team, connection_id=missing_source_id)
-        executor.direct_postgres_sql = "SELECT 1"
-        executor.direct_postgres_source_id = missing_source_id
+        executor.direct_sql = "SELECT 1"
+        executor.direct_source_id = missing_source_id
 
         with self.assertRaises(ExposedHogQLError) as error:
-            executor._execute_direct_postgres_query()
+            executor._execute_direct_sql_query()
 
         self.assertEqual(str(error.exception), "Connection not found or has been deleted")
 
@@ -1166,7 +1223,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1209,7 +1266,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(str(error.exception), "Hosts with internal IP addresses are not allowed")
         mock_connect.assert_not_called()
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_exposes_database_errors(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1265,7 +1322,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             "-c default_transaction_read_only=on -c statement_timeout=60000",
         )
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_uses_custom_statement_timeout(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1319,7 +1376,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         )
         self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in executor.timings.to_list()))
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_records_postgres_execute_timing(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1369,7 +1426,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in response.timings or []))
 
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_reraises_unexpected_errors(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1457,7 +1514,7 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     @override_settings(DEBUG=False, TEST=False)
     @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()
         mock_tunnel.local_bind_host = "127.0.0.1"
@@ -1520,7 +1577,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_uses_prefer_sslmode_in_e2e_for_new_sources(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1573,7 +1630,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "prefer")
 
     @override_settings(DEBUG=False, TEST=False)
-    @patch("posthog.hogql.query.psycopg.connect")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,

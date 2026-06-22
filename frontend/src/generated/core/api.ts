@@ -14,6 +14,9 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ContextGenerationApi,
+    ContextGenerationSetApi,
+    DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
     DesktopPersistedFolderListParams,
@@ -26,6 +29,8 @@ import type {
     FileSystemShortcutApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
+    FolderInstructionsApi,
+    FolderInstructionsPublishApi,
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
@@ -41,24 +46,24 @@ import type {
     PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
     PaginatedFileSystemShortcutListApi,
+    PaginatedFolderInstructionsVersionListApi,
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedPersistedFolderListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
-    PaginatedSubscriptionDeliveryListApi,
-    PaginatedSubscriptionListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PatchedCanvasPublishApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
+    PatchedFolderInstructionsPublishApi,
     PatchedOrganizationDomainApi,
     PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
-    PatchedSubscriptionApi,
     PatchedUserApi,
     PersistedFolderApi,
     PersistedFolderListParams,
@@ -68,11 +73,6 @@ import type {
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
     SharingConfigurationApi,
-    SubscriptionApi,
-    SubscriptionDeliveryApi,
-    SubscriptionsDeliveriesListParams,
-    SubscriptionsListParams,
-    SubscriptionsSummaryQuotaRetrieve200,
     UserApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
@@ -102,71 +102,12 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSubscriptionsDeliveriesListUrl = (
-    projectId: string,
-    subscriptionId: number,
-    params?: SubscriptionsDeliveriesListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/?${stringifiedParams}`
-        : `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/`
-}
-
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const subscriptionsDeliveriesList = async (
-    projectId: string,
-    subscriptionId: number,
-    params?: SubscriptionsDeliveriesListParams,
-    options?: RequestInit
-): Promise<PaginatedSubscriptionDeliveryListApi> => {
-    return apiMutator<PaginatedSubscriptionDeliveryListApi>(
-        getSubscriptionsDeliveriesListUrl(projectId, subscriptionId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getSubscriptionsDeliveriesRetrieveUrl = (projectId: string, subscriptionId: number, id: string) => {
-    return `/api/environments/${projectId}/subscriptions/${subscriptionId}/deliveries/${id}/`
-}
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const subscriptionsDeliveriesRetrieve = async (
-    projectId: string,
-    subscriptionId: number,
-    id: string,
-    options?: RequestInit
-): Promise<SubscriptionDeliveryApi> => {
-    return apiMutator<SubscriptionDeliveryApi>(getSubscriptionsDeliveriesRetrieveUrl(projectId, subscriptionId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getCimdVerificationTokensListUrl = (organizationId: string, params?: CimdVerificationTokensListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -179,13 +120,14 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensList = async (
     organizationId: string,
@@ -204,13 +146,14 @@ export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreate = async (
     organizationId: string,
@@ -231,13 +174,14 @@ export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id:
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensRetrieve = async (
     organizationId: string,
@@ -256,13 +200,14 @@ export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: 
 
 /**
  * Manage CIMD verification tokens for an organization.
-
-A partner embeds the plaintext token in their CIMD metadata document under
-`posthog_verification_token`. When PostHog fetches the metadata, matching
-the token links the partner app to this organization and grants a higher
-default rate limit for account provisioning.
-
-The plaintext value is only available on creation; we store a hash.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensDestroy = async (
     organizationId: string,
@@ -280,7 +225,7 @@ export const getDomainsListUrl = (organizationId: string, params?: DomainsListPa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -440,7 +385,7 @@ export const getInvitesListUrl = (organizationId: string, params?: InvitesListPa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -513,7 +458,7 @@ export const getInvitesDelegateCreateUrl = (organizationId: string) => {
 
 /**
  * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
-Sends a single dedicated delegation email and records the inviting user as having delegated.
+ * Sends a single dedicated delegation email and records the inviting user as having delegated.
  */
 export const invitesDelegateCreate = async (
     organizationId: string,
@@ -533,7 +478,7 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -566,7 +511,7 @@ export const getOrganizationsProjectsListUrl = (organizationId: string, params?:
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -785,6 +730,114 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async
     )
 }
 
+export const getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsDestroy = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
 export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
@@ -800,6 +853,72 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
         getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigPartialUpdateUrl(organizationId, id),
         {
             ...options,
             method: 'PATCH',
@@ -863,8 +982,8 @@ export const getOrganizationsProjectsLogsConfigRetrieveUrl = (organizationId: st
 
 /**
  * Manage logs product configuration for this project's canonical environment.
-Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
-alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+ * alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigRetrieve = async (
     organizationId: string,
@@ -883,8 +1002,8 @@ export const getOrganizationsProjectsLogsConfigPartialUpdateUrl = (organizationI
 
 /**
  * Manage logs product configuration for this project's canonical environment.
-Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
-alongside the legacy /api/environments/:id/logs_config/ alias.
+ * Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+ * alongside the legacy /api/environments/:id/logs_config/ alias.
  */
 export const organizationsProjectsLogsConfigPartialUpdate = async (
     organizationId: string,
@@ -972,6 +1091,27 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
     )
 }
 
+export const getOrganizationsProjectsSettingsAsOfRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/settings_as_of/`
+}
+
+/**
+ * Return the project settings as of the provided timestamp.
+ * Query params:
+ * - at: ISO8601 datetime (required)
+ * - scope: optional, one or multiple keys to filter the returned settings
+ */
+export const organizationsProjectsSettingsAsOfRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
     return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
 }
@@ -1050,7 +1190,7 @@ export const getDesktopFileSystemListUrl = (projectId: string, params?: DesktopF
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1063,7 +1203,9 @@ export const getDesktopFileSystemListUrl = (projectId: string, params?: DesktopF
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemList = async (
     projectId: string,
@@ -1082,7 +1224,9 @@ export const getDesktopFileSystemCreateUrl = (projectId: string) => {
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemCreate = async (
     projectId: string,
@@ -1103,7 +1247,9 @@ export const getDesktopFileSystemRetrieveUrl = (projectId: string, id: string) =
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemRetrieve = async (
     projectId: string,
@@ -1122,7 +1268,9 @@ export const getDesktopFileSystemUpdateUrl = (projectId: string, id: string) => 
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUpdate = async (
     projectId: string,
@@ -1144,7 +1292,9 @@ export const getDesktopFileSystemPartialUpdateUrl = (projectId: string, id: stri
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemPartialUpdate = async (
     projectId: string,
@@ -1166,12 +1316,79 @@ export const getDesktopFileSystemDestroyUrl = (projectId: string, id: string) =>
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDesktopFileSystemCanvasPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/canvas/`
+}
+
+/**
+ * Publish a new version of a freeform canvas's React source.
+ *
+ * Merges into the dashboard row's `meta` (never replaces it), so existing
+ * keys like `channelId`/`templateId` survive. Appends a full-file version
+ * snapshot and points `currentVersionId` at it — the server-side mirror of
+ * the app's dashboardsService.saveFreeform.
+ */
+export const desktopFileSystemCanvasPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCanvasPublishApi?: PatchedCanvasPublishApi,
+    options?: RequestInit
+): Promise<FileSystemApi> => {
+    return apiMutator<FileSystemApi>(getDesktopFileSystemCanvasPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCanvasPublishApi),
+    })
+}
+
+export const getDesktopFileSystemContextGenerationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Return the Task currently generating this folder's CONTEXT.md, or null if none.
+ */
+export const desktopFileSystemContextGenerationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemContextGenerationUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const desktopFileSystemContextGenerationUpdate = async (
+    projectId: string,
+    id: string,
+    contextGenerationSetApi: ContextGenerationSetApi,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contextGenerationSetApi),
     })
 }
 
@@ -1196,13 +1413,131 @@ export const desktopFileSystemCountCreate = async (
     })
 }
 
+export const getDesktopFileSystemInstructionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const desktopFileSystemInstructionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemInstructionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsUpdate = async (
+    projectId: string,
+    id: string,
+    folderInstructionsPublishApi: FolderInstructionsPublishApi,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(folderInstructionsPublishApi),
+    })
+}
+
+export const getDesktopFileSystemInstructionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const desktopFileSystemInstructionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedFolderInstructionsPublishApi?: PatchedFolderInstructionsPublishApi,
+    options?: RequestInit
+): Promise<FolderInstructionsApi> => {
+    return apiMutator<FolderInstructionsApi>(getDesktopFileSystemInstructionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedFolderInstructionsPublishApi),
+    })
+}
+
+export const getDesktopFileSystemInstructionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/instructions/`
+}
+
+/**
+ * Soft-delete every version of this folder's instructions.
+ */
+export const desktopFileSystemInstructionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDesktopFileSystemInstructionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDesktopFileSystemInstructionsVersionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: DesktopFileSystemInstructionsVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/desktop_file_system/${id}/instructions/versions/`
+}
+
+/**
+ * List the version history for this folder's instructions, newest first.
+ */
+export const desktopFileSystemInstructionsVersionsList = async (
+    projectId: string,
+    id: string,
+    params?: DesktopFileSystemInstructionsVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedFolderInstructionsVersionListApi> => {
+    return apiMutator<PaginatedFolderInstructionsVersionListApi>(
+        getDesktopFileSystemInstructionsVersionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getDesktopFileSystemLinkCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/desktop_file_system/${id}/link/`
 }
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLinkCreate = async (
     projectId: string,
@@ -1224,7 +1559,9 @@ export const getDesktopFileSystemMoveCreateUrl = (projectId: string, id: string)
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemMoveCreate = async (
     projectId: string,
@@ -1266,7 +1603,9 @@ export const getDesktopFileSystemLogViewRetrieveUrl = (projectId: string) => {
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemLogViewRetrieveUrl(projectId), {
@@ -1281,7 +1620,9 @@ export const getDesktopFileSystemLogViewCreateUrl = (projectId: string) => {
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemLogViewCreate = async (
     projectId: string,
@@ -1302,7 +1643,9 @@ export const getDesktopFileSystemUndoDeleteCreateUrl = (projectId: string) => {
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUndoDeleteCreate = async (
     projectId: string,
@@ -1323,7 +1666,9 @@ export const getDesktopFileSystemUnfiledRetrieveUrl = (projectId: string) => {
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
-scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
  */
 export const desktopFileSystemUnfiledRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopFileSystemUnfiledRetrieveUrl(projectId), {
@@ -1340,7 +1685,7 @@ export const getDesktopFileSystemShortcutListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1353,8 +1698,8 @@ export const getDesktopFileSystemShortcutListUrl = (
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutList = async (
     projectId: string,
@@ -1373,8 +1718,8 @@ export const getDesktopFileSystemShortcutCreateUrl = (projectId: string) => {
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutCreate = async (
     projectId: string,
@@ -1395,8 +1740,8 @@ export const getDesktopFileSystemShortcutRetrieveUrl = (projectId: string, id: s
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutRetrieve = async (
     projectId: string,
@@ -1415,8 +1760,8 @@ export const getDesktopFileSystemShortcutUpdateUrl = (projectId: string, id: str
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutUpdate = async (
     projectId: string,
@@ -1438,8 +1783,8 @@ export const getDesktopFileSystemShortcutPartialUpdateUrl = (projectId: string, 
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutPartialUpdate = async (
     projectId: string,
@@ -1461,8 +1806,8 @@ export const getDesktopFileSystemShortcutDestroyUrl = (projectId: string, id: st
 
 /**
  * Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-the default "web" surface.
+ * behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
+ * the default "web" surface.
  */
 export const desktopFileSystemShortcutDestroy = async (
     projectId: string,
@@ -1500,7 +1845,7 @@ export const getDesktopPersistedFolderListUrl = (projectId: string, params?: Des
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1513,8 +1858,8 @@ export const getDesktopPersistedFolderListUrl = (projectId: string, params?: Des
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderList = async (
     projectId: string,
@@ -1533,8 +1878,8 @@ export const getDesktopPersistedFolderCreateUrl = (projectId: string) => {
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderCreate = async (
     projectId: string,
@@ -1555,8 +1900,8 @@ export const getDesktopPersistedFolderRetrieveUrl = (projectId: string, id: stri
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderRetrieve = async (
     projectId: string,
@@ -1575,8 +1920,8 @@ export const getDesktopPersistedFolderUpdateUrl = (projectId: string, id: string
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderUpdate = async (
     projectId: string,
@@ -1598,8 +1943,8 @@ export const getDesktopPersistedFolderPartialUpdateUrl = (projectId: string, id:
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderPartialUpdate = async (
     projectId: string,
@@ -1621,8 +1966,8 @@ export const getDesktopPersistedFolderDestroyUrl = (projectId: string, id: strin
 
 /**
  * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
-but is scoped to the "desktop" surface, so its folders are fully isolated from the default
-"web" surface.
+ * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
+ * "web" surface.
  */
 export const desktopPersistedFolderDestroy = async (
     projectId: string,
@@ -1640,7 +1985,7 @@ export const getExportsListUrl = (projectId: string, params?: ExportsListParams)
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1710,7 +2055,7 @@ export const getFileSystemListUrl = (projectId: string, params?: FileSystemListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1949,7 +2294,7 @@ export const getFileSystemShortcutListUrl = (projectId: string, params?: FileSys
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2225,7 +2570,7 @@ export const getPersistedFolderListUrl = (projectId: string, params?: PersistedF
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2331,7 +2676,7 @@ export const getProjectSecretApiKeysListUrl = (projectId: string, params?: Proje
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2459,7 +2804,7 @@ export const getPropertyDefinitionsListUrl = (projectId: string, params?: Proper
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2553,22 +2898,22 @@ export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string)
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const propertyDefinitionsBulkUpdateTagsCreate = async (
     projectId: string,
@@ -2589,7 +2934,7 @@ export const getPropertyDefinitionsSeenTogetherRetrieveUrl = (projectId: string)
 
 /**
  * Allows a caller to provide a list of event names and a single property name
-Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
+ * Returns a map of the event names to a boolean representing whether that property has ever been seen with that event_name
  */
 export const propertyDefinitionsSeenTogetherRetrieve = async (
     projectId: string,
@@ -2678,150 +3023,12 @@ export const sessionRecordingsSharingRefreshCreate = async (
     })
 }
 
-export const getSubscriptionsListUrl = (projectId: string, params?: SubscriptionsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/subscriptions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/subscriptions/`
-}
-
-export const subscriptionsList = async (
-    projectId: string,
-    params?: SubscriptionsListParams,
-    options?: RequestInit
-): Promise<PaginatedSubscriptionListApi> => {
-    return apiMutator<PaginatedSubscriptionListApi>(getSubscriptionsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSubscriptionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/subscriptions/`
-}
-
-export const subscriptionsCreate = async (
-    projectId: string,
-    subscriptionApi: NonReadonly<SubscriptionApi>,
-    options?: RequestInit
-): Promise<SubscriptionApi> => {
-    return apiMutator<SubscriptionApi>(getSubscriptionsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscriptionApi),
-    })
-}
-
-export const getSubscriptionsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/`
-}
-
-export const subscriptionsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<SubscriptionApi> => {
-    return apiMutator<SubscriptionApi>(getSubscriptionsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/`
-}
-
-export const subscriptionsUpdate = async (
-    projectId: string,
-    id: number,
-    subscriptionApi: NonReadonly<SubscriptionApi>,
-    options?: RequestInit
-): Promise<SubscriptionApi> => {
-    return apiMutator<SubscriptionApi>(getSubscriptionsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscriptionApi),
-    })
-}
-
-export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/`
-}
-
-export const subscriptionsPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedSubscriptionApi?: NonReadonly<PatchedSubscriptionApi>,
-    options?: RequestInit
-): Promise<SubscriptionApi> => {
-    return apiMutator<SubscriptionApi>(getSubscriptionsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSubscriptionApi),
-    })
-}
-
-export const getSubscriptionsDestroyUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const subscriptionsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getSubscriptionsTestDeliveryCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/test-delivery/`
-}
-
-export const subscriptionsTestDeliveryCreate = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSubscriptionsTestDeliveryCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getSubscriptionsSummaryQuotaRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/subscriptions/summary_quota/`
-}
-
-export const subscriptionsSummaryQuotaRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<SubscriptionsSummaryQuotaRetrieve200> => {
-    return apiMutator<SubscriptionsSummaryQuotaRetrieve200>(getSubscriptionsSummaryQuotaRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getUsersListUrl = (params?: UsersListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2907,7 +3114,7 @@ export const getUsersCredentialsReviewCompleteCreateUrl = (uuid: string) => {
 }
 
 /**
- * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys via the existing PAT endpoints from the same screen.
+ * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys and passkeys via their existing endpoints from the same screen.
  */
 export const usersCredentialsReviewCompleteCreate = async (uuid: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersCredentialsReviewCompleteCreateUrl(uuid), {
@@ -2960,7 +3167,7 @@ export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrat
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -3014,7 +3221,7 @@ export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -3053,7 +3260,7 @@ export const getUsersIntegrationsGithubReposRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -3111,24 +3318,24 @@ export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
 
 /**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**OAuth fast path:** when the current project already has a team-level
-GitHub installation, and the user has no ``UserIntegration`` for that
-installation yet, we skip the org picker and redirect straight to
-``/login/oauth/authorize`` so the user only authorizes themselves.
-``connect_from`` is preserved for first-party clients so they return to
-the originating client immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
+ *
+ * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+ * ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+ * under projects).
+ *
+ * Usually returns ``install_url`` pointing at ``/installations/new`` so the
+ * user can pick any GitHub org (new or already connected).  GitHub's install
+ * page handles both cases: orgs where the app is installed show "Configure"
+ * (no admin needed), orgs where it isn't show "Install" (needs admin).
+ *
+ * **OAuth fast path:** when the current project already has a team-level
+ * GitHub installation, and the user has no ``UserIntegration`` for that
+ * installation yet, we skip the org picker and redirect straight to
+ * ``/login/oauth/authorize`` so the user only authorizes themselves.
+ * ``connect_from`` is preserved for first-party clients so they return to
+ * the originating client immediately.
+ *
+ * In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking
  */
 export const usersIntegrationsGithubStartCreate = async (
@@ -3150,12 +3357,12 @@ export const getUsersOnboardingSkipCreateUrl = (uuid: string) => {
 
 /**
  * Mark the current user as having exited onboarding with a non-delegated reason.
-Idempotent: the skip timestamp is only set on the first successful call.
-
-Callers wanting to delegate setup to a teammate must use the dedicated
-/organizations/{id}/invites/delegate/ endpoint, which atomically creates the
-invite and sets reason="delegated". This endpoint rejects that reason so state
-can't be faked without a real invite.
+ * Idempotent: the skip timestamp is only set on the first successful call.
+ *
+ * Callers wanting to delegate setup to a teammate must use the dedicated
+ * /organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+ * invite and sets reason="delegated". This endpoint rejects that reason so state
+ * can't be faked without a real invite.
  */
 export const usersOnboardingSkipCreate = async (
     uuid: string,

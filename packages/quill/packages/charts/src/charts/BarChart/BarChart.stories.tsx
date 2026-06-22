@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import type { BarChartConfig, Series } from '../../core/types'
+import type { BarChartConfig, BarFillStyle, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { Stage, useReactiveTheme } from '../../story-helpers'
@@ -103,6 +103,32 @@ export const HorizontalAggregatedSingle: Story = {
         return (
             <Stage height={320}>
                 <BarChart series={series} labels={['All events']} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+// Exercises the horizontal value-tick de-overlap: wide thousands-separated labels (millions) in a
+// compact panel, where consecutive ticks genuinely collide. The de-overlap pass hides the colliding
+// ones so the axis reads cleanly instead of smearing into "0 500,0001,000,000…" — gridlines stay at
+// every tick, labels only at the survivors. Remove the pass and the labels overlap again; the exact
+// gap that decides which survive is pinned by AxisLabels.test.ts.
+export const HorizontalWideValueLabels: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = {
+            axisOrientation: 'horizontal',
+            showGrid: true,
+            yTickFormatter: (v) => v.toLocaleString('en-US'),
+            bars: { cornerRadius: 4, fitToHeight: true },
+        }
+        const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
+        const series: Series[] = [
+            { key: 'views', label: 'Views', color: '', data: [2_300_000, 1_510_000, 940_000, 460_000, 180_000] },
+        ]
+        return (
+            <Stage width={340} height={280}>
+                <BarChart series={series} labels={labels} config={config} theme={theme} />
             </Stage>
         )
     },
@@ -249,4 +275,47 @@ export const CustomCornerRadius: Story = {
             </Stage>
         )
     },
+}
+
+const BREAKDOWN_LABELS = ['/login', 'Other', '/projects', '/surveys', '/dashboard', '/insights', '/persons', '/events']
+const BREAKDOWN_DATA = [9200, 8400, 6100, 5200, 4300, 3600, 2800, 2100]
+
+function FillStyleColumn({ title, fillStyle }: { title: string; fillStyle: BarFillStyle }): JSX.Element {
+    const theme = useReactiveTheme()
+    // One series with a value per category — per-bar colors echo a breakdown chart.
+    const series: Series[] = [
+        {
+            key: 'pages',
+            label: 'Pageviews',
+            color: theme.colors[0],
+            data: BREAKDOWN_DATA,
+            bars: BREAKDOWN_DATA.map((_, i) => ({ color: theme.colors[i % theme.colors.length] })),
+        },
+    ]
+    const config: BarChartConfig = {
+        barLayout: 'grouped',
+        showGrid: true,
+        axisOrientation: 'horizontal',
+        bars: { cornerRadius: 4, fillStyle },
+    }
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span className="text-xs font-semibold text-muted-foreground">{title}</span>
+            <Stage width={340} height={360}>
+                <BarChart series={series} labels={BREAKDOWN_LABELS} config={config} theme={theme} />
+            </Stage>
+        </div>
+    )
+}
+
+export const FillStyles: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+            <FillStyleColumn title="flat (current)" fillStyle="flat" />
+            <FillStyleColumn title="gradient" fillStyle="gradient" />
+            <FillStyleColumn title="gloss" fillStyle="gloss" />
+        </div>
+    ),
 }

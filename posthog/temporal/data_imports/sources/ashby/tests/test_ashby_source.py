@@ -26,7 +26,7 @@ class TestAshbySource:
         assert config.name.value == "Ashby"
         assert config.label == "Ashby"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/ashby.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

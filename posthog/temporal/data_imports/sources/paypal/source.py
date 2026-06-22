@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class PayPalSource(SimpleSource[PayPalSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PAY_PAL,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="PayPal",
             iconPath="/static/services/paypal.png",
             fields=cast(list[FieldType], []),

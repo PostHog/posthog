@@ -1,26 +1,35 @@
 {
     "name": "@posthog/quill-charts",
-    "version": "0.0.0",
-    "private": true,
-    "description": "Internal workspace package (private, not published). Canvas-based charting library used for trends, dashboards, and any in-app chart that needs to render thousands of points smoothly. D3 (scale/shape/color/array sub-packages) powers the scales; the canvas does the drawing; React handles overlays.",
+    "version": "0.3.0-beta.16",
+    "description": "Canvas-based charting library for trends, dashboards, and any chart that needs to render thousands of points smoothly. D3 (scale/shape/color/array sub-packages) powers the scales; the canvas does the drawing; React handles overlays.",
     "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/PostHog/posthog.git",
         "directory": "packages/quill/packages/charts"
     },
+    "files": [
+        "dist"
+    ],
     "type": "module",
-    "main": "./src/index.ts",
-    "module": "./src/index.ts",
-    "types": "./src/index.ts",
+    "sideEffects": false,
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
     "exports": {
-        ".": "./src/index.ts",
-        "./testing": "./src/testing/index.ts",
-        "./story-helpers": "./src/story-helpers.tsx",
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs",
+            "default": "./dist/index.js"
+        },
         "./package.json": "./package.json"
     },
+    "publishConfig": {
+        "access": "public"
+    },
     "scripts": {
-        "build": "tsc -p tsconfig.build.json"
+        "build": "vite build"
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
@@ -43,8 +52,11 @@
         "@types/jest": "catalog:",
         "@types/react": "^18.3.27",
         "@types/react-dom": "^18.3.7",
+        "@vitejs/plugin-react": "^5.1.1",
         "jest": "^29.7.0",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vite": "^6.3.5",
+        "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {
         "react": "^18.3.1 || ^19.0.0",

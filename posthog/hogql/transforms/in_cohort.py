@@ -97,7 +97,7 @@ class MultipleInCohortResolver(TraversingVisitor):
     def _resolve_cohorts(
         self, compare_operations: list[ast.CompareOperation]
     ) -> list[tuple[int, StaticOrDynamic, int]]:
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohorts: list[tuple[int, StaticOrDynamic, int]] = []
 
@@ -310,8 +310,7 @@ class InCohortResolver(TraversingVisitor):
             arg = node.right
             if not isinstance(arg, ast.Constant):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
-
-            from posthog.models import Cohort
+            from products.cohorts.backend.models.cohort import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(

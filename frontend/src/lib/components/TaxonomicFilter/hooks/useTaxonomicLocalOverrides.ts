@@ -14,7 +14,13 @@ import { useCallback } from 'react'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    ExcludedOperators,
+    SelectingKeyOnly,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
+import { filterRecentsForContext } from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
@@ -25,7 +31,12 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 
 export type GetLocalOverride = (groupType: TaxonomicFilterGroupType) => TaxonomicDefinitionTypes[] | undefined
 
-export function useTaxonomicLocalOverrides(): GetLocalOverride {
+export function useTaxonomicLocalOverrides(context: {
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    excludedOperators?: ExcludedOperators
+    selectingKeyOnly?: SelectingKeyOnly
+}): GetLocalOverride {
+    const { taxonomicGroupTypes, excludedOperators, selectingKeyOnly } = context
     const { actionsSorted } = useValues(actionsModel)
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
@@ -40,7 +51,12 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
                 case TaxonomicFilterGroupType.Actions:
                     return actionsSorted as unknown as TaxonomicDefinitionTypes[]
                 case TaxonomicFilterGroupType.RecentFilters:
-                    return recentFilterItems
+                    return filterRecentsForContext(
+                        recentFilterItems,
+                        taxonomicGroupTypes,
+                        excludedOperators,
+                        selectingKeyOnly
+                    )
                 case TaxonomicFilterGroupType.PinnedFilters:
                     return pinnedFilterItems
                 case TaxonomicFilterGroupType.Dashboards:
@@ -63,6 +79,9 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
             experiments,
             dataWarehouseTablesAndViews,
             columnsJoinedToPersons,
+            taxonomicGroupTypes,
+            excludedOperators,
+            selectingKeyOnly,
         ]
     )
 }

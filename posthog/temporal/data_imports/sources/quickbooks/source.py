@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class QuickBooksSource(SimpleSource[QuickBooksSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.QUICK_BOOKS,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
+            keywords=["qb"],
             label="QuickBooks",
             iconPath="/static/services/quickbooks.png",
             fields=cast(list[FieldType], []),

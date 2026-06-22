@@ -6,7 +6,7 @@ import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { formatDate, formatDateRange } from 'lib/utils'
+import { formatDate, formatDateRange } from 'lib/utils/datetime'
 
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 

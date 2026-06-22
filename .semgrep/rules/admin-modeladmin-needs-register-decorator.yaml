@@ -31,6 +31,7 @@ rules:
           include:
               - '/posthog/admin/admins/*.py'
               - '/products/*/backend/admin.py'
+              - '/products/*/backend/admin/*.py'
       metadata:
           category: correctness
           technology:

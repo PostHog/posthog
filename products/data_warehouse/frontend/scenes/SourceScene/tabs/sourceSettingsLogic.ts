@@ -7,8 +7,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectsEqual, pluralize } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -21,6 +21,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
@@ -31,7 +32,6 @@ import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
 export interface SourceSettingsLogicProps {
     id: string
-    tabId?: string
     availableSources?: Record<string, SourceConfig>
 }
 
@@ -45,6 +45,7 @@ export interface CdcStatus {
     slot_exists?: boolean
     publication_exists?: boolean
     lag_bytes?: number | null
+    published_tables?: string[]
 }
 
 const REFRESH_INTERVAL = 5000
@@ -131,6 +132,7 @@ function buildSchemaUpdatePayload(
     | 'sync_type'
     | 'incremental_field'
     | 'incremental_field_type'
+    | 'incremental_field_lookback_seconds'
     | 'sync_frequency'
     | 'sync_time_of_day'
     | 'cdc_table_mode'
@@ -142,6 +144,7 @@ function buildSchemaUpdatePayload(
         sync_type: schema.sync_type,
         incremental_field: schema.incremental_field,
         incremental_field_type: schema.incremental_field_type,
+        incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
         sync_frequency: schema.sync_frequency,
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
@@ -263,7 +266,7 @@ function reportBulkResult(verb: string, total: number, failed: number, skipped: 
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
-    key(({ id, tabId }) => (tabId ? `${id}-${tabId}` : id)),
+    key(({ id }) => id),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources']],
         actions: [sourcesDataLogic, ['updateSource']],
@@ -504,6 +507,22 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 return availableSources[source.source_type]
             },
         ],
+        // Live row counts for in-progress syncs, keyed by schema id. Lets the Schemas tab show
+        // progress during the first sync — before the warehouse table (and its row_count) exists,
+        // the table column has nothing to render, so we fall back to the running job's rows_synced.
+        inProgressRowsBySchema: [
+            (s) => [s.jobs],
+            (jobs): Record<string, number> => {
+                const map: Record<string, number> = {}
+                // jobs arrive newest-first; keep the first (latest) running job per schema.
+                for (const job of jobs) {
+                    if (job.status === ExternalDataJobStatus.Running && !(job.schema.id in map)) {
+                        map[job.schema.id] = job.rows_synced
+                    }
+                }
+                return map
+            },
+        ],
         filteredSchemas: [
             (s) => [
                 s.source,
@@ -545,6 +564,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 return schemas
             },
+        ],
+        // Multi-schema SQL sources have qualified schema names (`namespace.table`); group them by
+        // namespace so the Schemas tab matches the wizard's grouping. Single-namespace sources
+        // produce one group and render as a flat table.
+        groupedFilteredSchemas: [
+            (s) => [s.filteredSchemas, s.source],
+            (filteredSchemas, source): { schemaName: string; tables: ExternalDataSourceSchema[] }[] =>
+                groupTablesBySchema(
+                    filteredSchemas,
+                    (schema) => schema.name,
+                    typeof source?.job_inputs?.schema === 'string' ? source.job_inputs.schema : null
+                ),
         ],
         // Distinct values present across the source's schemas, for populating the filter dropdowns.
         schemaFilterOptions: [
@@ -774,10 +805,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const tabId = props.tabId ?? sceneLogic.findMounted()?.values.activeTabId ?? undefined
                 const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}`, tabId }) ??
-                    sourceSceneLogic.findMounted({ id: props.id, tabId })
+                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                    sourceSceneLogic.findMounted({ id: props.id })
 
                 sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
             },

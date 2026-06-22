@@ -1,5 +1,3 @@
-import './ImagePreview.scss'
-
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -7,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { AutocapturePreviewImage } from 'lib/components/AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
@@ -19,9 +18,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
-import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -263,7 +264,7 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             <>
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>

@@ -145,6 +145,7 @@ const actionsGetAll = (): ToolBase<typeof ActionsGetAllSchema, WithPostHogUrl<Sc
                 query: {
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                 },
             })
             return await withPostHogUrl(

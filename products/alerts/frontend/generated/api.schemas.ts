@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -105,9 +105,9 @@ export interface AlertConditionApi {
 
 /**
  * * `Firing` - Firing
- * `Not firing` - Not firing
- * `Errored` - Errored
- * `Snoozed` - Snoozed
+ * * `Not firing` - Not firing
+ * * `Errored` - Errored
+ * * `Snoozed` - Snoozed
  */
 export type AlertCheckStateEnumApi = (typeof AlertCheckStateEnumApi)[keyof typeof AlertCheckStateEnumApi]
 
@@ -120,10 +120,10 @@ export const AlertCheckStateEnumApi = {
 
 /**
  * * `pending` - pending
- * `running` - running
- * `done` - done
- * `failed` - failed
- * `skipped` - skipped
+ * * `running` - running
+ * * `done` - done
+ * * `failed` - failed
+ * * `skipped` - skipped
  */
 export type InvestigationStatusEnumApi = (typeof InvestigationStatusEnumApi)[keyof typeof InvestigationStatusEnumApi]
 
@@ -137,8 +137,8 @@ export const InvestigationStatusEnumApi = {
 
 /**
  * * `true_positive` - true_positive
- * `false_positive` - false_positive
- * `inconclusive` - inconclusive
+ * * `false_positive` - false_positive
+ * * `inconclusive` - inconclusive
  */
 export type InvestigationVerdictEnumApi = (typeof InvestigationVerdictEnumApi)[keyof typeof InvestigationVerdictEnumApi]
 
@@ -175,13 +175,49 @@ export interface AlertCheckApi {
     readonly notification_suppressed_by_agent: boolean
 }
 
+export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
+
+export const TrendsAlertConfigApiType = {
+    TrendsAlertConfig: 'TrendsAlertConfig',
+} as const
+
 export interface TrendsAlertConfigApi {
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean | null
     /** Zero-based index of the series in the insight's query to monitor. */
     series_index: number
-    type?: 'TrendsAlertConfig'
+    type: TrendsAlertConfigApiType
 }
+
+export type HogQLAlertEvaluationApi = (typeof HogQLAlertEvaluationApi)[keyof typeof HogQLAlertEvaluationApi]
+
+export const HogQLAlertEvaluationApi = {
+    LastRow: 'last_row',
+    FirstRow: 'first_row',
+    AnyRow: 'any_row',
+} as const
+
+export type HogQLAlertConfigApiType = (typeof HogQLAlertConfigApiType)[keyof typeof HogQLAlertConfigApiType]
+
+export const HogQLAlertConfigApiType = {
+    HogQLAlertConfig: 'HogQLAlertConfig',
+} as const
+
+export interface HogQLAlertConfigApi {
+    /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluationApi
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row). */
+    label_column?: string | null
+    type: HogQLAlertConfigApiType
+}
+
+/**
+ * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+ * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+ */
+export type AlertConfigUnionApi = TrendsAlertConfigApi | HogQLAlertConfigApi
 
 export interface PreprocessingConfigApi {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -382,10 +418,10 @@ export type DetectorConfigApi =
 
 /**
  * * `every_15_minutes` - every_15_minutes
- * `hourly` - hourly
- * `daily` - daily
- * `weekly` - weekly
- * `monthly` - monthly
+ * * `hourly` - hourly
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
  */
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
@@ -411,7 +447,7 @@ export interface AlertScheduleRestrictionApi {
 
 /**
  * * `notify` - Notify
- * `suppress` - Suppress
+ * * `suppress` - Suppress
  */
 export type InvestigationInconclusiveActionEnumApi =
     (typeof InvestigationInconclusiveActionEnumApi)[keyof typeof InvestigationInconclusiveActionEnumApi]
@@ -419,6 +455,13 @@ export type InvestigationInconclusiveActionEnumApi =
 export const InvestigationInconclusiveActionEnumApi = {
     Notify: 'notify',
     Suppress: 'suppress',
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
 } as const
 
 export interface AlertApi {
@@ -452,16 +495,16 @@ export interface AlertApi {
      * @nullable
      */
     readonly checks_total: number | null
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -485,10 +528,12 @@ export interface AlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedAlertListApi {
@@ -531,16 +576,16 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly checks_total?: number | null
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
-
-  * `every_15_minutes` - every_15_minutes
-  * `hourly` - hourly
-  * `daily` - daily
-  * `weekly` - weekly
-  * `monthly` - monthly */
+     *
+     * * `every_15_minutes` - every_15_minutes
+     * * `hourly` - hourly
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
@@ -564,10 +609,12 @@ export interface PatchedAlertApi {
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.
-
-  * `notify` - Notify
-  * `suppress` - Suppress */
+     *
+     * * `notify` - Notify
+     * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface AlertSimulateApi {

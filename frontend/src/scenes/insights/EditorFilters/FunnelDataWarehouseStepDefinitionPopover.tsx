@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { DatabaseTablePreview } from 'lib/components/TablePreview/DatabaseTablePreview'
@@ -121,14 +121,20 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
                 </div>
             )}
 
-            <LemonSelect
+            <LemonInputSelect
                 className="mt-2"
+                mode="single"
                 fullWidth
-                value={activeFieldValue}
-                options={activeFieldOptions}
-                onChange={(value: string | null) =>
+                placeholder="Select a column"
+                value={activeFieldIsHogQL ? [''] : activeFieldValue != null ? [activeFieldValue] : null}
+                options={activeFieldOptions.map((option) => ({
+                    key: option.value,
+                    label: option.label,
+                    value: option.value,
+                }))}
+                onChange={(value) =>
                     setLocalDefinition({
-                        [activeFieldKey]: value ?? undefined,
+                        [activeFieldKey]: value.length > 0 ? value[0] : undefined,
                     } as Partial<DataWarehouseTableForInsight>)
                 }
             />

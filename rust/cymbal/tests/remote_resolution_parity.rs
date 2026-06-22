@@ -22,17 +22,17 @@ use async_trait::async_trait;
 use common::{build_event, make_ctx};
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
-use cymbal::stages::resolution::symbol::SymbolResolver;
+use cymbal::langs::native::DebugImage;
+use cymbal::modes::resolution::load_monitor::LoadMonitor;
+use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
 use cymbal::stages::resolution::ResolutionStage;
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
 
 /// Fake symbol resolver shared by both sides of the parity comparison. Every
@@ -48,7 +48,7 @@ impl SymbolResolver for FakeResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }
@@ -161,22 +161,9 @@ async fn local_and_remote_stages_produce_identical_exception_list_for_empty_stac
 
     // Properties derived by PropertiesResolver should also match in both
     // paths, since they're computed from the (parity-checked) exception_list.
-    // `exception_types` / `exception_messages` come back through cymbal's
-    // `unique_by` helper, which round-trips through a HashSet — order is
-    // therefore implementation-defined per run, so we compare as sorted sets.
-    fn sorted(input: Option<Vec<String>>) -> Vec<String> {
-        let mut out = input.unwrap_or_default();
-        out.sort();
-        out
-    }
-    assert_eq!(
-        sorted(local_out.exception_types),
-        sorted(remote_out.exception_types)
-    );
-    assert_eq!(
-        sorted(local_out.exception_messages),
-        sorted(remote_out.exception_messages)
-    );
+    // `unique_by` preserves exception_list order, so compare directly.
+    assert_eq!(local_out.exception_types, remote_out.exception_types);
+    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
     assert_eq!(local_out.exception_handled, remote_out.exception_handled);
 }
 

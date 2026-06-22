@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,16 +10,19 @@ from django.db import models, transaction
 
 import structlog
 
-from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
@@ -164,6 +167,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.data_load.saved_query_service import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
@@ -171,6 +175,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         )
 
         try:
+            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
+            # fails, we honor the failure contract below rather than leaving is_materialized=True
+            # with no schedule backing it.
+            if self.id in get_v2_saved_query_ids([self.id]):
+                if self.sync_frequency_interval is not None:
+                    self.sync_frequency_interval = None
+                    self.save(update_fields=["sync_frequency_interval"])
+                return
+
             self.setup_model_paths()
 
             schedule_exists = saved_query_workflow_exists(self)
@@ -226,6 +241,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
+        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
         from posthog.hogql_queries.query_runner import ExecutionMode
 
         query = self.query or {}
@@ -237,7 +253,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if "kind" not in query and "query" in query:
             query = {"kind": "HogQLQuery", **query}
 
-        response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
+            response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result = getattr(response, "types", [])
 
         if result is None or isinstance(result, int):
@@ -283,7 +300,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -300,7 +318,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):
@@ -317,8 +335,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable]:
+        self, modifiers: Optional["HogQLQueryModifiers"] = None
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable, DirectMySQLTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 

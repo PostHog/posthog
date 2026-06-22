@@ -1,7 +1,7 @@
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::Destination;
 
 /// Transport-agnostic trait declaring an event's identity, routing intent,
@@ -20,18 +20,21 @@ pub trait Event: Send + Sync {
     fn destination(&self) -> &Destination;
 
     /// Resolve the full set of transport headers for this event, using the
-    /// supplied [`Context`] for batch-scoped fields (token, now,
+    /// supplied [`RequestContext`] for batch-scoped fields (token, now,
     /// historical_migration) alongside any event-owned fields. Sinks convert
     /// the returned [`CapturedEventHeaders`] to their backend-specific format
     /// (e.g. `rdkafka::message::OwnedHeaders` via the `From` impl in
     /// `common_types`).
-    fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders;
 
-    /// Write the partition key for this event into `buf`.
-    /// Always writes unconditionally -- the sink decides whether to use it
-    /// or null it based on routing policy (e.g. force_disable_person_processing).
-    fn partition_key(&self, ctx: &Context, buf: &mut String);
+    /// Return the partition key for this event.
+    /// The sink decides whether to use it or null it based on routing policy
+    /// (e.g. force_disable_person_processing).
+    fn partition_key(&self, ctx: &RequestContext) -> String;
 
-    /// Serialize the event payload into a caller-provided buffer.
-    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;
+    /// Serialize the event payload and return the raw bytes. `Bytes` (not
+    /// `String`) so non-UTF-8 / binary payloads (e.g. replay) share this
+    /// contract, and so a serialized payload can be cheaply cloned across
+    /// multiple sinks (dual-write) without re-encoding.
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
 }

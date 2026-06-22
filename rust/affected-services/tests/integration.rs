@@ -360,15 +360,16 @@ fn old_graph_no_changed_files_produces_empty() {
 }
 
 #[test]
-fn two_graph_lockfile_with_identical_graphs_is_noop() {
+fn two_graph_lockfile_triggers_rebuild_all() {
     let (graph, images) = load_test_fixtures();
     let result =
         compute_affected(&["rust/Cargo.lock".into()], Some(&graph), &graph, &images).unwrap();
     assert!(
-        !result.rebuild_all,
-        "two identical graphs should detect no dependency changes from Cargo.lock"
+        result.rebuild_all,
+        "Cargo.lock change should force rebuild-all even with two graphs (feature narrowing is invisible to the determinator)"
     );
-    assert!(result.crates.is_empty());
+    let workspace_count = graph.workspace().iter().count();
+    assert_eq!(result.crates.len(), workspace_count);
 }
 
 #[test]

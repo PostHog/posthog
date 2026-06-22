@@ -43,7 +43,7 @@ class TestTwilioSource:
         assert config.name.value == "Twilio"
         assert config.label == "Twilio"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/twilio.png"
 
         field_names = [f.name for f in config.fields]

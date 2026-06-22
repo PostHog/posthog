@@ -261,7 +261,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     )
 }
 
-type TagListProps = { onMoreClick: () => void; tags: string[] }
+type TagListProps = { onMoreClick?: () => void; tags: string[] }
 
 export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
     return (
@@ -273,7 +273,7 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
             ))}
             {tags.length > 4 && (
                 <Tooltip title={tags.slice(4).join(', ')}>
-                    <LemonTag onClick={onMoreClick} forceClickable>
+                    <LemonTag onClick={onMoreClick} forceClickable={!!onMoreClick}>
                         +{tags.length - 4} more
                     </LemonTag>
                 </Tooltip>

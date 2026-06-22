@@ -334,9 +334,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
-    session_id = django_filters.CharFilter(
+    session_id = MultiChoiceFilter(
         field_name="session_id",
-        help_text="Filter to observations of a specific session recording.",
+        help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
     )
     order_by = _ObservationOrderByFilter(
         help_text=(
@@ -442,7 +442,19 @@ class ReplayObservationViewSet(
         )
 
     @extend_schema(
-        parameters=ReplayObservationFilter.schema_parameters(),
+        parameters=[
+            *ReplayObservationFilter.schema_parameters(),
+            OpenApiParameter(
+                "recent_days",
+                int,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. "
+                    "Defaults to 14 when omitted."
+                ),
+                required=False,
+            ),
+        ],
         responses={200: ObservationStatsSerializer},
         description=(
             "Aggregate counts and per-scanner-type distributions over the filtered observation set. "
@@ -453,7 +465,12 @@ class ReplayObservationViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
         queryset = self.filter_queryset(self.get_queryset())
-        payload = compute_observation_stats(scanner, queryset)
+        recent_days_raw = request.query_params.get("recent_days")
+        try:
+            recent_days = int(recent_days_raw) if recent_days_raw is not None else 14
+        except (TypeError, ValueError):
+            recent_days = 14
+        payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
         return Response(payload)
 
 
@@ -506,7 +523,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         raise NotFound()
 
     @extend_schema(exclude=True)
-    @action(detail=True, methods=["GET"], url_path="progress")
+    @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])
     def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
         """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
 

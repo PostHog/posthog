@@ -451,7 +451,7 @@ class ConversationViewSet(
 
         async def async_stream(
             workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
-        ) -> AsyncGenerator[bytes, None]:
+        ) -> AsyncGenerator[bytes]:
             SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
             SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
 

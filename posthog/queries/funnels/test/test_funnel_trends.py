@@ -5,11 +5,12 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"

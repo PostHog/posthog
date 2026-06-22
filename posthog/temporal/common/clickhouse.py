@@ -528,6 +528,8 @@ class ClickHouseClient:
             The response received from the ClickHouse HTTP interface.
         """
         params = {**self.params}
+        # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
+        params["enable_http_compression"] = "0"
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -747,7 +749,7 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
         line_separator=b"\n",
-    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any]]:
         """Execute the given query in ClickHouse and stream back the response as one JSON per line.
 
         This method makes sense when running with FORMAT JSONEachRow, although we currently do not enforce this.
@@ -770,7 +772,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
-    ) -> typing.Generator[pa.RecordBatch, None, None]:
+    ) -> typing.Generator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStreaming, although we currently do not enforce this.
@@ -786,7 +788,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
-    ) -> typing.AsyncGenerator[pa.RecordBatch, None]:
+    ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.

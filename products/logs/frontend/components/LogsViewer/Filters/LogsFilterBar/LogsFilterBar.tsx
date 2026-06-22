@@ -48,6 +48,8 @@ const taxonomicGroupTypes = [
 
 export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    // When the facet rail is on, Level + Service live in the rail instead of this bar.
+    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
     const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
@@ -60,8 +62,16 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
             <div className="flex flex-col gap-2 w-full bg-primary">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={utcDateRange} />
+                        {!showFacetRail && (
+                            <>
+                                <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
+                                <ServiceFilter
+                                    value={serviceNames}
+                                    onChange={setServiceNames}
+                                    dateRange={utcDateRange}
+                                />
+                            </>
+                        )}
                         <div className="min-w-[300px] max-w-[350px] w-full">
                             <LogsFilterSearch />
                         </div>

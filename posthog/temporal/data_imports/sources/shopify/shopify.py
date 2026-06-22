@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import dataclasses
 from collections.abc import Iterator
@@ -6,7 +7,7 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -40,6 +41,27 @@ SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "app was uninstalled. Please reconnect your Shopify integration."
 )
 
+# Substring of the GraphQL error Shopify returns when the connected access token lacks the
+# scope needed to read a field, e.g. "Access denied for fulfillmentOrders field." or
+# "Access denied for paymentTerms field. Required access: `read_payment_terms` access scope."
+# Retrying can't grant the missing scope — the user must reconnect with expanded permissions —
+# so `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
+# The field name varies, so the match anchors on the stable leading phrase.
+SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
+
+# Shopify's Admin API returns 402 Payment Required when the store is frozen for an unpaid
+# bill — the shop owner must settle their outstanding Shopify balance to unfreeze the store,
+# so retrying the import cannot recover. `requests.raise_for_status` renders this as
+# "402 Client Error: Payment Required for url: https://<store>.myshopify.com/...".
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH = "402 Client Error: Payment Required"
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
+    "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
+    "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
+    "the import will resume."
+)
+
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:
@@ -58,10 +80,47 @@ class ShopifyPermissionError(Exception):
         super().__init__(message)
 
 
-class ShopifyRetryableError(Exception):
-    """Exception raised when Shopify issues a retryable error (e.g. rate limit, 5xx)."""
+# Shopify's GraphQL Admin API rate-limits on a cost-based leaky bucket, so a single bucket
+# can take this long to refill from empty (~2000 points at 100/sec on Plus). Cap the throttle
+# wait here so a malformed `restoreRate` can't stall the worker past its heartbeat.
+_SHOPIFY_MAX_THROTTLE_WAIT_SECONDS = 60.0
 
-    pass
+
+class ShopifyRetryableError(Exception):
+    """Exception raised when Shopify issues a retryable error (e.g. rate limit, 5xx).
+
+    `retry_after`, when set, is the number of seconds Shopify's throttle status says we
+    should wait before the leaky bucket has refilled enough to satisfy the query again.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _throttle_retry_after(payload: Any) -> float | None:
+    """Seconds to wait for the cost bucket to refill enough for the requested query.
+
+    A throttled response carries `extensions.cost` with the points the query needed
+    (`requestedQueryCost`) and how fast the bucket refills (`throttleStatus.restoreRate`),
+    which is exactly how long to back off. Returns None when that data is missing or
+    malformed so the caller falls back to plain exponential backoff.
+    """
+    cost, ok = safe_unwrap(payload, path="extensions.cost")
+    if not ok or not isinstance(cost, dict):
+        return None
+    requested = cost.get("requestedQueryCost")
+    throttle = cost.get("throttleStatus")
+    if not isinstance(requested, int | float) or not isinstance(throttle, dict):
+        return None
+    available = throttle.get("currentlyAvailable")
+    restore_rate = throttle.get("restoreRate")
+    if not isinstance(available, int | float) or not isinstance(restore_rate, int | float) or restore_rate <= 0:
+        return None
+    deficit = requested - available
+    if deficit <= 0:
+        return None
+    return min(deficit / restore_rate, _SHOPIFY_MAX_THROTTLE_WAIT_SECONDS)
 
 
 def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
@@ -70,7 +129,7 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
     if ok:
         serialized_errors = json.dumps(errors).lower()
         if "throttled" in serialized_errors:
-            return ShopifyRetryableError("Shopify: rate limit exceeded...")
+            return ShopifyRetryableError("Shopify: rate limit exceeded...", retry_after=_throttle_retry_after(payload))
         if "internal_server_error" in serialized_errors:
             return ShopifyRetryableError(f"Shopify: internal errors in payload {serialized_errors}")
     currently_available, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.currentlyAvailable")
@@ -78,8 +137,27 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
         # this check is a little liberal. if we find that we are getting rate limited
         # too often might be worth it to check against the requestedCost instead
         if currently_available <= 0:
-            return ShopifyRetryableError("Shopify: rate limit exceeded...")
+            return ShopifyRetryableError("Shopify: rate limit exceeded...", retry_after=_throttle_retry_after(payload))
     return None
+
+
+_shopify_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _shopify_retry_wait(retry_state: RetryCallState) -> float:
+    """Back off exponentially, but never for less than Shopify's reported refill time.
+
+    Plain exponential backoff tops out around 15s across the 5 attempts, which can give up
+    while the cost bucket is still draining. When a rate-limit response told us how long the
+    bucket needs (see `_throttle_retry_after`), honor that instead.
+    """
+    backoff = _shopify_backoff(retry_state)
+    outcome = retry_state.outcome
+    if outcome is not None and not outcome.cancelled():
+        exc = outcome.exception()
+        if isinstance(exc, ShopifyRetryableError) and exc.retry_after is not None:
+            return max(backoff, exc.retry_after)
+    return backoff
 
 
 def _make_paginated_shopify_request(
@@ -97,7 +175,7 @@ def _make_paginated_shopify_request(
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        wait=_shopify_retry_wait,
         reraise=True,
     )
     def execute(vars: dict[str, Any]):
@@ -155,7 +233,43 @@ def _make_paginated_shopify_request(
                 resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
 
+# A Shopify store subdomain is lowercase alphanumerics and hyphens.
+_SHOPIFY_SUBDOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def normalize_store_id(raw: str) -> str:
+    """Reduce whatever the user pasted to the bare Shopify store subdomain.
+
+    The store id is interpolated into ``https://{}.myshopify.com/...``, so a value
+    that already carries a scheme, a path, or the ``.myshopify.com`` suffix builds a
+    broken host (e.g. ``store.myshopify.com.myshopify.com`` or a host of ``https``) —
+    the single biggest cause of Shopify connection failures. Accepts ``my-store``,
+    ``my-store.myshopify.com``, ``https://my-store.myshopify.com`` and the admin
+    deep-link ``https://admin.shopify.com/store/my-store``, all returning ``my-store``.
+
+    Raises ``ValueError`` if the result isn't a plain subdomain, which also pins
+    outbound traffic to ``*.myshopify.com`` (no breaking out to another host).
+    """
+    store_id = (raw or "").strip().lower()
+    store_id = store_id.removeprefix("https://").removeprefix("http://")
+    # Admin deep-link: admin.shopify.com/store/<store-id>[/...]
+    if store_id.startswith("admin.shopify.com/store/"):
+        store_id = store_id.removeprefix("admin.shopify.com/store/")
+    # Drop any path/query/fragment that rode along with a pasted URL.
+    store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # Strip the domain suffix, looping to collapse an accidental double suffix.
+    while store_id.endswith(".myshopify.com"):
+        store_id = store_id.removesuffix(".myshopify.com")
+    if not _SHOPIFY_SUBDOMAIN_RE.match(store_id):
+        raise ValueError(
+            f"Invalid Shopify store id {raw!r}. Enter just your store subdomain — the 'my-store' "
+            "in 'my-store.myshopify.com'."
+        )
+    return store_id
+
+
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
+    # Callers pass an already-normalized store id (see normalize_store_id).
     access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
     access_data = {
         "client_id": shopify_client_id,
@@ -184,8 +298,9 @@ def shopify_source(
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
@@ -289,8 +404,9 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     - Raise ShopifyPermissionError if the access token is valid but lacks permissions for specific resources
     - Raise Exception if the access token is invalid or there's any other error
     """
-    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     sess = make_tracked_session(
         headers={
             "Content-Type": "application/json",

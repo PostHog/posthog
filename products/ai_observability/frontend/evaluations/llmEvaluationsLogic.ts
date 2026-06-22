@@ -1,30 +1,28 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
+import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
 const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
-export interface LLMEvaluationsLogicProps {
-    tabId?: string
-}
+export type LLMEvaluationsLogicProps = Record<string, never>
 
 function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
     router.actions.replace(
@@ -41,7 +39,6 @@ function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): voi
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
-    key((props) => props.tabId ?? 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
@@ -190,6 +187,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!original) {
                     return
                 }
+                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
+                    lemonToast.error('Sentiment evaluations are not available for this project.')
+                    return
+                }
 
                 const duplicate = {
                     name: `${original.name} (Copy)`,
@@ -266,8 +267,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     if (!isTrialLimitReached) {
                         return true
                     }
-                    // Hog evals don't call an LLM and never consume trial quota
-                    if (evaluation.evaluation_type === 'hog') {
+                    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
                         return true
                     }
                     return !!evaluation.model_configuration?.provider_key_id
@@ -278,7 +278,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         unhealthyProviderKeysUsedByEvaluations: [
             (s) => [s.evaluations, s.providerKeys],
             (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {
-                const providerKeysById = new Map(providerKeys.map((key) => [key.id, key]))
                 const seenKeyIds = new Set<string>()
                 const unhealthyProviderKeys: LLMProviderKey[] = []
 
@@ -288,8 +287,8 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                         continue
                     }
 
-                    const providerKey = providerKeysById.get(providerKeyId)
-                    if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    const providerKey = getUnhealthyProviderKey(providerKeys, providerKeyId)
+                    if (!providerKey) {
                         continue
                     }
 
@@ -302,7 +301,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityEvaluations()]: (_, searchParams, __, { method }) => {
             const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
 
@@ -345,7 +344,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.aiObservabilityEvaluations(),
             {

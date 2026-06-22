@@ -14,12 +14,12 @@ import { Region } from '~/types'
 
 import { SignupForm } from '../../signupForm/SignupForm'
 
-export function LegacySignup(): JSX.Element | null {
+function Signup(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST] === 'test'
+    const signupAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST_4_WAY]
 
     const footerHighlights = {
         cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
@@ -41,7 +41,9 @@ export function LegacySignup(): JSX.Element | null {
                 </div>
             }
         >
-            {isAATestVariant && <div data-attr="signup-aa-test-variant" className="hidden" />}
+            {typeof signupAATestVariant === 'string' && (
+                <div data-attr="signup-aa-test-variant" data-variant={signupAATestVariant} className="hidden" />
+            )}
             <SignupForm />
         </AuthShell>
     ) : null
@@ -114,3 +116,5 @@ export function SignupLeftContainer(): JSX.Element {
         </>
     )
 }
+
+export { Signup as LegacySignup }

@@ -1,4 +1,4 @@
-from posthog.schema import PropertyOperator
+from posthog.schema_enums import PropertyOperator
 
 
 def clean_global_properties(properties: dict | list[dict] | None):

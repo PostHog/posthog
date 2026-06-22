@@ -17,9 +17,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { openInAdminPanel } from 'lib/utils/person-actions'
+import { isMobile } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -169,7 +169,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
+export function PersonScene(): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -204,7 +204,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
         return (
@@ -324,15 +324,13 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         label: <span data-attr="persons-events-tab">Events</span>,
                         content: (
                             <Query
-                                uniqueKey={`person-profile-events-${tabId}`}
+                                uniqueKey="person-profile-events"
                                 attachTo={mountedPersonsLogic}
                                 query={eventsQuery}
                                 setQuery={(q) => setEventsQuery(q)}
-                                tabId={tabId}
                                 context={{
                                     insightProps: {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
-                                        tabId,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
                                     customActions: (
@@ -399,11 +397,10 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
                         content: (
                             <Query
-                                uniqueKey={`person-profile-exceptions-${tabId}`}
+                                uniqueKey="person-profile-exceptions"
                                 attachTo={mountedPersonsLogic}
                                 query={exceptionsQuery}
                                 setQuery={(q) => setExceptionsQuery(q)}
-                                tabId={tabId}
                             />
                         ),
                     },
@@ -412,11 +409,10 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
                         content: (
                             <Query
-                                uniqueKey={`person-profile-surveys-${tabId}`}
+                                uniqueKey="person-profile-surveys"
                                 attachTo={mountedPersonsLogic}
                                 query={surveyResponsesQuery}
                                 setQuery={(q) => setSurveyResponsesQuery(q)}
-                                tabId={tabId}
                             />
                         ),
                     },
@@ -513,7 +509,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </SceneContent>
     )
 }
@@ -521,6 +517,22 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    const openInAdminPanel = async (email: string): Promise<void> => {
+        try {
+            const response = await api.users.list(email)
+
+            if (!response.results || response.results.length === 0) {
+                throw new Error('User not found')
+            }
+
+            const userId = response.results[0].id
+            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            lemonToast.error(`Failed to open admin panel: ${message}`)
+        }
+    }
 
     return (
         <LemonButton

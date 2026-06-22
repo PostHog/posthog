@@ -1,8 +1,8 @@
 # Django API endpoints
 
-Django serves the admin/management API for feature flags: CRUD operations, local SDK evaluation, analytics, and organization-level operations. Runtime flag evaluation (`/flags`, `/decide`) is routed directly to the [Rust service](rust-service-overview.md) by Contour/Envoy at the Kubernetes infrastructure level -- these requests never reach Django. Django does make internal service-to-service HTTP calls to the Rust service for actions like `my_flags` and `evaluation_reasons`.
+Django serves the admin/management API for feature flags: CRUD operations, analytics, and organization-level operations. Runtime flag evaluation (`/flags`, `/decide`) is routed directly to the [Rust service](rust-service-overview.md) by Contour/Envoy at the Kubernetes infrastructure level -- these requests never reach Django. Django does make internal service-to-service HTTP calls to the Rust service for actions like `my_flags` and `evaluation_reasons`.
 
-The `/api/feature_flag/local_evaluation` endpoint was historically served by a dedicated Django deployment (`posthog-local-evaluation`). As of April 2026, all local evaluation traffic is served by the Rust definitions fleet at `/flags/definitions` (see [Rust service overview](rust-service-overview.md)). The Django endpoint and deployment are deprecated and pending removal.
+The `/api/feature_flag/local_evaluation` endpoint was historically served by a dedicated Django deployment (`posthog-local-evaluation`). All local evaluation traffic is now served by the Rust definitions fleet at `/flags/definitions` (see [Rust service overview](rust-service-overview.md)). The Django endpoint and deployment have been removed.
 
 ## Architecture overview
 
@@ -54,7 +54,6 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | Method | URL                                                     | Description                                                                     |
 | ------ | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `GET`  | `.../feature_flags/my_flags/`                           | All flags with values for the current user (proxied to Rust service)            |
-| `GET`  | `.../feature_flags/local_evaluation/`                   | Flag definitions for local SDK evaluation (ETag support)                        |
 | `GET`  | `.../feature_flags/evaluation_reasons/`                 | Evaluate flags for a `distinct_id` with match reasons (proxied to Rust service) |
 | `POST` | `.../feature_flags/user_blast_radius/`                  | Estimate how many users a condition affects                                     |
 | `POST` | `.../feature_flags/{pk}/create_static_cohort_for_flag/` | Create a static cohort from matched users                                       |
@@ -70,12 +69,6 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | `POST` | `/api/organizations/{id}/feature_flags/copy_flags/` | Copy a flag from one project to target projects |
 
 ## Key actions in detail
-
-### `local_evaluation`
-
-Returns flag definitions for SDKs that evaluate flags locally (server-side SDKs). Response includes flags (via `MinimalFeatureFlagSerializer`), `group_type_mapping`, and optionally cohort definitions. Supports ETag-based caching. Uses HyperCache with Redis -> S3 -> PostgreSQL fallback.
-
-Requires `ProjectSecretAPIKeyAuthentication`. Rate limited at 600/minute (overridable per team via `LOCAL_EVAL_RATE_LIMITS`). Checks billing quotas via `list_limited_team_attributes`.
 
 ### `my_flags` and `evaluation_reasons`
 

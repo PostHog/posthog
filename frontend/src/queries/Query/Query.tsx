@@ -87,8 +87,6 @@ export interface QueryProps<Q extends Node> {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
-    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
-    tabId?: string
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -144,7 +142,6 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
                 dataAttr={dataAttr}
-                tabId={props.tabId}
             />
         )
     } else if (isDataVisualizationNode(query)) {
