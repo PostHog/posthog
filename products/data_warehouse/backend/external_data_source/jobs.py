@@ -52,18 +52,18 @@ def update_external_job_status(
         # Scoped save so concurrent F-updates to rows_synced aren't clobbered.
         model.save(update_fields=update_fields)
 
-    if status == ExternalDataJob.Status.FAILED:
-        schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
-    else:
-        schema_status = status  # type: ignore
+        if status == ExternalDataJob.Status.FAILED:
+            schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
+        else:
+            schema_status = status  # type: ignore
 
-    if model.schema_id is None:
-        raise ValueError(f"External data job {job_id} is not attached to a schema")
+        if model.schema_id is None:
+            raise ValueError(f"External data job {job_id} is not attached to a schema")
 
-    schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
-    schema.status = schema_status
-    schema.latest_error = latest_error
-    schema.save()
+        schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
+        schema.status = schema_status
+        schema.latest_error = latest_error
+        schema.save(update_fields=["status", "latest_error", "updated_at"])
 
     model.refresh_from_db()
 
