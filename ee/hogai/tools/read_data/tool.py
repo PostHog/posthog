@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, PrivateAttr, create_model
 
 from posthog.schema import (
     ArtifactContentType,
@@ -250,6 +250,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     context_prompt_template: str = (
         "Reads user data created in PostHog (data warehouse schema, saved insights, dashboards, billing information)"
     )
+
+    # Per-instance cache of warehouse table semantics, keyed by table name. The same tool instance
+    # services every `read_data` call in a session, so this avoids re-querying on each table lookup.
+    _semantics_cache: dict[str, dict] = PrivateAttr(default_factory=dict)
 
     @classmethod
     async def create_tool_class(
@@ -494,10 +498,22 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         Pulls the semantic context we already store — the source-table description/label and the
         foreign-key graph on `ExternalDataSchema`, plus any per-column `WarehouseColumnAnnotation`
         rows — so the agent sees what the data means, not just its column types.
+
+        Results are memoized per tool instance (including misses, stored as `{}`) so repeated
+        per-table lookups within a session don't re-fire the underlying queries.
         """
         if not table_names:
             return {}
 
+        missing = table_names - self._semantics_cache.keys()
+        if missing:
+            fetched = self._fetch_warehouse_table_semantics(missing)
+            for name in missing:
+                self._semantics_cache[name] = fetched.get(name, {})
+
+        return {name: self._semantics_cache[name] for name in table_names if self._semantics_cache[name]}
+
+    def _fetch_warehouse_table_semantics(self, table_names: set[str]) -> dict[str, dict]:
         team_id = self._team.pk
         tables = list(DataWarehouseTable.objects.filter(team_id=team_id, name__in=table_names, deleted=False))
         if not tables:
@@ -575,7 +591,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             lines.append("")
             lines.append("Foreign keys (use these to join related tables):")
             for fk in foreign_keys:
-                lines.append(f"- {fk.get('column')} → {fk.get('target_table')}.{fk.get('target_column')}")
+                if not (fk.get("column") and fk.get("target_table")):
+                    continue
+                lines.append(f"- {fk['column']} → {fk['target_table']}.{fk.get('target_column')}")
 
         return "\n".join(lines)
 

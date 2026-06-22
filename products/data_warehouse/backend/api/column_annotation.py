@@ -5,13 +5,15 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class WarehouseColumnAnnotationSerializer(serializers.ModelSerializer):
-    table = serializers.PrimaryKeyRelatedField(
+    # Team-scoped so a table PK from another team never resolves — auto-scopes from serializer context.
+    table = TeamScopedPrimaryKeyRelatedField(
         queryset=DataWarehouseTable.objects.all(),
         help_text="ID of the data warehouse table this annotation describes.",
     )
@@ -51,12 +53,6 @@ class WarehouseColumnAnnotationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "description_source", "ai_model", "is_user_edited", "created_at", "updated_at"]
 
-    def validate_table(self, table: DataWarehouseTable) -> DataWarehouseTable:
-        # Guard against annotating another team's table.
-        if table.team_id != self.context["get_team"]().id:
-            raise serializers.ValidationError("Table not found.")
-        return table
-
 
 class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
@@ -66,7 +62,9 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     enrichment.
     """
 
-    scope_object = "external_data_source"
+    # Annotations describe `DataWarehouseTable` rows, so they live under the warehouse table family —
+    # both the resource-level scope and the per-object filtering below key off `warehouse_table`.
+    scope_object = "warehouse_table"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy"]
     # `.unscoped()` is import-safe (the fail-closed manager raises on `.all()` without team context);
@@ -89,6 +87,13 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: Any) -> Any:
+        # Annotations inherit their table's access: only expose those whose table the user can reach.
+        # Applied for every action (not just list), so retrieve/update/destroy on an annotation for an
+        # inaccessible table 404s through the queryset rather than slipping past object-level checks.
+        accessible_tables = self.user_access_control.filter_queryset_by_access_level(
+            DataWarehouseTable.objects.filter(team_id=self.team_id)
+        )
+        queryset = queryset.filter(table__in=accessible_tables)
         table_id = self.request.query_params.get("table_id")
         if table_id:
             queryset = queryset.filter(table_id=table_id)

@@ -183,9 +183,6 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         annotation.column_name: annotation
         for annotation in WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table.id)
     }
-    # Idempotency: a table that's already been enriched is left alone (users may have edited it).
-    if existing:
-        return {"status": "skipped", "reason": "already_enriched"}
 
     metadata = schema.schema_metadata or {}
     columns = [column for column in (metadata.get("columns") or []) if isinstance(column, dict) and column.get("name")]
@@ -194,9 +191,16 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     columns = columns[:MAX_COLUMNS_PER_TABLE]
     foreign_keys = schema.foreign_keys or []
 
+    # Idempotency: columns that already carry an annotation (native, AI, or user-edited) are left
+    # untouched so we preserve edits and don't redo work. Only columns without one are enriched —
+    # which also lets a later re-sync fill in columns added after the first enrichment pass.
+    new_columns = [column for column in columns if column["name"] not in existing]
+    if not new_columns:
+        return {"status": "skipped", "reason": "already_enriched"}
+
     # 1) Native comments are authoritative — persist them directly, no LLM.
     native_count = 0
-    for column in columns:
+    for column in new_columns:
         description = column.get("description")
         if description:
             _upsert_annotation(
@@ -204,11 +208,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             )
             native_count += 1
 
-    described_columns = {column["name"] for column in columns if column.get("description")}
-    columns_needing_description = [column["name"] for column in columns if column["name"] not in described_columns]
+    columns_needing_description = [column["name"] for column in new_columns if not column.get("description")]
 
     table_has_description = bool(schema.description)
-    if not columns_needing_description and table_has_description:
+    # Only write a table-level description on the genuine first pass — never overwrite an existing one.
+    table_needs_description = not table_has_description and "" not in existing
+    if not columns_needing_description and not table_needs_description:
         return {"status": "done", "native_annotations": native_count, "ai_annotations": 0}
 
     # 2) LLM pass for everything still undescribed.
@@ -241,9 +246,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
                 )
                 ai_count += 1
 
-    # Table-level description only when the source schema doesn't already carry one.
+    # Table-level description only when neither the source schema nor a prior run carries one.
     table_description = generated.get("table_description")
-    if not table_has_description and isinstance(table_description, str) and table_description.strip():
+    if table_needs_description and isinstance(table_description, str) and table_description.strip():
         _upsert_annotation(
             team, table, "", table_description.strip(), WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
         )
@@ -259,7 +264,7 @@ def _upsert_annotation(
     description: str,
     source: str,
 ) -> None:
-    """Persist one annotation. Reached only when the table has no annotations yet (see caller's guard)."""
+    """Persist one annotation. Reached only for columns without an existing annotation (see caller's guard)."""
     WarehouseColumnAnnotation.objects.for_team(team.id).update_or_create(
         table=table,
         column_name=column_name,

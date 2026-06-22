@@ -174,3 +174,39 @@ class TestEnrichTableSemanticsSync:
         mock_llm.assert_not_called()
         assert result == {"status": "skipped", "reason": "already_enriched"}
         assert _annotations(team, table)["status"].description == "user wrote this"
+
+    def test_enriches_only_columns_added_after_initial_run(self):
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}],
+            description="Stripe charges",
+        )
+        # The first run already annotated the original column.
+        WarehouseColumnAnnotation.objects.for_team(team.pk).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            description="charge amount in cents",
+            description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+        )
+        # A new column shows up on the source after a later sync.
+        schema.sync_type_config["schema_metadata"]["columns"].append(
+            {"name": "currency", "data_type": "String", "is_nullable": True}
+        )
+        schema.save()
+
+        generated = {"columns": {"currency": "ISO currency code"}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        # Only the newly-added column is sent to the LLM; the existing annotation is left untouched.
+        assert mock_llm.call_args.kwargs["columns_needing_description"] == ["currency"]
+        assert result["status"] == "done"
+        annotations = _annotations(team, table)
+        assert annotations["amount"].description == "charge amount in cents"
+        assert annotations["currency"].description == "ISO currency code"
