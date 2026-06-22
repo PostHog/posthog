@@ -28,14 +28,14 @@ class Migration(migrations.Migration):
                 (
                     "observation_id",
                     models.UUIDField(
-                        help_text="The observation this receipt accounts for. Plain id (no FK) so deletes can't refund spent quota.",
+                        help_text="The observation this receipt accounts for (plain id, no FK).",
                         unique=True,
                     ),
                 ),
                 (
                     "observation_created_at",
                     models.DateTimeField(
-                        help_text="Copied from the observation's created_at; the monthly quota window filters on this."
+                        help_text="The observation's created_at; the monthly quota window filters on this."
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
