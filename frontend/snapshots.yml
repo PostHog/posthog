@@ -4589,9 +4589,9 @@ snapshots:
     scenes-app-ai-observability-skills--skill-detail-stacked-below-2-xl-breakpoint--wide--light:
         hash: v1.k794b7964.ef580d47a394f197ebb785c2cac8156ae7e76b62d3220ea7f7b6f2a0609803e6.8rGPQkHXBXwGCatN1swSo0VYg_ZFgpa2fksd77fzWjM
     scenes-app-ai-observability-trace--full--dark:
-        hash: v1.k794b7964.c96ac17075c438842f6c9cba3108ad203ac5c6f5b2623e9eb6cee27850f4121a.cLPI-cVw9u_9N1Zrt8FTQs9NzQ7VCNiXUHUdMVbN9qM
+        hash: v1.k794b7964.296994af982eb0b096056e11cc548d5791b42341cd327c1180c6d1fc23c9c720.pPgjmtw4EdGMKMSIHvGQvnlFjAWDprUj7Z0jknbgqjk
     scenes-app-ai-observability-trace--full--light:
-        hash: v1.k794b7964.b361829cf7d87f44cbe435c630a53d23ad9c8af9db114bafaa23bff6fbf0a7e4.olin-_LNlWRvmiXuuiNcUhhOx-MCJxFMRs3-bucQMSI
+        hash: v1.k794b7964.0398131af102984194753213ba780df939fbac0ed16332dfcdf9b3f1d669039f.cBBkp-j7nvJSLV9qCgvrbHaPBDIpSTENFUTv_eY6URk
     scenes-app-ai-observability-trace--full-specific-event--dark:
         hash: v1.k794b7964.4de8815628861bb8b08d047d21715c4092708765ad0fd33e0e1579f2a33001b3.AEqiNKEtRaO1aI9cnGWv8PLtlutECNuaoqqxFCW9XP0
     scenes-app-ai-observability-trace--full-specific-event--light:
@@ -4925,9 +4925,9 @@ snapshots:
     scenes-app-dashboards-templates-dashboard-template-copy--no-other-projects-in-organization--light:
         hash: v1.k794b7964.8d4cd29cef2f26f584fb54d8b66c4876ae47ad47c2c66d64df84e5fd39729a1b.07RDbDS_E-gMcaMuHJ_R9xJQB3iSqPEFC3Evki06JKs
     scenes-app-dashboards-templates-dashboard-template-item--all-versions--dark:
-        hash: v1.k794b7964.d1098ac00a7e4c40046b4d63cd9d1fd016d2d01b59b9022255319cdd9021e48c.Eu1n4qQvklGLxTj0LLacq7mobvT7POSt7fF8RMG2gf8
+        hash: v1.k794b7964.8f83c895019a337882bcac444733732bb0a57a7421e6718b5c7c7c317c84400b.SOZti1GSGhhlmxr3qj2eo-ebKUOvnmYAEyA5SdmriD0
     scenes-app-dashboards-templates-dashboard-template-item--all-versions--light:
-        hash: v1.k794b7964.489fcd39fd9a402472ccf4640182ee311ada8843e7cfd18779108a6c96f56be0.WTls6owUdMJZhF0JhBsHei4plrD-EdPYhT2pmZSwVCk
+        hash: v1.k794b7964.47245a2743b22d31145f254c8220a3a7dbc38e54a47983afacbc6029cabbded6.pQq49ny9VD9tcmb9Pd9A_vVV3k-Kl7jXNT-OIsklq-g
     scenes-app-dashboards-templates-dashboard-templates-table--default--dark:
         hash: v1.k794b7964.4196daeefa23df95ea8a8e0050c7ed33ccbe7eda0826d86f76714fd61d9aee07.ccK2iI3xPtiuBJU88n45tC0Q2UdWu_VKLgSd0dT7Xv0
     scenes-app-dashboards-templates-dashboard-templates-table--default--light:
