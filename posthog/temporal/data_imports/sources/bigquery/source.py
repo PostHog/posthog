@@ -50,6 +50,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
             "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            # Raised from `bigquery_client` when `service_account.Credentials.from_service_account_info`
+            # parses the uploaded key file's `private_key`. A truncated or corrupted PEM body (wrong
+            # padding, stray characters, copy-paste damage) makes the `cryptography` backend reject it
+            # as a `ValueError: Unable to load PEM file. ... InvalidData(InvalidPadding)`. The key can't
+            # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
+            # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
+            "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
