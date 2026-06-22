@@ -52,11 +52,9 @@ def _execute_events_list_query(runner: EventsQueryRunner, database: Database) ->
 class LegacyEventsListQuery:
     """Backing query for the deprecated events list REST API (`posthog/api/event.py`).
 
-    Translates the old endpoint's loose query params into a typed HogQL `EventsQuery` and runs it
-    through `EventsQueryRunner`, reproducing the legacy response shape. It replaces the hand-written
-    raw-SQL path that used to live in `query_event_list.py`. The HogQL schema (database + modifiers)
-    is built once here and reused across every progressive-window probe the viewset issues, so it
-    isn't rebuilt per probe.
+    Translates the endpoint's loose query params into a typed HogQL `EventsQuery` and runs it
+    through `EventsQueryRunner`. The HogQL schema (database + modifiers) is built once here and
+    reused across every progressive-window probe the viewset issues, so it isn't rebuilt per probe.
 
     New code should build an `EventsQuery` (or use the `/query` endpoint) directly, not this.
     """
@@ -141,8 +139,8 @@ class LegacyEventsListQuery:
         events_query = EventsQuery(
             select=EVENT_LIST_SELECT_COLUMNS,
             before=before_dt.isoformat(),
-            # "all" disables the runner's lower timestamp bound — matches the legacy path, which
-            # applied no `timestamp >` condition when there was no `after` and no window.
+            # "all" disables the runner's default 24h lower bound: with no `after` and no window,
+            # the query has no lower timestamp bound at all.
             after=after_dt.isoformat() if after_dt is not None else "all",
             event=event or None,
             personId=str(person_id) if person_id else None,

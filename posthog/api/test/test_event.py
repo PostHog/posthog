@@ -1282,9 +1282,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestEventListRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
-    """The list endpoint rejects requests that reference a property the user can't read,
-    before running any query. Exercises `_reject_restricted_property_references`."""
-
     def setUp(self):
         super().setUp()
         from posthog.constants import AvailableFeature
