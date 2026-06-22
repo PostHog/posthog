@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -15540,7 +15540,11 @@ export namespace Schemas {
      * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
      * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16174,7 +16178,11 @@ export namespace Schemas {
       Lightfield: 'Lightfield',
       Appstack: 'Appstack',
       Razorpay: 'Razorpay',
+      Neon: 'Neon',
+      NewRelic: 'NewRelic',
       Custom: 'Custom',
+      Tile38: 'Tile38',
+      Chatwoot: 'Chatwoot',
     } as const;
 
     /**
@@ -16815,7 +16823,11 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
-       * * `Custom` - Custom */
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17212,6 +17224,26 @@ export namespace Schemas {
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
     }
+
+    /**
+     * * `already_fixed` - Already fixed
+     * * `report_unclear` - Report is unclear to me
+     * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wontfix_intentional` - Won't fix - intentional behavior
+     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `other` - Something else…
+     */
+    export type DismissalReasonEnum = typeof DismissalReasonEnum[keyof typeof DismissalReasonEnum];
+
+
+    export const DismissalReasonEnum = {
+      AlreadyFixed: 'already_fixed',
+      ReportUnclear: 'report_unclear',
+      AnalysisWrong: 'analysis_wrong',
+      WontfixIntentional: 'wontfix_intentional',
+      WontfixIrrelevant: 'wontfix_irrelevant',
+      Other: 'other',
+    } as const;
 
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
@@ -21898,7 +21930,11 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
-       * * `Custom` - Custom */
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -25977,6 +26013,59 @@ export namespace Schemas {
       Vercel: 'vercel',
     } as const;
 
+    export interface IntegrationAccessRequest {
+      /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+       *
+       * * `anthropic` - Anthropic
+       * * `apns` - Apple Push
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `hubspot` - Hubspot
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `reddit-ads` - Reddit Ads
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel */
+      kind: IntegrationKindEnum;
+      /**
+         * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+         * @maxLength 2000
+         */
+      reason: string;
+    }
+
+    export interface IntegrationAccessRequestResponse {
+      /** Whether the access request was accepted and the project admins were notified. */
+      success: boolean;
+    }
+
     /**
      * Standard Integration serializer.
      */
@@ -28741,6 +28830,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion: boolean | null;
+    }
+
+    export interface OrganizationAIAccessRequestResponse {
+      /** Whether the access request was accepted and the organization admins were notified. */
+      success: boolean;
     }
 
     /**
@@ -34159,6 +34253,15 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    /**
+     * Payload for publishing a freeform canvas's React source via the agent.
+     */
+    export interface PatchedCanvasPublish {
+      code?: string;
+      prompt?: string;
+      name?: string;
     }
 
     export interface PatchedClusteringJob {
@@ -44444,7 +44547,7 @@ export namespace Schemas {
          */
       content: string;
       /**
-         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
          * @nullable
          */
       run_id?: string | null;
@@ -45297,22 +45400,92 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
-    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+    export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
 
-    export const SignalReportStateRequestStateEnum = {
+    export const SignalReportStateEnum = {
       Suppressed: 'suppressed',
       Potential: 'potential',
     } as const;
+
+    export interface SignalReportBulkStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+       *
+       * * `suppressed` - suppressed
+       * * `potential` - potential */
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+      /**
+         * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+         * @minimum 1
+         * @maximum 100000
+         */
+      snooze_for?: number;
+      /**
+         * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.
+         * @maxItems 100
+         */
+      ids: string[];
+    }
+
+    export interface SignalReportBulkStateResult {
+      /** The report id this result refers to. */
+      id: string;
+      /** One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you. */
+      outcome: string;
+      /**
+         * The report's status after the transition. Present only when outcome is 'transitioned'.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkStateResponse {
+      /** One result per requested id, in request order (after de-duplication). */
+      results: SignalReportBulkStateResult[];
+      /** Number of reports whose state was changed. */
+      transitioned_count: number;
+      /** Number of reports whose transition was not allowed. */
+      skipped_count: number;
+      /** Number of reports that failed on invalid request data. */
+      failed_count: number;
+      /** Number of requested ids not visible to the caller. */
+      not_found_count: number;
+    }
 
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential */
-      state: SignalReportStateRequestStateEnum;
-      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-      dismissal_reason?: string;
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
       /**
          * Optional free-form note explaining the dismissal. Capped at 4000 characters.
          * @maxLength 4000
@@ -46471,7 +46644,11 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
-       * * `Custom` - Custom */
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -47138,7 +47315,11 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
-       * * `Custom` - Custom */
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -48218,6 +48399,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /**
+         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
+         * @maxLength 120
+         */
+      home_quick_action?: string;
     }
 
     /**

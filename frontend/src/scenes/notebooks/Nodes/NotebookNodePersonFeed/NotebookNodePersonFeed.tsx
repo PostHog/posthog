@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -11,8 +10,7 @@ import { personLogic } from 'scenes/persons/personLogic'
 
 import { PersonType } from '~/types'
 
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
-
+import { getCustomerProfileRemoveMenuItem } from '../customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { AISessionSummary } from './AISessionSummary/AISessionSummary'
@@ -56,20 +54,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
     const mountedPersonFeedLogic = notebookNodePersonFeedLogic({ personId: id })
     useAttachedLogic(mountedPersonFeedLogic, notebookLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
-    const { removeNode } = useActions(customerProfileLogic)
 
     const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
 
     useOnMountEffect(() => {
-        setMenuItems([
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.PersonFeed),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.PersonFeed)
+        if (removeMenuItem) {
+            setMenuItems([removeMenuItem])
+        }
     })
 
     if (!expanded) {

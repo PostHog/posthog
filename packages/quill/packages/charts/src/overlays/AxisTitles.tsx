@@ -7,6 +7,8 @@ import { AXIS_LABEL_FONT, measureLabelWidth } from '../utils/text-measure'
 export interface AxisTitlesProps {
     xAxisLabel?: string
     yAxisLabel?: string
+    /** Title for the right-side y-axis on a dual-axis chart. */
+    yAxisLabelRight?: string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor: string
@@ -68,6 +70,7 @@ function truncateAxisTitle(label: string, maxWidth: number): string {
 export function AxisTitles({
     xAxisLabel,
     yAxisLabel,
+    yAxisLabelRight,
     hideXAxis,
     hideYAxis,
     axisColor,
@@ -75,21 +78,27 @@ export function AxisTitles({
     const { dimensions } = useChartLayout()
     const fullXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const fullYAxisLabel = normalizeAxisLabel(yAxisLabel)
+    const fullYAxisLabelRight = normalizeAxisLabel(yAxisLabelRight)
     const showXAxisTitle = !hideXAxis && !!fullXAxisLabel
     const showYAxisTitle = !hideYAxis && !!fullYAxisLabel
+    const showYAxisTitleRight = !hideYAxis && !!fullYAxisLabelRight
 
-    if (!showXAxisTitle && !showYAxisTitle) {
+    if (!showXAxisTitle && !showYAxisTitle && !showYAxisTitleRight) {
         return null
     }
 
     const xCenter = dimensions.plotLeft + dimensions.plotWidth / 2
     const xBaseline = dimensions.height - X_AXIS_TITLE_BASELINE_OFFSET
     const yCenter = dimensions.plotTop + dimensions.plotHeight / 2
+    const rightTitleX = dimensions.width - Y_AXIS_TITLE_X
     const xTitle = fullXAxisLabel
         ? truncateAxisTitle(fullXAxisLabel, Math.max(0, dimensions.plotWidth - TITLE_EDGE_PADDING * 2))
         : undefined
     const yTitle = fullYAxisLabel
         ? truncateAxisTitle(fullYAxisLabel, Math.max(0, dimensions.plotHeight - TITLE_EDGE_PADDING * 2))
+        : undefined
+    const yTitleRight = fullYAxisLabelRight
+        ? truncateAxisTitle(fullYAxisLabelRight, Math.max(0, dimensions.plotHeight - TITLE_EDGE_PADDING * 2))
         : undefined
 
     return (
@@ -120,6 +129,21 @@ export function AxisTitles({
                     style={AXIS_TITLE_STYLE}
                 >
                     {yTitle}
+                </text>
+            )}
+            {showYAxisTitleRight && yTitleRight && (
+                <text
+                    data-attr="hog-chart-axis-title-yr"
+                    data-full-label={fullYAxisLabelRight}
+                    x={rightTitleX}
+                    y={yCenter}
+                    fill={axisColor}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    transform={`rotate(90 ${rightTitleX} ${yCenter})`}
+                    style={AXIS_TITLE_STYLE}
+                >
+                    {yTitleRight}
                 </text>
             )}
         </svg>
