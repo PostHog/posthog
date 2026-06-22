@@ -21,6 +21,12 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'short', label: 'Short Number' },
 ]
 
+// The Metric display type reads as a single headline number, so it defaults to short numbers (e.g. "1.2k");
+// other displays have no default unit. Returns the format to fall back to when none is explicitly set.
+export const defaultAggregationAxisFormatForDisplay = (
+    display: ChartDisplayType | null | undefined
+): AggregationAxisFormat | undefined => (display === ChartDisplayType.Metric ? 'short' : undefined)
+
 export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> = {
     numeric: '',
     duration: 's',
