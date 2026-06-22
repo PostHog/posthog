@@ -344,6 +344,7 @@ def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
         title_manually_set=task.title_manually_set,
         description=task.description,
         origin_product=task.origin_product,
+        task_kind=task.task_kind,
         repository=task.repository,
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
