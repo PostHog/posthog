@@ -1,3 +1,4 @@
+// temporary marker to validate frontend/storybook CI still triggers for products/**/*.tsx changes — remove before any merge
 import React from 'react'
 
 import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
