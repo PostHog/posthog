@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -35,12 +34,11 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
-from posthog.models.event.legacy_events_query import EVENT_LIST_SELECT_COLUMNS, LegacyEventsListQuery
+from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -53,13 +51,7 @@ from posthog.rate_limit import (
     EventValuesSustainedThrottle,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.utils import (
-    convert_property_value,
-    flatten,
-    generate_short_id,
-    refresh_requested_by_client,
-    relative_date_parse,
-)
+from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
 
 tracer = trace.get_tracer(__name__)
 
@@ -71,47 +63,6 @@ EVENT_VALUES_COUNTER = Counter(
 
 QUERY_DEFAULT_EXPORT_LIMIT = 1_000
 EVENT_LIST_MAX_LIMIT = 1_000
-
-# Progressive time windows in seconds: 1min, 5min, 15min, 1hr, 6hr, 24hr
-EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
-EVENT_LIST_CACHE_TTL = 86400  # 24 hours
-EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
-
-
-def _get_limit_size_category(limit: int) -> str:
-    """Groups limits into size categories to limit cache key cardinality."""
-    if limit < 1000:
-        return "s"
-    elif limit < 10000:
-        return "m"
-    return "l"
-
-
-def _get_event_list_cache_key(
-    team_id: int,
-    has_event_filter: bool,
-    has_distinct_id: bool,
-    limit: int,
-) -> str:
-    """
-    Generate a cache key for the event list progressive window optimization.
-
-    The cache stores {"window": int, "result_count": int} to track which time
-    window worked and how many results it returned. When reading from cache,
-    we only use the cached window if its result_count >= half_limit for the
-    current request. This prevents the bug where a cached window that succeeded
-    for a smaller limit (e.g., 4999 with half_limit=2499) is incorrectly used
-    for a larger limit (e.g., 6000 with half_limit=3000) that needs more results.
-
-    We use size categories (s/m/l) instead of exact limits to bound cache key
-    cardinality to ~3 keys per team/filter combination. Within a size category,
-    different limits share the same cache key but have different half_limit
-    thresholds - the result_count validation handles this.
-    """
-    event_flag = "1" if has_event_filter else "0"
-    distinct_id_flag = "1" if has_distinct_id else "0"
-    size_category = _get_limit_size_category(limit)
-    return f"{EVENT_LIST_CACHE_KEY_PREFIX}:{team_id}:{event_flag}:{distinct_id_flag}:{size_category}"
 
 
 # Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
@@ -340,97 +291,19 @@ class EventViewSet(
             restricted_context = self._get_restricted_properties_context(request, team)
             self._reject_restricted_property_references(properties, order_by, restricted_context)
 
-            # Progressive time window optimization
-            # Start with cached good_period or smallest window
-            has_event_filter = bool(request.GET.get("event"))
-            has_distinct_id = bool(request.GET.get("distinct_id"))
-            cache_key = _get_event_list_cache_key(team.pk, has_event_filter, has_distinct_id, limit)
-            cached_data = cache.get(cache_key)
-
-            # Calculate the user's requested time range in seconds
-            request_window_seconds: Optional[int] = None
-            if request.GET.get("before") and request.GET.get("after"):
-                try:
-                    before_dt = relative_date_parse(request.GET["before"], team.timezone_info)
-                    after_dt = relative_date_parse(request.GET["after"], team.timezone_info)
-                    request_window_seconds = int((before_dt - after_dt).total_seconds())
-                except (ValueError, TypeError):
-                    pass
-
-            # Build list of windows to try, only those shorter than request window
-            windows_to_try = [
-                w for w in EVENT_LIST_TIME_WINDOWS if request_window_seconds is None or w < request_window_seconds
-            ]
-
-            half_limit = max(limit // 2, 1)  # At least 1 result required
-
-            # Only use cached window if it returned enough results for our threshold.
-            # This prevents the bug where a cached window that succeeded for a smaller
-            # limit (e.g., 4999 with half_limit=2499) is used for a larger limit
-            # (e.g., 6000 with half_limit=3000) that needs more results.
-            cached_window = None
-            if cached_data and isinstance(cached_data, dict):
-                cached_result_count = cached_data.get("result_count", 0)
-                if cached_result_count >= half_limit:
-                    cached_window = cached_data.get("window")
-            elif cached_data and isinstance(cached_data, int):
-                # Backwards compatibility: old cache format was just the window integer
-                cached_window = cached_data
-
-            if cached_window and cached_window in windows_to_try:
-                windows_to_try.remove(cached_window)
-                windows_to_try.insert(0, cached_window)
-
-            task_id = generate_short_id()
-
-            # The query object builds the HogQL schema once and reuses it across every window
-            # probe — otherwise the progressive-window loop would rebuild the (data-warehouse-aware)
-            # database per probe.
             request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
-            events_query = LegacyEventsListQuery(team, request_user)
-            page_kwargs: dict[str, Any] = {
-                "limit": limit,
-                "offset": offset,
-                "order": order,
-                "before": request.GET.get("before"),
-                "after": request.GET.get("after"),
-                "event": request.GET.get("event"),
-                "person_id": request.GET.get("person_id"),
-                "distinct_id": request.GET.get("distinct_id"),
-                "properties": properties,
-                "action_id": request.GET.get("action_id"),
-            }
-
-            with get_events_list_rate_limiter().run(team_id=team.pk, task_id=task_id):
-                query_result: list = []
-                has_more = False
-                successful_window: Optional[int] = None
-                applied_window: Optional[int] = None
-
-                for window in windows_to_try:
-                    query_result, has_more, applied_window = events_query.run_page(
-                        **page_kwargs, time_window_seconds=window
-                    )
-
-                    # If window wasn't applied (e.g., ASC order), don't try other windows
-                    if applied_window is None:
-                        break
-
-                    if len(query_result) >= half_limit:
-                        successful_window = window
-                        break
-
-                if successful_window:
-                    # Cache the successful window AND result count for future requests.
-                    # This allows requests with smaller limits to reuse cached windows,
-                    # while requests with larger limits will find their own windows.
-                    # Cache format: {"window": int, "result_count": int} (or int for legacy)
-                    new_cache_data = {"window": successful_window, "result_count": len(query_result)}
-                    if new_cache_data != cached_data:
-                        cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
-                elif applied_window is not None or not windows_to_try:
-                    # Windows were applied but didn't return enough results, or no windows to try - run full query
-                    query_result, has_more, applied_window = events_query.run_page(**page_kwargs)
+            query_result, has_more = LegacyEventsListQuery(team, request_user).run(
+                limit=limit,
+                offset=offset,
+                order=order,
+                before=request.GET.get("before"),
+                after=request.GET.get("after"),
+                event=request.GET.get("event"),
+                person_id=request.GET.get("person_id"),
+                distinct_id=request.GET.get("distinct_id"),
+                properties=properties,
+                action_id=request.GET.get("action_id"),
+            )
 
             context = {**restricted_context}
             if request.query_params.get("include_person", "").lower() in ("true", "1"):
@@ -494,20 +367,11 @@ class EventViewSet(
                 status=400,
             )
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=[column]) for column in EVENT_LIST_SELECT_COLUMNS],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["uuid"]),
-                right=ast.Constant(value=uuid.UUID(pk)),
-            ),
-        )
-        result = execute_hogql_query(query, team=self.team, query_type="event_detail")
-        if not result.results:
+        event = get_one_event(self.team, pk)
+        if event is None:
             raise NotFound(detail=f"No events exist for event UUID {pk}")
 
-        query_result = [dict(zip(EVENT_LIST_SELECT_COLUMNS, result.results[0]))]
+        query_result = [event]
         query_context = {**self._get_restricted_properties_context(request, self.team)}
         if request.query_params.get("include_person", "").lower() in ("true", "1"):
             query_context["people"] = self._get_people(query_result, self.team)

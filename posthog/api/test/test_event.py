@@ -1336,7 +1336,7 @@ class TestEventListRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
 
 class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_cache_key_generation(self):
-        from posthog.api.event import _get_event_list_cache_key, _get_limit_size_category
+        from posthog.models.event.legacy_events_query import _get_event_list_cache_key, _get_limit_size_category
 
         # Test limit size categories
         assert _get_limit_size_category(100) == "s"
@@ -1354,7 +1354,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         assert _get_event_list_cache_key(123, True, True, 5000) == "event_list_good_period:123:1:1:m"
         assert _get_event_list_cache_key(123, True, True, 15000) == "event_list_good_period:123:1:1:l"
 
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_caches_successful_window_with_result_count(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None  # No cached window
@@ -1385,7 +1385,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         assert cached_data == {"window": 60, "result_count": 50}
         assert call_args[0][2] == 86400  # TTL
 
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_uses_cached_window_when_result_count_meets_threshold(self, patch_execute_query, mock_cache):
         # Cached window with result_count >= half_limit (60 >= 50 for limit=100)
@@ -1416,7 +1416,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         mock_cache.set.assert_not_called()
 
     @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 6000)
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query.LegacyEventsListQuery.run_page")
     def test_ignores_cached_window_when_result_count_below_threshold(self, mock_run_page, mock_cache):
         """
@@ -1461,7 +1461,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         cached_data = mock_cache.set.call_args[0][1]
         assert cached_data == {"window": 60, "result_count": 3500}
 
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query.LegacyEventsListQuery.run_page")
     def test_backwards_compat_uses_old_integer_cache_format(self, mock_run_page, mock_cache):
         """
@@ -1498,7 +1498,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         cached_data = mock_cache.set.call_args[0][1]
         assert cached_data == {"window": 3600, "result_count": 50}
 
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_does_not_cache_when_fallback_used(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None
@@ -1573,7 +1573,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # No windows < 30s, so straight to fallback = 1 call
         assert patch_execute_query.call_count == 1
 
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_different_cache_keys_for_different_filters(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None
@@ -1621,7 +1621,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
             ("many_results", 5),
         ]
     )
-    @patch("posthog.api.event.cache")
+    @patch("posthog.models.event.legacy_events_query.cache")
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_asc_order_skips_window_optimization(self, _name, num_results, patch_execute_query, mock_cache):
         """
