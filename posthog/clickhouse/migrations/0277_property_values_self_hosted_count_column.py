@@ -1,0 +1,39 @@
+from posthog import settings
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.property_values import (
+    DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL,
+    DROP_PROPERTY_VALUES_MV_SQL,
+    KAFKA_PROPERTY_VALUES_TABLE_SQL_FN,
+    PROPERTY_VALUES_MV_SQL,
+)
+
+# Recreate the Kafka engine table and Materialized View for property values.
+# On self-hosted deployments, migrations 0257 and 0268 were skipped due to CLOUD_DEPLOYMENT
+# guards, leaving the kafka_property_values table without the property_count column.
+# When migration 0270 ran, it unconditionally dropped and recreated the MV referencing property_count,
+# which failed. This migration drops and recreates them everywhere to restore correctness.
+
+if settings.CLOUD_DEPLOYMENT == "DEV":
+    _ROLES = [NodeRole.DATA]
+else:
+    _ROLES = [NodeRole.AUX]
+
+operations = [
+    run_sql_with_exceptions(
+        DROP_PROPERTY_VALUES_MV_SQL(),
+        node_roles=_ROLES,
+    ),
+    run_sql_with_exceptions(
+        DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL(),
+        node_roles=_ROLES,
+    ),
+    run_sql_with_exceptions(
+        KAFKA_PROPERTY_VALUES_TABLE_SQL_FN(),
+        node_roles=_ROLES,
+    ),
+    run_sql_with_exceptions(
+        PROPERTY_VALUES_MV_SQL(),
+        node_roles=_ROLES,
+    ),
+]
