@@ -180,6 +180,7 @@ export function CreateMenu(): JSX.Element {
                     )
                 }
                 return (
+
                     <DropdownMenuItem
                         key={item.id}
                         asChild
@@ -187,12 +188,14 @@ export function CreateMenu(): JSX.Element {
                             e.stopPropagation()
                             navigateToItem(item)
                         }}
+                        data-attr={`create-menu-new-${itemKey}-button`}
                     >
-                        <ButtonPrimitive menuItem data-attr={`create-menu-new-${itemKey}-button`}>
+                        <ButtonPrimitive menuItem>
                             {item.icon}
                             {labelFor(item)}
                         </ButtonPrimitive>
                     </DropdownMenuItem>
+
                 )
             })}
         </DropdownMenuGroup>
