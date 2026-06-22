@@ -746,6 +746,14 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
+            - name: Wait for Temporal
+              # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
+              # via sync_connect() in their tests, so keep a readiness gate before tests run.
+              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # The expensive registration command this replaces is gone — no product test
+              # needs the custom search attributes against the container.
+              run: bin/wait-for-docker temporal
+
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
               # .test_durations. Restore the newest cache (refreshed daily) over the committed
