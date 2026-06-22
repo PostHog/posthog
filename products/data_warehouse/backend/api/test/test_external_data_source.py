@@ -9214,6 +9214,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
         assert source.direct_query_enabled is False
 
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
+        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
