@@ -899,6 +899,25 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             == canonical_names
         )
 
+    def test_sync_respects_withheld_skills_holdback(self) -> None:
+        # A scout held back via the `signals-scout` flag denylist must not be seeded or
+        # config-materialized by the on-demand sync endpoint, the same as the scheduled path. The
+        # holdback resolves through `team_limits.withheld_skills_for_team`, so patch the flag read
+        # there (same module `_METADATA_PAYLOAD_PATH` points at).
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        skill_names = {c["skill_name"] for c in response.json()}
+        assert "signals-scout-error-tracking" not in skill_names
+        assert "signals-scout-general" in skill_names
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking", deleted=False).exists()
+
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value

@@ -304,6 +304,8 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
 
+**Per-scout holdback (`withheld_skills`).** The same flag payload carries a hard denylist for keeping an unreleased scout off the fleet while dogfooding it on a single project. A `withheld_skills` list (a `default_team_config` fleet-wide default, overridable per team via `team_configs[<id>].withheld_skills` with replace-not-merge semantics — set `[]` to release the full fleet to one team) names scouts that, for a held-back team, are never seeded into its `LLMSkill` rows (`sync_canonical_skills` skips them), never get a `SignalScoutConfig` (`register_missing_configs` drops them from its return), and are never dispatched. Resolved by `_resolve_withheld_skills`, most-specific-layer-first like the run caps. Unlike the soft `enabled_skills` seed allowlist (a default a user can still toggle on), this is a hard gate at the seed + dispatch layer — e.g. `default_team_config.withheld_skills = ["signals-scout-error-tracking"]` with `team_configs["2"].withheld_skills = []` dogfoods error tracking on project 2 only.
+
 ### `RunSignalsScoutWorkflow`
 
 Child workflow per planned run. Defined in `backend/temporal/agentic/scout_scheduler.py`.
