@@ -2,8 +2,8 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
-import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
+import { TeamDistinctIdSchema } from '~/common/generated/personhog/types/v1/common_pb'
 import {
     GetDistinctIdsForPersonsResponseSchema,
     PersonDistinctIdsSchema,
@@ -11,7 +11,7 @@ import {
     PersonWithTeamDistinctIdSchema,
     PersonsByDistinctIdsResponseSchema,
     PersonsResponseSchema,
-} from '~/common/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/types/v1/person_pb'
 import { PersonHogClient } from '~/common/personhog/client'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 

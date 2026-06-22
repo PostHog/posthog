@@ -2,15 +2,15 @@ import { create } from '@bufbuild/protobuf'
 import { type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/common/generated/personhog/personhog/types/v1/group_pb'
-import type { Group as ProtoGroup } from '~/common/generated/personhog/personhog/types/v1/group_pb'
-import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
-import type { Person as ProtoPerson } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+} from '~/common/generated/personhog/types/v1/group_pb'
+import type { Group as ProtoGroup } from '~/common/generated/personhog/types/v1/group_pb'
+import { PersonSchema } from '~/common/generated/personhog/types/v1/person_pb'
+import type { Person as ProtoPerson } from '~/common/generated/personhog/types/v1/person_pb'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'

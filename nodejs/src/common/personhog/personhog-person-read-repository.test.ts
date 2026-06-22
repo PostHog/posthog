@@ -1,8 +1,8 @@
 import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
-import { PersonSchema } from '~/common/generated/personhog/personhog/types/v1/person_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
+import { PersonSchema } from '~/common/generated/personhog/types/v1/person_pb'
 import { TeamId } from '~/types'
 
 import { PersonHogClient } from './client'

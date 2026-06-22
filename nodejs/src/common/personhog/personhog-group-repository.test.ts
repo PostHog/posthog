@@ -2,12 +2,12 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
 import {
     GroupSchema,
     GroupTypeMappingSchema,
     GroupTypeMappingsByKeySchema,
-} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+} from '~/common/generated/personhog/types/v1/group_pb'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
 

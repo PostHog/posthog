@@ -1,6 +1,6 @@
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
 import { TeamId } from '~/types'
 
 import { PersonHogClient } from './client'

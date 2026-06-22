@@ -3,8 +3,8 @@ import { Interceptor, Transport, createClient } from '@connectrpc/connect'
 import { Http2SessionManager, createGrpcTransport } from '@connectrpc/connect-node'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel, ReadOptionsSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/service/v1/service_pb'
+import { ConsistencyLevel, ReadOptionsSchema } from '~/common/generated/personhog/types/v1/common_pb'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { PersonHogGroupOperations } from './groups'

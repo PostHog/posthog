@@ -12,13 +12,13 @@ module.exports = {
         'plugin:@eslint-community/eslint-comments/recommended',
         'prettier',
     ],
-    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
+    ignorePatterns: ['bin', 'dist', 'node_modules', 'src/common/config/idl'],
     rules: {
         'no-restricted-syntax': [
             'error',
             {
                 selector: 'CallExpression[callee.object.name="JSON"][callee.property.name="parse"]',
-                message: 'Use parseJSON from src/utils/json-parse instead of JSON.parse for better performance',
+                message: 'Use parseJSON from src/common/utils/json-parse instead of JSON.parse for better performance',
             },
         ],
         'no-only-tests/no-only-tests': 'error',
