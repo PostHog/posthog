@@ -3411,36 +3411,85 @@ ${queryMarkdown}`)
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
     })
 
-    it('animates the live AI thinking placeholder without editing markdown', () => {
-        jest.useFakeTimers()
+    it('marks only the active AI writing block as pending and read-only', () => {
         const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Editable AI paragraph
 
-        try {
-            const { container, unmount } = render(
-                createElement(MarkdownNotebook, {
-                    value: withNotebookTitle('Thinking...'),
-                    onChange,
-                })
-            )
-            const thinkingBlock = getBodyTextBlock(container)
+Current AI paragraph`),
+                onChange,
+                aiWritingNodeIndexes: [2],
+            })
+        )
+        const aiBlocks = Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block')) as HTMLElement[]
+        const previousAIBlock = aiBlocks[0]
+        const activeAIBlock = aiBlocks[1]
 
-            expect(thinkingBlock.textContent).toEqual('Thinking...')
-            expect(thinkingBlock.classList.contains('MarkdownNotebook__text-block--ai-thinking')).toBe(true)
-            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking.')
+        expect(aiBlocks).toHaveLength(2)
 
-            act(() => jest.advanceTimersByTime(450))
-            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking..')
+        expect(previousAIBlock.getAttribute('contenteditable')).toEqual('true')
+        expect(previousAIBlock.classList.contains('MarkdownNotebook__text-block--ai-writing')).toBe(false)
+        expect(activeAIBlock.getAttribute('contenteditable')).toEqual('false')
+        expect(activeAIBlock.classList.contains('MarkdownNotebook__text-block--ai-writing')).toBe(true)
+        expect(activeAIBlock.getAttribute('aria-busy')).toEqual('true')
 
-            act(() => jest.advanceTimersByTime(450))
-            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking...')
+        updateContentEditableText(previousAIBlock, 'Human edited AI paragraph')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nHuman edited AI paragraph\n\nCurrent AI paragraph`
+        )
 
-            act(() => jest.advanceTimersByTime(450))
-            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking.')
-            expect(onChange).not.toHaveBeenCalled()
-            unmount()
-        } finally {
-            jest.useRealTimers()
-        }
+        onChange.mockClear()
+        updateContentEditableText(activeAIBlock, 'Human should not edit current AI paragraph')
+        expect(activeAIBlock.textContent).toEqual('Current AI paragraph')
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('does not delete the active AI writing block from a multi-block selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(`Editable AI paragraph
+
+Current AI paragraph`),
+                onChange,
+                aiWritingNodeIndexes: [2],
+            })
+        )
+        const aiBlocks = Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block')) as HTMLElement[]
+        const previousAIBlock = aiBlocks[0]
+        const activeAIBlock = aiBlocks[1]
+
+        expect(aiBlocks).toHaveLength(2)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(previousAIBlock),
+            0,
+            getFirstTextNode(activeAIBlock),
+            'Current AI paragraph'.length
+        )
+        fireEvent.keyDown(previousAIBlock, { key: 'Backspace' })
+
+        expect(
+            Array.from(container.querySelectorAll('p.MarkdownNotebook__text-block')).map((block) => block.textContent)
+        ).toEqual(['Editable AI paragraph', 'Current AI paragraph'])
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('renders the live AI thinking placeholder without editing markdown', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Thinking...'),
+                onChange,
+            })
+        )
+        const thinkingBlock = getBodyTextBlock(container)
+
+        expect(thinkingBlock.textContent).toEqual('Thinking...')
+        expect(thinkingBlock.classList.contains('MarkdownNotebook__text-block--ai-thinking')).toBe(true)
+        expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking...')
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('selects the Ask AI prompt text with Cmd+A on the first press', () => {

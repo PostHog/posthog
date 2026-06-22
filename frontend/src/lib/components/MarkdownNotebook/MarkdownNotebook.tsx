@@ -238,6 +238,7 @@ export type MarkdownNotebookProps = {
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
     focusAIPromptRequest?: number
+    aiWritingNodeIndexes?: number[]
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -408,6 +409,7 @@ export function MarkdownNotebook({
     onCaretChange,
     initialInsertMenu,
     focusAIPromptRequest,
+    aiWritingNodeIndexes,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -499,6 +501,7 @@ export function MarkdownNotebook({
     }, [])
 
     const hasDiscussionComments = useMemo(() => document.nodes.some(isDiscussionCommentNode), [document])
+    const aiWritingNodeIndexSet = useMemo(() => new Set(aiWritingNodeIndexes ?? []), [aiWritingNodeIndexes])
 
     useLayoutEffect(() => {
         const element = mainRef.current
@@ -1183,6 +1186,10 @@ export function MarkdownNotebook({
                 return false
             }
 
+            if (selectedEntries.some((entry) => aiWritingNodeIndexSet.has(entry.index))) {
+                return true
+            }
+
             const requestFocusForDeletedSelection = (
                 nextNodes: NotebookBlockNode[],
                 selectionStartIndex: number
@@ -1340,7 +1347,7 @@ export function MarkdownNotebook({
             })
             return true
         },
-        [commitDocument]
+        [aiWritingNodeIndexSet, commitDocument]
     )
 
     const splitTextBlockAtCurrentSelection = useCallback((): boolean => {
@@ -5046,6 +5053,8 @@ export function MarkdownNotebook({
 
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
+        const isAIWritingNode = aiWritingNodeIndexSet.has(index)
+        const nodeMode = isAIWritingNode ? 'view' : mode
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
         const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
         const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
@@ -5068,7 +5077,7 @@ export function MarkdownNotebook({
             insertMenu.query.length > 0 &&
             getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
 
-        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node)
+        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node) && !isAIWritingNode
 
         return (
             <div
@@ -5076,6 +5085,7 @@ export function MarkdownNotebook({
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',
                     isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
+                    isAIWritingNode && 'MarkdownNotebook__row--ai-writing',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
@@ -5133,7 +5143,7 @@ export function MarkdownNotebook({
                 {renderNode({
                     node,
                     nodeIndex: index,
-                    mode,
+                    mode: nodeMode,
                     placeholder: isTitleRow
                         ? NOTEBOOK_TITLE_PLACEHOLDER
                         : isToolInsertMenuOpen
@@ -5225,11 +5235,12 @@ export function MarkdownNotebook({
                         setActiveRowIndex(index)
                         setActiveBoundaryIndex(null)
                     },
-                    showInlineInsertMenuButton: mode === 'edit' && shouldShowInlineInsertMenuButton,
+                    showInlineInsertMenuButton: mode === 'edit' && !isAIWritingNode && shouldShowInlineInsertMenuButton,
                     isInlineInsertMenuButtonVisible: activeRowIndex === index || isToolInsertMenuOpen || isAIPromptOpen,
                     isInsertMenuOpen,
                     insertMenuMode,
                     hasInvalidInsertMenuQuery,
+                    isAIWriting: isAIWritingNode,
                     isAIWritingPlaceholder: aiWritingPlaceholderNodeIds.has(node.id),
                     aiPromptFocusRequest:
                         focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
