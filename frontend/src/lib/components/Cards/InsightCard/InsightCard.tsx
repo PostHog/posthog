@@ -48,6 +48,7 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+const DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS = 700
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -188,7 +189,7 @@ function InsightCardInternal(
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
     const persistDisplayOptions = useDebouncedCallback((node: Node) => {
         updateInsightDirect(insightRef.current, { query: node })
-    }, 700)
+    }, DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS)
 
     // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
     const insightLogicProps: InsightLogicProps = useMemo(

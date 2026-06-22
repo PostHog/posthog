@@ -91,7 +91,6 @@ interface InsightMetaProps extends Pick<
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
-    /** Persists display-option edits made from the ⋯ menu straight to the saved insight. */
     persistDisplayOptions?: (node: Node) => void
 }
 
