@@ -101,8 +101,8 @@ def create_posthog_code_task_for_repo_activity(
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.models import Task, TaskRun
-    from products.tasks.backend.temporal.client import execute_task_processing_workflow
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -162,11 +162,11 @@ def create_posthog_code_task_for_repo_activity(
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
-        task = Task.create_and_run(
+        created = tasks_facade.create_and_run_task(
             team=integration.team,
             title=title,
             description=description,
-            origin_product=Task.OriginProduct.SLACK,
+            origin_product=tasks_facade.TaskOriginProduct.SLACK,
             user_id=user_id,
             repository=repository,
             create_pr=allow_pr_creation,
@@ -205,43 +205,41 @@ def create_posthog_code_task_for_repo_activity(
 
     # 2. Create mapping BEFORE starting the workflow to avoid race condition
     # where the agent finishes and tries to relay before the mapping exists
-    task_run = None
-    if task:
-        task_run = task.latest_run
-        if task_run:
-            SlackThreadTaskMapping.objects.update_or_create(
-                integration=integration,
+    task_run = created.latest_run
+    if task_run:
+        SlackThreadTaskMapping.objects.update_or_create(
+            integration=integration,
+            channel=channel,
+            thread_ts=thread_ts,
+            defaults={
+                "team": integration.team,
+                "slack_workspace_id": inputs.slack_team_id,
+                "task_id": created.task_id,
+                "task_run_id": task_run.id,
+                "mentioning_slack_user_id": slack_user_id,
+            },
+        )
+        # Track the workflow to link Temporal jobs to Slack threads
+        state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
+        if repo_research_task_id and repo_research_run_id:
+            state_updates["repo_research_task_id"] = repo_research_task_id
+            state_updates["repo_research_run_id"] = repo_research_run_id
+        try:
+            tasks_facade.update_task_run_state(task_run.id, updates=state_updates)
+        except Exception:
+            logger.exception(
+                "posthog_code_persist_mention_workflow_id_failed",
+                task_run_id=str(task_run.id),
                 channel=channel,
                 thread_ts=thread_ts,
-                defaults={
-                    "team": integration.team,
-                    "slack_workspace_id": inputs.slack_team_id,
-                    "task": task,
-                    "task_run": task_run,
-                    "mentioning_slack_user_id": slack_user_id,
-                },
             )
-            # Track the workflow to link Temporal jobs to Slack threads
-            state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
-            if repo_research_task_id and repo_research_run_id:
-                state_updates["repo_research_task_id"] = repo_research_task_id
-                state_updates["repo_research_run_id"] = repo_research_run_id
-            try:
-                TaskRun.update_state_atomic(task_run.id, updates=state_updates)
-            except Exception:
-                logger.exception(
-                    "posthog_code_persist_mention_workflow_id_failed",
-                    task_run_id=str(task_run.id),
-                    channel=channel,
-                    thread_ts=thread_ts,
-                )
 
     # 3. Now start the workflow
-    if task and task_run:
+    if task_run:
         execute_task_processing_workflow(
-            task_id=str(task.id),
+            task_id=str(created.task_id),
             run_id=str(task_run.id),
-            team_id=task.team.id,
+            team_id=created.team_id,
             user_id=user_id,
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
@@ -268,8 +266,7 @@ def forward_posthog_code_followup_activity(
 
     from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.services.agent_command import send_user_message
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.facade import api as tasks_facade
 
     if _parse_rules_command(event_text):
         return False
@@ -376,11 +373,13 @@ def forward_posthog_code_followup_activity(
     created_by = mapping.task.created_by
     if created_by and created_by.id:
         distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+        auth_token = tasks_facade.create_sandbox_connection_token(
+            task_run.id, user_id=created_by.id, distinct_id=distinct_id
+        )
 
-    result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=90)
+    result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
     if not result.success and result.retryable and result.status_code != 504:
-        result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=90)
+        result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
 
     if not result.success:
         logger.warning(
@@ -440,7 +439,8 @@ def _resume_task_with_new_run(
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.temporal.client import execute_task_processing_workflow
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.temporal import execute_task_processing_workflow
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
@@ -494,13 +494,13 @@ def _resume_task_with_new_run(
     extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
-        new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)
+        new_run = tasks_facade.create_run(mapping.task_id, mode="interactive", extra_state=extra_state)
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
             channel=channel,
             thread_ts=thread_ts,
-            task_id=str(mapping.task.id),
+            task_id=str(mapping.task_id),
         )
         slack.client.chat_postMessage(
             channel=channel,
@@ -519,9 +519,9 @@ def _resume_task_with_new_run(
 
     try:
         execute_task_processing_workflow(
-            task_id=str(mapping.task.id),
+            task_id=str(mapping.task_id),
             run_id=str(new_run.id),
-            team_id=mapping.task.team_id,
+            team_id=new_run.team_id,
             user_id=created_by.id,
             create_pr=True,
             slack_thread_context=slack_thread_context,
@@ -532,7 +532,7 @@ def _resume_task_with_new_run(
             "posthog_code_resume_workflow_start_failed",
             channel=channel,
             thread_ts=thread_ts,
-            task_id=str(mapping.task.id),
+            task_id=str(mapping.task_id),
             run_id=str(new_run.id),
         )
         slack.client.chat_postMessage(
@@ -542,7 +542,7 @@ def _resume_task_with_new_run(
         )
         return True
 
-    mapping.task_run = new_run
+    mapping.task_run_id = new_run.id
     mapping.save(update_fields=["task_run", "updated_at"])
 
     if user_message_ts:

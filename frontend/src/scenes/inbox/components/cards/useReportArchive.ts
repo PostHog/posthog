@@ -3,22 +3,32 @@ import { useState } from 'react'
 
 import api from 'lib/api'
 
+import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
+import { SignalReport } from '../../types'
 import { DismissalReasonValue } from '../../utils/dismissalReasons'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
  * Shared archive handler for the inbox cards (Report / Pull request). Opens the dismissal
  * dialog and either delegates to the bound list logic via `onArchive` (optimistic) or, when
- * used standalone (e.g. stories), falls back to a direct `signalReports.setState` call.
+ * used standalone (e.g. stories), falls back to a direct `signalReports.setState` call. The
+ * single-report `dismiss` analytics fire here so both the list card and the detail pane are
+ * covered from one place.
  */
 export function useReportArchive({
     reportId,
     cardTitle,
+    report,
+    surface,
     onArchive,
     onArchived,
 }: {
     reportId: string
     cardTitle: string
+    /** The report being archived, used to enrich the `dismiss` analytics. */
+    report?: SignalReport | null
+    /** Which surface the archive was triggered from, for the `dismiss` analytics. */
+    surface?: InboxReportActionSurface
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     /** Fired once the report is archived (after `onArchive`, or after the fallback API call succeeds). */
     onArchived?: () => void
@@ -31,6 +41,13 @@ export function useReportArchive({
         openDismissReportDialog({
             reportTitle: cardTitle,
             onConfirm: async ({ reason, note }) => {
+                // Only the structured reason — the free-form note can carry proprietary text.
+                captureInboxReportAction({
+                    report: report ?? null,
+                    actionType: 'dismiss',
+                    surface: surface ?? 'list_row',
+                    extra: { dismissal_reason: reason },
+                })
                 if (onArchive) {
                     onArchive(reason, note)
                     onArchived?.()

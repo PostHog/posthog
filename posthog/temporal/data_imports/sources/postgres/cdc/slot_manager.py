@@ -53,17 +53,21 @@ def create_slot_and_publication(
     conn: psycopg.Connection,
     slot_name: str,
     pub_name: str,
-    schema: str,
-    tables: list[str],
+    tables: list[tuple[str, str]],
 ) -> str:
     """Create a publication and replication slot.
+
+    ``tables`` is a list of ``(schema, table)`` pairs — each table is qualified by
+    its own schema, since a publication can span schemas. An empty list creates an
+    empty publication (tables added later via ALTER PUBLICATION ADD TABLE).
 
     Returns the consistent_point LSN from slot creation.
     """
     with conn.cursor() as cur:
         if tables:
             table_list = sql.SQL(", ").join(
-                sql.SQL("{}.{}").format(sql.Identifier(schema), sql.Identifier(t)) for t in tables
+                sql.SQL("{}.{}").format(sql.Identifier(table_schema), sql.Identifier(table_name))
+                for table_schema, table_name in tables
             )
             cur.execute(
                 sql.SQL("CREATE PUBLICATION {} FOR TABLE {} WITH (publish_via_partition_root = true)").format(

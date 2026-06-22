@@ -20,11 +20,11 @@ export interface AgentUser {
     principal_id: string
     metadata?: Record<string, unknown>
     /**
-     * Cached link to a PostHog `User` row. Populated by the ingress when a
-     * Slack identity's email matches a posthog_user.email. Null when no
-     * match exists (external Slack member) or the lookup hasn't run yet.
-     * The dispatcher's per-asker authorisation check (#23 step 3) reads
-     * this to resolve "is the current asker a team admin?"
+     * Link to a PostHog `User` row. The email-match bridge that used to set
+     * this was removed (an unverified Slack email is not a safe authz signal);
+     * it is now set only by an explicit, consented identity link, and is null
+     * until then. The dispatcher's per-asker auth check reads this to resolve
+     * "is the current asker a team admin?".
      */
     posthog_user_id?: number | null
     created_at: string
@@ -47,10 +47,9 @@ export interface IdentityStore {
     /** Lookup by AgentUser uuid. Returns null when the row doesn't exist. */
     getById(agentUserId: string): Promise<AgentUser | null>
     /**
-     * Cache the result of a Slack-user → PostHog-user lookup. Called once per
-     * AgentUser the first time the ingress resolves it via slack.users.info.
-     * Passing `null` records the lookup as "ran but no match" so repeated
-     * misses don't re-hit Slack.
+     * Set (or clear, with `null`) the PostHog user this identity is linked to.
+     * Should only be called by an explicit consented identity link; `null`
+     * clears the link (e.g. on unlink/revoke).
      */
     setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void>
 }
