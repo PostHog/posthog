@@ -6774,6 +6774,8 @@ const api = {
                 trace_id?: string
                 attached_context?: AttachedContext[]
                 initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+                /** Bind a brand-new sandbox conversation to an existing Task, resuming its run on the first message. */
+                task_id?: string
             }
         ): Promise<{
             task_id: string

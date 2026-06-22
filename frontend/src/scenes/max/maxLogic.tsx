@@ -50,6 +50,18 @@ interface StoredMaxContext {
     timestamp: number
 }
 
+/** Key for a pending sandbox task-bind (set by inbox "Open task") in sessionStorage */
+export const PENDING_SANDBOX_BIND_TASK_KEY = 'posthog.pending_sandbox_bind_task'
+
+/** Maximum age for a restored task-bind (5 minutes) */
+const PENDING_BIND_TASK_MAX_AGE_MS = 5 * 60 * 1000
+
+/** Stored task-bind structure for sessionStorage */
+interface StoredSandboxBindTask {
+    taskId: string
+    timestamp: number
+}
+
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
@@ -220,6 +232,7 @@ export const maxLogic = kea<maxLogicType>([
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
+        setPendingBindTaskId: (taskId: string | null) => ({ taskId }),
     }),
 
     reducers(({ props }) => ({
@@ -245,6 +258,17 @@ export const maxLogic = kea<maxLogicType>([
                 setConversationId: (_, { conversationId }) => conversationId,
                 startNewConversation: () => null,
                 toggleConversationHistory: (state, { visible }) => (visible ? null : state),
+            },
+        ],
+
+        // A pending Task to bind a new sandbox conversation to (set by inbox "Open task"). Consumed by
+        // maxThreadLogic on the first message, which sends it as `task_id` so the open resumes that
+        // Task's run. Cleared once consumed, or when an explicit new chat starts without a bind.
+        pendingBindTaskId: [
+            null as string | null,
+            {
+                setPendingBindTaskId: (_, { taskId }) => taskId,
+                startNewConversation: () => null,
             },
         ],
 
@@ -691,6 +715,24 @@ export const maxLogic = kea<maxLogicType>([
                 actions.openConversation(search.chat)
             } else if (values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
+            }
+
+            // A fresh chat (no `chat` param) may carry a pending task-bind from inbox "Open task".
+            // Read it last so it survives the `startNewConversation` above (which clears it). The
+            // first message then resumes that task's run. Mirrors the PENDING_MAX_CONTEXT_KEY read.
+            if (!search.chat) {
+                try {
+                    const stored = sessionStorage.getItem(PENDING_SANDBOX_BIND_TASK_KEY)
+                    if (stored) {
+                        sessionStorage.removeItem(PENDING_SANDBOX_BIND_TASK_KEY)
+                        const { taskId, timestamp }: StoredSandboxBindTask = JSON.parse(stored)
+                        if (taskId && Date.now() - timestamp < PENDING_BIND_TASK_MAX_AGE_MS) {
+                            actions.setPendingBindTaskId(taskId)
+                        }
+                    }
+                } catch {
+                    // sessionStorage unavailable or data malformed — proceed as a normal new chat.
+                }
             }
         },
     })),

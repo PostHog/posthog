@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import {
     IconArrowRight,
@@ -11,12 +10,15 @@ import {
     IconTerminal,
     IconWarning,
 } from '@posthog/icons'
-import { Link, Spinner, LemonSelect, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, LemonSelect, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { PENDING_SANDBOX_BIND_TASK_KEY } from 'scenes/max/maxLogic'
 import { SandboxRunViewer } from 'scenes/max/sandbox/components/SandboxRunViewer'
+import { isTerminalRunStatus } from 'scenes/max/sandboxStreamLogic'
 import { urls } from 'scenes/urls'
 
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
@@ -168,10 +170,12 @@ function TaskLogBody({
     loading,
     task,
     runId,
+    replayOnly,
 }: {
     loading: boolean
     task: Task | null
     runId: string | null
+    replayOnly: boolean
 }): JSX.Element {
     if (loading) {
         return (
@@ -185,7 +189,8 @@ function TaskLogBody({
     if (task && runId) {
         return (
             <div className="h-[calc(100vh-22rem)] min-h-[420px] w-full overflow-y-auto rounded border border-primary bg-surface-primary">
-                <SandboxRunViewer taskId={task.id} runId={runId} />
+                {/* In-progress runs stream live; terminal runs show the static replay. */}
+                <SandboxRunViewer taskId={task.id} runId={runId} replayOnly={replayOnly} />
             </div>
         )
     }
@@ -205,10 +210,42 @@ function TaskLogBody({
 }
 
 /**
+ * "Open task": continues the selected task in a new PostHog AI chat. It stashes the task id in
+ * sessionStorage (recency-stamped, mirroring `PENDING_MAX_CONTEXT_KEY`) and opens a blank chat;
+ * the user's first message creates a conversation bound to this task, resuming its run interactively.
+ * Gated to a terminal run — the live Task log already covers an in-progress run, and taking over a
+ * running automation run is out of scope.
+ */
+function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+    const isTerminal = isTerminalRunStatus(runStatus)
+
+    const handleOpen = (): void => {
+        try {
+            sessionStorage.setItem(PENDING_SANDBOX_BIND_TASK_KEY, JSON.stringify({ taskId, timestamp: Date.now() }))
+        } catch {
+            // sessionStorage unavailable — the chat still opens, it just won't be pre-bound to the task.
+        }
+        newInternalTab(urls.ai())
+    }
+
+    return (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            onClick={handleOpen}
+            disabledReason={isTerminal ? undefined : 'Available once the run finishes'}
+            tooltip="Continue this task in a new PostHog AI chat"
+        >
+            Open task
+        </LemonButton>
+    )
+}
+
+/**
  * Inline "Task log": the selected linked task's agent transcript, rendered with the shared
- * read-only `SandboxRunViewer`. A `LemonSelect` switches between linked tasks (research /
- * implementation) when there's more than one; "Open task" deep-links to the full Tasks UI.
- * Mirrors desktop `AgentRunDetail`'s Task-log section.
+ * `SandboxRunViewer` — live for an in-progress run, static replay once terminal. A `LemonSelect`
+ * switches between linked tasks (research / implementation) when there's more than one; "Open task"
+ * continues the task in a new PostHog AI chat. Mirrors desktop `AgentRunDetail`'s Task-log section.
  */
 function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
     const { reportTasks, reportTasksLoading, selectedTask } = useValues(
@@ -218,7 +255,8 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
 
     const task = selectedTask?.task ?? null
     const runId = task?.latest_run?.id ?? null
-    const taskLogUrl = task ? combineUrl(urls.taskDetail(task.id), runId ? { runId } : {}).url : null
+    const runStatus = task?.latest_run?.status
+    const replayOnly = isTerminalRunStatus(runStatus)
 
     const rightSlot = task ? (
         <div className="flex items-center gap-2">
@@ -238,17 +276,18 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
                     }))}
                 />
             )}
-            {taskLogUrl && (
-                <Link to={taskLogUrl} className="text-xs">
-                    Open task
-                </Link>
-            )}
+            <OpenTaskButton taskId={task.id} runStatus={runStatus} />
         </div>
     ) : null
 
     return (
         <DetailSection icon={<IconTerminal />} title="Task log" rightSlot={rightSlot}>
-            <TaskLogBody loading={reportTasksLoading && !reportTasks} task={task} runId={runId} />
+            <TaskLogBody
+                loading={reportTasksLoading && !reportTasks}
+                task={task}
+                runId={runId}
+                replayOnly={replayOnly}
+            />
         </DetailSection>
     )
 }

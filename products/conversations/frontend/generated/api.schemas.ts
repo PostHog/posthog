@@ -532,6 +532,24 @@ export interface SandboxAttachedContextItemApi {
 }
 
 /**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+} as const
+
+/**
  * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
  * null/absent `content` warms a sandbox that idles awaiting the first message.
  */
@@ -546,6 +564,16 @@ export interface SandboxOpenApi {
     trace_id?: string
     /** Typed PostHog entities (and free text) attached to this message. */
     attached_context?: SandboxAttachedContextItemApi[]
+    /** Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi
+    /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
+    task_id?: string
 }
 
 /**

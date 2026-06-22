@@ -167,6 +167,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'threadLogicKey as activeThreadKey',
                 'activeStreamingThreads',
                 'conversationId as parentConversationId',
+                'pendingBindTaskId',
             ],
             maxContextLogic,
             ['compiledContext'],
@@ -199,6 +200,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
+                'setPendingBindTaskId',
             ],
             maxGlobalLogic,
             ['loadConversation'],
@@ -724,11 +726,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             trace_id: traceId,
                             attached_context: attachedContext,
                             initial_permission_mode: SANDBOX_INITIAL_PERMISSION_MODE,
+                            // Bind a brand-new conversation to an existing Task (inbox "Open task") so the
+                            // backend resumes that Task's run. Only the first message carries it.
+                            ...(values.pendingBindTaskId ? { task_id: values.pendingBindTaskId } : {}),
                         })
                         if (handle) {
                             // The sent message consumes any in-flight warm — it's now the active run, so
                             // drop the release handle to avoid cancelling the run out from under it.
                             cache.warmRun = null
+                            // The bind is one-shot: the conversation now exists bound to the Task, so
+                            // follow-ups target it directly — don't re-send task_id.
+                            if (values.pendingBindTaskId) {
+                                actions.setPendingBindTaskId(null)
+                            }
                             actions.openSandboxSse({
                                 taskId: handle.task_id,
                                 runId: handle.run_id,
@@ -1383,6 +1393,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
                 actions.clearPendingApproval()
                 actions.setResolvedApprovalStatus(pendingProposalId, 'auto_rejected')
+            }
+            // A pending task-bind (inbox "Open task") makes this first message a sandbox task-resume:
+            // the conversation is created bound to the Task and its run is resumed. Force sandbox mode
+            // so the message routes through the sandbox `open` endpoint (which carries the task_id).
+            // Reducers apply synchronously, so the `is_sandbox` derivation below sees the new value.
+            if (values.pendingBindTaskId && !values.isSandboxMode) {
+                actions.setIsSandboxMode(true)
             }
             const agentMode = values.agentMode
 
