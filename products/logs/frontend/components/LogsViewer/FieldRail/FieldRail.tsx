@@ -7,40 +7,40 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { Facet, FacetOption } from './Facet'
-import { facetCountsLogic } from './facetCountsLogic'
-import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetFilterKey, facetsByGroup, resourceAttributeValues } from './facets'
+import { Field, FieldOption } from './Field'
+import { fieldCountsLogic } from './fieldCountsLogic'
+import { fieldRailLogic } from './fieldRailLogic'
+import { FieldConfig, FieldFilterKey, fieldsByGroup, resourceAttributeValues } from './fields'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
 
-export interface FacetRailProps {
+export interface FieldRailProps {
     id: string
 }
 
-/** Resizable left-hand facet rail, rendered entirely from the FACETS config (see facets.ts). */
-export function FacetRail({ id }: FacetRailProps): JSX.Element {
+/** Resizable left-hand field rail, rendered entirely from the FIELDS config (see fields.ts). */
+export function FieldRail({ id }: FieldRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
-    const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
+    const { setFieldRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic)
-    const { facetValues, loadingFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic({ id }))
-    const { setFacetSearch } = useActions(facetCountsLogic({ id }))
-    const { collapsedFacets } = useValues(facetRailLogic({ id }))
-    const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+    const { fieldValues, loadingFieldKeys, fieldSearch, visibleFields } = useValues(fieldCountsLogic({ id }))
+    const { setFieldSearch } = useActions(fieldCountsLogic({ id }))
+    const { collapsedFields } = useValues(fieldRailLogic({ id }))
+    const { toggleFieldValue, toggleFieldCollapsed } = useActions(fieldRailLogic({ id }))
 
-    const selectedByKey: Record<FacetFilterKey, string[]> = {
+    const selectedByKey: Record<FieldFilterKey, string[]> = {
         severityLevels: severityLevels ?? [],
         serviceNames: serviceNames ?? [],
     }
 
     const onToggleClosed = useCallback(
-        (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
-        [setFacetRailCollapsed]
+        (shouldBeClosed: boolean) => setFieldRailCollapsed(shouldBeClosed),
+        [setFieldRailCollapsed]
     )
     const resizerLogicProps: ResizerLogicProps = useMemo(
         () => ({
-            logicKey: `logs-facet-rail-${id}`,
+            logicKey: `logs-field-rail-${id}`,
             containerRef: railRef,
             persistent: true,
             persistPrefix: '2026-06-18',
@@ -52,36 +52,36 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     )
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const renderFacet = (facet: FacetConfig): JSX.Element => {
-        const { source } = facet
-        // Selection: column facets read their dedicated filter field; resource-attribute facets read
+    const renderField = (field: FieldConfig): JSX.Element => {
+        const { source } = field
+        // Selection: column fields read their dedicated filter field; resource-attribute fields read
         // their log_resource_attribute filter out of the group.
         const selected =
             source.type === 'resourceAttribute'
                 ? resourceAttributeValues(filterGroup, source.key)
                 : selectedByKey[source.filterKey]
-        // Values + counts come from the cross-filtered endpoint, keyed by facet.key.
-        const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((r) => ({
+        // Values + counts come from the cross-filtered endpoint, keyed by field.key.
+        const fetched: FieldOption[] = (fieldValues[field.key] ?? []).map((r) => ({
             value: r.value,
             label: r.value,
             count: r.count,
         }))
-        const loading = loadingFacetKeys.includes(facet.key)
-        const onToggle = (value: string): void => toggleFacetValue(source, value)
-        const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
-        const collapsed = collapsedFacets.includes(facet.key)
+        const loading = loadingFieldKeys.includes(field.key)
+        const onToggle = (value: string): void => toggleFieldValue(source, value)
+        const onToggleCollapsed = (): void => toggleFieldCollapsed(field.key)
+        const collapsed = collapsedFields.includes(field.key)
 
-        if (facet.kind === 'fixed') {
+        if (field.kind === 'fixed') {
             // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
             const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
-            const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
+            const options: FieldOption[] = (field.fixedOptions ?? []).map((option) => ({
                 ...option,
                 count: countByValue.get(option.value) ?? 0,
             }))
             return (
-                <Facet
-                    key={facet.key}
-                    title={facet.title}
+                <Field
+                    key={field.key}
+                    title={field.title}
                     options={options}
                     selected={selected}
                     onToggle={onToggle}
@@ -93,22 +93,22 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             )
         }
 
-        // Dynamic facet: values + counts come straight from the cross-filtered endpoint (zeros never appear).
+        // Dynamic field: values + counts come straight from the cross-filtered endpoint (zeros never appear).
         return (
-            <Facet
-                key={facet.key}
-                title={facet.title}
+            <Field
+                key={field.key}
+                title={field.title}
                 options={fetched}
                 selected={selected}
                 onToggle={onToggle}
                 loading={loading}
-                emptyLabel={facet.emptyLabel}
-                searchValue={facet.searchable ? (facetSearch[facet.key] ?? '') : undefined}
-                onSearchChange={facet.searchable ? (value) => setFacetSearch(facet.key, value) : undefined}
-                searchPlaceholder={facet.searchPlaceholder}
+                emptyLabel={field.emptyLabel}
+                searchValue={field.searchable ? (fieldSearch[field.key] ?? '') : undefined}
+                onSearchChange={field.searchable ? (value) => setFieldSearch(field.key, value) : undefined}
+                searchPlaceholder={field.searchPlaceholder}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
-                maxHeight={facet.maxHeight}
+                maxHeight={field.maxHeight}
             />
         )
     }
@@ -119,18 +119,18 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             className="relative flex flex-col shrink-0 border rounded bg-surface-primary overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: desiredSize ?? DEFAULT_WIDTH_PX, minWidth: 'min-content', maxWidth: '40%' }}
-            data-attr="logs-facet-rail"
+            data-attr="logs-field-rail"
         >
             <div className="px-2 py-1 border-b">
                 <span className="text-xs font-semibold text-secondary uppercase tracking-wide">Filters</span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {facetsByGroup(visibleFacets).map(([group, facets]) => (
+                {fieldsByGroup(visibleFields).map(([group, fields]) => (
                     <div key={group}>
                         <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
                             {group}
                         </div>
-                        {facets.map(renderFacet)}
+                        {fields.map(renderField)}
                     </div>
                 ))}
             </div>

@@ -4,10 +4,10 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import type { facetRailLogicType } from './facetRailLogicType'
-import { FacetSource, toggleResourceAttributeFilter } from './facets'
+import type { fieldRailLogicType } from './fieldRailLogicType'
+import { FieldSource, toggleResourceAttributeFilter } from './fields'
 
-export interface FacetRailLogicProps {
+export interface FieldRailLogicProps {
     id: string
 }
 
@@ -16,37 +16,37 @@ function toggleMembership<T>(values: readonly T[] | undefined | null, value: T):
     return current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
 }
 
-// The rail is a lens over the existing filter model — facet toggles write straight back to
+// The rail is a lens over the existing filter model — field toggles write straight back to
 // logsViewerFiltersLogic's reducers, so URL sync, saved views, and the chips bar stay in step.
-export const facetRailLogic = kea<facetRailLogicType>([
-    path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'FacetRail', 'facetRailLogic']),
-    props({ id: 'default' } as FacetRailLogicProps),
+export const fieldRailLogic = kea<fieldRailLogicType>([
+    path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'FieldRail', 'fieldRailLogic']),
+    props({ id: 'default' } as FieldRailLogicProps),
     key((props) => props.id),
 
-    connect((props: FacetRailLogicProps) => ({
+    connect((props: FieldRailLogicProps) => ({
         actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
     })),
 
     actions({
         // Generic toggle: the rail is config-driven, so a single action writes a value into whichever
-        // filter field/group the facet's source maps to (see FacetConfig.source).
-        toggleFacetValue: (source: FacetSource, value: string) => ({ source, value }),
-        toggleFacetCollapsed: (facetKey: string) => ({ facetKey }),
+        // filter field/group the field's source maps to (see FieldConfig.source).
+        toggleFieldValue: (source: FieldSource, value: string) => ({ source, value }),
+        toggleFieldCollapsed: (fieldKey: string) => ({ fieldKey }),
     }),
 
     reducers({
-        collapsedFacets: [
+        collapsedFields: [
             [] as string[],
             { persist: true },
             {
-                toggleFacetCollapsed: (state, { facetKey }) =>
-                    state.includes(facetKey) ? state.filter((k) => k !== facetKey) : [...state, facetKey],
+                toggleFieldCollapsed: (state, { fieldKey }) =>
+                    state.includes(fieldKey) ? state.filter((k) => k !== fieldKey) : [...state, fieldKey],
             },
         ],
     }),
 
     listeners(({ props, actions }) => ({
-        toggleFacetValue: ({ source, value }) => {
+        toggleFieldValue: ({ source, value }) => {
             const { severityLevels, serviceNames, filterGroup } = logsViewerFiltersLogic({ id: props.id }).values
             if (source.type === 'resourceAttribute') {
                 // Selection lives as a log_resource_attribute filter inside the group.

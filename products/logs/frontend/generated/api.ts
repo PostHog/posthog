@@ -41,8 +41,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
-    _LogsFacetValuesRequestApi,
-    _LogsFacetValuesResponseApi,
+    _LogsFieldValuesRequestApi,
+    _LogsFieldValuesResponseApi,
     _LogsQueryRequestApi,
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
@@ -380,20 +380,20 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
     })
 }
 
-export const getLogsFacetValuesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/logs/facet_values/`
+export const getLogsFieldValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/field_values/`
 }
 
-export const logsFacetValuesCreate = async (
+export const logsFieldValuesCreate = async (
     projectId: string,
-    _logsFacetValuesRequestApi: _LogsFacetValuesRequestApi,
+    _logsFieldValuesRequestApi: _LogsFieldValuesRequestApi,
     options?: RequestInit
-): Promise<_LogsFacetValuesResponseApi> => {
-    return apiMutator<_LogsFacetValuesResponseApi>(getLogsFacetValuesCreateUrl(projectId), {
+): Promise<_LogsFieldValuesResponseApi> => {
+    return apiMutator<_LogsFieldValuesResponseApi>(getLogsFieldValuesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_logsFacetValuesRequestApi),
+        body: JSON.stringify(_logsFieldValuesRequestApi),
     })
 }
 

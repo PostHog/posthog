@@ -11,7 +11,7 @@ import { UniversalFiltersGroup } from '~/types'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
+import { FieldRail } from 'products/logs/frontend/components/LogsViewer/FieldRail/FieldRail'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
@@ -107,14 +107,14 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed } = useValues(logsViewerConfigLogic)
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, fieldRailCollapsed } = useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
-    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
+    const showFieldRail = useFeatureFlag('LOGS_FIELD_RAIL')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -340,15 +340,15 @@ function LogsViewerContent({
         </>
     )
 
-    if (showFacetRail) {
+    if (showFieldRail) {
         // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
-        // row of [facet rail | display bar (operate on the data) + the log lists].
+        // row of [field rail | display bar (operate on the data) + the log lists].
         return (
             <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
                 <LogsQueryBar showSavedViewsButton={showSavedViewsButton} />
                 {sparklineSection}
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {!facetRailCollapsed && <FacetRail id={id} />}
+                    {!fieldRailCollapsed && <FieldRail id={id} />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0">
                         <LogsDisplayBar {...toolbarProps} />
                         {logList}

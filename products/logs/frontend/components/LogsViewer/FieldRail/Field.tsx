@@ -9,7 +9,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const ROW_HEIGHT = 33
 
-export interface FacetOption {
+export interface FieldOption {
     value: string
     label: string
     /** Tailwind bg class for a leading color swatch (e.g. severity colors). */
@@ -18,9 +18,9 @@ export interface FacetOption {
     count?: number
 }
 
-interface FacetProps {
+interface FieldProps {
     title: string
-    options: FacetOption[]
+    options: FieldOption[]
     selected: string[]
     onToggle: (value: string) => void
     loading?: boolean
@@ -33,12 +33,12 @@ interface FacetProps {
     onToggleCollapsed?: () => void
     /** When set, values render in a fixed-height virtualized list capped at this many pixels. */
     maxHeight?: number
-    /** For fixed facets: render zero-count values dimmed, and disabled unless already selected. */
+    /** For fixed fields: render zero-count values dimmed, and disabled unless already selected. */
     dimZeroCounts?: boolean
 }
 
-/** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
-export function Facet({
+/** A single rail field: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
+export function Field({
     title,
     options,
     selected,
@@ -52,10 +52,10 @@ export function Facet({
     onToggleCollapsed,
     maxHeight,
     dimZeroCounts = false,
-}: FacetProps): JSX.Element {
+}: FieldProps): JSX.Element {
     const slug = title.toLowerCase().replace(/\s+/g, '-')
 
-    const rowProps = useMemo<FacetValueRowProps>(
+    const rowProps = useMemo<FieldValueRowProps>(
         () => ({ options, selected, slug, onToggle, dimZeroCounts }),
         [options, selected, slug, onToggle, dimZeroCounts]
     )
@@ -67,7 +67,7 @@ export function Facet({
                 onClick={onToggleCollapsed}
                 disabled={!onToggleCollapsed}
                 className="flex items-center gap-1 w-full px-1 mb-1 text-[10px] font-semibold uppercase tracking-wide text-secondary hover:text-default"
-                data-attr={`logs-facet-${slug}-header`}
+                data-attr={`logs-field-${slug}-header`}
             >
                 {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                 <span>{title}</span>
@@ -94,19 +94,19 @@ export function Facet({
                     // feedback that results are updating, rather than the list silently changing.
                     <div className={cn(loading && 'opacity-60 transition-opacity')}>
                         {maxHeight ? (
-                            <List<FacetValueRowProps>
+                            <List<FieldValueRowProps>
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ width: '100%', height: Math.min(options.length * ROW_HEIGHT, maxHeight) }}
                                 rowCount={options.length}
                                 rowHeight={ROW_HEIGHT}
                                 overscanCount={5}
-                                rowComponent={FacetValueRow}
+                                rowComponent={FieldValueRow}
                                 rowProps={rowProps}
                             />
                         ) : (
                             <div className="space-y-px">
                                 {options.map((option) => (
-                                    <FacetValueButton
+                                    <FieldValueButton
                                         key={option.value}
                                         option={option}
                                         selected={selected.includes(option.value)}
@@ -123,15 +123,15 @@ export function Facet({
     )
 }
 
-interface FacetValueRowProps {
-    options: FacetOption[]
+interface FieldValueRowProps {
+    options: FieldOption[]
     selected: string[]
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
 }
 
-function FacetValueRow({
+function FieldValueRow({
     index,
     style,
     options,
@@ -143,12 +143,12 @@ function FacetValueRow({
     ariaAttributes: Record<string, unknown>
     index: number
     style: CSSProperties
-} & FacetValueRowProps): JSX.Element {
+} & FieldValueRowProps): JSX.Element {
     const option = options[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={style}>
-            <FacetValueButton
+            <FieldValueButton
                 option={option}
                 selected={selected.includes(option.value)}
                 slug={slug}
@@ -159,20 +159,20 @@ function FacetValueRow({
     )
 }
 
-function FacetValueButton({
+function FieldValueButton({
     option,
     selected,
     slug,
     onToggle,
     dimZeroCounts,
 }: {
-    option: FacetOption
+    option: FieldOption
     selected: boolean
     slug: string
     onToggle: (value: string) => void
     dimZeroCounts: boolean
 }): JSX.Element {
-    // A fixed facet value with no matches in the current scope: dim it, and disable it unless it's
+    // A fixed field value with no matches in the current scope: dim it, and disable it unless it's
     // already selected (so a selected-but-now-empty value can still be toggled off).
     const isZero = dimZeroCounts && option.count === 0
     return (
@@ -184,7 +184,7 @@ function FacetValueButton({
             disabledReason={isZero && !selected ? 'No matching logs for the current filters' : undefined}
             icon={<LemonCheckbox checked={selected} className="pointer-events-none" />}
             onClick={() => onToggle(option.value)}
-            data-attr={`logs-facet-${slug}-${option.value}`}
+            data-attr={`logs-field-${slug}-${option.value}`}
         >
             <span className="flex items-center gap-2 min-w-0 w-full">
                 {option.color && <span className={cn('w-1 h-3.5 rounded-full shrink-0', option.color)} />}

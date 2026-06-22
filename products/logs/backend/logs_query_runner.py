@@ -208,18 +208,18 @@ class LogsFilterBuilder:
         query: LogsQuery,
         team: "Team",
         query_date_range: QueryDateRange,
-        exclude_facet_field: str | None = None,
+        exclude_column: str | None = None,
         exclude_resource_attribute: str | None = None,
     ):
         self.query = query
         self.team = team
         self.query_date_range = query_date_range
-        # When set (e.g. "severity_text" or "service_name"), that facet's own filter is omitted
-        # from the WHERE clause so facet counts reflect every *other* active filter — the standard
-        # faceted-search behaviour where selecting a value doesn't zero out its siblings.
-        self.exclude_facet_field = exclude_facet_field
-        # The resource-attribute equivalent: when faceting on a resource attribute key, omit that
-        # key's own log_resource_attribute filter so the facet doesn't zero out its own siblings.
+        # When set (e.g. "severity_text" or "service_name"), that field's own filter is omitted
+        # from the WHERE clause so its counts reflect every *other* active filter — the standard
+        # filter-rail behaviour where selecting a value doesn't zero out its siblings.
+        self.exclude_column = exclude_column
+        # The resource-attribute equivalent: when the field is a resource attribute key, omit that
+        # key's own log_resource_attribute filter so the field doesn't zero out its own siblings.
         self.exclude_resource_attribute = exclude_resource_attribute
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
@@ -302,7 +302,7 @@ class LogsFilterBuilder:
             )
         )
 
-        if self.query.serviceNames and self.exclude_facet_field != "service_name":
+        if self.query.serviceNames and self.exclude_column != "service_name":
             exprs.append(
                 parse_expr(
                     "service_name IN {serviceNames}",
@@ -329,7 +329,7 @@ class LogsFilterBuilder:
             if self.log_filters:
                 for log_filter in self.log_filters:
                     if log_filter.key == "severity_level":
-                        if self.exclude_facet_field != "severity_text":
+                        if self.exclude_column != "severity_text":
                             exprs.append(_severity_level_to_expr(log_filter))
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
@@ -351,7 +351,7 @@ class LogsFilterBuilder:
             exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
             exprs.append(property_to_expr(search_filter, team=self.team))
 
-        if self.query.severityLevels and self.exclude_facet_field != "severity_text":
+        if self.query.severityLevels and self.exclude_column != "severity_text":
             exprs.append(
                 parse_expr(
                     "severity_text IN {severityLevels}",

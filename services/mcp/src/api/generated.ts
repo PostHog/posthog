@@ -12974,6 +12974,18 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name
+     */
+    export type ColumnEnum = typeof ColumnEnum[keyof typeof ColumnEnum];
+
+
+    export const ColumnEnum = {
+      SeverityText: 'severity_text',
+      ServiceName: 'service_name',
+    } as const;
+
     export interface Comment {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -22124,18 +22136,6 @@ export namespace Schemas {
     export const ExternalQueryStatus = {
       Success: 'success',
       Error: 'error',
-    } as const;
-
-    /**
-     * * `severity_text` - severity_text
-     * * `service_name` - service_name
-     */
-    export type FacetFieldEnum = typeof FacetFieldEnum[keyof typeof FacetFieldEnum];
-
-
-    export const FacetFieldEnum = {
-      SeverityText: 'severity_text',
-      ServiceName: 'service_name',
     } as const;
 
     export type FeatureFlagFilters = { [key: string]: unknown };
@@ -50132,10 +50132,10 @@ export namespace Schemas {
       event_name?: string;
     }
 
-    export interface _LogFacetValue {
-      /** The facet value (e.g. a severity level or service name). */
+    export interface _LogFieldValue {
+      /** The field value (e.g. a severity level or service name). */
       value: string;
-      /** Number of matching log records, with all active filters applied except this facet's own selection. */
+      /** Number of matching log records, with all active filters applied except this field's own selection. */
       count: number;
     }
 
@@ -50286,39 +50286,39 @@ export namespace Schemas {
       count: number;
     }
 
-    export interface _LogsFacetValuesBody {
-      /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+    export interface _LogsFieldValuesBody {
+      /** Top-level column to compute values for. Provide exactly one of column or resourceAttribute. Its own filter is excluded so counts reflect the other active filters.
        *
        * * `severity_text` - severity_text
        * * `service_name` - service_name */
-      facetField?: FacetFieldEnum | null;
+      column?: ColumnEnum | null;
       /**
-         * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+         * Resource attribute key to compute values for (e.g. 'k8s.namespace.name'). Provide exactly one of column or resourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
          * @nullable
          */
-      facetResourceAttribute?: string | null;
+      resourceAttribute?: string | null;
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
-      /** Filter by log severity levels (ignored when faceting on severity_text). */
+      /** Filter by log severity levels (ignored when the field is severity_text). */
       severityLevels?: SeverityLevelsEnum[];
-      /** Filter by service names (ignored when faceting on service_name). */
+      /** Filter by service names (ignored when the field is service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
-      /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
-      facetSearch?: string;
+      /** Type-ahead filter over the field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
+      fieldSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
     }
 
-    export interface _LogsFacetValuesRequest {
-      /** The facet values query to execute. */
-      query: _LogsFacetValuesBody;
+    export interface _LogsFieldValuesRequest {
+      /** The field values query to execute. */
+      query: _LogsFieldValuesBody;
     }
 
-    export interface _LogsFacetValuesResponse {
-      /** Facet values with cross-filtered counts, ordered by count descending. */
-      results: _LogFacetValue[];
+    export interface _LogsFieldValuesResponse {
+      /** Field values with cross-filtered counts, ordered by count descending. */
+      results: _LogFieldValue[];
     }
 
     export interface _LogsQueryBody {

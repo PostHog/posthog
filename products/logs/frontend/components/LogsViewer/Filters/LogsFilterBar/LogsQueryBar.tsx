@@ -7,11 +7,11 @@ import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
 import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControls } from './LogsFilterBar'
 
 /**
- * Top toolbar for the facet-rail layout — the "ask a question" controls: search, time range, refresh,
+ * Top toolbar for the field-rail layout — the "ask a question" controls: search, time range, refresh,
  * live tail, saved views and filter history. Sits above the sparkline (its inputs produce the sparkline
  * + table). View controls (sort, wrap, export, …) live in LogsDisplayBar below the sparkline.
  *
- * Level + Service aren't here — they're facets in the rail. The active-filter chips render under the bar.
+ * Level + Service aren't here — they're fields in the rail. The active-filter chips render under the bar.
  */
 export const LogsQueryBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)

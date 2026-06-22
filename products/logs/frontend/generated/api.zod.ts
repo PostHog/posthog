@@ -601,10 +601,10 @@ export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
         .describe('Force regenerate explanation, bypassing cache'),
 })
 
-export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
+export const LogsFieldValuesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
-            facetField: zod
+            column: zod
                 .union([
                     zod
                         .enum(['severity_text', 'service_name'])
@@ -613,13 +613,13 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to compute values for. Provide exactly one of column or resourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
-            facetResourceAttribute: zod
+            resourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to compute values for (e.g. 'k8s.namespace.name'). Provide exactly one of column or resourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
                 ),
             dateRange: zod
                 .object({
@@ -645,17 +645,17 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                         )
                 )
                 .optional()
-                .describe('Filter by log severity levels (ignored when faceting on severity_text).'),
+                .describe('Filter by log severity levels (ignored when the field is severity_text).'),
             serviceNames: zod
                 .array(zod.string())
                 .optional()
-                .describe('Filter by service names (ignored when faceting on service_name).'),
+                .describe('Filter by service names (ignored when the field is service_name).'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
-            facetSearch: zod
+            fieldSearch: zod
                 .string()
                 .optional()
                 .describe(
-                    "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies."
+                    "Type-ahead filter over the field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies."
                 ),
             filterGroup: zod
                 .array(
@@ -706,7 +706,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Property filters for the query.'),
         })
-        .describe('The facet values query to execute.'),
+        .describe('The field values query to execute.'),
 })
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []

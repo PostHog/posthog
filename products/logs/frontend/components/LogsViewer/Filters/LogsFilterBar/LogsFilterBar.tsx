@@ -47,8 +47,8 @@ const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
-    // When the facet rail is on, Level + Service live in the rail instead of this bar.
-    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
+    // When the field rail is on, Level + Service live in the rail instead of this bar.
+    const showFieldRail = useFeatureFlag('LOGS_FIELD_RAIL')
     const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
     const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
     const { severityLevels, serviceNames } = filters
@@ -58,7 +58,7 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
             <div className="flex flex-col gap-2 w-full bg-primary">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        {!showFacetRail && (
+                        {!showFieldRail && (
                             <>
                                 <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
                                 <ServiceFilter
