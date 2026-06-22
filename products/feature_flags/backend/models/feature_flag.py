@@ -136,6 +136,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
+    # Cache projection: whether the flag backs an experiment. Annotated via a bulk
+    # Exists query (or read from cache) to avoid a per-flag experiment lookup.
+    _has_experiment: Optional[bool] = None
+
     last_called_at = models.DateTimeField(
         null=True,
         blank=True,
