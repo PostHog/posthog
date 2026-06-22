@@ -4,6 +4,7 @@ import logging
 import secrets
 import datetime as dt
 import dataclasses
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import chain
 
 from django.conf import settings
@@ -12,7 +13,7 @@ from django.core.management.base import BaseCommand
 import structlog
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
-from posthog.api.capture import capture_batch_internal
+from posthog.api.capture import CaptureInternalResult, capture_batch_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.models import Team
@@ -20,6 +21,10 @@ from posthog.models import Team
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
 logger = structlog.get_logger(__name__)
+
+CHUNK_SIZE = 500
+CHUNK_TIMEOUT = 10.0
+MAX_WORKERS = 8
 
 
 class Command(BaseCommand):
@@ -112,17 +117,34 @@ class Command(BaseCommand):
                 }
             )
 
+        chunks = [events[i : i + CHUNK_SIZE] for i in range(0, len(events), CHUNK_SIZE)]
+        logger.info("submitting_events", total=len(events), chunks=len(chunks), chunk_size=CHUNK_SIZE)
+
         start_time = time.monotonic()
-        result = capture_batch_internal(
-            events=events,
-            event_source="plugin_server_load_test",
-            token=token,
-            process_person_profile=True,
-        )
-        try:
-            result.raise_for_status()
-        except Exception as e:
-            logger.exception("event_submission_fail", error=e)
+        failed_chunks = 0
+
+        def _submit_chunk(chunk: list[dict]) -> CaptureInternalResult:
+            return capture_batch_internal(
+                events=chunk,
+                event_source="plugin_server_load_test",
+                token=token,
+                process_person_profile=True,
+                timeout=CHUNK_TIMEOUT,
+            )
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
+            for future in as_completed(futures):
+                chunk_idx = futures[future]
+                try:
+                    result = future.result()
+                    result.raise_for_status()
+                except Exception as e:
+                    failed_chunks += 1
+                    logger.exception("chunk_submission_fail", chunk=chunk_idx, error=e)
+
+        if failed_chunks:
+            logger.warning("submission_partial_failure", failed_chunks=failed_chunks, total_chunks=len(chunks))
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
