@@ -10,6 +10,7 @@ import manusLogo from '../harness-logos/manus.svg'
 import notionLogo from '../harness-logos/notion.svg'
 import openaiLogo from '../harness-logos/openai.svg'
 import opencodeLogo from '../harness-logos/opencode.svg'
+import piLogo from '../harness-logos/pi.svg'
 import replitLogo from '../harness-logos/replit.svg'
 import vscodeLogo from '../harness-logos/vscode.svg'
 import windsurfLogo from '../harness-logos/windsurf.svg'
@@ -136,6 +137,7 @@ const HARNESS_REGISTRY: HarnessDescriptor[] = [
         match: (n) => n.includes('librechat'),
         logo: { src: librechatLogo, alt: 'LibreChat logo' },
     },
+    { category: 'Pi', match: (n) => n.startsWith('pi-client'), logo: { src: piLogo, alt: 'Pi logo' } },
     { category: 'Poke', match: (n) => n === 'poke' },
     { category: 'opencode', match: (n) => n === 'opencode', logo: { src: opencodeLogo, alt: 'opencode logo' } },
     { category: 'Kiro', match: (n) => n.startsWith('kiro') },

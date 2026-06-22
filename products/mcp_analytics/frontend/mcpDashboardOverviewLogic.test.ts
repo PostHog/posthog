@@ -78,6 +78,7 @@ describe('mcpDashboardOverviewLogic', () => {
             ['Lovable MCP Client', 'Lovable'],
             ['linear-agent', 'Linear'],
             ['@librechat/api-client', 'LibreChat'],
+            ['pi-client', 'Pi'],
             ['coderabbit', 'CodeRabbit'],
             ['notion-mcp-client', 'Notion'],
             ['replit-agent-mcp-client', 'Replit'],
@@ -108,6 +109,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Lovable',
             'Manus',
             'LibreChat',
+            'Pi',
         ])('resolves a logo for the %s category', (category) => {
             expect(harnessLogo(category)?.src).toBeTruthy()
         })
