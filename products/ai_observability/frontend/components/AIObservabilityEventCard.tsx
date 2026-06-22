@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
