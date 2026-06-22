@@ -459,7 +459,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not user_ids:
             return []
         users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
-        return UserBasicSerializer(users_qs, many=True).data
+        return cast(builtins.list[dict[str, Any]], UserBasicSerializer(users_qs, many=True).data)
 
     def _list_recents(self, request: Request, *, descending: bool) -> Response:
         """Serve the Recents widget view-log-first (see `get_recent_file_system_items`).
