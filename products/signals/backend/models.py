@@ -421,6 +421,10 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+        indexes = [
+            # Billing and PR-URL lookups traverse this bridge by report filtered on relationship.
+            models.Index(fields=["report", "relationship"], name="signals_report_task_rel_idx"),
+        ]
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
