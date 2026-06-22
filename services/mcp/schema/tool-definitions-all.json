@@ -7374,7 +7374,7 @@
         }
     },
     "user-get": {
-        "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
+        "description": "Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name), security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT return organization or project configuration: the nested `organization`, `team`, and `organizations` objects are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use `project-get` for full project details, and the organization-scoped tools for organization details.",
         "category": "Core",
         "feature": "core",
         "summary": "Get user",
