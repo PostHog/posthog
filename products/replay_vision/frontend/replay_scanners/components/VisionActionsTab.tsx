@@ -120,14 +120,15 @@ function VisionActionsTable(): JSX.Element {
                 ),
         },
         {
-            title: '',
+            title: 'Actions',
             key: 'actions',
+            width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <div className="flex gap-1 justify-end">
+                <div className="flex gap-1">
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -136,6 +137,11 @@ function VisionActionsTable(): JSX.Element {
                             data-attr="vision-action-edit"
                             onClick={() => openEditForm(action)}
                         />
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -157,8 +163,8 @@ function VisionActionsTable(): JSX.Element {
                                 })
                             }
                         />
-                    </div>
-                </AccessControlAction>
+                    </AccessControlAction>
+                </div>
             ),
         },
     ]

@@ -202,7 +202,7 @@ export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Elem
 
                 <LemonField name="prompt_guide" label="Guidance" info="Optional. Steers how the AI writes the summary.">
                     <LemonTextArea
-                        placeholder="e.g. focus on checkout drop-off and highlight any errors"
+                        placeholder="Optional. e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
                         maxLength={500}
                     />
                 </LemonField>
