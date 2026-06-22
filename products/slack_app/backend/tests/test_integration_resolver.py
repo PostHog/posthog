@@ -1,5 +1,7 @@
 import pytest
 
+from django.apps import apps
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -7,7 +9,6 @@ from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.integration_resolver import load_integrations
-from products.tasks.backend.models import Task, TaskRun
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -60,6 +61,8 @@ class TestResolveIntegration:
         channel: str = "C1",
         thread_ts: str = "123.456",
     ) -> SlackThreadTaskMapping:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(team=team, title="t")
         task_run = TaskRun.objects.create(team=team, task=task)
         return SlackThreadTaskMapping.objects.create(
@@ -350,7 +353,8 @@ class TestResolveIntegration:
         assert result.integration == self.integration_a
 
     def test_unresolved_user_still_honors_thread_mapping(self):
-        from products.tasks.backend.models import Task, TaskRun
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
 
         task = Task.objects.create(team=self.team_b, title="t")
         task_run = TaskRun.objects.create(team=self.team_b, task=task)

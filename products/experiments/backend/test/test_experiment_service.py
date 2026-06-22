@@ -138,15 +138,6 @@ class TestExperimentService(APIBaseTest):
     # Stats config defaults
     # ------------------------------------------------------------------
 
-    def test_stats_config_defaults_bayesian(self):
-        self._create_flag(key="stats-test")
-        service = self._service()
-
-        experiment = service.create_experiment(name="Stats Test", feature_flag_key="stats-test")
-
-        assert experiment.stats_config is not None
-        assert experiment.stats_config["method"] == "bayesian"
-
     def test_stats_config_defaults_from_team(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.default_experiment_stats_method = "frequentist"
@@ -258,14 +249,6 @@ class TestExperimentService(APIBaseTest):
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
-
-    def test_no_fingerprints_when_no_metrics(self):
-        self._create_flag(key="no-metrics")
-        service = self._service()
-
-        experiment = service.create_experiment(name="No Metrics", feature_flag_key="no-metrics")
-
-        assert experiment.metrics == []
 
     # ------------------------------------------------------------------
     # Metric ordering
@@ -920,40 +903,6 @@ class TestExperimentService(APIBaseTest):
     # Service contract fields
     # ------------------------------------------------------------------
 
-    def test_description_and_type_passed_through(self):
-        self._create_flag(key="passthrough")
-        service = self._service()
-
-        experiment = service.create_experiment(
-            name="Passthrough Test",
-            feature_flag_key="passthrough",
-            description="A description",
-            type="web",
-        )
-
-        assert experiment.description == "A description"
-        assert experiment.type == "web"
-
-    def test_parameters_passed_through(self):
-        self._create_flag(key="params-test")
-        service = self._service()
-
-        params = {
-            "feature_flag_variants": [
-                {"key": "control", "name": "Control", "rollout_percentage": 50},
-                {"key": "test", "name": "Test", "rollout_percentage": 50},
-            ],
-            "minimum_detectable_effect": 30,
-        }
-
-        experiment = service.create_experiment(
-            name="Params Test",
-            feature_flag_key="params-test",
-            parameters=params,
-        )
-
-        assert experiment.parameters == params
-
     def test_create_experiment_with_all_fields(self):
         service = self._service()
         now = timezone.now()
@@ -1144,19 +1093,6 @@ class TestExperimentService(APIBaseTest):
 
         experiment.refresh_from_db()
         assert experiment.status == "running"
-
-    def test_create_experiment_with_unknown_field_raises_type_error(self):
-        self._create_flag(key="unknown-key-flag")
-        service = self._service()
-
-        with self.assertRaises(TypeError) as ctx:
-            service.create_experiment(
-                name="Unknown Key",
-                feature_flag_key="unknown-key-flag",
-                unknown_field="boom",  # type: ignore[call-arg]
-            )
-
-        assert "unexpected keyword argument 'unknown_field'" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Update experiment

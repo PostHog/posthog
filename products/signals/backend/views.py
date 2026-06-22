@@ -23,7 +23,6 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 
 import structlog
@@ -99,7 +98,7 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade import api as tasks_facade
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -629,12 +628,9 @@ class SignalReportViewSet(
         # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
         # EXISTS so it can be used as a filter (and counted) without the
         # per-row PR-url annotation, which the list action skips for performance.
-        return Exists(
-            TaskRun.objects.filter(
-                task__signal_report_tasks__report_id=OuterRef("id"),
-                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-                output__pr_url__isnull=False,
-            ).exclude(output__pr_url="")
+        return tasks_facade.task_run_pr_url_exists_subquery(
+            task__signal_report_tasks__report_id=OuterRef("id"),
+            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -869,17 +865,9 @@ class SignalReportViewSet(
     def _annotate_implementation_pr_url(self, queryset):
         # Find the latest TaskRun output->pr_url for the implementation task linked to each report.
         # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
-        latest_impl_pr_url = Subquery(
-            TaskRun.objects.filter(
-                task__signal_report_tasks__report_id=OuterRef("id"),
-                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-                output__pr_url__isnull=False,
-            )
-            .exclude(output__pr_url="")
-            .order_by("-created_at")
-            .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-            .values("output_pr_url_text")[:1],
-            output_field=CharField(),
+        latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
+            task__signal_report_tasks__report_id=OuterRef("id"),
+            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 
