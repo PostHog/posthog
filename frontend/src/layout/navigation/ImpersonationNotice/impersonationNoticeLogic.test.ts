@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
 
 import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 
@@ -128,6 +128,48 @@ describe('impersonationNoticeLogic', () => {
             await expectLogic(logic).toMatchValues({
                 isImpersonated: true,
                 isReadOnly: true,
+            })
+        })
+
+        describe('adminLoginUrls', () => {
+            it('returns no urls when there is no ticket context', async () => {
+                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
+            })
+
+            it('returns no urls when the ticket has no email', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: '', region: Region.US })
+
+                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
+            })
+
+            it('returns a single region url when the region is known', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: 'a+b@example.com', region: Region.EU })
+
+                await expectLogic(logic).toMatchValues({
+                    adminLoginUrls: [
+                        {
+                            region: Region.EU,
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=a%2Bb%40example.com',
+                        },
+                    ],
+                })
+            })
+
+            it('falls back to both production regions when the region is unknown', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: 'slack@example.com' })
+
+                await expectLogic(logic).toMatchValues({
+                    adminLoginUrls: [
+                        {
+                            region: Region.US,
+                            url: 'https://us.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                        {
+                            region: Region.EU,
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                    ],
+                })
             })
         })
     })

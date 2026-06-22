@@ -460,6 +460,21 @@ def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Corrupted/truncated private key body in the uploaded service account JSON.
+        "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
+        "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
+    ],
+)
+def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Unparseable private key error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
