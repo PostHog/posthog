@@ -233,3 +233,61 @@ class TestUpdateExternalJobStatus:
 
         assert updated.status == ExternalDataJob.Status.FAILED
         assert updated.finished_at is not None
+
+    @pytest.mark.parametrize(
+        "first_status,rejected_status",
+        [
+            (ExternalDataJob.Status.COMPLETED, ExternalDataJob.Status.FAILED),
+            (ExternalDataJob.Status.FAILED, ExternalDataJob.Status.COMPLETED),
+        ],
+    )
+    def test_terminal_to_different_terminal_is_rejected(self, first_status, rejected_status):
+        team, _source, _schema, job = _create_org_team_source_schema_job()
+
+        with patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=first_status,
+                logger=MagicMock(),
+                latest_error="first error" if first_status == ExternalDataJob.Status.FAILED else None,
+            )
+
+        result = update_external_job_status(
+            job_id=str(job.id),
+            team_id=team.pk,
+            status=rejected_status,
+            logger=MagicMock(),
+            latest_error="late error",
+        )
+
+        assert result.status == first_status
+        db_job = ExternalDataJob.objects.get(id=job.id)
+        assert db_job.status == first_status
+
+    def test_rejected_transition_does_not_overwrite_schema_status(self):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with patch("products.data_warehouse.backend.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+
+        update_external_job_status(
+            job_id=str(job.id),
+            team_id=team.pk,
+            status=ExternalDataJob.Status.FAILED,
+            logger=MagicMock(),
+            latest_error="late failure",
+        )
+
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+        assert schema.latest_error is None
