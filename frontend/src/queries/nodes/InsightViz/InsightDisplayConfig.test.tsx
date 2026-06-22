@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -174,6 +175,23 @@ describe('InsightDisplayConfig', () => {
             await waitFor(() => {
                 expect(optionsButton).not.toHaveTextContent(/\(1\)/)
             })
+        })
+    })
+
+    describe('line graph display options with the quill legend flag', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true,
+            })
+        })
+
+        it('keeps the "Show legend" checkbox and adds a position select on the same row', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
+            expect(legendItem).toBeTruthy()
+            expect(legendItem).toContain('Bottom')
         })
     })
 })

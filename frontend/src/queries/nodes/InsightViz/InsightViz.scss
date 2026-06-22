@@ -203,6 +203,10 @@
     flex: 1;
     flex-direction: column;
     min-height: var(--insight-viz-min-height);
+
+    // Pin the height so an in-chart legend with many series scrolls within the plot area instead of
+    // stretching the chart taller (the legend's max-height caps resolve against this).
+    max-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
     .NotebookNode &,
@@ -210,6 +214,7 @@
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
         min-height: auto;
+        max-height: none;
     }
 
     &--ActionsTable,
@@ -217,6 +222,7 @@
     &--BoldNumber,
     &--Metric {
         min-height: auto;
+        max-height: none;
         margin: 0;
     }
 

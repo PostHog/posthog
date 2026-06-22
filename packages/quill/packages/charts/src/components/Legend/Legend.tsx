@@ -55,7 +55,9 @@ export function Legend({
                             className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
                             style={{ backgroundColor: item.color }}
                         />
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate" style={{ maxWidth: 180 }} title={item.label}>
+                            {item.label}
+                        </span>
                         {item.secondaryLabel != null && item.secondaryLabel !== '' && (
                             <span className="shrink-0 text-muted" data-attr="hog-chart-legend-secondary">
                                 {item.secondaryLabel}

@@ -22,6 +22,19 @@ describe('ChartLegendLayout', () => {
         expect(r.children[1 - legendIndex].querySelector('[data-attr="chart"]')).not.toBeNull()
     })
 
+    it.each([
+        ['top', '40%'],
+        ['bottom', '40%'],
+        ['left', '100%'],
+        ['right', '100%'],
+    ] as const)('bounds the %s legend slot and lets it scroll (max-height %s)', (position, maxHeight) => {
+        const slot = root({ legend: LEGEND, position, children: CHART }).querySelector(
+            '[data-attr="legend"]'
+        )!.parentElement!
+        expect(slot.style.overflowY).toBe('auto')
+        expect(slot.style.maxHeight).toBe(maxHeight)
+    })
+
     it('passes gap through as an inline style (default 8px)', () => {
         expect(root({ legend: LEGEND, children: CHART }).style.gap).toBe('8px')
         expect(root({ legend: LEGEND, gap: 24, children: CHART }).style.gap).toBe('24px')
