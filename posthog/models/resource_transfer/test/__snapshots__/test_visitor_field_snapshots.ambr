@@ -787,6 +787,7 @@
     '__static_attributes__',
     '__str__',
     '_evaluation_tag_names',
+    '_has_experiment',
     '_meta',
     '_payloads',
     '_tombstone_suffix',
