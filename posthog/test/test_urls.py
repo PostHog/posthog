@@ -2,6 +2,7 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.contrib.sessions.backends.base import SessionBase
 from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
@@ -88,17 +89,14 @@ class TestUrls(APIBaseTest):
         # 500 with the real error page rather than re-raising inside the handler.
         request = RequestFactory().get("/")
 
-        class _DeadSession:
-            def __getattr__(self, name: str):
-                raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
-
+        class _DeadSession(SessionBase):
             def __contains__(self, key):
                 raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
 
-            def get(self, *args, **kwargs):
+            def get(self, key, default=None):
                 raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
 
-        request.session = _DeadSession()  # type: ignore[attr-defined]
+        request.session = _DeadSession()
 
         response = handler500(request)
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
