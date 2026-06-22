@@ -5,7 +5,7 @@ import random
 import urllib
 import builtins
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
@@ -23,13 +23,10 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import EventsQuery, HogQLQueryModifiers, ProductKey
+from posthog.schema import ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLGlobalSettings
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
@@ -38,13 +35,12 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Person, PropertyDefinition, User
+from posthog.models.event.legacy_events_query import EVENT_LIST_SELECT_COLUMNS, LegacyEventsListQuery
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
@@ -64,8 +60,6 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
 )
-
-from products.actions.backend.models.action import Action
 
 tracer = trace.get_tracer(__name__)
 
@@ -120,10 +114,6 @@ def _get_event_list_cache_key(
     return f"{EVENT_LIST_CACHE_KEY_PREFIX}:{team_id}:{event_flag}:{distinct_id_flag}:{size_category}"
 
 
-# Columns the events list/retrieve endpoints read. The order is the contract for
-# zipping HogQL result rows back into the dict shape `ClickhouseEventSerializer` expects.
-EVENT_LIST_SELECT_COLUMNS = ["uuid", "event", "properties", "timestamp", "distinct_id", "elements_chain"]
-
 # Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
 # They are render hints with no filter semantics, so dropping them preserves old behavior. Any
 # OTHER unexpected key is left in place so the schema rejects it (fail loud) rather than being
@@ -157,125 +147,6 @@ def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None")
             stack.extend(v for v in values if isinstance(v, dict))
         else:
             yield node
-
-
-def run_events_query(
-    *,
-    team: Team,
-    user: Optional[User],
-    database: Database,
-    modifiers: HogQLQueryModifiers,
-    limit: int,
-    offset: int,
-    order: str,
-    before: Optional[str],
-    after: Optional[str],
-    event: Optional[str],
-    person_id: Optional[str],
-    distinct_id: Optional[str],
-    properties: "builtins.list[dict] | dict | None",
-    action_id: Optional[str],
-    time_window_seconds: Optional[int] = None,
-) -> tuple[builtins.list[dict], bool, Optional[int]]:
-    """Run a single events-list page through HogQL's `EventsQueryRunner`.
-
-    Returns the page rows (already trimmed to `limit`), whether more rows exist, and the
-    time window that was applied (`None` when the request's own date range was used). The
-    progressive-window probing and result-count cache live in `list()`; this is one probe.
-    Heavy event-list scans run on the OFFLINE workload, isolated from the main query nodes.
-    The `database`/`modifiers` are built once per request and shared across probes so the
-    HogQL schema isn't rebuilt on every window.
-    """
-    tzinfo = team.timezone_info
-
-    before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
-    if after:
-        after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
-    elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-        after_dt = before_dt - timedelta(hours=24)
-    else:
-        after_dt = None
-
-    if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and after_dt is not None:
-        if (before_dt - after_dt) > timedelta(days=366) and (
-            settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01
-        ):
-            raise ValueError("Date range cannot exceed 1 year")
-
-    applied_window_seconds: Optional[int] = None
-    if (
-        order == "DESC"
-        and time_window_seconds is not None
-        and (after_dt is None or (before_dt - after_dt).total_seconds() > time_window_seconds)
-    ):
-        after_dt = before_dt - timedelta(seconds=time_window_seconds)
-        applied_window_seconds = time_window_seconds
-
-    # Match the legacy behaviour for actions with no match groups (or that no longer exist):
-    # an empty result, not an error. The runner would otherwise raise. A malformed action_id
-    # is left to fail (int() raises) — bad input should error, not silently return nothing.
-    if action_id:
-        try:
-            action = Action.objects.get(pk=int(action_id), team__project_id=team.project_id)
-        except Action.DoesNotExist:
-            return [], False, applied_window_seconds
-        if not action.steps:
-            return [], False, applied_window_seconds
-
-    # A flat list of leaf filters goes through `properties`; a property group goes through
-    # `fixedProperties`, where the runner's `property_to_expr` preserves its nested AND/OR.
-    where_properties: builtins.list[dict] = []
-    fixed_properties: builtins.list[dict] = []
-    if isinstance(properties, dict):
-        fixed_properties = [properties]
-    elif properties:
-        where_properties = list(properties)
-    if distinct_id is not None:
-        where_properties.append(
-            {"type": "event_metadata", "key": "distinct_id", "value": distinct_id, "operator": "exact"}
-        )
-
-    events_query = EventsQuery(
-        select=EVENT_LIST_SELECT_COLUMNS,
-        before=before_dt.isoformat(),
-        # "all" disables the runner's lower timestamp bound — matches the legacy path, which
-        # applied no `timestamp >` condition when there was no `after` and no window.
-        after=after_dt.isoformat() if after_dt is not None else "all",
-        event=event or None,
-        personId=str(person_id) if person_id else None,
-        actionId=int(action_id) if action_id else None,
-        properties=cast("builtins.list[dict[str, object]]", where_properties) if where_properties else None,
-        fixedProperties=cast("builtins.list[dict[str, object]]", fixed_properties) if fixed_properties else None,
-        orderBy=[f"timestamp {order}"],
-        limit=limit,
-        offset=offset,
-    )
-
-    runner = EventsQueryRunner(query=events_query, team=team, user=user, modifiers=modifiers)
-    rows, has_more = _execute_events_list_query(runner, database)
-    return rows, has_more, applied_window_seconds
-
-
-def _execute_events_list_query(runner: EventsQueryRunner, database: Database) -> tuple[builtins.list[dict], bool]:
-    """Execute the events-list HogQL query and return ``(page_rows, has_more)``.
-
-    Split out from `run_events_query` so the progressive-window probing in `list()` can be
-    tested against the real window/date logic while stubbing only the ClickHouse round-trip.
-    The pre-built `database` is handed to the executor so it isn't rebuilt for each probe.
-    """
-    runner.paginator.execute_hogql_query(
-        runner.to_query(),
-        query_type="events_list",
-        team=runner.team,
-        workload=Workload.OFFLINE,
-        settings=HogQLGlobalSettings(max_threads=settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS),
-        modifiers=runner.modifiers,
-        timings=runner.timings,
-        user=runner.user,
-        context=HogQLContext(team=runner.team, database=database, enable_select_queries=True),
-    )
-    rows = [dict(zip(EVENT_LIST_SELECT_COLUMNS, row)) for row in runner.paginator.results]
-    return rows, runner.paginator.has_more()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -512,17 +383,12 @@ class EventViewSet(
 
             task_id = generate_short_id()
 
-            # Build the HogQL schema once and share it across every window probe — otherwise the
-            # progressive-window loop would rebuild the (data-warehouse-aware) database per probe.
+            # The query object builds the HogQL schema once and reuses it across every window
+            # probe — otherwise the progressive-window loop would rebuild the (data-warehouse-aware)
+            # database per probe.
             request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
-            shared_modifiers = create_default_modifiers_for_team(team)
-            shared_database = Database.create_for(team=team, user=request_user, modifiers=shared_modifiers)
-
-            runner_kwargs: dict[str, Any] = {
-                "team": team,
-                "user": request_user,
-                "database": shared_database,
-                "modifiers": shared_modifiers,
+            events_query = LegacyEventsListQuery(team, request_user)
+            page_kwargs: dict[str, Any] = {
                 "limit": limit,
                 "offset": offset,
                 "order": order,
@@ -542,8 +408,8 @@ class EventViewSet(
                 applied_window: Optional[int] = None
 
                 for window in windows_to_try:
-                    query_result, has_more, applied_window = run_events_query(
-                        **runner_kwargs, time_window_seconds=window
+                    query_result, has_more, applied_window = events_query.run_page(
+                        **page_kwargs, time_window_seconds=window
                     )
 
                     # If window wasn't applied (e.g., ASC order), don't try other windows
@@ -564,7 +430,7 @@ class EventViewSet(
                         cache.set(cache_key, new_cache_data, EVENT_LIST_CACHE_TTL)
                 elif applied_window is not None or not windows_to_try:
                     # Windows were applied but didn't return enough results, or no windows to try - run full query
-                    query_result, has_more, applied_window = run_events_query(**runner_kwargs)
+                    query_result, has_more, applied_window = events_query.run_page(**page_kwargs)
 
             context = {**restricted_context}
             if request.query_params.get("include_person", "").lower() in ("true", "1"):
