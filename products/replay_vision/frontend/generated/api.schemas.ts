@@ -261,6 +261,58 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type VisionActionRunStatusEnumApi =
+    (typeof VisionActionRunStatusEnumApi)[keyof typeof VisionActionRunStatusEnumApi]
+
+export const VisionActionRunStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+ */
+export interface VisionActionRunApi {
+    readonly id: string
+    /** Run outcome: running, completed, failed, or skipped.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: VisionActionRunStatusEnumApi
+    /**
+     * The scheduled fire time this run was claimed for.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Number of observations that fed this run's summary. */
+    readonly observation_count: number
+    /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+    readonly synthesized_markdown: string
+    /** Short human-readable reason a run skipped or failed; null on success. */
+    readonly error_reason: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedVisionActionRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: VisionActionRunApi[]
+}
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -763,6 +815,17 @@ export type VisionActionsListParams = {
      * Filter to the actions belonging to one scanner.
      */
     scanner?: string
+}
+
+export type VisionActionsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type VisionObservationsListParams = {
