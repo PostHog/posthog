@@ -358,11 +358,50 @@ def capture_batch_internal(
     max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     timeout: float = 2,
 ) -> CaptureInternalResult:
-    """Submit a batch of events to the v1 analytics capture endpoint.
+    """Submit multiple events in a single HTTP request to capture-rs (v1 analytics endpoint).
 
-    Transport-level retries on 5xx are handled by urllib3 (hardcoded at 3,
-    matching v0).  ``max_attempts`` caps application-level resubmit rounds
-    for per-event ``retry`` results.
+    This is the preferred method for publishing events from the Django app on behalf of
+    non-PostHog-admin teams/projects. DO NOT write events directly to ingestion Kafka
+    topics — use this!
+
+    Unlike the legacy implementation, this is a true batch POST (not a fan-out of
+    individual requests). capture-rs returns per-event results; events that get a
+    ``retry`` result are automatically resubmitted up to ``max_attempts`` rounds.
+    Transport-level retries on 5xx are handled by urllib3 (3 retries with backoff).
+
+    Args:
+        events: list of event dicts to capture. Each MUST include:
+            - ``event`` (str): event name (replay names like ``$snapshot`` are rejected)
+            - ``distinct_id`` (str): required; may alternatively appear in ``properties``
+            - ``properties`` (dict): event properties (can be empty)
+            Optional per-event fields:
+            - ``timestamp`` (str | datetime): defaults to now UTC if absent
+            - ``options`` (dict): typed options — keys: ``cookieless_mode``,
+              ``disable_skew_correction``, ``product_tour_id``, ``process_person_profile``.
+              Prefer this over stuffing ``$``-prefixed keys into properties.
+            - ``session_id``, ``window_id`` (str): top-level fields; legacy
+              ``$session_id``/``$window_id`` in properties are also recognized and stripped
+            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv4
+        token: API token to submit events on behalf of (required)
+        event_source: observability tag for the internal module/codepath submitting events (required)
+        historical_migration: if True, routes events to the historical ingestion path in capture-rs
+        process_person_profile: if True, process person profiles per event/team config.
+            If False (default), explicitly disables person processing for all events in
+            the batch — avoids expensive person profile updates from internal tooling.
+        max_attempts: application-level retry budget for per-event ``retry`` results from
+            capture-rs (default: 4). Does not affect transport-level 5xx retries.
+        timeout: HTTP request timeout in seconds (default: 2)
+
+    Returns:
+        CaptureInternalResult with per-event outcomes. Call ``.raise_for_status()`` to raise
+        ``CaptureInternalError`` on any failure (whole-request or partial). Inspect
+        ``.ok``, ``.dropped``, ``.retried``, ``.unaccounted`` lists for fine-grained handling.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures (missing token, empty batch,
+            replay event names, unknown option keys) or HTTP/transport errors. The exception
+            carries a ``.status_code`` attribute (the HTTP status from capture-rs, or 0 for
+            client-side/transport errors).
     """
     payload, uuids = prepare_capture_internal_batch(
         events,
@@ -531,10 +570,53 @@ def capture_internal(
     historical_migration: bool = False,
     timeout: float = 2,
 ) -> CaptureInternalResult:
-    """Submit a single event to the v1 analytics capture endpoint.
+    """Submit a single event to capture-rs (v1 analytics endpoint).
 
-    Wraps the event into a 1-element batch and delegates to
-    :func:`capture_batch_internal`.
+    This is the preferred method for publishing events from the Django app on behalf of
+    non-PostHog-admin teams/projects. DO NOT write events directly to ingestion Kafka
+    topics — use this!
+
+    Wraps the event into a 1-element batch and delegates to :func:`capture_batch_internal`.
+
+    Args:
+        token: API token to submit the event on behalf of (required)
+        event_name: name of the event to publish (required). Replay event names
+            (``$snapshot``, ``$performance_event``, ``$snapshot_items``) are rejected
+            client-side — those go through the dedicated replay capture path.
+        event_source: observability tag for the internal module/codepath submitting
+            the event (required). Used in Prometheus metrics to detect new call sites.
+        distinct_id: distinct ID for the event (required)
+        timestamp: event timestamp (optional; defaults to now UTC). Accepts datetime
+            objects or ISO8601 strings.
+        properties: event properties dict (optional; can be empty). Legacy ``$``-prefixed
+            keys that map to typed options (``$session_id``, ``$window_id``,
+            ``$cookieless_mode``, ``$ignore_sent_at``, ``$product_tour_id``,
+            ``$process_person_profile``) are automatically extracted and stripped.
+        options: typed event options dict (optional). Valid keys: ``cookieless_mode``,
+            ``disable_skew_correction``, ``product_tour_id``, ``process_person_profile``.
+            Prefer this over stuffing ``$``-prefixed keys into properties.
+        session_id: session ID (optional). Preferred over ``$session_id`` in properties.
+        window_id: window ID (optional). Preferred over ``$window_id`` in properties.
+        event_uuid: deterministic UUID to assign to the event (optional; default:
+            capture-rs assigns a fresh UUIDv7). Use when the caller needs a stable,
+            queryable event UUID — e.g. to link back to the event from an admin UI.
+        process_person_profile: if True, process the person profile for this event
+            according to the caller's settings. If False (default), explicitly disables
+            person processing — avoids expensive person profile updates from internal
+            tooling.
+        historical_migration: if True, routes to the historical ingestion path in
+            capture-rs (separate Kafka topic/consumer group).
+        timeout: HTTP request timeout in seconds (default: 2)
+
+    Returns:
+        CaptureInternalResult with per-event outcome. Call ``.raise_for_status()`` to raise
+        ``CaptureInternalError`` on failure. For best-effort fire-and-forget patterns,
+        check ``.succeeded()`` instead.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures or HTTP/transport errors.
+            Carries a ``.status_code`` attribute (HTTP status from capture-rs, or 0 for
+            client-side/transport errors) so callers can propagate into their own responses.
     """
     event_dict: dict[str, Any] = {
         "event": event_name,
