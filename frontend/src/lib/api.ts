@@ -6069,7 +6069,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
+        authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
@@ -6882,10 +6882,6 @@ const api = {
 
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
         },
 
         async compose(data: {

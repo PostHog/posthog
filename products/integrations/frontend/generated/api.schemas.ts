@@ -336,6 +336,17 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface GoogleSearchConsoleSiteApi {
+    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+    siteUrl: string
+    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+    permissionLevel: string
+}
+
+export interface GoogleSearchConsoleSitesResponseApi {
+    sites: GoogleSearchConsoleSiteApi[]
+}
+
 export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *

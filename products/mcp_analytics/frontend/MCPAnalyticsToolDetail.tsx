@@ -20,6 +20,7 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableEmpty,
     TableHead,
     TableHeader,
     TableRow,
@@ -202,8 +203,8 @@ function ResultTable({
                         ))}
                     </TableRow>
                 </TableHeader>
-                <TableBody>
-                    {loading && rows.length === 0 ? (
+                {loading && rows.length === 0 ? (
+                    <TableBody>
                         <TableRow>
                             <TableCell colSpan={columns.length}>
                                 <div className="space-y-2 py-1">
@@ -213,14 +214,12 @@ function ResultTable({
                                 </div>
                             </TableCell>
                         </TableRow>
-                    ) : rows.length === 0 ? (
-                        <TableRow>
-                            <TableCell colSpan={columns.length} align="center" className="py-6 text-secondary">
-                                {emptyMessage}
-                            </TableCell>
-                        </TableRow>
-                    ) : (
-                        rows.map((row, i) => (
+                    </TableBody>
+                ) : rows.length === 0 ? (
+                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                ) : (
+                    <TableBody>
+                        {rows.map((row, i) => (
                             <TableRow key={i}>
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
@@ -228,9 +227,9 @@ function ResultTable({
                                     </TableCell>
                                 ))}
                             </TableRow>
-                        ))
-                    )}
-                </TableBody>
+                        ))}
+                    </TableBody>
+                )}
             </Table>
         </Card>
     )

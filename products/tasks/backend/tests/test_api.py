@@ -3,9 +3,9 @@ import time
 import uuid
 import base64
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -45,7 +45,11 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.logic.stream.redis_stream import (
+    TaskRunRedisStream,
+    TaskRunStreamEntryOrKeepalive,
+    get_task_run_stream_key,
+)
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -5447,6 +5451,149 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
         self.assertIn("event: keepalive", content)
         self.assertIn('"type": "keepalive"', content)
         self.assertIn("after idle gap", content)
+
+
+class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
+    def _stream_url(self, task: Task, run: TaskRun) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
+
+    def _mark_stream_complete(self, run: TaskRun) -> None:
+        async def _mark() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            await redis_stream.mark_complete()
+
+        asyncio.run(_mark())
+
+    def _read_stream_ids(self, run: TaskRun) -> list[str]:
+        async def _read() -> list[str]:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            messages = await redis_stream._redis_client.xrange(get_task_run_stream_key(str(run.id)))
+            return [msg_id.decode("utf-8") if isinstance(msg_id, bytes) else msg_id for msg_id, _ in messages]
+
+        return asyncio.run(_read())
+
+    def _collect_sse_events(self, response: StreamingHttpResponse) -> list[dict]:
+        content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+        events: list[dict] = []
+        for block in [part.strip() for part in content.split("\n\n") if part.strip()]:
+            event_name = None
+            event_id = None
+            data = None
+            for line in block.splitlines():
+                if line.startswith("event: "):
+                    event_name = line[7:]
+                elif line.startswith("id: "):
+                    event_id = line[4:]
+                elif line.startswith("data: "):
+                    data = json.loads(line[6:])
+            events.append({"event": event_name, "id": event_id, "data": data})
+        return events
+
+    @parameterized.expand(
+        [
+            ("after_real_event", False, "before cap"),
+            ("on_keepalive_only_iteration", True, "event: keepalive"),
+        ]
+    )
+    def test_stream_rotates_cleanly_when_connection_cap_elapses(
+        self, _name: str, idle_first: bool, expected_marker: str
+    ) -> None:
+        task = self.create_task()
+        run = task.create_run()
+
+        def _console_event(message: str) -> dict:
+            return {
+                "type": "notification",
+                "timestamp": "2026-01-01T00:00:01Z",
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "_posthog/console",
+                    "params": {"sessionId": str(run.id), "level": "info", "message": message},
+                },
+            }
+
+        async def fake_read_stream_entries(
+            self: TaskRunRedisStream, *args: Any, **kwargs: Any
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
+            if idle_first:
+                yield None
+            else:
+                yield ("1-0", _console_event("before cap"))
+            yield ("2-0", _console_event("after cap"))
+
+        observe_closed = MagicMock()
+        with (
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+            # A cap of 0 trips the elapsed check on the first yield, so the test
+            # exercises the rotation path without sleeping through real time. The
+            # keepalive case proves the check runs on idle yields too: if it only
+            # ran after real events, an idle stream would never rotate.
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_connection_closed", observe_closed),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Whatever was already delivered is kept; the stream then signals rotation
+        # (so clients can tell it apart from run completion) and ends without an
+        # error event, letting the client resume from its Last-Event-ID cursor.
+        self.assertIn(expected_marker, content)
+        self.assertNotIn("after cap", content)
+        self.assertNotIn("event: error", content)
+        self.assertTrue(content.endswith('event: end\ndata: {"type": "rotated"}\n\n'))
+        observe_closed.assert_called_once()
+        self.assertEqual(observe_closed.call_args.args[1], "rotated")
+
+    def test_stream_resumes_after_rotation_without_gap_or_duplicate(self) -> None:
+        task = self.create_task()
+        run = task.create_run()
+        run.emit_console_event("info", "first message")
+        run.emit_console_event("info", "second message")
+        stream_ids = self._read_stream_ids(run)
+
+        # A cap of 0 rotates the first connection after its first yield, leaving
+        # the two console events for the resumed connection to pick up.
+        with patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
+            first_response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
+            )
+            first_events = self._collect_sse_events(first_response)
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        # The rotation marker is the last thing on the wire and carries no id, so
+        # it can't poison the client's resume cursor.
+        self.assertEqual(first_events[-1], {"event": "end", "id": None, "data": {"type": "rotated"}})
+        first_data_events = first_events[:-1]
+        self.assertEqual([event["id"] for event in first_data_events], [stream_ids[0]])
+        # stream_ids[0] is the task_run_state event create_run publishes — the
+        # console events are deliberately left for the resumed connection.
+        self.assertEqual(first_data_events[0]["data"]["type"], "task_run_state")
+
+        self._mark_stream_complete(run)
+
+        second_response = cast(
+            StreamingHttpResponse,
+            self.client.get(
+                self._stream_url(task, run),
+                headers={"accept": "text/event-stream", "last-event-id": first_data_events[0]["id"]},
+            ),
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        second_events = self._collect_sse_events(second_response)
+        # Resuming from the rotated connection's last id delivers the remaining
+        # events exactly once — no gap, no duplicate — then completes without a
+        # rotation marker.
+        self.assertEqual([event["id"] for event in second_events], stream_ids[1:])
+        self.assertEqual(
+            [event["data"]["notification"]["params"]["message"] for event in second_events],
+            ["first message", "second message"],
+        )
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):

@@ -22,6 +22,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -743,30 +744,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1142,14 +1121,6 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-# Slack ``users.info`` error codes that mean the stored bot token can no longer talk to
-# Slack on this workspace's behalf. Surfaced as ``token_broken=True`` on the failure log
-# so support can distinguish "needs reconnect" from other API failures at a glance.
-_SLACK_AUTH_FAILURE_CODES = frozenset(
-    {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
-)
-
-
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
@@ -1158,7 +1129,17 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
     Every termination path emits a distinct structured log so a silent ``None`` can
     still be diagnosed from logs alone — historically the failure modes collapsed
     onto a downstream ``user_not_found`` warning that hid the actual cause.
+
+    Auth-class ``SlackApiError`` outcomes flip the shared ``slack_auth`` cache to
+    ``ok=false`` so the resolver demotes this install on subsequent mentions
+    rather than pinning every one to a dead token. The success path deliberately
+    does NOT write ``ok=true``: the cache lives in the resolver's ``auth.test``
+    layer, and a DB-cache hit (``SlackUserProfileCache``) proves nothing about
+    the live token. Letting the resolver own the positive verdict keeps the
+    cache truthful.
     """
+    from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES, write_auth_state_broken
+
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
@@ -1188,7 +1169,9 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
         return slack_email
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
-        token_broken = isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES
+        token_broken = isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES
+        if token_broken and isinstance(error_code, str):
+            write_auth_state_broken(probe_integration.id, error_code)
         logger.warning(
             "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,
