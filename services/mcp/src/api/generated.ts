@@ -12303,10 +12303,10 @@ export namespace Schemas {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto
      */
-    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
 
 
-    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+    export const InitialPermissionModeEnum = {
       Default: 'default',
       AcceptEdits: 'acceptEdits',
       Plan: 'plan',
@@ -12375,7 +12375,7 @@ export namespace Schemas {
        * * `plan` - plan
        * * `bypassPermissions` - bypassPermissions
        * * `auto` - auto */
-      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -45082,6 +45082,16 @@ export namespace Schemas {
       trace_id?: string;
       /** Typed PostHog entities (and free text) attached to this message. */
       attached_context?: SandboxAttachedContextItem[];
+      /** Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto */
+      initial_permission_mode?: InitialPermissionModeEnum;
+      /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
+      task_id?: string;
     }
 
     export interface SavedHeatmapListResponse {

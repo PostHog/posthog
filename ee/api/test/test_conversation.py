@@ -1341,6 +1341,154 @@ class TestConversationSandboxRoute(APIBaseTest):
         passed_conversation = m_session.call_args[0][0]
         self.assertEqual(str(passed_conversation.id), str(conversation.id))
 
+    def test_open_binds_new_conversation_to_existing_task(self):
+        # "Open task" opens a blank chat pre-bound to an existing Task: the first message creates the
+        # conversation row bound to that Task, so routing resumes the Task's run (terminal-resume)
+        # instead of starting a fresh task.
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        task.create_run(mode="background")
+        conversation_id = str(uuid.uuid4())
+        sentinel = SandboxRouteResult(
+            task_id=str(task.id), run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversation = Conversation.objects.get(id=conversation_id)
+        self.assertEqual(conversation.task_id, task.id)
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.SANDBOX)
+        # The session opens against the bound conversation, so its task_id drives terminal-run resume
+        # — no repository is auto-routed (the resumed Task already has one).
+        passed_conversation = m_session.call_args[0][0]
+        self.assertEqual(passed_conversation.task_id, task.id)
+        self.mock_select_repo.assert_not_awaited()
+
+    def test_open_rejects_task_id_from_another_team(self):
+        # IDOR guard: a Task from another team isn't visible, so the serializer rejects it (400) and
+        # no conversation row is created.
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(other_task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_open_rejects_task_not_visible_to_user(self):
+        # A teammate's personal task isn't visible (task_visibility_q), so it can't be bound by id.
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        teammate_task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=teammate,
+        )
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(teammate_task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_open_binds_team_visible_signal_report_task(self):
+        # Signals tasks are team-scoped artifacts visible to any team member, even when created under a
+        # system-picked user — so a teammate's signal-report task can be bound.
+        teammate = User.objects.create_and_join(self.organization, "teammate2@posthog.com", "password")
+        signal_task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=teammate,
+        )
+        conversation_id = str(uuid.uuid4())
+        sentinel = SandboxRouteResult(
+            task_id=str(signal_task.id), run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(signal_task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Conversation.objects.get(id=conversation_id).task_id, signal_task.id)
+
+    def test_open_ignores_task_id_for_existing_conversation(self):
+        # Binding only happens on create — an existing conversation keeps the Task it was born with
+        # (here: none), even if a later `open` carries a `task_id`.
+        conversation = self._sandbox_conversation()
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello", "trace_id": str(uuid.uuid4()), "task_id": str(task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversation.refresh_from_db()
+        self.assertIsNone(conversation.task_id)
+
     def test_open_first_message_routes_repository_into_session(self):
         # The auto-routed repository for a first message is threaded into the session opener.
         conversation = self._sandbox_conversation()
