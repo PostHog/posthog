@@ -1712,7 +1712,11 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 4, "total": 10}
+        body = response.json()
+        assert body["affected"] == 4
+        assert body["total"] == 10
+        assert "limit" in body
+        assert body["limit"] > 0
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
@@ -1747,7 +1751,10 @@ class TestHogFlowAPI(APIBaseTest):
                 headers={"authorization": f"Bearer {key}"},
             )
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 1, "total": 10}
+        body = response.json()
+        assert body["affected"] == 1
+        assert body["total"] == 10
+        assert "limit" in body
 
     @parameterized.expand(
         [
