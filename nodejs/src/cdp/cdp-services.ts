@@ -2,6 +2,7 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { InternalFetchService } from '~/common/services/internal-fetch'
 import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
@@ -106,7 +107,13 @@ export interface CdpCoreServices {
 
 export type CdpCoreServicesConfig = Pick<
     CommonConfig,
-    'REDIS_URL' | 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE' | 'ENCRYPTION_SALT_KEYS' | 'SITE_URL'
+    | 'REDIS_URL'
+    | 'REDIS_POOL_MIN_SIZE'
+    | 'REDIS_POOL_MAX_SIZE'
+    | 'ENCRYPTION_SALT_KEYS'
+    | 'SITE_URL'
+    | 'INTERNAL_API_BASE_URL'
+    | 'INTERNAL_API_SECRET'
 > &
     Pick<
         CdpConfig,
@@ -428,7 +435,8 @@ export function createCdpCoreServices(
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
-        hogFlowDuplicateObserver
+        hogFlowDuplicateObserver,
+        new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
     )
 
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)

@@ -61,6 +61,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.auto_disable import disable_hog_flow_for_slack_error
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
@@ -1773,4 +1774,32 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
+            return Response({"error": "Internal server error"}, status=500)
+
+    @extend_schema(exclude=True)
+    def internal_disable_for_slack_error(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint called by the CDP hogflow executor when a flow's Slack destination hits
+        a terminal user-config error (e.g. not_in_channel). Disables the flow so it stops
+        re-firing on every triggering event and notifies its creator.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        hog_flow_id = request.data.get("hog_flow_id")
+        slack_error = request.data.get("slack_error")
+        if not hog_flow_id or not slack_error:
+            return Response({"error": "Missing hog_flow_id or slack_error"}, status=400)
+
+        try:
+            hog_flow = HogFlow.objects.select_related("created_by").get(id=hog_flow_id, team_id=int(team_id))
+        except (HogFlow.DoesNotExist, ValueError, exceptions.ValidationError):
+            return Response({"error": "HogFlow not found"}, status=404)
+
+        try:
+            disabled = disable_hog_flow_for_slack_error(hog_flow, str(slack_error))
+            return Response({"disabled": disabled})
+        except Exception as e:
+            logger.exception("Error in internal_disable_for_slack_error", error=str(e), hog_flow_id=hog_flow_id)
             return Response({"error": "Internal server error"}, status=500)

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
@@ -2692,3 +2693,63 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
+
+
+@override_settings(INTERNAL_API_SECRET="test-secret-123")
+class TestInternalHogFlowDisableForSlackError(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/internal/hog_flows/disable_for_slack_error"
+
+    def _post(self, **data):
+        return self.client.post(
+            self._url(),
+            data,
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+    def test_disables_active_flow_and_notifies_owner(self):
+        flow = HogFlow.objects.create(team=self.team, name="Slack alerts", status="active", created_by=self.user)
+        with (
+            patch("products.workflows.backend.auto_disable.reload_hog_flows_on_workers") as mock_reload,
+            patch("products.workflows.backend.auto_disable.send_disabled_notification") as mock_notify,
+        ):
+            response = self._post(hog_flow_id=str(flow.id), slack_error="not_in_channel")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"disabled": True}
+        flow.refresh_from_db()
+        assert flow.status == "archived"
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(flow.id)])
+        mock_notify.assert_called_once()
+
+    def test_is_idempotent_for_already_disabled_flow(self):
+        flow = HogFlow.objects.create(team=self.team, name="Slack alerts", status="archived", created_by=self.user)
+        with (
+            patch("products.workflows.backend.auto_disable.reload_hog_flows_on_workers") as mock_reload,
+            patch("products.workflows.backend.auto_disable.send_disabled_notification") as mock_notify,
+        ):
+            response = self._post(hog_flow_id=str(flow.id), slack_error="not_in_channel")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"disabled": False}
+        mock_reload.assert_not_called()
+        mock_notify.assert_not_called()
+
+    def test_missing_params_returns_400(self):
+        assert self._post(hog_flow_id="").status_code == status.HTTP_400_BAD_REQUEST
+        assert self._post(slack_error="not_in_channel").status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_unknown_flow_returns_404(self):
+        response = self._post(hog_flow_id=str(uuid.uuid4()), slack_error="not_in_channel")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_does_not_disable_flow_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        flow = HogFlow.objects.create(team=other_team, name="Slack alerts", status="active")
+
+        response = self._post(hog_flow_id=str(flow.id), slack_error="not_in_channel")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        flow.refresh_from_db()
+        assert flow.status == "active"

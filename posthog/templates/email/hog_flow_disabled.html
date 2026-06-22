@@ -1,0 +1,33 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}A PostHog workflow has been automatically disabled{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    Your workflow <b>{{ hog_flow_name }}</b> has been automatically disabled because it can no longer deliver to Slack.
+</p>
+<p>{{ reason }}</p>
+<p>
+    To fix this, reconnect Slack or re-add the PostHog app to the channel, then re-enable the workflow.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ hog_flow_url }}">Go to workflow</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ hog_flow_url }}">{{ hog_flow_url }}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

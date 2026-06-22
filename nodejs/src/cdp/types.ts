@@ -360,6 +360,10 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
+        // Number of times this action has been rescheduled because of a transient Slack error
+        // (e.g. `ratelimited`). Caps the executor-level backoff retries so a flapping Slack
+        // destination can't reschedule forever. Reset implicitly when the action advances.
+        slackTransientRetries?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

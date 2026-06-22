@@ -23,7 +23,11 @@ import { HogFunctionTemplateManagerService } from '../managers/hog-function-temp
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
+import {
+    HogFlowExecutorService,
+    MAX_SLACK_TRANSIENT_RETRIES,
+    createHogFlowInvocation,
+} from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
@@ -938,6 +942,142 @@ describe('Hogflow Executor', () => {
                         )
                         loggerErrorSpy.mockRestore()
                     })
+                })
+            })
+
+            describe('slack error handling', () => {
+                let slackHogFlow: HogFlow
+                const slackMessage = (code: string): string =>
+                    `Failed to post message to Slack: 200: {'ok': false, 'error': '${code}'}`
+
+                beforeEach(() => {
+                    slackHogFlow = new FixtureHogFlowBuilder()
+                        .withTeamId(2)
+                        .withWorkflow({
+                            actions: {
+                                trigger: {
+                                    type: 'trigger',
+                                    config: {
+                                        type: 'event',
+                                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                    },
+                                },
+                                slack_action: {
+                                    type: 'function',
+                                    config: {
+                                        template_id: 'template-test-hogflow-executor',
+                                        inputs: { name: { value: 'x' } },
+                                    },
+                                },
+                                exit: { type: 'exit', config: {} },
+                            },
+                            edges: [
+                                { from: 'trigger', to: 'slack_action', type: 'continue' },
+                                { from: 'slack_action', to: 'exit', type: 'continue' },
+                            ],
+                        })
+                        .build()
+                })
+
+                const buildSlackInvocation = (): ReturnType<typeof createExampleHogFlowInvocation> => {
+                    const invocation = createExampleHogFlowInvocation(slackHogFlow, {
+                        event: { ...createHogExecutionGlobals().event, properties: {} },
+                    })
+                    invocation.state.currentAction = {
+                        id: 'slack_action',
+                        startedAtTimestamp: DateTime.now().toMillis(),
+                    }
+                    return invocation
+                }
+
+                const mockHandlerToThrow = (message: string): void => {
+                    const functionHandler = executor['actionHandlers']['function']
+                    jest.spyOn(functionHandler, 'execute').mockRejectedValueOnce(new Error(message))
+                }
+
+                it('disables the flow and fails the invocation on a terminal slack error', async () => {
+                    const internalFetch = {
+                        fetch: jest.fn().mockResolvedValue({ fetchError: null, fetchResponse: { status: 200 } }),
+                    }
+                    ;(executor as any).internalFetch = internalFetch
+                    mockHandlerToThrow(slackMessage('not_in_channel'))
+
+                    const result = await executor.executeCurrentAction(buildSlackInvocation(), {
+                        enableTerminalErrorHandling: true,
+                    })
+
+                    expect(result.error).toContain('not_in_channel')
+                    expect(result.finished).toBe(true)
+                    expect(internalFetch.fetch).toHaveBeenCalledTimes(1)
+                    expect(internalFetch.fetch).toHaveBeenCalledWith({
+                        urlPath: `/api/projects/2/internal/hog_flows/disable_for_slack_error`,
+                        fetchParams: {
+                            method: 'POST',
+                            body: JSON.stringify({ hog_flow_id: slackHogFlow.id, slack_error: 'not_in_channel' }),
+                        },
+                    })
+                    expect(result.logs.map((l) => l.message)).toEqual(
+                        expect.arrayContaining([expect.stringContaining('Disabling this workflow')])
+                    )
+                })
+
+                it('only requests disable once across repeated terminal failures', async () => {
+                    const internalFetch = {
+                        fetch: jest.fn().mockResolvedValue({ fetchError: null, fetchResponse: { status: 200 } }),
+                    }
+                    ;(executor as any).internalFetch = internalFetch
+
+                    mockHandlerToThrow(slackMessage('channel_not_found'))
+                    await executor.executeCurrentAction(buildSlackInvocation(), { enableTerminalErrorHandling: true })
+                    mockHandlerToThrow(slackMessage('channel_not_found'))
+                    await executor.executeCurrentAction(buildSlackInvocation(), { enableTerminalErrorHandling: true })
+
+                    expect(internalFetch.fetch).toHaveBeenCalledTimes(1)
+                })
+
+                it('reschedules with backoff on a transient slack error', async () => {
+                    mockHandlerToThrow(slackMessage('ratelimited'))
+
+                    const result = await executor.executeCurrentAction(buildSlackInvocation(), {
+                        enableTerminalErrorHandling: true,
+                    })
+
+                    expect(result.error).toBeUndefined()
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(result.invocation.state.currentAction?.slackTransientRetries).toBe(1)
+                    expect(result.logs.map((l) => l.message)).toEqual(
+                        expect.arrayContaining([expect.stringContaining('transient error (ratelimited)')])
+                    )
+                })
+
+                it('fails the invocation once the transient retry budget is exhausted', async () => {
+                    mockHandlerToThrow(slackMessage('ratelimited'))
+                    const invocation = buildSlackInvocation()
+                    invocation.state.currentAction!.slackTransientRetries = MAX_SLACK_TRANSIENT_RETRIES
+
+                    const result = await executor.executeCurrentAction(invocation, {
+                        enableTerminalErrorHandling: true,
+                    })
+
+                    expect(result.error).toContain('ratelimited')
+                    expect(result.finished).toBe(true)
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                })
+
+                it('does not disable or reschedule in the test path (flag off)', async () => {
+                    const internalFetch = {
+                        fetch: jest.fn().mockResolvedValue({ fetchError: null, fetchResponse: { status: 200 } }),
+                    }
+                    ;(executor as any).internalFetch = internalFetch
+                    mockHandlerToThrow(slackMessage('not_in_channel'))
+
+                    // No enableTerminalErrorHandling — mirrors the flow-testing endpoint.
+                    const result = await executor.executeCurrentAction(buildSlackInvocation())
+
+                    expect(result.error).toContain('not_in_channel')
+                    expect(result.finished).toBe(true)
+                    expect(internalFetch.fetch).not.toHaveBeenCalled()
                 })
             })
         })

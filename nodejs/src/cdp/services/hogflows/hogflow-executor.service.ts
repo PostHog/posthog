@@ -1,6 +1,7 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
+import { InternalFetchService } from '../../../common/services/internal-fetch'
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
@@ -37,8 +38,16 @@ import {
     shouldSkipAction,
     trackE2eLag,
 } from './hogflow-utils'
+import { classifySlackError } from './slack-errors'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+// Executor-level backoff for transient Slack errors (e.g. `ratelimited`) that surface as a
+// thrown Hog error rather than a retriable HTTP status. Bounded so a permanently rate-limited
+// destination eventually fails instead of rescheduling forever.
+export const MAX_SLACK_TRANSIENT_RETRIES = 3
+const SLACK_TRANSIENT_BACKOFF_BASE_MS = 5000
+const SLACK_TRANSIENT_BACKOFF_MAX_MS = 60000
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -80,11 +89,15 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
+    // Flows we've already asked Django to disable, so we don't re-request on every failing
+    // invocation in the window before the disable propagates back to the workers via PubSub.
+    private readonly slackDisableRequested = new Set<string>()
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        private readonly internalFetch?: InternalFetchService
     ) {
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
@@ -188,7 +201,10 @@ export class HogFlowExecutorService {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
 
             // Here we could be continuing the hog function side of things?
-            result = await this.executeCurrentAction(nextInvocation)
+            // enableTerminalErrorHandling is only set on this live execution path (the cyclotron
+            // worker) so the flow-testing endpoint (cdp-api), which calls executeCurrentAction
+            // directly, never auto-disables or reschedules a flow the user is just testing.
+            result = await this.executeCurrentAction(nextInvocation, { enableTerminalErrorHandling: true })
 
             if (result.finished) {
                 if (result.error) {
@@ -352,6 +368,9 @@ export class HogFlowExecutorService {
         invocation: CyclotronJobInvocationHogFlow,
         options?: {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+            // When true (live queued execution), terminal Slack errors auto-disable the flow and
+            // transient ones reschedule with backoff. Left false for the flow-testing endpoint.
+            enableTerminalErrorHandling?: boolean
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
@@ -431,9 +450,26 @@ export class HogFlowExecutorService {
                 throw err
             }
         } catch (err) {
+            const slackError = options?.enableTerminalErrorHandling ? classifySlackError(err?.message) : null
+
+            // Transient Slack error (e.g. `ratelimited`): reschedule this same action with
+            // exponential backoff instead of failing, so a momentary rate limit doesn't drop the
+            // message and we don't immediately re-hammer the shared Slack app.
+            if (slackError?.kind === 'transient' && this.scheduleSlackTransientRetry(result, slackError.code)) {
+                return result
+            }
+
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+
+            // Terminal Slack config error (e.g. `not_in_channel`): the flow will fail identically
+            // on every future triggering event until the user fixes Slack, so disable it (and
+            // notify the owner) instead of re-firing indefinitely. Mirrors the subscriptions
+            // auto-disable path (ee/tasks/subscriptions/auto_disable.py).
+            if (slackError?.kind === 'terminal') {
+                await this.disableFlowForSlackError(result, slackError.code)
+            }
 
             this.maybeContinueToNextActionOnError(result)
 
@@ -445,6 +481,105 @@ export class HogFlowExecutorService {
         }
 
         return result
+    }
+
+    /**
+     * Reschedule the current action with exponential backoff after a transient Slack error.
+     * Returns false (so the caller falls through to normal failure handling) once the bounded
+     * retry budget is exhausted, preventing a flapping destination from rescheduling forever.
+     */
+    private scheduleSlackTransientRetry(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        code: string
+    ): boolean {
+        const currentAction = result.invocation.state.currentAction
+        if (!currentAction) {
+            return false
+        }
+
+        const priorRetries = currentAction.slackTransientRetries ?? 0
+        if (priorRetries >= MAX_SLACK_TRANSIENT_RETRIES) {
+            return false
+        }
+
+        const attempt = priorRetries + 1
+        currentAction.slackTransientRetries = attempt
+
+        const backoffMs = Math.min(SLACK_TRANSIENT_BACKOFF_BASE_MS * attempt, SLACK_TRANSIENT_BACKOFF_MAX_MS)
+        const scheduledAt = DateTime.now().plus({ milliseconds: backoffMs })
+
+        result.error = undefined
+        result.finished = false
+        result.invocation.queueScheduledAt = scheduledAt
+
+        this.log(
+            result,
+            'warn',
+            `Slack returned a transient error (${code}); retrying (attempt ${attempt}/${MAX_SLACK_TRANSIENT_RETRIES}) at ${scheduledAt.toUTC().toISO()}`
+        )
+
+        return true
+    }
+
+    /**
+     * Ask Django to permanently disable a flow whose Slack destination hit a user-config error.
+     * Best-effort: failures are logged and retried on a later invocation (Django dedupes the
+     * actual disable + owner notification via a compare-and-swap on the flow status). An
+     * in-process guard avoids re-requesting the same flow on every failing invocation.
+     */
+    private async disableFlowForSlackError(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        code: string
+    ): Promise<void> {
+        const hogFlow = result.invocation.hogFlow
+
+        this.log(
+            result,
+            'error',
+            `Slack reported a permanent configuration error (${code}). Disabling this workflow so it stops re-firing — reconnect Slack or re-add the PostHog app to the channel, then re-enable it.`
+        )
+
+        if (this.slackDisableRequested.has(hogFlow.id)) {
+            return
+        }
+        this.slackDisableRequested.add(hogFlow.id)
+
+        if (!this.internalFetch) {
+            logger.warn(
+                '🦔',
+                `[HogFlowExecutor] No internal API configured; cannot auto-disable hog flow ${hogFlow.id} after terminal Slack error '${code}'`
+            )
+            this.slackDisableRequested.delete(hogFlow.id)
+            return
+        }
+
+        try {
+            const { fetchError, fetchResponse } = await this.internalFetch.fetch({
+                urlPath: `/api/projects/${hogFlow.team_id}/internal/hog_flows/disable_for_slack_error`,
+                fetchParams: {
+                    method: 'POST',
+                    body: JSON.stringify({ hog_flow_id: hogFlow.id, slack_error: code }),
+                },
+            })
+
+            if (fetchError || !fetchResponse || fetchResponse.status >= 300) {
+                // Allow a later invocation to retry the disable since this one didn't land.
+                this.slackDisableRequested.delete(hogFlow.id)
+                logger.error('🦔', `[HogFlowExecutor] Failed to auto-disable hog flow ${hogFlow.id}`, {
+                    error: fetchError ? String(fetchError) : undefined,
+                    status: fetchResponse?.status,
+                })
+                return
+            }
+
+            logger.warn(
+                '🦔',
+                `[HogFlowExecutor] Auto-disabled hog flow ${hogFlow.id} (team ${hogFlow.team_id}) after terminal Slack error '${code}'`
+            )
+        } catch (e) {
+            this.slackDisableRequested.delete(hogFlow.id)
+            logger.error('🦔', `[HogFlowExecutor] Error auto-disabling hog flow ${hogFlow.id}`, { error: String(e) })
+        }
     }
 
     private goToNextAction(
