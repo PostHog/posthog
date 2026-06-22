@@ -34,6 +34,9 @@ export interface TrendsBarResultLike {
     label?: string | null
     data: number[]
     aggregated_value?: number
+    // Some aggregations (i.e. property-value sum) carry the total in `count`, letting
+    // `aggregated_value` unset, fall back to it so the bar isn't dropped to zero.
+    count?: number
     days?: string[]
     compare?: boolean
     compare_label?: string | null
@@ -205,7 +208,10 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
             {
                 key: 'aggregated',
                 label: '',
-                data: visible.map((r) => (Number.isFinite(r.aggregated_value) ? r.aggregated_value! : 0)),
+                data: visible.map((r) => {
+                    const value = r.aggregated_value ?? r.count
+                    return Number.isFinite(value) ? value! : 0
+                }),
                 color: bars[0]?.color,
                 bars,
             },
@@ -220,7 +226,7 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     })
     const series = visible.map((r, index) => {
         const data = new Array<number>(n).fill(0)
-        const value = r.aggregated_value ?? 0
+        const value = r.aggregated_value ?? r.count ?? 0
         if (Number.isFinite(value)) {
             data[index] = value
         }

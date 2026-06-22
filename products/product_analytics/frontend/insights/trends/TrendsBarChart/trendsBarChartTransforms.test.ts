@@ -172,6 +172,45 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(series[0].data).toEqual([10, 20, 30])
     })
 
+    it('falls back to count when aggregated_value is unset (i.e. property-value sum)', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: undefined, count: 10 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: undefined, count: 20 }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].data).toEqual([10, 20])
+    })
+
+    it('prefers aggregated_value over count when both are present', () => {
+        const results = [mkResult({ id: 'a', aggregated_value: 7, count: 99 })]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].data).toEqual([7])
+    })
+
+    it('falls back to count in stacked breakdown mode too', () => {
+        const results = [
+            mkResult({
+                id: 'a',
+                label: 'F',
+                order: 0,
+                breakdown_value: 'Chrome',
+                aggregated_value: undefined,
+                count: 5,
+            }),
+            mkResult({
+                id: 'b',
+                label: 'F',
+                order: 0,
+                breakdown_value: 'Safari',
+                aggregated_value: undefined,
+                count: 8,
+            }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        expect(series[0].data[0]).toBe(5)
+        expect(series[1].data[1]).toBe(8)
+    })
+
     it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
         'replaces non-finite aggregated_value (%p) with 0',
         (badValue) => {
