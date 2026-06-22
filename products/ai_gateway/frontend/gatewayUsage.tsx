@@ -179,6 +179,7 @@ export function ModelBreakdownTable({ rows, loading }: { rows: GatewayModelUsage
                 },
                 {
                     title: 'Tokens',
+                    key: 'tokens',
                     render: (_, row) => humanFriendlyNumber(row.inputTokens + row.outputTokens),
                     sorter: (a, b) => a.inputTokens + a.outputTokens - (b.inputTokens + b.outputTokens),
                 },
