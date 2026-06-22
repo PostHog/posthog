@@ -151,10 +151,13 @@ class ContextService:
         from ee.hogai.core.agent_modes.compaction_manager import (  # noqa: PLC0415 — heavy compaction dep
             AnthropicConversationCompactionManager,
         )
+        from ee.hogai.utils.types import AssistantState  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
 
         started_at = time.monotonic()
         state, _, _ = await aget_conversation_state(conversation, team, user)
-        if state is None:
+        # Legacy conversions are assistant conversations (see CONVERSATION_TYPE_MAP); the broad
+        # AssistantMaxGraphState union also admits TaxonomyAgentState, which carries no window anchor.
+        if not isinstance(state, AssistantState):
             return None
 
         window = AnthropicConversationCompactionManager().get_messages_in_window(

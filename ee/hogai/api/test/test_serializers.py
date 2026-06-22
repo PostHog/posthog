@@ -361,6 +361,7 @@ class TestConversationSerializerTaskField(APIBaseTest):
 
         data = TaskSerializer(task_dto).data
 
+        assert task_dto.latest_run is not None
         self.assertEqual(data["latest_run"]["id"], str(task_dto.latest_run.id))
 
     def test_conversation_task_serializer_outputs_latest_run_id(self):
@@ -414,7 +415,9 @@ class TestConversationSerializerTaskField(APIBaseTest):
         data = self._serialize(self._sandbox_conversation(task))
 
         self.assertEqual(data["task"]["id"], str(task.id))
-        self.assertEqual(data["task"]["latest_run"], str(task.latest_run.id))
+        latest_run = task.latest_run
+        assert latest_run is not None
+        self.assertEqual(data["task"]["latest_run"], str(latest_run.id))
 
 
 class TestTaskLatestRun(APIBaseTest):
@@ -436,6 +439,7 @@ class TestTaskLatestRun(APIBaseTest):
         with self.assertNumQueries(1):
             latest = fresh.latest_run
 
+        assert latest is not None
         self.assertEqual(latest.id, runs[-1].id)
 
     def test_prefetched_reuses_cache_no_query(self):
@@ -445,6 +449,7 @@ class TestTaskLatestRun(APIBaseTest):
         with self.assertNumQueries(0):
             latest = prefetched.latest_run
 
+        assert latest is not None
         self.assertEqual(latest.id, runs[-1].id)
 
     def test_prefetched_and_non_prefetched_return_same_row(self):
@@ -452,6 +457,8 @@ class TestTaskLatestRun(APIBaseTest):
         non_prefetched = Task.objects.get(pk=task.pk).latest_run
         prefetched = Task.objects.prefetch_related("runs").get(pk=task.pk).latest_run
 
+        assert non_prefetched is not None
+        assert prefetched is not None
         self.assertEqual(non_prefetched.id, prefetched.id)
         self.assertEqual(non_prefetched.id, runs[-1].id)
 
@@ -488,7 +495,9 @@ class TestConversationMinimalSerializerTaskField(APIBaseTest):
         ).data
 
         self.assertEqual(data[0]["task"]["id"], str(task.id))
-        self.assertEqual(data[0]["task"]["latest_run"], str(task.latest_run.id))
+        latest_run = task.latest_run
+        assert latest_run is not None
+        self.assertEqual(data[0]["task"]["latest_run"], str(latest_run.id))
         self.assertEqual(data[0]["task"]["title"], "t")
 
     def test_minimal_serializer_task_null_for_langgraph(self):

@@ -90,7 +90,7 @@ def test_wrap_missing_name_falls_back_to_id_only():
 
 
 def test_prune_dedupes_repeated_entity_refs():
-    prior = [("dashboard", 123), ("insight", "abc")]
+    prior: list[tuple[str, str | int]] = [("dashboard", 123), ("insight", "abc")]
     attached: list[AttachedContext] = [
         {"type": "dashboard", "id": 123, "name": "Funnel"},
         {"type": "insight", "id": "abc", "name": "Signups"},

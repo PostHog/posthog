@@ -120,7 +120,7 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, help_text="Stable identifier for the artifact within this run")
     name = serializers.CharField(help_text="Artifact file name")
     type = serializers.CharField(help_text="Artifact classification, such as plan or output")
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]  # field literally named `source`; shadows base `Field.source`
         required=False,
         allow_blank=True,
         help_text="Source of the artifact, such as agent_output or user_attachment",
@@ -218,9 +218,12 @@ class TaskSerializer(DataclassSerializer):
 class ConversationTaskSerializer(TaskSerializer):
     """Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
     run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-    avoids presigning a log URL per conversation."""
+    avoids presigning a log URL per conversation.
 
-    latest_run = serializers.UUIDField(
+    Read access here follows the conversation (the share-by-link unit), not per-creator task
+    visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``."""
+
+    latest_run = serializers.UUIDField(  # type: ignore[assignment]  # intentional narrowing of the base nested-run field to its id
         source="latest_run_id",
         allow_null=True,
         read_only=True,

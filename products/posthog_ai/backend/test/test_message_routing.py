@@ -438,6 +438,7 @@ class TestSandboxWarmViaOpen(APIBaseTest):
         self.conversation.refresh_from_db()
         assert self.conversation.task_id is not None
         task = self.conversation.task
+        assert task is not None
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
         run = task.latest_run
         assert run is not None
@@ -463,7 +464,9 @@ class TestSandboxWarmViaOpen(APIBaseTest):
 
         assert result is not None
         self.conversation.refresh_from_db()
-        run = self.conversation.task.latest_run
+        task = self.conversation.task
+        assert task is not None
+        run = task.latest_run
         assert run is not None
         assert run.state["initial_permission_mode"] == "plan"
 
@@ -677,10 +680,13 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert self.conversation.task_id is not None
 
         task = self.conversation.task
+        assert task is not None
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
         # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
-        assert task.runs.first().status != TaskRun.Status.COMPLETED
+        first_run = task.runs.first()
+        assert first_run is not None
+        assert first_run.status != TaskRun.Status.COMPLETED
         assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
@@ -694,7 +700,10 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         self._open(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
-        run = self.conversation.task.runs.first()
+        task = self.conversation.task
+        assert task is not None
+        run = task.runs.first()
+        assert run is not None
         pending = run.state["pending_user_message"]
         assert pending.startswith(self._block())
         assert pending.endswith("continue here")
@@ -751,5 +760,8 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         self._open(content="just this please")
 
         self.conversation.refresh_from_db()
-        run = self.conversation.task.runs.first()
+        task = self.conversation.task
+        assert task is not None
+        run = task.runs.first()
+        assert run is not None
         assert run.state["pending_user_message"] == "just this please"

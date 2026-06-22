@@ -1260,7 +1260,9 @@ class TestConversationSandboxRoute(APIBaseTest):
         super().setUp()
         # Repo auto-routing runs on every first message; mock it so these tests stay deterministic
         # and never reach the GitHub-integration lookups. Individual tests override the return value.
-        patcher = patch("ee.api.conversation.select_repository_for_message", new=AsyncMock(return_value=None))
+        patcher = patch(
+            "products.tasks.backend.facade.api.select_repository_for_message", new=AsyncMock(return_value=None)
+        )
         self.mock_select_repo = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1428,6 +1430,57 @@ class TestConversationSandboxRoute(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_retrieve_other_users_sandbox_conversation_includes_task(self):
+        # Read follows the conversation (the share-by-link unit): a teammate handed the link reads its
+        # backing task too, even though a direct task read would hide a non-creator's task (task_visibility_q).
+        teammate = User.objects.create_and_join(self.organization, "reader@posthog.com", "password")
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="secret description",
+            repository="acme/widgets",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=teammate,
+        )
+        conversation = Conversation.objects.create(
+            user=teammate,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["task"]["id"], str(task.id))
+        self.assertEqual(response.json()["task"]["repository"], "acme/widgets")
+
+    def test_open_other_users_conversation_rejected(self):
+        # Write/send stays creator-only: a teammate can read the shared conversation but cannot provision
+        # a run on it, so reading a task can never escalate to acting on it.
+        teammate = User.objects.create_and_join(self.organization, "writer@posthog.com", "password")
+        conversation = Conversation.objects.create(
+            user=teammate,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hi", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         m_session.return_value.open.assert_not_called()
 
     def test_open_binds_team_visible_signal_report_task(self):

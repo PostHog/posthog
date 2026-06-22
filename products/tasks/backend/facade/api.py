@@ -2286,9 +2286,15 @@ def get_task_detail(
 def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> dict[UUID, contracts.TaskDetailDTO]:
     """Task payloads for the Max conversation API, keyed by task id.
 
-    Team-scoped. ``latest_run`` (the nested run payload) stays excluded so conversation lists never
-    presign per-row log URLs; instead a single ``latest_run_id`` subquery carries the latest run id,
-    which the frontend needs to reconnect to sandbox logs.
+    Intentionally team-scoped, with no ``task_visibility_q(user_id)`` gate: the conversation is the
+    read-share unit, so anyone who can ``retrieve`` a conversation may read its backing task. Broad
+    read here does not grant action — write/send to a task stays creator-gated in the conversation
+    viewset (``create``/``open``/``queue``) and at bind time (``validate_task_id``). Direct task reads
+    (``get_task_detail``) gate by creator because that is the task-enumeration path; this one is not.
+
+    ``latest_run`` (the nested run payload) stays excluded so conversation lists never presign per-row
+    log URLs; instead a single ``latest_run_id`` subquery carries the latest run id, which the frontend
+    needs to reconnect to sandbox logs.
     """
     if not task_ids:
         return {}
