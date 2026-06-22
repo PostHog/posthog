@@ -20,11 +20,13 @@ from .isolation import (
     IsolationStatus,
     compute_isolation_status,
     has_legacy_interface_leaks,
+    has_routes_module,
     has_tach_interface,
     is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
+    routes_in_turbo_inputs,
 )
 from .paths import TACH_TOML, get_tach_block
 
@@ -694,17 +696,36 @@ class IsolationChainCheck(ProductCheck):
                 '"backend/presentation/**"] to turn the skip on'
             )
 
+        # Watching the route registration: routes.py is the product's route-registration entry
+        # point (public API surface, imported by core to assemble the router), but it lives at
+        # backend/ root — outside the facade/presentation globs. A narrowed product that has one
+        # must add it to the inputs, or a routes-only change is invisible to the skip and runs no
+        # Django suite. (Mutually exclusive with needs_turn_on, which requires no narrowing.)
+        routes_unwatched = (
+            has_narrowed and has_routes_module(ctx.backend_dir) and not routes_in_turbo_inputs(ctx.product_dir)
+        )
+        if routes_unwatched:
+            routes_glob = "backend/routes/**" if (ctx.backend_dir / "routes").is_dir() else "backend/routes.py"
+            result.issues.append(
+                f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
+                "product's route-registration entry point (public API surface, imported by core), so a "
+                f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            # The turn-on issue can't co-occur with the facade/turbo mismatch issues above
-            # (it requires a real facade, a tach interface, a script, and no narrowing — each
-            # of which negates one of those), so when it fires it's the sole issue and the
-            # annotation belongs on turbo.json, not facade/api.py.
+            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
+            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
+            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
+            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
+            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
             result.file = (
-                f"products/{ctx.name}/turbo.json" if needs_turn_on else f"products/{ctx.name}/backend/facade/api.py"
+                f"products/{ctx.name}/turbo.json"
+                if needs_turn_on or routes_unwatched
+                else f"products/{ctx.name}/backend/facade/api.py"
             )
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
