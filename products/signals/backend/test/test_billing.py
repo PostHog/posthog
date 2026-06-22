@@ -62,6 +62,50 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(10), pr_url=pr_url)
         self.assertEqual(self._credits(), {})
 
+    @parameterized.expand(
+        [
+            ("http_not_https", "http://github.com/x/y/pull/1"),
+            ("gitlab", "https://gitlab.com/x/y/-/merge_requests/1"),
+            ("phishy_host", "https://github.com.evil.com/x/y/pull/1"),
+            ("no_scheme", "github.com/x/y/pull/1"),
+            ("garbage", "not-a-url"),
+        ]
+    )
+    def test_non_github_pr_url_not_billed(self, _name: str, pr_url: str) -> None:
+        report = self._report()
+        self._pr_run(report, created_at=_at(10), pr_url=pr_url)
+        self.assertEqual(self._credits(), {})
+
+    def test_bridge_team_mismatch_not_billed(self) -> None:
+        # A malformed bridge whose team disagrees with the run/report must not produce a charge.
+        other = Team.objects.create(organization=self.organization, name="other")
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(
+            team=other, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        )
+        TaskRun.objects.create(
+            team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
+        )
+        self.assertEqual(self._credits(), {})
+
+    def test_run_team_mismatch_not_billed(self) -> None:
+        # A run whose team disagrees with the task/bridge/report must not produce a charge.
+        other = Team.objects.create(organization=self.organization, name="other")
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        )
+        TaskRun.objects.create(
+            team=other, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
+        )
+        self.assertEqual(self._credits(), {})
+
     def test_pr_before_period_not_billed(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=datetime(2026, 5, 28, tzinfo=UTC))
