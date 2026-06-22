@@ -259,9 +259,50 @@ def deprovision(organization_id: UUID | str) -> Response:
 
 def status_for(organization_id: UUID | str) -> Response:
     resp = _request("GET", organization_id, "/warehouse/status")
-    if resp.status_code == 200 and isinstance(resp.data, dict) and isinstance(resp.data.get("connection"), dict):
-        resp.data["connection"] = _present_connection(resp.data["connection"])
+    if resp.status_code == 200 and isinstance(resp.data, dict):
+        # Self-heal: the control plane is the authoritative source of the per-org
+        # bucket name. If the stored DuckgresServer row disagrees — NULL (row
+        # created before the CP returned it) or a stale locally-derived name — fix
+        # it here so the value converges on every status read without a separate
+        # backfill job. The UI reads status when viewing a warehouse, so a deploy
+        # heals each org the first time its status is fetched.
+        _reconcile_bucket_from_status(organization_id, resp.data)
+        if isinstance(resp.data.get("connection"), dict):
+            resp.data["connection"] = _present_connection(resp.data["connection"])
     return resp
+
+
+def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> None:
+    """Converge DuckgresServer.bucket onto the control-plane-reported name.
+
+    Best-effort and side-effect-only: a single UPDATE touching only rows whose
+    bucket differs (no fetch, no create). A DB hiccup is swallowed — it must
+    never fail the status read it piggybacks on.
+    """
+    bucket = body.get("bucket")
+    if not bucket:
+        # External data stores / not-yet-backfilled ducklings report no bucket —
+        # nothing authoritative to copy.
+        return
+    try:
+        from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
+
+        updated = (
+            DuckgresServer.objects.filter(organization_id=organization_id)
+            .exclude(bucket=bucket)
+            .update(bucket=bucket, bucket_region="us-east-1")
+        )
+        if updated:
+            logger.info(
+                "duckgres_server_bucket_reconciled_from_status",
+                organization_id=str(organization_id),
+                bucket=bucket,
+            )
+    except Exception:
+        logger.exception(
+            "Failed to reconcile DuckgresServer bucket from status",
+            organization_id=str(organization_id),
+        )
 
 
 def reset_password(organization_id: UUID | str) -> Response:

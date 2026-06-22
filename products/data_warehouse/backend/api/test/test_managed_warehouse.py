@@ -111,3 +111,70 @@ def test_provision_does_not_persist_on_failure(mock_request: MagicMock) -> None:
 
     assert resp.status_code == 500
     assert not DuckgresServer.objects.filter(organization_id=org.id).exists()
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_status_for_self_heals_stale_bucket(mock_request: MagicMock) -> None:
+    # A row with a stale (locally-derived) bucket converges to the CP-reported
+    # name on the next status read — no separate backfill needed.
+    org = Organization.objects.create(name="Org")
+    DuckgresServer.objects.create(
+        organization_id=org.id,
+        host="h",
+        port=5432,
+        database="ducklake",
+        username="root",
+        password="pw",
+        bucket="posthog-duckling-stale-prod-us",  # wrong/drifted
+    )
+    cp_bucket = "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us"
+    mock_request.return_value = Response({"org_id": str(org.id), "state": "ready", "bucket": cp_bucket}, status=200)
+
+    managed_warehouse.status_for(org.id)
+
+    server = DuckgresServer.objects.get(organization_id=org.id)
+    assert server.bucket == cp_bucket
+    assert server.bucket_region == "us-east-1"
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_status_for_leaves_matching_bucket_untouched(mock_request: MagicMock) -> None:
+    org = Organization.objects.create(name="Org")
+    bucket = "posthog-duckling-org-mw-prod-us"
+    DuckgresServer.objects.create(
+        organization_id=org.id,
+        host="h",
+        port=5432,
+        database="ducklake",
+        username="root",
+        password="pw",
+        bucket=bucket,
+    )
+    mock_request.return_value = Response({"org_id": str(org.id), "state": "ready", "bucket": bucket}, status=200)
+
+    managed_warehouse.status_for(org.id)
+
+    assert DuckgresServer.objects.get(organization_id=org.id).bucket == bucket
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_status_for_without_bucket_leaves_row_alone(mock_request: MagicMock) -> None:
+    # External data stores / pre-backfill ducklings report no bucket — don't blank it.
+    org = Organization.objects.create(name="Org")
+    DuckgresServer.objects.create(
+        organization_id=org.id,
+        host="h",
+        port=5432,
+        database="ducklake",
+        username="root",
+        password="pw",
+        bucket="posthog-duckling-keep-mw-prod-us",
+    )
+    mock_request.return_value = Response({"org_id": str(org.id), "state": "ready"}, status=200)
+
+    managed_warehouse.status_for(org.id)
+
+    assert DuckgresServer.objects.get(organization_id=org.id).bucket == "posthog-duckling-keep-mw-prod-us"
