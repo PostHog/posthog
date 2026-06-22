@@ -544,8 +544,10 @@ function makeRatingBar(
     // Clamp every star count to a non-negative integer (and cap the total against max).
     const safeStarCount = (n: number): number => Math.max(0, Math.min(MAX_RATING_STARS, Math.floor(n)))
 
-    const numberOfFilledStars = safeStarCount(wireframe.value)
-    const numberOfHalfStars = wireframe.value - Math.floor(wireframe.value) > 0 ? 1 : 0
+    const flooredValue = Math.floor(wireframe.value)
+    const numberOfFilledStars = safeStarCount(flooredValue)
+    // only a positive fractional value yields a half star; negative values clamp to zero filled stars
+    const numberOfHalfStars = wireframe.value > 0 && wireframe.value > flooredValue ? 1 : 0
     const numberOfEmptyStars = safeStarCount(wireframe.max - numberOfFilledStars - numberOfHalfStars)
 
     const filledStars = Array(numberOfFilledStars)

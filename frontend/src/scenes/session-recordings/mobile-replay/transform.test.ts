@@ -827,10 +827,14 @@ describe('replay/transform', () => {
                 ['negative max', 2, -5],
                 ['fractional out-of-range value', 7.5, 2],
                 ['zero max with positive value', 3, 0],
-            ])('progress rating does not throw for malformed data: %s', (_label, value, max) => {
-                // these previously produced a negative Array length and threw RangeError
-                expect(() =>
-                    transformEventToWeb({
+                ['negative fractional value', -0.5, 5],
+            ])('progress rating transforms malformed data without crashing: %s', (_label, value, max) => {
+                // transformEventToWeb swallows transformer exceptions into telemetry, so asserting
+                // .not.toThrow() is not enough — spy on captureException to prove makeRatingBar did
+                // not hit the RangeError this patch prevents.
+                const telemetry = { capture: jest.fn(), captureException: jest.fn() }
+                const result = transformEventToWeb(
+                    {
                         type: 2,
                         data: {
                             wireframes: [
@@ -847,8 +851,13 @@ describe('replay/transform', () => {
                             ],
                         },
                         timestamp: 1,
-                    })
-                ).not.toThrow()
+                    },
+                    telemetry
+                )
+
+                expect(telemetry.captureException).not.toHaveBeenCalled()
+                // a successful transform replaces the mobile node with a web document
+                expect(result).toMatchObject({ type: 2, data: { node: expect.any(Object) } })
             })
 
             test('open keyboard custom event', () => {
