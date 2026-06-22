@@ -19,6 +19,9 @@ for the wider dev flow before non-trivial changes.
   real PG pools + `RedisSessionEventBus`, starts the listener.
 - [src/lib.ts](src/lib.ts) — library entry (`buildApp`, the auth and
   event-bus types). The harness imports from here.
+- [src/metrics.ts](src/metrics.ts) — Prometheus metrics: HTTP request
+  duration by route/status (SSE responses excluded), enqueue intake by
+  trigger + outcome, active SSE stream gauges by transport.
 
 ## Rules of engagement
 
