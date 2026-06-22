@@ -444,21 +444,25 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(**task_run_filter) -> Exists:
-    """``Exists`` over runs matching ``task_run_filter`` that produced a non-empty output.pr_url.
+def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
+    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
 
-    The caller supplies the correlation filter (e.g. ``task__signal_report_tasks__report_id=
-    OuterRef("id")`` plus its own relationship value). Returns a query expression to embed in
-    the caller's queryset — no ORM instances cross the boundary, and the tasks facade stays
-    free of the caller's domain.
+    The caller supplies the report→run correlation as keyword lookups (e.g.
+    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
+    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
+    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
+    stays free of the caller's domain.
     """
-    return Exists(TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False).exclude(output__pr_url=""))
+    return Exists(
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
+    )
 
 
-def latest_task_run_pr_url_subquery(**task_run_filter) -> Subquery:
-    """``Subquery`` of the latest non-empty output.pr_url for runs matching ``task_run_filter``."""
+def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
+    """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
+    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
     return Subquery(
-        TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
         .order_by("-created_at")
         .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))

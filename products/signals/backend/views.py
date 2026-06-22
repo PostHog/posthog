@@ -96,7 +96,6 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
-from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -665,8 +664,7 @@ class SignalReportViewSet(
         # EXISTS so it can be used as a filter (and counted) without the
         # per-row PR-url annotation, which the list action skips for performance.
         return tasks_facade.task_run_pr_url_exists_subquery(
-            task__signal_report_tasks__report_id=OuterRef("id"),
-            task__signal_report_tasks__relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -913,11 +911,12 @@ class SignalReportViewSet(
         )
 
     def _annotate_implementation_pr_url(self, queryset):
-        # Find the latest TaskRun output->pr_url for the implementation task linked to each report.
-        # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
+        # Latest TaskRun output->pr_url across the tasks associated with each report, unified over
+        # the task_run artefact log + legacy SignalReportTask rows (see associated_task_runs_filter).
+        # Only implementation runs carry a pr_url, so the non-empty-pr_url filter inside the facade
+        # subquery makes "any associated task" resolve to the implementation PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
-            task__signal_report_tasks__report_id=OuterRef("id"),
-            task__signal_report_tasks__relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 

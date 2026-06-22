@@ -19,7 +19,7 @@ from social_django.models import UserSocialAuth
 from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
 
 if TYPE_CHECKING:
@@ -582,6 +582,35 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_url"] == response.json()["implementation_pr_url"].strip('"')
+
+    def test_implementation_pr_url_resolves_from_artefact_only_association(self):
+        # A task associated purely via a task_run artefact (no SignalReportTask gate row, e.g. a
+        # custom-agent run) still resolves its PR — the unified association covers both sources.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+        )
+        assert not SignalReportTask.objects.filter(report=report).exists()
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/o/r/pull/7"},
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
 
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()

@@ -461,6 +461,27 @@ class SignalReport(UUIDModel):
             type=type,
         )
 
+    @staticmethod
+    def associated_task_runs_filter(report_ref: Any) -> "models.Q":
+        """A `Q` matching `tasks.TaskRun`s whose task is associated with the correlated report,
+        unified across the `task_run` artefact log and the legacy `SignalReportTask` gate rows —
+        the SQL-level counterpart of `associated_task_runs`, for embedding in a queryset
+        annotation/filter (e.g. via `tasks` facade subquery helpers) so report→task correlation
+        stays in one query instead of N per-report calls.
+
+        `report_ref` is the report-id expression at the nesting depth where the `Q` is embedded —
+        inside the facade's `TaskRun` subquery that is one level below the report queryset, so
+        `OuterRef(OuterRef("id"))`. Unfiltered by `(product, type)`: those discriminators live in
+        the artefact's JSON content, which we deliberately don't cast in SQL — the caller's own run
+        filter (e.g. a non-empty `output.pr_url`, which only implementation runs produce) supplies
+        the specificity.
+        """
+        artefact_task_ids = SignalReportArtefact.objects.filter(
+            report_id=report_ref, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__isnull=False
+        ).values("task_id")
+        legacy_task_ids = SignalReportTask.objects.filter(report_id=report_ref).values("task_id")
+        return models.Q(task_id__in=artefact_task_ids) | models.Q(task_id__in=legacy_task_ids)
+
 
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
