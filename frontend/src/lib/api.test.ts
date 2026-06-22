@@ -167,6 +167,42 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    describe('aborted requests', () => {
+        it('rethrows a native AbortError as-is', async () => {
+            const abortError = new DOMException('The user aborted a request.', 'AbortError')
+            fakeFetch.mockRejectedValueOnce(abortError)
+
+            await expect(api.get('/api/projects/2/logs/')).rejects.toBe(abortError)
+        })
+
+        it('normalizes a string abort reason to an AbortError DOMException', async () => {
+            // `controller.abort('unmounting component')` makes fetch reject with the bare string.
+            const controller = new AbortController()
+            fakeFetch.mockImplementationOnce(() => {
+                controller.abort('unmounting component')
+                return Promise.reject('unmounting component')
+            })
+
+            await expect(api.get('/api/projects/2/logs/', { signal: controller.signal })).rejects.toMatchObject({
+                name: 'AbortError',
+                message: 'unmounting component',
+            })
+        })
+
+        it('treats an aborted signal as a cancellation even when fetch rejects with a non-abort error', async () => {
+            const controller = new AbortController()
+            fakeFetch.mockImplementationOnce(() => {
+                controller.abort('new query started')
+                return Promise.reject(new TypeError('Failed to fetch'))
+            })
+
+            await expect(api.get('/api/projects/2/logs/', { signal: controller.signal })).rejects.toMatchObject({
+                name: 'AbortError',
+                message: 'new query started',
+            })
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()

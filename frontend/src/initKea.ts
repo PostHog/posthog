@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
@@ -108,6 +109,13 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Cancelled in-flight requests (component unmount, a newer query superseding an
+                // older one) are expected, not failures — never toast or report them. `handleFetch`
+                // normalizes every cancellation to an `AbortError`, so this catches them regardless
+                // of the abort reason.
+                if (isAbortedRequest(error)) {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions

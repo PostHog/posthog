@@ -12,6 +12,7 @@ import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { isAbortedRequest } from 'lib/utils/requests'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -59,8 +60,11 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
 }
 
 function isUserInitiatedError(error: unknown): boolean {
+    if (isAbortedRequest(error)) {
+        return true
+    }
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return errorStr.includes(NEW_QUERY_STARTED_ERROR_MESSAGE) || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -557,7 +561,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             actions.fetchSparkline()
         },
         fetchLogsFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(errorObject ?? error)) {
                 return
             }
             lemonToast.error(`Failed to load logs: ${error}`)
@@ -570,7 +574,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             })
         },
         fetchNextLogsPageFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(errorObject ?? error)) {
                 return
             }
             lemonToast.error(`Failed to load more logs: ${error}`)
@@ -583,7 +587,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             })
         },
         fetchSparklineFailure: ({ error, errorObject }) => {
-            if (isUserInitiatedError(error)) {
+            if (isUserInitiatedError(errorObject ?? error)) {
                 return
             }
             const { error_type, status_code } = classifyQueryError(errorObject ?? error)

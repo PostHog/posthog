@@ -77,6 +77,21 @@ describe('logsViewerDataLogic', () => {
             expect(posthog.capture).not.toHaveBeenCalled()
         })
 
+        it.each([
+            ['unmounting component', 'beforeUnmount abort reason'],
+            ['new query started', 'superseded-query abort reason'],
+        ])('suppresses fetchLogs cancellation surfaced as an AbortError with message "%s" (%s)', async (message) => {
+            // Regression: cancelled fetches reject with an AbortError whose message is the abort
+            // reason. The reason contains no "abort" substring, so only the error object's name
+            // identifies it — string matching alone would let "unmounting component" through.
+            const errorObject = new DOMException(message, 'AbortError')
+            logic.actions.fetchLogsFailure(String(errorObject), errorObject)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(posthog.capture).not.toHaveBeenCalled()
+        })
+
         it.each([['Network error'], ['Server returned 500'], ['Timeout exceeded']])(
             'shows toast for legitimate fetchLogs error "%s"',
             async (error) => {

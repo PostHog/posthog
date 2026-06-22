@@ -6971,17 +6971,23 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
-                signal: options?.signal,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(),
-                    ...authHeaders,
-                },
-            })
-        })
+        return await handleFetch(
+            url,
+            'GET',
+            async () => {
+                return fetch(url, {
+                    signal: options?.signal,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...tracingHeaders({ includeDistinctId: true }),
+                        ...oauthAuthHeaders(),
+                        ...authHeaders,
+                    },
+                })
+            },
+            false,
+            options?.signal
+        )
     },
 
     async _update<T = any, P = any>(
@@ -6995,20 +7001,26 @@ const api = {
         assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, method, async () => {
-            return await fetch(url, {
-                method: method,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
-                },
-                body: isFormData ? data : JSON.stringify(data),
-                signal: options?.signal,
-            })
-        })
+        const response = await handleFetch(
+            url,
+            method,
+            async () => {
+                return await fetch(url, {
+                    method: method,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(),
+                    },
+                    body: isFormData ? data : JSON.stringify(data),
+                    signal: options?.signal,
+                })
+            },
+            false,
+            options?.signal
+        )
 
         return await getJSONOrNull(response)
     },
@@ -7032,19 +7044,24 @@ const api = {
         assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
-                },
-                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-                signal: options?.signal,
-            })
+        return await handleFetch(
+            url,
+            'POST',
+            async () =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(),
+                    },
+                    body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                    signal: options?.signal,
+                }),
+            false,
+            options?.signal
         )
     },
 
@@ -7310,11 +7327,33 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+/**
+ * Normalize a cancelled request to a real `AbortError` `DOMException`.
+ *
+ * `controller.abort(reason)` makes `fetch` reject with `reason` verbatim, so a string reason
+ * (e.g. `abort('unmounting component')`) arrives as a bare string with no `name === 'AbortError'`.
+ * Coercing every cancellation to a `DOMException` lets callers detect aborts reliably via
+ * `error.name === 'AbortError'` instead of brittle per-component string matching.
+ */
+function asAbortError(error: unknown, signal?: AbortSignal): DOMException {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        return error
+    }
+    const reason = signal?.reason
+    const message =
+        (typeof reason === 'string' && reason) ||
+        (error instanceof Error && error.message) ||
+        (typeof error === 'string' && error) ||
+        'The operation was aborted'
+    return new DOMException(message, 'AbortError')
+}
+
 async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    signal?: AbortSignal
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7329,8 +7368,8 @@ async function handleFetch(
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
-            throw error
+        if (signal?.aborted || (error && (error as any).name === 'AbortError')) {
+            throw asAbortError(error, signal)
         }
         throw new ApiError(error as any, response?.status)
     }
@@ -7340,7 +7379,7 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, signal)
         }
     }
 

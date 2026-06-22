@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { isAbortedRequest } from 'lib/utils/requests'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
 import { PropertyGroupFilter } from '~/types'
@@ -51,8 +52,11 @@ export const PREFETCH_SPANS = 20
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 
 function isUserInitiatedError(error: unknown): boolean {
+    if (isAbortedRequest(error)) {
+        return true
+    }
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return errorStr.includes(NEW_QUERY_STARTED_ERROR_MESSAGE) || errorStr.includes('abort')
 }
 
 // A ts hint (from a shared/cold link) bounds the lookup tightly around the trace instead of the
@@ -699,24 +703,24 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         fetchAggregationSuccess: ({ aggregation }) => {
             captureTracingResults(aggregation.current.length, 'aggregation')
         },
-        fetchSpansFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchSpansFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(errorObject ?? error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
                 posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
-        fetchAggregationFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchAggregationFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(errorObject ?? error)) {
                 lemonToast.error(`Failed to load span aggregation: ${error}`)
             }
         },
-        fetchSpanTreeFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        fetchSpanTreeFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(errorObject ?? error)) {
                 lemonToast.error(`Failed to load call tree: ${error}`)
             }
         },
-        loadMoreTraceSpansFailure: ({ error }) => {
-            if (!isUserInitiatedError(error)) {
+        loadMoreTraceSpansFailure: ({ error, errorObject }) => {
+            if (!isUserInitiatedError(errorObject ?? error)) {
                 lemonToast.error(`Failed to load more spans: ${error}`)
             }
         },

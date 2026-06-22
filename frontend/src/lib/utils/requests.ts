@@ -4,7 +4,7 @@ export function shouldCancelQuery(error: any): boolean {
 }
 
 export function isAbortedRequest(error: any): boolean {
-    return error.name === 'AbortError' || error.message?.name === 'AbortError'
+    return error?.name === 'AbortError' || error?.message?.name === 'AbortError'
 }
 
 export function isTimedOutRequest(error: any): boolean {

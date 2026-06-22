@@ -1,11 +1,20 @@
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+    },
+}))
 
 const createMockAggregatedRow = (name: string): AggregatedSpanRow => ({
     service_name: 'svc',
@@ -183,6 +192,31 @@ describe('tracingDataLogic', () => {
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
             expect(captureSpy).toHaveBeenCalledWith(event, properties)
+        })
+    })
+
+    describe('error handling', () => {
+        beforeEach(() => {
+            logic = mountWithSpans([])
+            ;(lemonToast.error as jest.Mock).mockClear()
+        })
+
+        it.each([
+            ['unmounting component', 'beforeUnmount abort reason'],
+            ['new query started', 'superseded-query abort reason'],
+        ])('suppresses fetchSpans cancellation surfaced as an AbortError with message "%s" (%s)', (message) => {
+            // Regression: cancelled fetches reject with an AbortError whose message is the abort
+            // reason, which contains no "abort" substring — only the error object's name marks it.
+            const errorObject = new DOMException(message, 'AbortError')
+            logic.actions.fetchSpansFailure(String(errorObject), errorObject)
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows a toast for a genuine fetchSpans error', () => {
+            logic.actions.fetchSpansFailure('Network error')
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to load traces: Network error')
         })
     })
 })
