@@ -364,7 +364,12 @@ def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
         WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
     """
     try:
-        with tags_context(team_id=team_id, query_type="web_stats_paths_pathkey_mirror_insert"):
+        with tags_context(
+            team_id=team_id,
+            product=Product.WEB_ANALYTICS,
+            feature=Feature.QUERY,
+            query_type="web_stats_paths_pathkey_mirror_insert",
+        ):
             sync_execute(
                 sql,
                 {"team_id": team_id, "job_ids": [uuid.UUID(jid) for jid in job_ids]},
