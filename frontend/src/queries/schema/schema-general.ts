@@ -4847,8 +4847,10 @@ export interface HogQLAlertConfig {
     column?: string | null
     /** How to read the result rows — an explicit choice, no implicit default. */
     evaluation: HogQLAlertEvaluation
-    /** In `any_row` mode, the column whose value labels each row in breach messages.
-     * When unset, the first non-evaluated column is used, falling back to the row number. */
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row`
+     * mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first
+     * non-evaluated column is used, falling back to the row number (any_row) or the value column
+     * name (last_row/first_row). */
     label_column?: string | null
 }
 
