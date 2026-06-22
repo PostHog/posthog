@@ -28,6 +28,7 @@ import {
     createValidateAiEventTokensStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
+    createValidateEventSchemaStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
@@ -49,9 +50,12 @@ import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { isDropResult } from '~/ingestion/framework/results'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
@@ -78,6 +82,9 @@ export interface AiIngestionPipelineConfig {
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
     cdpHogWatcherSampleRate: number
+    eventSchemaEnforcementEnabled: boolean
+    eventSchemaEnforcementManager: EventSchemaEnforcementManager
+    topHog: TopHogWrapper
 }
 
 interface AiIngestionPipelineInput {
@@ -123,6 +130,9 @@ export function createAiIngestionPipeline<
         overflowLaneTTLRefreshService,
         concurrentBatches,
         cdpHogWatcherSampleRate,
+        eventSchemaEnforcementEnabled,
+        eventSchemaEnforcementManager,
+        topHog,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
@@ -175,10 +185,18 @@ export function createAiIngestionPipeline<
                             b
                                 .teamAware((b) =>
                                     b
-                                        .sequentially((b) =>
-                                            b
+                                        .sequentially((b) => {
+                                            const validated = b
                                                 .pipe(createValidateEventMetadataStep())
                                                 .pipe(createValidateEventPropertiesStep())
+                                            // Schema enforcement is opt-in (same as analytics); only
+                                            // applied when enabled so AI events match that path.
+                                            const schemaChecked = eventSchemaEnforcementEnabled
+                                                ? validated.pipe(
+                                                      createValidateEventSchemaStep(eventSchemaEnforcementManager)
+                                                  )
+                                                : validated
+                                            return schemaChecked
                                                 .pipe(
                                                     createApplyPersonProcessingRestrictionsStep(
                                                         eventIngestionRestrictionManager
@@ -186,7 +204,7 @@ export function createAiIngestionPipeline<
                                                 )
                                                 .pipe(createDropOldEventsStep())
                                                 .pipe(createApplyEventFiltersStep(eventFilterManager))
-                                        )
+                                        })
                                         // Cookieless processing rewrites distinct_id; person fetch keys on the
                                         // final distinct_id, so it must run after this batch step.
                                         .gather()
@@ -206,22 +224,76 @@ export function createAiIngestionPipeline<
                                             createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate)
                                         )
                                         .sequentially((b) =>
-                                            b
-                                                .pipe(createNormalizeProcessPersonFlagStep())
-                                                .pipe(createHogTransformEventStep(hogTransformer))
-                                                .pipe(createNormalizeEventStep())
-                                                .pipe(createProcessAiEventStep())
-                                                // Read-only: drop person-update props so they don't
-                                                // leak into person_properties (person is never written).
-                                                .pipe(createStripPersonUpdatePropertiesStep())
-                                                .pipe(createPrepareEventStep())
-                                                // Read-only group-type resolution (no new group types created).
-                                                .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
-                                                .pipe(createCreateEventStep(EVENTS_OUTPUT))
-                                                // Double-write to events + ai_events outputs.
-                                                .pipe(createSplitAiEventsStep(splitAiEventsConfig))
-                                                .pipe(createEmitEventStep({ outputs }))
-                                                .pipe(createRecordIngestionLagStep())
+                                            // Retry the per-event chain on transient failures (hog
+                                            // transform, group-type fetch, emit), matching the
+                                            // analytics per-distinct-id retry.
+                                            b.retry(
+                                                (e) =>
+                                                    e
+                                                        .pipe(createNormalizeProcessPersonFlagStep())
+                                                        .pipe(
+                                                            topHog(createHogTransformEventStep(hogTransformer), [
+                                                                sumOk(
+                                                                    'transformations_run',
+                                                                    (output) => ({ team_id: String(output.team.id) }),
+                                                                    (output) => output.transformationsRun
+                                                                ),
+                                                                sumOk(
+                                                                    'transformations_run_per_partition',
+                                                                    (output, input) => ({
+                                                                        team_id: String(output.team.id),
+                                                                        partition: String(input.message.partition),
+                                                                    }),
+                                                                    (output) => output.transformationsRun
+                                                                ),
+                                                                sumResult(
+                                                                    'events_dropped_by_transformation',
+                                                                    (_result, input) => ({
+                                                                        team_id: String(input.team.id),
+                                                                    }),
+                                                                    (result) => (isDropResult(result) ? 1 : 0)
+                                                                ),
+                                                                sumResult(
+                                                                    'events_dropped_by_transformation_per_partition',
+                                                                    (_result, input) => ({
+                                                                        team_id: String(input.team.id),
+                                                                        partition: String(input.message.partition),
+                                                                    }),
+                                                                    (result) => (isDropResult(result) ? 1 : 0)
+                                                                ),
+                                                            ])
+                                                        )
+                                                        .pipe(createNormalizeEventStep())
+                                                        .pipe(createProcessAiEventStep())
+                                                        // Read-only: drop person-update props so they don't
+                                                        // leak into person_properties (person is never written).
+                                                        .pipe(createStripPersonUpdatePropertiesStep())
+                                                        .pipe(createPrepareEventStep())
+                                                        // Read-only group-type resolution (no new group types created).
+                                                        .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
+                                                        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+                                                        // Double-write to events + ai_events outputs.
+                                                        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
+                                                        .pipe(
+                                                            topHog(createEmitEventStep({ outputs }), [
+                                                                sum(
+                                                                    'emitted_events',
+                                                                    (input) => ({ team_id: String(input.teamId) }),
+                                                                    (input) => input.eventsToEmit.length
+                                                                ),
+                                                                sum(
+                                                                    'emitted_events_per_partition',
+                                                                    (input) => ({
+                                                                        team_id: String(input.teamId),
+                                                                        partition: String(input.message.partition),
+                                                                    }),
+                                                                    (input) => input.eventsToEmit.length
+                                                                ),
+                                                            ])
+                                                        )
+                                                        .pipe(createRecordIngestionLagStep()),
+                                                { tries: 5, sleepMs: 100, name: 'ai_event' }
+                                            )
                                         )
                                 )
                                 .handleIngestionWarnings(outputs)

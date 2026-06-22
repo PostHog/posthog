@@ -27,6 +27,7 @@ describe('createAiConsumer', () => {
             DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
             SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
             INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
+            EVENT_SCHEMA_ENFORCEMENT_ENABLED: false,
             CDP_HOG_WATCHER_SAMPLE_RATE: 1,
             ...({} as Pick<
                 IngestionConsumerConfig,

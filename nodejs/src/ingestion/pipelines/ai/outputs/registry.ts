@@ -6,6 +6,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
@@ -47,5 +48,9 @@ export function createOutputsRegistry() {
         .register(LOG_ENTRIES_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_LOG_ENTRIES_TOPIC',
             producerKey: 'INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER',
+        })
+        .register(TOPHOG_OUTPUT, {
+            topicKey: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
+            producerKey: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
         })
 }

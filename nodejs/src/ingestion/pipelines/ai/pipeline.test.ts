@@ -7,12 +7,14 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { DisabledOverflowRedirect } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { createTestTeam } from '~/tests/helpers/team'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
@@ -172,6 +174,10 @@ describe('AiIngestionPipeline', () => {
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),
             concurrentBatches: 1,
             cdpHogWatcherSampleRate: 1,
+            eventSchemaEnforcementEnabled: false,
+            eventSchemaEnforcementManager: {} as unknown as EventSchemaEnforcementManager,
+            // No-op metrics wrapper — these tests assert pipeline output, not topHog counters.
+            topHog: ((step) => step) as TopHogWrapper,
         }
     })
 

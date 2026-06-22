@@ -9,20 +9,22 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     ProducerName,
+    TophogOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { createPersonHogClient } from '~/common/personhog'
-import { PersonHogClient } from '~/common/personhog/client'
+import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
-import { Component, Scope, extend } from '~/ingestion/common/scopes'
+import { Scope, extend } from '~/ingestion/common/scopes'
 import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig, PersonHogConfig } from '~/ingestion/config'
+import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { TopHog } from '~/ingestion/framework/tophog'
 import { DisabledOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
 import { MainLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
@@ -30,6 +32,7 @@ import { RedisOverflowRepositoryComponent } from '~/ingestion/utils/overflow-red
 import { RedisPool } from '~/types'
 import { PostgresRouter } from '~/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 import { TeamManager } from '~/utils/team-manager'
 
 import { createAiIngestionPipeline } from './pipeline'
@@ -54,13 +57,14 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
+        | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
     > &
     Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
 /** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
  * monitoring (app_metrics + log_entries), wired up server-side. */
 export type AiOutputs = IngestionOutputs<
-    EventOutput | AiEventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | AppMetricsOutput
+    EventOutput | AiEventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | AppMetricsOutput | TophogOutput
 >
 
 /**
@@ -79,46 +83,6 @@ export type AiSharedScope = Scope<{
     hogTransformer: HogTransformer
     outputs: AiOutputs
 }>
-
-/**
- * Wraps a hog transformer with start/stop lifecycle. The factory is supplied by
- * the server (the concrete `HogTransformerService` lives in cdp), so the AI scope
- * stays within ingestion boundaries while still owning the transformer's lifecycle.
- */
-export class HogTransformerComponent implements Component<HogTransformer> {
-    constructor(private readonly create: () => HogTransformer) {}
-
-    async start(): Promise<{ value: HogTransformer; stop: () => Promise<void> }> {
-        const hogTransformer = this.create()
-        await hogTransformer.start()
-        return { value: hogTransformer, stop: () => hogTransformer.stop() }
-    }
-}
-
-/**
- * Creates the personhog gRPC client for the AI lane. Built here (not injected) so
- * the connection is owned by the AI scope and torn down with it. Throws if
- * personhog isn't configured — the AI pipeline reads person/group data through it.
- */
-class PersonHogClientComponent implements Component<PersonHogClient> {
-    constructor(private readonly config: PersonHogConfig) {}
-
-    start(): Promise<{ value: PersonHogClient; stop: () => Promise<void> }> {
-        const client = createPersonHogClient(this.config)
-        if (!client) {
-            throw new Error(
-                'PersonHog client is required for the AI ingestion pipeline — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
-            )
-        }
-        return Promise.resolve({
-            value: client,
-            stop: () => {
-                client.close()
-                return Promise.resolve()
-            },
-        })
-    }
-}
 
 export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
@@ -181,6 +145,18 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             )
             // Personhog client owned by the AI scope (created from common, torn down with it).
             .add('personhogClient', new PersonHogClientComponent(config))
+            // TopHog metrics registry for this lane's outputs (drains per-team/partition counters).
+            .add('topHog', {
+                start: () => {
+                    const topHog = new TopHog({
+                        outputs: container.outputs,
+                        pipeline: config.INGESTION_PIPELINE ?? 'unknown',
+                        lane: config.INGESTION_LANE ?? 'unknown',
+                    })
+                    topHog.start()
+                    return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
+                },
+            })
     )
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
@@ -209,6 +185,9 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
             cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres),
+            topHog: createTopHogWrapper(container.topHog),
         })
     )
 }
