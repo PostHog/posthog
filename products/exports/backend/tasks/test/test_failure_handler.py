@@ -6,10 +6,12 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from products.exports.backend.tasks.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
+    PageClosedDuringRender,
     classify_failure_type,
     is_user_query_error_type,
 )
@@ -73,6 +75,7 @@ class TestClassifyFailureType(TestCase):
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
+            ("PageClosedDuringRender", FAILURE_TYPE_SYSTEM),
             # Unknown errors
             ("ValueError", FAILURE_TYPE_UNKNOWN),
             ("RuntimeError", FAILURE_TYPE_UNKNOWN),
@@ -81,6 +84,11 @@ class TestClassifyFailureType(TestCase):
     )
     def test_classify_failure_type(self, exception_type: str, expected: str) -> None:
         assert classify_failure_type(exception_type) == expected
+
+    def test_page_closed_during_render_is_system_but_not_retryable(self) -> None:
+        assert classify_failure_type(PageClosedDuringRender("page gone")) == FAILURE_TYPE_SYSTEM
+        # must never become retryable — that would re-enable the retries this fail-fast path removes
+        assert PageClosedDuringRender not in EXCEPTIONS_TO_RETRY
 
     def test_drf_validation_error_instance_classifies_as_user(self) -> None:
         # The funnel validation rules raise rest_framework.exceptions.ValidationError

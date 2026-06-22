@@ -34,7 +34,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
+from products.exports.backend.tasks.failure_handler import (
+    EXCEPTIONS_TO_RETRY,
+    BrowserlessUnavailable,
+    InvalidExportContext,
+    PageClosedDuringRender,
+)
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -719,6 +724,30 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
                 with self.assertRaises(BrowserlessUnavailable):
                     image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
 
+    def test_page_closed_mid_render_is_not_retryable(self) -> None:
+        page = MagicMock()
+        page.wait_for_selector.side_effect = PlaywrightError(
+            "Page.wait_for_selector: Target page, context or browser has been closed"
+        )
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()  # browser.on("disconnected", ...) never fires: transport stays up
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=sync_playwright_cm),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            with self.assertRaises(PageClosedDuringRender) as ctx:
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".replayer-wrapper")
+
+        # identity (the routing decision) plus the property that matters: Temporal won't retry it
+        assert not isinstance(ctx.exception, EXCEPTIONS_TO_RETRY)
+
     def test_connect_error_redacts_token_and_breaks_chain(self) -> None:
         token = "super-secret-token"
         leaked = (
@@ -834,6 +863,25 @@ class TestIsBrowserlessConnectionError(SimpleTestCase):
     )
     def test_is_browserless_connection_error(self, _name: str, message: str, expected: bool) -> None:
         assert image_exporter._is_browserless_connection_error(Exception(message)) is expected
+
+
+class TestIsPageClosedError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("full_playwright_string", "Page.wait_for_selector: Target page, context or browser has been closed", True),
+            ("target_closed", "Target closed", True),
+            # genuine transport drops must NOT match — they stay retryable BrowserlessUnavailable
+            ("websocket", "WebSocket error: connection lost", False),
+            ("econnrefused", "connect ECONNREFUSED 1.2.3.4:443", False),
+            ("connection_closed", "Connection closed while reading", False),
+            ("disconnected", "Browser disconnected unexpectedly", False),
+            # narrower than the connection helper: bare "has been closed" without the target prefix is not page-closed
+            ("bare_has_been_closed", "Browser has been closed", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_is_page_closed_error(self, _name: str, message: str, expected: bool) -> None:
+        assert image_exporter._is_page_closed_error(Exception(message)) is expected
 
 
 @override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")

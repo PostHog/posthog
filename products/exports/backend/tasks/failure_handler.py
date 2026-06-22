@@ -69,6 +69,13 @@ class BrowserlessUnavailable(Exception):
     pass
 
 
+class PageClosedDuringRender(Exception):
+    """Page/context closed mid-render (transport still up). Non-retryable system failure: a closed page
+    won't recover on a fresh retry, so it's kept out of EXCEPTIONS_TO_RETRY (see NON_RETRYABLE_SYSTEM_ERRORS)."""
+
+    pass
+
+
 class ExcelColumnLimitExceeded(Exception):
     """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
 
@@ -130,9 +137,15 @@ TIMEOUT_ERRORS = (
     ExportCancelled,
 )
 
+# Render-backend failures that classify as "system" for observability but are deliberately excluded
+# from EXCEPTIONS_TO_RETRY (a closed page won't recover on retry). Kept separate so the retry sets —
+# SYSTEM_ERROR_NAMES feeds RETRYABLE_ERROR_NAMES in temporal/exports/activities.py — never pick them up.
+NON_RETRYABLE_SYSTEM_ERRORS = (PageClosedDuringRender,)
+
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
+NON_RETRYABLE_SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in NON_RETRYABLE_SYSTEM_ERRORS)
 # "TimeoutException" kept literally: historical ExportedAsset rows from the retired selenium
 # render path stored that exception name and must still classify as timeouts.
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
@@ -147,7 +160,7 @@ def classify_failure_type(exception: Exception | str) -> str:
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if isinstance(exception, USER_QUERY_ERRORS):
             return FAILURE_TYPE_USER
-        if isinstance(exception, EXCEPTIONS_TO_RETRY):
+        if isinstance(exception, (*EXCEPTIONS_TO_RETRY, *NON_RETRYABLE_SYSTEM_ERRORS)):
             return FAILURE_TYPE_SYSTEM
         return FAILURE_TYPE_UNKNOWN
 
@@ -159,7 +172,7 @@ def classify_failure_type(exception: Exception | str) -> str:
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if exception_type in USER_QUERY_ERROR_NAMES:
             return FAILURE_TYPE_USER
-        if exception_type in SYSTEM_ERROR_NAMES:
+        if exception_type in SYSTEM_ERROR_NAMES or exception_type in NON_RETRYABLE_SYSTEM_ERROR_NAMES:
             return FAILURE_TYPE_SYSTEM
     return FAILURE_TYPE_UNKNOWN
 

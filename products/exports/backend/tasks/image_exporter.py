@@ -35,6 +35,7 @@ from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_
 from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
     InvalidExportContext,
+    PageClosedDuringRender,
     classify_failure_type,
 )
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
@@ -356,6 +357,20 @@ def _is_browserless_connection_error(error: Exception) -> bool:
     return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
 
 
+# Intentionally narrower than _BROWSERLESS_CONNECTION_ERROR_INDICATORS: a genuine transport drop
+# (websocket/econnrefused/"connection closed") must stay retryable, so only page/target-closed
+# phrasing belongs here. The page-closed branch below must also stay ordered before the transport check.
+_PAGE_CLOSED_ERROR_INDICATORS = (
+    "target page, context or browser has been closed",
+    "target closed",
+)
+
+
+def _is_page_closed_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(indicator in message for indicator in _PAGE_CLOSED_ERROR_INDICATORS)
+
+
 def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
     try:
         take_screenshot(image_path)
@@ -440,6 +455,10 @@ def _screenshot_asset_browserless(
         except PlaywrightTimeoutError:
             raise
         except PlaywrightError as e:
+            # A page/context closed mid-render (transport still up) won't recover on a fresh retry of
+            # the same render, so fail fast and non-retryably rather than re-spending the budget 5x.
+            if _is_page_closed_error(e) and not disconnected[0]:
+                raise PageClosedDuringRender(_redact_browserless_token(str(e))) from None
             if disconnected[0] or _is_browserless_connection_error(e):
                 raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
