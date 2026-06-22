@@ -97,8 +97,7 @@ class BatchExportsMetricsInterceptor(Interceptor):
 
 class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
-        activity_info = activity.info()
-        activity_type = activity_info.activity_type
+        activity_type = activity.info().activity_type
 
         if activity_type not in BATCH_EXPORT_ACTIVITY_TYPES:
             return await super().execute_activity(input)
@@ -129,8 +128,6 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         histogram_attributes: Attributes = {
             "interval": interval,
         }
-        if activity_info.workflow_type is not None:
-            histogram_attributes["workflow_type"] = activity_info.workflow_type
 
         meter = get_metric_meter(histogram_attributes)
 
@@ -153,7 +150,7 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             name="batch_exports_activity_success_attempts",
             description="Counter tracking the attempts it took to complete activities",
         )
-        attempts_success_counter.add(activity_info.attempt)
+        attempts_success_counter.add(activity.info().attempt)
 
         return result
 
@@ -288,10 +285,20 @@ class ExecutionTimeRecorder:
 
 def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
     """Return a meter depending on in which context we are."""
+    basic_attributes = {}
+
     if activity.in_activity():
         meter = activity.metric_meter()
+
+        activity_info = activity.info()
+        if (workflow_type := activity_info.workflow_type) is not None:
+            basic_attributes["workflow_type"] = workflow_type
+        basic_attributes["activity_type"] = activity_info.activity_type
+
     elif workflow.in_workflow():
         meter = workflow.metric_meter()
+        basic_attributes["workflow_type"] = workflow.info().workflow_type
+
     else:
         raise RuntimeError("Not within workflow or activity context")
 
