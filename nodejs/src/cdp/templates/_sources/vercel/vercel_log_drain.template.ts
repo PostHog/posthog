@@ -155,8 +155,8 @@ fun extractPathname(url) {
     return url
 }
 
-// Distinct ID: configurable strategy. Default is a daily-rotating salted hash
-// of (ip, host, ua). The active strategy is recorded as $distinct_id_strategy
+// Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
+// one stable ID per client. The active strategy is recorded as $distinct_id_strategy
 // on the event for diagnostics — it is not an analytical breakdown dimension.
 let host := proxy.host ?? log.host ?? ''
 let clientIp := proxy.clientIp ?? ''
@@ -166,7 +166,7 @@ let path := proxy.path ?? log.path ?? ''
 
 let day := formatDateTime(now(), '%Y-%m-%d')
 let salt := inputs.salt_secret ?? ''
-let strategy := inputs.distinct_id_strategy ?? 'rotating_salt'
+let strategy := inputs.distinct_id_strategy ?? 'fixed_salt'
 let activeStrategy := strategy
 let distinctId := ''
 
@@ -220,6 +220,11 @@ let queryParams := parseQueryParams(path)
 let pathname := extractPathname(path)
 
 let props := {
+    // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
+    // log traffic does not create a person profile per distinct ID — cheaper and faster to query.
+    // Set the "Person processing" input to "identified" to create person profiles for stitching.
+    '$process_person_profile': inputs.person_processing == 'identified',
+
     // PostHog standard properties. $ip and $raw_user_agent are appended
     // below when forward_ip_and_user_agent is enabled (default on, since
     // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
@@ -360,15 +365,15 @@ return {
             type: 'choice',
             label: 'Distinct ID strategy',
             description:
-                'How distinct IDs are derived. Default rotates daily so the same client gets a fresh ID each day. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
+                'How distinct IDs are derived from the request. Because events are anonymous by default (no person profiles), this affects unique-visitor counting rather than cost. The default, fixed salt, gives one stable ID per client (IP + host + user agent) for accurate uniques. Rotating salt rotates that ID daily for extra privacy, at the cost of inflated unique counts. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
             choices: [
                 {
-                    value: 'rotating_salt',
-                    label: 'Rotating salt (sha256(salt:day:ip:host:ua)) — daily rotation, default',
+                    value: 'fixed_salt',
+                    label: 'Fixed salt (sha256(salt:ip:host:ua)) — one stable ID per client, default',
                 },
                 {
-                    value: 'fixed_salt',
-                    label: 'Fixed salt (sha256(salt:ip:host:ua)) — stable until salt rotates',
+                    value: 'rotating_salt',
+                    label: 'Rotating salt (sha256(salt:day:ip:host:ua)) — rotates daily for privacy',
                 },
                 {
                     value: 'ip',
@@ -379,7 +384,27 @@ return {
                     label: 'Custom template — placeholder substitution (see template field)',
                 },
             ],
-            default: 'rotating_salt',
+            default: 'fixed_salt',
+            secret: false,
+            required: true,
+        },
+        {
+            key: 'person_processing',
+            type: 'choice',
+            label: 'Person processing',
+            description:
+                'Whether each event creates a person profile. "Anonymous" (default) emits $process_person_profile=false so high-cardinality log traffic does not create a person profile per distinct ID — cheaper, faster to query, and recommended for aggregate traffic and bot analysis. "Identified" creates a person profile per distinct ID for person-level stitching (billed on the person-profiles line).',
+            choices: [
+                {
+                    value: 'anonymous',
+                    label: 'Anonymous — no person profiles (recommended for log traffic)',
+                },
+                {
+                    value: 'identified',
+                    label: 'Identified — create a person profile per distinct ID',
+                },
+            ],
+            default: 'anonymous',
             secret: false,
             required: true,
         },

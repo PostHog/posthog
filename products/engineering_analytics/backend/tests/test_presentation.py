@@ -49,6 +49,9 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         open_to_merge_seconds=None,
         labels=["bug"],
         ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
+        pushes=4,
+        rerun_cycles=1,
+        estimated_cost_usd=None,
     )
 
 
@@ -75,6 +78,21 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/{action}/"
+
+    def test_sources_serializes(self) -> None:
+        sources = [
+            contracts.GitHubSource(id="0192f000-0000-7000-8000-000000000000", repo="PostHog/posthog", prefix="older"),
+            contracts.GitHubSource(
+                id="0192f000-0000-7000-8000-000000000001", repo="PostHog/posthog.com", prefix="website"
+            ),
+        ]
+        with mock.patch(f"{_VIEWS}.list_github_sources", return_value=sources):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
+        assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older"}
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):
@@ -115,6 +133,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body["limit"] == 1000
         assert body["items"][0]["number"] == 10
         assert body["items"][0]["ci"]["failing"] == 1
+        assert body["items"][0]["pushes"] == 4
+        assert body["items"][0]["rerun_cycles"] == 1
+        assert body["items"][0]["estimated_cost_usd"] is None
         assert listing.call_args.kwargs["date_from"] == "-7d"
 
     def test_pull_requests_400_on_bad_date(self) -> None:
@@ -165,7 +186,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "the maximum is 366" in response.json()["detail"]
 
-    @parameterized.expand(["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"])
+    @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"])
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))

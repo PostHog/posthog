@@ -128,6 +128,14 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        it('stamps the remote load duration so callers can report search latency', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ loadDurationMs: expect.any(Number) }),
+                })
+        })
+
         it('can set the index', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 156 }) })
@@ -446,6 +454,31 @@ describe('infiniteListLogic', () => {
             const names = internalLogic.values.localItems.results.map((item: any) => item.name)
             expect(names).toContain('Team activity')
             expect(names).not.toContain('All internal events')
+        })
+    })
+
+    describe('listGroupType with no matching built group', () => {
+        let noGroupLogic: ReturnType<typeof infiniteListLogic.build>
+        // A group-analytics index with no matching group type mapping, so `group` resolves to undefined.
+        const groupsListType = `${TaxonomicFilterGroupType.GroupsPrefix}_55` as TaxonomicFilterGroupType
+
+        beforeEach(() => {
+            noGroupLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListNoGroup',
+                listGroupType: groupsListType,
+                taxonomicGroupTypes: [groupsListType],
+                showNumericalPropsOnly: false,
+            })
+            noGroupLogic.mount()
+        })
+
+        it('returns empty localItems instead of throwing', async () => {
+            await expectLogic(noGroupLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    group: undefined,
+                    localItems: partial({ count: 0, results: [] }),
+                })
         })
     })
 

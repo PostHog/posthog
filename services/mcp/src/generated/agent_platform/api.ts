@@ -263,7 +263,12 @@ export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax 
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -910,7 +915,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAg
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().optional(),
+    bundle_uri: zod
+        .string()
+        .optional()
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -1569,6 +1579,71 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
+ * List the names of secrets currently set on this revision.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+ * a declared secret in the editor UI.
+ */
+export const AgentRevisionsEnvKeysListParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysGetParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysClearParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
  *
  * Django is a thin proxy here: resolve template refs into the
@@ -1884,7 +1959,7 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
  * Pre-flight checks before freeze + promote: entrypoint file exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
- * secret has a value set in the application's env block. Returns
+ * secret has a value set in this revision's env block. Returns
  * `{ ok, errors: [...] }`. Works on any revision state.
  */
 export const AgentApplicationsRevisionsValidateCreateParams = /* @__PURE__ */ zod.object({
@@ -2013,68 +2088,6 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the names of secrets currently set on the application.
- *
- * Returns names only — values stay server-side under
- * `EncryptedTextField`. Use this to drive the "set / unset" badge
- * next to a declared secret in the editor UI.
- */
-export const AgentApplicationsEnvKeysListParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const AgentApplicationsEnvKeysGetParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    key: zod
-        .string()
-        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * GET / PUT / DELETE one secret by name.
- *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
- *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
- */
-export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    key: zod
-        .string()
-        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
@@ -2082,7 +2095,8 @@ export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
  * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -2098,6 +2112,25 @@ export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.obje
     format: zod.enum(['json', 'sse']).optional(),
     revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
 })
+
+export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .optional()
+            .describe(
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+            ),
+        session_id: zod
+            .string()
+            .optional()
+            .describe(
+                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
+            ),
+    })
+    .describe(
+        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
+    )
 
 /**
  * List sessions for this application, newest first. Strips the

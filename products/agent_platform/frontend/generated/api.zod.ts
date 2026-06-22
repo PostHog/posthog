@@ -211,7 +211,12 @@ export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax 
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs:\/\/my-agent\/`. Optional — leave blank and the server fills `fs:\/\/<application-slug>\/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -789,7 +794,12 @@ export const agentApplicationsRevisionsUpdateBodySpecResumeMaxCompletedAgeMsMax 
 
 export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsUpdateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsUpdateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs:\/\/my-agent\/`. Optional — leave blank and the server fills `fs:\/\/<application-slug>\/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -1390,7 +1400,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAg
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
-    bundle_uri: zod.string().default(agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault),
+    bundle_uri: zod
+        .string()
+        .default(agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault)
+        .describe(
+            'Storage-prefix metadata for the bundle, e.g. `fs:\/\/my-agent\/`. Optional — leave blank and the server fills `fs:\/\/<application-slug>\/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.'
+        ),
     spec: zod
         .object({
             model: zod.string().min(1),
@@ -1981,6 +1996,41 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 })
 
 /**
+ * GET / PUT / DELETE one secret by name on this revision.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the single action
+ * name maps to one consistent scope; reading whether a secret is set is
+ * restricted to writers in any case.
+ */
+export const AgentRevisionsEnvKeysSetBody = /* @__PURE__ */ zod
+    .object({
+        value: zod.string(),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.\n\nThe view merges `{KEY: value}` into the existing encrypted env block\nwithout touching other keys, so callers can set or rotate one secret\nwithout needing to read the whole block back.'
+    )
+
+/**
+ * Replace this revision's encrypted env block.
+ *
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text is stored on `AgentRevision.encrypted_env`; the worker decrypts it
+ * at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
+ */
+export const AgentApplicationsRevisionsSetEnvCreateBody = /* @__PURE__ */ zod
+    .object({
+        env: zod.record(zod.string(), zod.string()),
+    })
+    .describe(
+        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
+    )
+
+/**
  * Revisions of an agent. Created in `draft`, promoted through
  * `ready → live` once the bundle has been uploaded + frozen.
  *
@@ -2201,36 +2251,31 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
     .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
 
 /**
- * GET / PUT / DELETE one secret by name.
+ * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
- * - `GET`    → `{ key, is_set }` (never returns the value).
- * - `PUT`    → upserts `{ value }` into the env block.
- * - `DELETE` → removes the key. No-op when it wasn't set.
+ * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
+ * non-live invokes that don't carry the `x-agent-preview-secret` header;
+ * this proxy attaches it after authenticating the Django caller.
  *
- * Per-method scope: GET is treated as a write action so the
- * single action name maps to one consistent scope; reading whether
- * a secret is set is restricted to writers in any case.
+ * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
-export const AgentApplicationsEnvKeysSetBody = /* @__PURE__ */ zod
+export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     .object({
-        value: zod.string(),
+        message: zod
+            .string()
+            .optional()
+            .describe(
+                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` \/ `listen`.'
+            ),
+        session_id: zod
+            .string()
+            .optional()
+            .describe(
+                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
+            ),
     })
     .describe(
-        'Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.\n\nThe view merges `{KEY: value}` into the existing encrypted env block\nwithout touching other keys, so callers can set or rotate one secret\nwithout needing to read the whole block back.'
-    )
-
-/**
- * Replace the agent's encrypted env block.
- *
- * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
- * text gets stored on AgentApplication.encrypted_env; the worker
- * decrypts it at session start via the same Fernet schedule (see
- * agent-shared/src/runtime/encryption.ts).
- */
-export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
-    .object({
-        env: zod.record(zod.string(), zod.string()),
-    })
-    .describe(
-        'Body shape for AgentApplicationViewSet.set_env.\n\n`env` is a JSON object of string→string. The view encrypts it via the\nsame Fernet schedule the worker uses to decrypt.'
+        'Body forwarded verbatim to the agent ingress for a \*preview\* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` \/ `listen` — no body.\n\nDocuments `message` \/ `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
     )

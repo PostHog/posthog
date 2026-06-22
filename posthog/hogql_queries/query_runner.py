@@ -1014,7 +1014,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.facade.queries import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
@@ -1026,7 +1026,7 @@ def get_query_runner(
         )
 
     if kind == "AccountsQuery":
-        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+        from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
             query=query,
@@ -1088,7 +1088,7 @@ def get_query_runner(
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
-        from products.logs.backend.logs_query_runner import LogsQueryRunner
+        from products.logs.backend.facade.queries import LogsQueryRunner
 
         return LogsQueryRunner(
             query=query,
@@ -2230,7 +2230,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query)
+        queried_resources = queried_access_controlled_resources(self.query, self.team)
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():

@@ -35,7 +35,7 @@ type RuntimeTypeFamily = Literal[
     "enum",
     "aggregate_state",
 ]
-type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb"]
+type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql"]
 
 
 class ComparisonCompatibility(StrEnum):
@@ -499,18 +499,28 @@ def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse")
     nullable = False
     if normalized in {"boolean", "bool"}:
         return RuntimeType(family="boolean", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if normalized in {"integer", "int", "bigint", "smallint"}:
+    if normalized in {"integer", "int", "bigint", "smallint", "tinyint", "mediumint", "signed", "unsigned"}:
         return RuntimeType(family="integer", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized in {"real", "double precision", "double", "float"}:
         return RuntimeType(family="float", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized.startswith("decimal") or normalized.startswith("numeric"):
         return RuntimeType(family="decimal", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if normalized in {"text", "varchar", "character varying", "char", "character", "uuid"}:
+    if normalized in {
+        "text",
+        "varchar",
+        "character varying",
+        "char",
+        "character",
+        "uuid",
+        "tinytext",
+        "mediumtext",
+        "longtext",
+    }:
         family: RuntimeTypeFamily = "uuid" if normalized == "uuid" else "string"
         return RuntimeType(family=family, nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized == "date":
         return RuntimeType(family="date", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if "timestamp" in normalized or normalized in {"time", "timetz"}:
+    if "timestamp" in normalized or normalized in {"time", "timetz", "datetime"}:
         return RuntimeType(family="datetime", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized in {"json", "jsonb"}:
         return RuntimeType(family="json", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))

@@ -6,7 +6,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def read_sandbox_logs(input: ReadSandboxLogsInput) -> str:
 
             # agentsh audit events (network policy decisions)
             try:
-                from products.tasks.backend.services.agentsh import build_audit_query_command
+                from products.tasks.backend.logic.services.agentsh import build_audit_query_command
 
                 audit_result = sandbox.execute(build_audit_query_command(), timeout_seconds=10)
                 audit_output = audit_result.stdout.strip()

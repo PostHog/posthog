@@ -36,6 +36,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
         CDC = "cdc", "cdc"
+        XMIN = "xmin", "xmin"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -59,7 +60,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -88,6 +89,25 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+
+        if skip_activity_log:
+            # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
+            # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
+            # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
+            # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
 
@@ -110,6 +130,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_cdc(self):
         return self.sync_type == self.SyncType.CDC
+
+    @property
+    def is_xmin(self):
+        return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def xmin_last_value(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_last_value", None)
+        return None
+
+    @property
+    def xmin_ceiling(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_ceiling", None)
+        return None
+
+    @property
+    def xmin_num_wraparound(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_num_wraparound", None)
+        return None
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -158,6 +200,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
+
+        return None
+
+    @property
+    def incremental_field_lookback_seconds(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_lookback_seconds", None)
 
         return None
 
@@ -288,12 +337,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         self.sync_type_config.pop("backfilled_partition_format", None)
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
 
         self.initial_sync_complete = False
 
-        self.save()
+        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -342,7 +394,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
+
+    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
+        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+        # instead of skipping it.
+        self.sync_type_config["xmin_last_value"] = ceiling_xid
+        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
+        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
+
+        if save:
+            self.save(skip_activity_log=True)
 
     def soft_delete(self):
         self.deleted = True
@@ -375,7 +437,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if value is None or value == "None" or field_type is None:
         return None
 
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+    if (
+        field_type == IncrementalFieldType.Integer
+        or field_type == IncrementalFieldType.Numeric
+        or field_type == IncrementalFieldType.XID
+    ):
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
@@ -395,6 +461,25 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
+
+
+def apply_incremental_lookback(
+    value: Any, field_type: IncrementalFieldType | None, lookback_seconds: int | None
+) -> Any:
+    """Shift a processed incremental watermark back by `lookback_seconds` for the source query only.
+
+    Used to re-read a rolling overlap window each incremental run so late or backdated rows (whose
+    incremental field lands at or below the stored watermark) are picked up. The persisted watermark
+    is never mutated — this only adjusts the value bound into the source's WHERE clause. Timestamp/date
+    fields only; for `Date` a sub-day lookback rounds down to whole days.
+    """
+    if value is None or not isinstance(lookback_seconds, int) or lookback_seconds <= 0:
+        return value
+
+    if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        return value - timedelta(seconds=lookback_seconds)
+
+    return value
 
 
 @database_sync_to_async

@@ -84,6 +84,17 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert expected_substring in str(ctx.exception)
 
+    def test_empty_required_strings_give_plain_message(self):
+        # Empty required fields used to surface pydantic's raw "String should have at
+        # least 1 character" with positional paths; assert the friendlier, JSON-mirroring form.
+        manifest = {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]}
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        message = str(ctx.exception)
+        assert "client.base_url: must not be empty" in message
+        assert "resources[0].name: must not be empty" in message
+        assert "resources[0].endpoint.path: must not be empty" in message
+
     def test_rejects_duplicate_resource_names(self):
         manifest = _minimal_manifest()
         manifest["resources"].append({**manifest["resources"][0]})

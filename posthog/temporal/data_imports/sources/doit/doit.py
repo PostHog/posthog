@@ -10,10 +10,16 @@ from structlog.types import FilteringBoundLogger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
+
+# DoIt's API sits behind Cloudflare, which returns 52x origin errors (e.g. 524 when the origin
+# times out under load or during maintenance) instead of the standard 502/503/504. These are
+# transient like the gateway errors the default policy already retries, so add the Cloudflare
+# origin family to the forcelist and let the HTTP layer retry them with backoff.
+DOIT_RETRY = DEFAULT_RETRY.new(status_forcelist=(*(DEFAULT_RETRY.status_forcelist or ()), 520, 521, 522, 523, 524))
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -55,7 +61,7 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = make_tracked_session().get(
+    res = make_tracked_session(retry=DOIT_RETRY).get(
         "https://api.doit.com/analytics/v1/reports",
         headers={"Authorization": f"Bearer {config.api_key}"},
     )
@@ -139,7 +145,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = make_tracked_session().get(
+        res = make_tracked_session(retry=DOIT_RETRY).get(
             request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )
