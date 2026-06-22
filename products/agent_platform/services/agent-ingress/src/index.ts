@@ -15,11 +15,14 @@
 import {
     createAgentPool,
     createLogger,
+    createMetricsServer,
     DirectHttpClient,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
+    initMetrics,
     installProcessHandlers,
+    isDev,
     PgCredentialBroker,
     PgIdentityStore,
     PgRevisionStore,
@@ -36,6 +39,16 @@ const log = createLogger('agent-ingress')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentIngressConfig()
+
+    // Prometheus: Node process defaults. Prod runs a dedicated scrape server on
+    // a separate port so /metrics is never exposed on the internet-facing
+    // ingress listener. Dev mounts /metrics inside buildApp (no dedicated port —
+    // three services on one host would collide); the dev request port isn't
+    // public, so that's safe locally only.
+    initMetrics({ service: 'agent-ingress' })
+    if (!isDev()) {
+        createMetricsServer({ port: config.metricsPort, log })
+    }
 
     const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)

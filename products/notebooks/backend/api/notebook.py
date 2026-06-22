@@ -48,8 +48,8 @@ from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_con
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
-from products.tasks.backend.exceptions import SandboxProvisionError
-from products.tasks.backend.services.sandbox import SandboxStatus
+from products.tasks.backend.facade.exceptions import SandboxProvisionError
+from products.tasks.backend.facade.sandbox import SandboxStatus
 
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync

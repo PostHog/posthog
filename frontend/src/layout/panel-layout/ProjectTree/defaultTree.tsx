@@ -30,6 +30,7 @@ import {
     IconListCheck,
     IconListTree,
     IconLive,
+    IconAIGateway,
     IconLlmAnalytics,
     IconLlmPromptManagement,
     IconMegaphone,
@@ -85,6 +86,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     llm_analytics: {
         icon: <IconLlmAnalytics />,
         iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    ai_gateway: {
+        icon: <IconAIGateway />,
+        iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
     },
     product_analytics: {
         icon: <IconGraph />,

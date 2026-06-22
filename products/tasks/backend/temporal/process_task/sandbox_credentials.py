@@ -11,8 +11,8 @@ import redis
 from posthog.models.user_integration import UserGitHubIntegration
 from posthog.redis import get_client
 
+from products.tasks.backend.logic.services.agentsh import ENV_FILE
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     get_pr_authorship_mode,
@@ -22,7 +22,7 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.sandbox import SandboxBase
+    from products.tasks.backend.logic.services.sandbox import SandboxBase
 
     from .activities.get_task_processing_context import TaskProcessingContext
 
@@ -155,7 +155,7 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple
 
 
 def _propagate_user_token(user_integration_id: int, token: str) -> int:
-    from products.tasks.backend.services.sandbox import Sandbox  # noqa: PLC0415
+    from products.tasks.backend.logic.services.sandbox import Sandbox  # noqa: PLC0415
 
     applied = 0
     for run_id, sandbox_id, repository in _live_sandboxes_for_user_integration(user_integration_id):
