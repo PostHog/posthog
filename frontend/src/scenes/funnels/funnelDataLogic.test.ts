@@ -1627,10 +1627,11 @@ describe('funnelDataLogic', () => {
                 result: funnelResultStepsBreakdownCompare.result as InsightModel['result'],
             }
             await expectLogic(logic, () => {
-                logic.actions.updateQuerySource({
+                const query: FunnelsQuery = {
                     ...stepsQuery,
                     funnelsFilter: { ...stepsQuery.funnelsFilter, hiddenLegendBreakdowns: ['Chrome'] },
-                })
+                }
+                logic.actions.updateQuerySource(query)
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toFinishAllListeners()
 

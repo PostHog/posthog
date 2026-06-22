@@ -432,7 +432,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         // breakdown machinery entirely, the latter keeps it (table, hidden legend) around the grouped bars.
         isBreakdownCompareFunnel: [
             (s) => [s.results, s.isStepsFunnel],
-            (results, isStepsFunnel): boolean => isStepsFunnel && isFunnelStepsBreakdownCompareResult(results),
+            (results, isStepsFunnel): boolean => !!isStepsFunnel && isFunnelStepsBreakdownCompareResult(results),
         ],
         stepsWithConversionMetrics: [
             (s) => [s.steps, s.funnelsFilter, s.querySource],
