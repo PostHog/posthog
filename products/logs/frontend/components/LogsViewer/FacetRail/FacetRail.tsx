@@ -24,7 +24,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic)
-    const { facetValues, loadingFacetKeys, facetSearch } = useValues(facetCountsLogic({ id }))
+    const { facetValues, loadingFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic({ id }))
     const { setFacetSearch } = useActions(facetCountsLogic({ id }))
     const { collapsedFacets } = useValues(facetRailLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
@@ -125,7 +125,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 <span className="text-xs font-semibold text-secondary uppercase tracking-wide">Filters</span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {facetsByGroup().map(([group, facets]) => (
+                {facetsByGroup(visibleFacets).map(([group, facets]) => (
                     <div key={group}>
                         <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
                             {group}

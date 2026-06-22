@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -8,10 +8,14 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { logsFacetValuesCreate } from '../../../generated/api'
+import { logsAttributesRetrieve, logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi, _LogsFacetValuesBodyApi } from '../../../generated/api.schemas'
 import type { facetCountsLogicType } from './facetCountsLogicType'
 import { FACETS, FacetConfig } from './facets'
+
+// Broad, filter-independent window for the "which resource attributes does this tenant emit" probe.
+// Cheap: keys-only group-by on the log_attributes aggregation table (no value scan).
+const PRESENCE_LOOKBACK = { date_from: '-90d' }
 
 export interface FacetCountsLogicProps {
     id: string
@@ -60,6 +64,16 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                 loadFacetValuesForKey: (_, facetKey: string) => [facetKey],
                 loadFacetValuesForKeySuccess: () => [],
                 loadFacetValuesForKeyFailure: () => [],
+            },
+        ],
+        // Latches true once the presence probe settles (success or failure). Until then the value
+        // fetch is deferred, so column facets aren't fetched on mount and then re-fetched once
+        // presence resolves and the resource-attribute facets become visible.
+        presenceLoaded: [
+            false,
+            {
+                loadPresentResourceKeysSuccess: () => true,
+                loadPresentResourceKeysFailure: () => true,
             },
         ],
     }),
@@ -111,7 +125,9 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // Refetch all facets (null) or a subset — used when filters change.
                     loadFacetValues: async (facetKeys: string[] | null, breakpoint) => {
                         await breakpoint(300)
-                        const facets = facetKeys ? FACETS.filter((f) => facetKeys.includes(f.key)) : FACETS
+                        const facets = facetKeys
+                            ? values.visibleFacets.filter((f) => facetKeys.includes(f.key))
+                            : values.visibleFacets
                         const result = await mergeFetched(facets)
                         breakpoint()
                         return result
@@ -127,21 +143,61 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     },
                 },
             ],
+            presentResourceKeys: [
+                [] as string[],
+                {
+                    // Which resource attribute keys the tenant emits — gates which curated facets render.
+                    loadPresentResourceKeys: async () => {
+                        if (!values.currentTeamId) {
+                            return []
+                        }
+                        const response = await logsAttributesRetrieve(String(values.currentTeamId), {
+                            attribute_type: 'resource',
+                            dateRange: PRESENCE_LOOKBACK,
+                            limit: 100,
+                        })
+                        return response.results.map((r) => r.name)
+                    },
+                },
+            ],
         }
+    }),
+
+    selectors({
+        // Column facets always render; resource-attribute facets only when the tenant emits the key.
+        visibleFacets: [
+            (s) => [s.presentResourceKeys],
+            (presentResourceKeys): FacetConfig[] =>
+                FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
+        ],
     }),
 
     listeners(({ actions }) => ({
         // A facet's search changed — refetch only that facet, via its own action so it doesn't
         // cancel a still-debouncing full reload (independent breakpoint).
         setFacetSearch: ({ facetKey }) => actions.loadFacetValuesForKey(facetKey),
+        // Presence settled — drive the first full fetch now that visibleFacets is known. On failure
+        // we still fetch so the column facets (Level/Service) load even if the probe errored.
+        loadPresentResourceKeysSuccess: () => actions.loadFacetValues(null),
+        loadPresentResourceKeysFailure: () => actions.loadFacetValues(null),
     })),
 
-    subscriptions(({ actions }) => {
+    events(({ actions }) => ({
+        afterMount: () => actions.loadPresentResourceKeys(),
+    })),
+
+    subscriptions(({ actions, values }) => {
         // Fires on mount (initial load) and on any change. We watch both `filters` (severity, service,
         // search, date, user filterGroup) and `queryFilterGroup` (which folds in pinnedFilters, e.g. the
         // person-tab distinct_id pin) so values re-fetch when the pinned scope changes too. `filterGroup`
         // feeds both, so a normal edit fires both — the 300ms debounce in the loader collapses that.
-        const reloadAll = (): void => actions.loadFacetValues(null)
+        const reloadAll = (): void => {
+            // Before the presence probe settles, defer to loadPresentResourceKeys{Success,Failure}
+            // so we issue one full fetch over the final visible set instead of two.
+            if (values.presenceLoaded) {
+                actions.loadFacetValues(null)
+            }
+        }
         return {
             filters: reloadAll,
             queryFilterGroup: reloadAll,
