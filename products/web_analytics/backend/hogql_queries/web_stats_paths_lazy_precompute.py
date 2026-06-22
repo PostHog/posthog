@@ -11,6 +11,7 @@ attributing bounce to sessions that entered on the path.
 """
 
 import time
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -23,7 +24,13 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import (
+    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE,
+    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE,
+)
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.settings import DEBUG, TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -31,6 +38,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
+    MIRROR_PATHKEY_ENABLED,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
@@ -85,6 +93,15 @@ WEB_STATS_PATHS_LAZY_ROWS = Histogram(
     "web_stats_paths_lazy_precompute_rows",
     "Distinct `breakdown_value` rows returned by the lazy precompute read (post-LIMIT cap).",
     buckets=(1, 10, 100, 500, 1000, 2500, 5000, 7500, 10000, float("inf")),
+)
+
+# Best-effort mirror of the precomputed rows into the colocated `_pathkey` table
+# variant (PR #64948) so its read layout can be A/B-compared. Failures here never
+# affect the primary read, so we only count them.
+WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED = Counter(
+    "web_stats_paths_pathkey_mirror_failed_total",
+    "Best-effort copies into web_stats_paths_preaggregated_pathkey that failed, by error class.",
+    ["error_type"],
 )
 
 
@@ -301,6 +318,66 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
+
+
+# Columns shared by both tables, in declaration order. The pathkey table mirrors
+# the original schema exactly, so the copy is a straight column-for-column INSERT.
+_PATHKEY_MIRROR_COLUMNS = (
+    "team_id, job_id, time_window_start, breakdown_value, "
+    "uniq_users_state, sum_pageviews_state, avg_bounce_state, computed_at, expires_at"
+)
+
+# Quorum + synchronous distribution so the copied rows are durable on the pathkey
+# shards by the time the INSERT returns (matches the primary insert's settings).
+# Disabled under TEST/DEBUG single-node ClickHouse for the same reason the executor
+# disables it there. `load_balancing=in_order` reads the just-written replica of the
+# source table (read-your-writes), mirroring the read path.
+_PATHKEY_MIRROR_SETTINGS: dict = {
+    "insert_distributed_sync": 1,
+    "insert_quorum": 0 if TEST or DEBUG else "auto",
+    "load_balancing": "in_order",
+}
+
+
+def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
+    """Best-effort copy of precomputed PATHS rows into the colocated `_pathkey`
+    table variant for A/B read comparison (PR #64948).
+
+    Copies the already-aggregated rows for `job_ids` from the original table into
+    the pathkey table — no event re-scan. The distributed INSERT reshards by
+    `sipHash64(breakdown_value)`, giving the pathkey table its colocation layout.
+    Idempotent: the pathkey table is a ReplacingMergeTree keyed on the same rows
+    (ver=`computed_at`), so a repeated copy collapses on merge.
+
+    Never raises — a failed mirror must not affect the primary read. Runs at
+    cache-miss frequency (the ~6h HogQL result cache fronts these reads).
+    """
+    if not job_ids:
+        return
+
+    primary = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()
+    pathkey = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()
+    sql = f"""
+        INSERT INTO {pathkey} ({_PATHKEY_MIRROR_COLUMNS})
+        SELECT {_PATHKEY_MIRROR_COLUMNS}
+        FROM {primary}
+        WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
+    """
+    try:
+        with tags_context(team_id=team_id, query_type="web_stats_paths_pathkey_mirror_insert"):
+            sync_execute(
+                sql,
+                {"team_id": team_id, "job_ids": [uuid.UUID(jid) for jid in job_ids]},
+                settings=_PATHKEY_MIRROR_SETTINGS,
+            )
+    except Exception as exc:
+        WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED.labels(error_type=_bucket_error_label(exc)).inc()
+        logger.warning(
+            "web_stats_paths_pathkey_mirror_failed",
+            team_id=team_id,
+            job_count=len(job_ids),
+            error_type=type(exc).__name__,
+        )
 
 
 # Returns one row per breakdown_value with (current, previous) period pairs
@@ -622,6 +699,13 @@ def execute_lazy_precomputed_read(
             offset=offset,
         )
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
+
+        # Best-effort dual-write: mirror these jobs' rows into the colocated pathkey
+        # table for A/B read comparison. After the read so it never adds latency to
+        # the user's response; swallows its own errors.
+        if MIRROR_PATHKEY_ENABLED:
+            mirror_jobs_to_pathkey(team_id=team_id, job_ids=job_ids)
+
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
         rows_returned = len(rows) if rows else 0

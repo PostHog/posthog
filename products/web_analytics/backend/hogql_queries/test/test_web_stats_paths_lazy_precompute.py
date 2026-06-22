@@ -606,3 +606,63 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_pathkey_mirror_runs_only_when_enabled(self, _name: str, enabled: bool) -> None:
+        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
+
+        job_id = uuid.uuid4()
+        with (
+            self._enable_lazy(),
+            patch.object(mod, "MIRROR_PATHKEY_ENABLED", enabled),
+            patch.object(
+                mod,
+                "ensure_web_stats_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
+            ),
+            patch.object(mod, "execute_read_query", return_value=[]),
+            patch.object(mod, "mirror_jobs_to_pathkey") as mock_mirror,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+            mod.execute_lazy_precomputed_read(runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0)
+
+        if enabled:
+            mock_mirror.assert_called_once_with(team_id=self.team.pk, job_ids=[str(job_id)])
+        else:
+            mock_mirror.assert_not_called()
+
+    def test_mirror_jobs_to_pathkey_copies_rows_between_tables(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        job_id = uuid.uuid4()
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(job_id)])
+
+        mock_exec.assert_called_once()
+        sql, params = mock_exec.call_args.args
+        assert "INSERT INTO web_stats_paths_preaggregated_pathkey" in sql
+        assert "FROM web_stats_paths_preaggregated" in sql
+        assert params["team_id"] == self.team.pk
+        assert params["job_ids"] == [job_id]  # coerced from str back to UUID
+
+    def test_mirror_jobs_to_pathkey_swallows_errors(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute",
+            side_effect=ValueError("boom"),
+        ):
+            # Must not raise — a failed mirror cannot affect the primary read.
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(uuid.uuid4())])
+
+    def test_mirror_jobs_to_pathkey_noop_on_empty(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
+        mock_exec.assert_not_called()
