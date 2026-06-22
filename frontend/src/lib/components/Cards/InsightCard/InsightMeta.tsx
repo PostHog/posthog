@@ -41,7 +41,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -56,6 +56,7 @@ import {
 } from '~/types'
 
 import { DashboardInsightActions } from './DashboardInsightActions'
+import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
@@ -91,6 +92,8 @@ interface InsightMetaProps extends Pick<
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    /** Persists display-option edits made from the ⋯ menu straight to the saved insight. */
+    persistDisplayOptions?: (node: Node) => void
 }
 
 export function InsightMeta({
@@ -120,6 +123,7 @@ export function InsightMeta({
     placement,
     surveyOpportunity,
     onDragHandleMouseDown,
+    persistDisplayOptions,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const tileFiltersOverride = tile?.filters_overrides
@@ -130,6 +134,7 @@ export function InsightMeta({
         filtersOverride: filtersOverride ?? null,
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
+        setQuery: persistDisplayOptions,
     }
     const {
         insightFeedback,
@@ -203,6 +208,7 @@ export function InsightMeta({
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
     const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
+    const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -472,6 +478,13 @@ export function InsightMeta({
                             canToggleLegend={canToggleLegend}
                             canToggleAnnotations={canToggleAnnotations}
                         />
+                        {showDisplayOptionsMenu && (
+                            <DashboardInsightDisplayOptions
+                                showLeadingDivider={
+                                    !canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations
+                                }
+                            />
+                        )}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
