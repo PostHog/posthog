@@ -24,7 +24,6 @@ class TestAITemporalModuleIntegrity:
             "ChatAgentWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
-            "SlackConversationRunnerWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
@@ -51,7 +50,6 @@ class TestAITemporalModuleIntegrity:
             "process_chat_agent_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
-            "process_slack_conversation_activity",
             "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
@@ -73,7 +71,6 @@ class TestAITemporalModuleIntegrity:
         expected_exports = [
             "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
-            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (
