@@ -1281,6 +1281,62 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert [r["event"] for r in response["results"]] == ["should_be_included"]
 
 
+class TestEventListRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
+    """The list endpoint rejects requests that reference a property the user can't read,
+    before running any query. Exercises `_reject_restricted_property_references`."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        secret = PropertyDefinition.objects.create(
+            team=self.team, name="secret_prop", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        # A default rule (no member/role) restricts the property for everyone, including admins.
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=secret, access_level=PropertyAccessLevel.NONE.value
+        )
+
+    def test_filter_referencing_restricted_property_is_rejected(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?properties={json.dumps([{'key': 'secret_prop', 'value': 'x', 'type': 'event'}])}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "restricted property" in response.json()["detail"]
+
+    def test_nested_group_referencing_restricted_property_is_rejected(self):
+        # The restricted key is buried inside a nested OR — the walk must still find it.
+        group = {
+            "type": "AND",
+            "values": [
+                {"type": "OR", "values": [{"key": "secret_prop", "value": "x", "type": "event"}]},
+            ],
+        }
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?properties={json.dumps(group)}")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "restricted property" in response.json()["detail"]
+
+    def test_order_by_referencing_restricted_property_is_rejected(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?orderBy={json.dumps(['properties.secret_prop'])}"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "restricted property" in response.json()["detail"]
+
+    def test_unrestricted_property_filter_is_allowed(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?properties={json.dumps([{'key': 'public_prop', 'value': 'x', 'type': 'event'}])}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+
 class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_cache_key_generation(self):
         from posthog.api.event import _get_event_list_cache_key, _get_limit_size_category
