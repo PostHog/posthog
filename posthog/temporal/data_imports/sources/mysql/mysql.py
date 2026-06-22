@@ -381,8 +381,10 @@ def _retry_on_transient_tablet_unavailable(
             if attempt >= max_attempts or not _is_transient_tablet_unavailable(e):
                 raise
             logger.warning(
-                f"Transient MySQL tablet-unavailable error during metadata discovery; "
-                f"retrying (attempt {attempt}/{max_attempts})"
+                "Transient MySQL tablet-unavailable error during metadata discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
             )
             time.sleep(min(2 * attempt, 30))
 
