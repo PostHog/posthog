@@ -50,12 +50,34 @@ export function Customization({
     validationErrors,
     disabledReason,
     onTranslationsChange,
+    onlyBranding,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const surveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
     const selectedThemeId = getMatchingSurveyThemeId(survey.appearance)
+
+    const brandingControl = (
+        <LemonCheckbox
+            label="Hide PostHog branding"
+            onChange={(checked) => {
+                if (checked) {
+                    guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                        onAppearanceChange({ whiteLabel: checked })
+                    )
+                } else {
+                    onAppearanceChange({ whiteLabel: checked })
+                }
+            }}
+            checked={survey.appearance?.whiteLabel}
+            disabledReason={disabledReason}
+        />
+    )
+
+    if (onlyBranding) {
+        return <CustomizationSection title="Branding">{brandingControl}</CustomizationSection>
+    }
 
     return (
         <div className="flex flex-col divide-y divide-border [&>*]:py-5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
@@ -113,20 +135,7 @@ export function Customization({
 
             <CustomizationSection title="Behavior">
                 <div className="flex flex-col gap-3">
-                    <LemonCheckbox
-                        label="Hide PostHog branding"
-                        onChange={(checked) => {
-                            if (checked) {
-                                guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                    onAppearanceChange({ whiteLabel: checked })
-                                )
-                            } else {
-                                onAppearanceChange({ whiteLabel: checked })
-                            }
-                        }}
-                        checked={survey.appearance?.whiteLabel}
-                        disabledReason={disabledReason}
-                    />
+                    {brandingControl}
                     <LemonDivider className="my-0" />
                     <SurveyBehaviorOptions
                         survey={survey}

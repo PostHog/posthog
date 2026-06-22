@@ -1307,63 +1307,58 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </>
                                     ),
                                 },
-                                ...(survey.type !== SurveyType.API
-                                    ? [
-                                          {
-                                              key: SurveyEditSection.Customization,
-                                              header: 'Customization',
-                                              content: (
-                                                  <LemonField name="appearance" label="">
-                                                      {({ onChange }) => (
-                                                          <Customization
-                                                              survey={survey}
-                                                              hasBranchingLogic={hasBranchingLogic}
-                                                              deleteBranchingLogic={deleteBranchingLogic}
-                                                              onTranslationsChange={(translations) =>
-                                                                  setSurveyValue('translations', translations)
-                                                              }
-                                                              hasRatingButtons={survey.questions.some(
-                                                                  (question) =>
-                                                                      question.type === SurveyQuestionType.Rating
-                                                              )}
-                                                              hasPlaceholderText={survey.questions.some(
-                                                                  (question) =>
-                                                                      question.type === SurveyQuestionType.Open
-                                                              )}
-                                                              onAppearanceChange={(appearance) => {
-                                                                  const newAppearance = sanitizeSurveyAppearance({
-                                                                      ...survey.appearance,
-                                                                      ...appearance,
-                                                                  })
-                                                                  onChange(newAppearance)
-                                                                  if (newAppearance) {
-                                                                      setSurveyManualErrors(
-                                                                          validateSurveyAppearance(
-                                                                              newAppearance,
-                                                                              true,
-                                                                              survey.type
-                                                                          )
-                                                                      )
-                                                                  }
-                                                                  if (
-                                                                      'surveyPopupDelaySeconds' in appearance &&
-                                                                      !appearance.surveyPopupDelaySeconds &&
-                                                                      survey.conditions?.cancelEvents?.values?.length
-                                                                  ) {
-                                                                      setSurveyValue('conditions', {
-                                                                          ...survey.conditions,
-                                                                          cancelEvents: undefined,
-                                                                      })
-                                                                  }
-                                                              }}
-                                                              validationErrors={surveyErrors?.appearance}
-                                                          />
-                                                      )}
-                                                  </LemonField>
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: SurveyEditSection.Customization,
+                                    header: 'Customization',
+                                    content: (
+                                        <LemonField name="appearance" label="">
+                                            {({ onChange }) => (
+                                                <Customization
+                                                    survey={survey}
+                                                    onlyBranding={survey.type === SurveyType.API}
+                                                    hasBranchingLogic={hasBranchingLogic}
+                                                    deleteBranchingLogic={deleteBranchingLogic}
+                                                    onTranslationsChange={(translations) =>
+                                                        setSurveyValue('translations', translations)
+                                                    }
+                                                    hasRatingButtons={survey.questions.some(
+                                                        (question) => question.type === SurveyQuestionType.Rating
+                                                    )}
+                                                    hasPlaceholderText={survey.questions.some(
+                                                        (question) => question.type === SurveyQuestionType.Open
+                                                    )}
+                                                    onAppearanceChange={(appearance) => {
+                                                        const newAppearance = sanitizeSurveyAppearance({
+                                                            ...survey.appearance,
+                                                            ...appearance,
+                                                        })
+                                                        onChange(newAppearance)
+                                                        if (newAppearance) {
+                                                            setSurveyManualErrors(
+                                                                validateSurveyAppearance(
+                                                                    newAppearance,
+                                                                    true,
+                                                                    survey.type
+                                                                )
+                                                            )
+                                                        }
+                                                        if (
+                                                            'surveyPopupDelaySeconds' in appearance &&
+                                                            !appearance.surveyPopupDelaySeconds &&
+                                                            survey.conditions?.cancelEvents?.values?.length
+                                                        ) {
+                                                            setSurveyValue('conditions', {
+                                                                ...survey.conditions,
+                                                                cancelEvents: undefined,
+                                                            })
+                                                        }
+                                                    }}
+                                                    validationErrors={surveyErrors?.appearance}
+                                                />
+                                            )}
+                                        </LemonField>
+                                    ),
+                                },
                                 ...(survey.type !== SurveyType.ExternalSurvey
                                     ? [
                                           {

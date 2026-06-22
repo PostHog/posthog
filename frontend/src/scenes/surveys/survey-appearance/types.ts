@@ -21,4 +21,6 @@ export interface CustomizationProps extends CommonProps {
     deleteBranchingLogic?: () => void
     /** When provided (i.e. inside the survey editor), enables inline per-language back button labels. */
     onTranslationsChange?: (translations: NonNullable<Survey['translations']>) => void
+    /** API surveys are rendered by the integration, so only the branding flag is editable. */
+    onlyBranding?: boolean
 }

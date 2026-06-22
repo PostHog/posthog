@@ -387,6 +387,19 @@ export const NewSurveyCustomisationSection: Story = {
     parameters: { pageUrl: urls.survey('new') },
 }
 
+export const NewAPISurveyCustomisationSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('type', SurveyType.API)
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+        })
+
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new?edit=true') },
+}
+
 export const NewMultiQuestionSurveySection: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
