@@ -278,3 +278,69 @@ class TestAssociatedTaskRunsFilter(BaseTest):
         )
         assert self._matched_task_ids(report) == set()
         assert self._matched_task_ids(other_report) == {str(other_task.id)}
+
+
+class TestReportsForTaskFilter(BaseTest):
+    """`SignalReport.reports_for_task_filter` matches the reports a task is associated with via
+    either source (task_run artefact or legacy SignalReportTask)."""
+
+    def _report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
+        )
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team, title="task", description="desc", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+
+    def _matched_report_ids(self, task: Task) -> set[str]:
+        return {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(SignalReport.reports_for_task_filter(task.id)).values_list(
+                "id", flat=True
+            )
+        }
+
+    def test_matches_report_associated_via_artefact_only(self):
+        report = self._report()
+        task = self._task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(task.id),
+        )
+        assert not SignalReportTask.objects.filter(task=task).exists()
+        assert self._matched_report_ids(task) == {str(report.id)}
+
+    def test_matches_report_associated_via_signal_report_task_only(self):
+        report = self._report()
+        task = self._task()
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        assert not SignalReportArtefact.objects.filter(task=task).exists()
+        assert self._matched_report_ids(task) == {str(report.id)}
+
+    def test_unions_both_sources_without_duplicate_rows(self):
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        assert SignalReport.objects.filter(SignalReport.reports_for_task_filter(task.id)).count() == 1
+        assert self._matched_report_ids(task) == {str(report.id)}
+
+    def test_excludes_reports_not_associated_with_the_task(self):
+        report = self._report()
+        task = self._task()
+        other_task = self._task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(task.id),
+        )
+        assert self._matched_report_ids(other_task) == set()
+        assert self._matched_report_ids(task) == {str(report.id)}

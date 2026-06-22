@@ -482,6 +482,22 @@ class SignalReport(UUIDModel):
         legacy_task_ids = SignalReportTask.objects.filter(report_id=report_ref).values("task_id")
         return models.Q(task_id__in=artefact_task_ids) | models.Q(task_id__in=legacy_task_ids)
 
+    @staticmethod
+    def reports_for_task_filter(task_id: Any) -> "models.Q":
+        """A `Q` on `SignalReport.id` matching the reports `task_id` is associated with, unified
+        across the `task_run` artefact log and the legacy `SignalReportTask` gate rows — the
+        reverse-direction (task → reports) counterpart of `associated_task_runs_filter`, for
+        embedding in a `SignalReport` queryset filter.
+
+        Both subqueries seek the indexed `task_id` FK column (artefact + gate row), so this stays a
+        couple of index lookups regardless of how many artefacts a report accumulates.
+        """
+        artefact_report_ids = SignalReportArtefact.objects.filter(
+            type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task_id
+        ).values("report_id")
+        legacy_report_ids = SignalReportTask.objects.filter(task_id=task_id).values("report_id")
+        return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
+
 
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.

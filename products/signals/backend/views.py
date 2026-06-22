@@ -721,9 +721,9 @@ class SignalReportViewSet(
 
     def _apply_signal_report_task_filter(self, queryset):
         # Reports a given task is associated with — used by running agents ("which reports am I
-        # working against?") and by the agent harness to fan commit artefacts out to them.
-        # Association is derived from `task_run` artefacts (their `task` attribution FK is always
-        # the task they record) — artefacts are the sole source of task↔report association.
+        # working against?") and by the agent harness to fan commit artefacts out to them. Uses the
+        # unified association (task_run artefacts + legacy SignalReportTask); the team-scoped outer
+        # queryset keeps the result within the project.
         task_filter = self.request.query_params.get("task_id")
         if not task_filter:
             return queryset
@@ -731,13 +731,7 @@ class SignalReportViewSet(
             task_uuid = uuid.UUID(task_filter.strip())
         except (ValueError, AttributeError) as e:
             raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
-        return queryset.filter(
-            id__in=SignalReportArtefact.objects.filter(
-                team=self.team,
-                type=SignalReportArtefact.ArtefactType.TASK_RUN,
-                task_id=task_uuid,
-            ).values("report_id")
-        )
+        return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
         # Filters on the `priority_rank` annotation, which must be applied first.
