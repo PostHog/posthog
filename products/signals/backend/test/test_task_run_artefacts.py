@@ -24,7 +24,7 @@ from products.signals.backend.task_run_artefacts import (
     signals_task_ids,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestTaskRunArtefacts(BaseTest):
@@ -209,3 +209,72 @@ class TestTaskRunArtefacts(BaseTest):
         for artefact in SignalReportArtefact.objects.filter(report=report):
             assert artefact.task_id is None
             assert artefact.created_by_id is None
+
+
+class TestAssociatedTaskRunsFilter(BaseTest):
+    """`SignalReport.associated_task_runs_filter` matches a TaskRun whose task is associated with
+    the report via either source (task_run artefact or legacy SignalReportTask)."""
+
+    def _report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=1, total_weight=1.0
+        )
+
+    def _task_with_run(self) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team, title="task", description="desc", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        return task, TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED)
+
+    def _matched_task_ids(self, report: SignalReport) -> set[str]:
+        return {
+            str(task_id)
+            for task_id in TaskRun.objects.filter(SignalReport.associated_task_runs_filter(report.id)).values_list(
+                "task_id", flat=True
+            )
+        }
+
+    def test_matches_task_associated_via_artefact_only(self):
+        report = self._report()
+        task, _run = self._task_with_run()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(task.id),
+        )
+        assert not SignalReportTask.objects.filter(report=report).exists()
+        assert self._matched_task_ids(report) == {str(task.id)}
+
+    def test_matches_task_associated_via_signal_report_task_only(self):
+        report = self._report()
+        task, _run = self._task_with_run()
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+        assert self._matched_task_ids(report) == {str(task.id)}
+
+    def test_unions_both_sources_without_duplicate_rows(self):
+        report = self._report()
+        task, _run = self._task_with_run()
+        # Dual-writes both the gate row and the artefact for the same task.
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        # OR of two task_id__in subqueries must not double-count the run.
+        assert TaskRun.objects.filter(SignalReport.associated_task_runs_filter(report.id)).count() == 1
+        assert self._matched_task_ids(report) == {str(task.id)}
+
+    def test_excludes_tasks_associated_with_a_different_report(self):
+        report = self._report()
+        other_report = self._report()
+        other_task, _run = self._task_with_run()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(other_report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(other_task.id),
+        )
+        assert self._matched_task_ids(report) == set()
+        assert self._matched_task_ids(other_report) == {str(other_task.id)}
