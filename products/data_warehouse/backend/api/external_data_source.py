@@ -2350,6 +2350,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
+            # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
