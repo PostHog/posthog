@@ -6,7 +6,8 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
@@ -21,6 +22,7 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelTooltipLogic } from './funnelTooltipLogic'
+import { funnelComparePeriodDateRange } from './funnelUtils'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
@@ -32,6 +34,8 @@ export interface FunnelTooltipProps {
     groupTypeLabel: string
     breakdownFilter: BreakdownFilter | null | undefined
     embedded?: boolean
+    /** Date range of the hovered series' compare period; shown when the series is compare-tagged. */
+    comparePeriodDateRange?: string | null
 }
 
 export function FunnelTooltip({
@@ -41,6 +45,7 @@ export function FunnelTooltip({
     groupTypeLabel,
     breakdownFilter,
     embedded = false,
+    comparePeriodDateRange,
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -57,12 +62,16 @@ export function FunnelTooltip({
                 <strong>
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
-                    {formatBreakdownLabel(
-                        series.breakdown_value,
-                        breakdownFilter,
-                        allCohorts.results,
-                        formatPropertyValueForDisplay
-                    )}
+                    {series.compare_label
+                        ? `${series.compare_label === 'current' ? 'Current' : 'Previous'}${
+                              comparePeriodDateRange ? ` (${comparePeriodDateRange})` : ''
+                          }`
+                        : formatBreakdownLabel(
+                              series.breakdown_value,
+                              breakdownFilter,
+                              allCohorts.results,
+                              formatPropertyValueForDisplay
+                          )}
                 </strong>
             </LemonRow>
             <LemonDivider className="my-2" />
@@ -114,7 +123,7 @@ export function FunnelTooltip({
 
 export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
-    const { breakdownFilter, querySource } = useValues(funnelDataLogic(insightProps))
+    const { breakdownFilter, querySource, insightData } = useValues(funnelDataLogic(insightProps))
     const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -136,6 +145,15 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             series={currentTooltip[1]}
                             groupTypeLabel={aggregationLabel(querySource?.aggregation_group_type_index).plural}
                             breakdownFilter={breakdownFilter}
+                            comparePeriodDateRange={
+                                currentTooltip[1].compare_label
+                                    ? funnelComparePeriodDateRange(
+                                          currentTooltip[1].compare_label,
+                                          insightData?.resolved_date_range,
+                                          querySource?.compareFilter?.compare_to
+                                      )
+                                    : null
+                            }
                         />
                     )}
                 </>

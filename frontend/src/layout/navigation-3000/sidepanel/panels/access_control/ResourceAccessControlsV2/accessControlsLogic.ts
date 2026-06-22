@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { toSentenceCase } from 'lib/utils'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 

@@ -8,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    visionScannersCreate,
     visionScannersCreatorsRetrieve,
     visionScannersDestroy,
     visionScannersList,
@@ -16,6 +15,7 @@ import {
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -24,8 +24,6 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
-    scannerFromApi,
-    scannerToApiBody,
     scannersFromApi,
 } from './types'
 
@@ -155,8 +153,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
-        duplicateScanner: (id: string) => ({ id }),
-        duplicateScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
@@ -171,7 +167,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 loadScannersSuccess: (_, { scanners }) => scanners,
                 deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
-                duplicateScannerSuccess: (state, { scanner }) => [...state, scanner],
                 toggleScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
                 revertScannerEnabled: (state, { id }) =>
@@ -291,43 +286,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             if (!teamId) {
                 return
             }
+            // Deleting an enabled scanner removes its known contribution from the fleet sum — exact, so apply it now.
+            const scanner = values.scanners.find((s) => s.id === id)
+            const delta = scanner?.enabled ? -(scanner.estimated_monthly_observations ?? 0) : 0
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersDestroy(String(teamId), id)
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
             } catch (error: any) {
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
-            }
-        },
-
-        duplicateScanner: async ({ id }) => {
-            const original = values.scanners.find((l) => l.id === id)
-            if (!original) {
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            const duplicate: Record<string, unknown> = {
-                name: `${original.name} (Copy)`,
-                description: original.description,
-                enabled: false,
-                scanner_type: original.scanner_type,
-                scanner_config: original.scanner_config,
-                sampling_rate: original.sampling_rate,
-                provider: original.provider,
-                model: original.model,
-                emits_signals: original.emits_signals,
-            }
-            if (original.query != null) {
-                duplicate.query = original.query
-            }
-            try {
-                const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
-                actions.duplicateScannerSuccess(scannerFromApi(response))
-            } catch (error: any) {
-                lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -359,19 +328,16 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats + quota meter stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
-        },
-        duplicateScannerSuccess: () => {
-            actions.loadScanners()
-            actions.loadCreators()
-            actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
         toggleScannerEnabledDone: () => {
             actions.loadScannerStats()
+            visionQuotaLogic.findMounted()?.actions.loadQuota()
         },
 
         toggleScannerEnabled: async ({ id }) => {
@@ -385,12 +351,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 actions.revertScannerEnabled(id)
                 return
             }
+            // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
+            const estimate = scanner.estimated_monthly_observations ?? 0
+            const delta = scanner.enabled ? estimate : -estimate
+            visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
                 const verb = scanner.enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
+                visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 actions.revertScannerEnabled(id)
             }
         },

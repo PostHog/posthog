@@ -15,6 +15,7 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -276,8 +277,20 @@ def _get_partition_settings(
         return None
 
 
-def _parse_connection_string(connection_string: str) -> dict[str, Any]:
-    """Parse MongoDB connection string and extract connection parameters."""
+DATABASE_NAME_REQUIRED_ERROR = (
+    "Database name is required. Add it to your connection string "
+    "(e.g. ...mongodb.net/my_database) or fill in the Database name field."
+)
+
+
+def _parse_connection_string(connection_string: str, database_override: str | None = None) -> dict[str, Any]:
+    """Parse MongoDB connection string and extract connection parameters.
+
+    ``database_override`` is the value of the separate "Database name" field. Atlas
+    ``mongodb+srv://...`` strings routinely omit the database from the path, so we fall
+    back to the override when the string doesn't carry one — an explicit database in the
+    connection string still wins.
+    """
     from urllib.parse import parse_qs, urlparse
 
     # TODO require TLS
@@ -294,6 +307,8 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     host = parsed.hostname or "localhost"
     port = parsed.port or (27017 if parsed.scheme == "mongodb" else None)
     database = parsed.path.lstrip("/") if parsed.path else None
+    if not database and database_override:
+        database = database_override.strip() or None
     user = parsed.username
     password = parsed.password
 
@@ -408,11 +423,11 @@ def get_schemas(
 ) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
-    connection_params = _parse_connection_string(config.connection_string)
+    connection_params = _parse_connection_string(config.connection_string, config.database_name)
 
     with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
-            raise ValueError("Database name is required in connection string")
+            raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
         db = client[connection_params["database"]]
         schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
@@ -438,10 +453,10 @@ def get_schemas(
 
 
 def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
-    connection_params = _parse_connection_string(config.connection_string)
+    connection_params = _parse_connection_string(config.connection_string, config.database_name)
     with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
-            raise ValueError("Database name is required in connection string")
+            raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
         return db.list_collection_names(authorizedCollections=True)
 
@@ -456,7 +471,16 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         rows_to_sync = collection.count_documents(query)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
+    except PyMongoError as e:
+        # rows_to_sync is only a progress estimate, so a failed count degrades to 0
+        # rather than failing the sync. Connectivity/auth failures here are expected
+        # operational errors — the real data read fails and is classified by
+        # get_non_retryable_errors — so log and move on instead of flooding error
+        # tracking with non-actionable noise.
+        logger.warning(f"_get_rows_to_sync: could not count documents ({e}). Using 0 as rows to sync")
+        return 0
     except Exception as e:
+        # Unexpected, non-PyMongo error — surface it so genuine bugs aren't hidden.
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
         return 0
@@ -471,11 +495,12 @@ def mongo_source(
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    database_name: Optional[str] = None,
 ) -> SourceResponse:
-    connection_params = _parse_connection_string(connection_string)
+    connection_params = _parse_connection_string(connection_string, database_name)
 
     if not connection_params["database"]:
-        raise ValueError("Database name is required in connection string")
+        raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
     # Create MongoDB client
     with mongo_client(connection_string, team_id=team_id) as client:

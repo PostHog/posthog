@@ -84,7 +84,7 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_removes_seedling_and_eyes(self, mock_get_client):
+    def test_update_reaction_removes_eyes_then_adds_new(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -98,9 +98,8 @@ class TestSlackThreadHandler(TestCase):
         handler.update_reaction("hedgehog")
 
         remove_calls = mock_client.reactions_remove.call_args_list
-        assert len(remove_calls) == 2
-        assert remove_calls[0].kwargs["name"] == "seedling"
-        assert remove_calls[1].kwargs["name"] == "eyes"
+        assert len(remove_calls) == 1
+        assert remove_calls[0].kwargs["name"] == "eyes"
         mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
 
     @patch.object(SlackThreadHandler, "_get_client")
@@ -269,3 +268,40 @@ class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
 
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
+
+
+class TestPostPrOpenedReplyTarget(TestCase):
+    """``post_pr_opened`` no longer owns the mention-target decision — the
+    caller resolves the Slack user id and passes it in. The handler just
+    embeds it (or omits the prefix entirely when it's ``None``).
+    """
+
+    def _context(self) -> SlackThreadContext:
+        return SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0")
+
+    @parameterized.expand(
+        [
+            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> Pull request opened."),
+            ("none_means_no_tag", None, "Pull request opened."),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_opened_uses_caller_supplied_target(
+        self,
+        _name: str,
+        reply_target: str | None,
+        expected_text_start: str,
+        mock_get_client,
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._context())
+
+        handler.post_pr_opened(
+            "https://github.com/org/repo/pull/1",
+            task_url=None,
+            reply_target_slack_user_id=reply_target,
+        )
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"].startswith(expected_text_start)

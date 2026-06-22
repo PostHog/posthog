@@ -46,7 +46,9 @@ pub fn is_internal_request(context: &RequestContext) -> bool {
     )
 }
 
-fn is_internal_request_inner(internal_token: Option<&str>, headers: &HeaderMap) -> bool {
+/// Shared with the internal batch flag evaluation endpoint, which requires (rather than
+/// optionally honors) the internal token.
+pub(crate) fn is_internal_request_inner(internal_token: Option<&str>, headers: &HeaderMap) -> bool {
     use subtle::ConstantTimeEq;
 
     let Some(internal_token) = internal_token else {

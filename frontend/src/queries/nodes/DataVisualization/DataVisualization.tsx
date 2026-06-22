@@ -6,14 +6,16 @@ import { useCallback, useRef, useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { alertsToThresholdGoalLines, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataVisualizationNode,
@@ -185,6 +187,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
+    // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
+    // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
+    // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
+    // trends-only showAlertThresholdLines viz setting, which DataVisualizationNode doesn't have, so
+    // going through it would hide the lines on SQL charts entirely.
+    const alertsInsightProps = (props.context?.insightProps as InsightLogicProps | undefined) ?? {
+        dashboardItemId: undefined,
+    }
+    const { insight } = useValues(insightLogic(alertsInsightProps))
+    const { alerts } = useValues(
+        insightAlertsLogic({
+            insightId: insight?.id ?? 0,
+            insightLogicProps: alertsInsightProps,
+            deferInitialAlertsLoad: !insight?.id,
+        })
+    )
+    const alertThresholdLines = insight?.id ? alertsToThresholdGoalLines(alerts) : []
+
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
@@ -245,7 +265,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
-                goalLines={goalLines}
+                goalLines={[...alertThresholdLines, ...goalLines]}
                 presetChartHeight={presetChartHeight}
             />
         )

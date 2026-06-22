@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGear, IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -61,9 +69,9 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoId, repoFullName, page, totalCount } =
+    const { runs, runsLoading, activeTab, counts, repoId, repoFullName, page, totalCount, searchQuery } =
         useValues(visualReviewRunsSceneLogic)
-    const { loadRuns, loadCounts, setActiveTab, setPage } = useActions(visualReviewRunsSceneLogic)
+    const { loadRuns, loadCounts, setActiveTab, setPage, setSearchQuery } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
         {
@@ -146,7 +154,7 @@ export function VisualReviewRunsScene(): JSX.Element {
             />
             <VisualReviewTabs activeKey="runs" repoId={repoId} />
 
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex items-center gap-2 flex-wrap">
                 <LemonSegmentedButton
                     value={activeTab}
                     onChange={(value) => setActiveTab(value)}
@@ -165,6 +173,15 @@ export function VisualReviewRunsScene(): JSX.Element {
                     }))}
                     size="small"
                 />
+                {/* Search stays mounted across every tab so it filters whichever state is active. */}
+                <LemonInput
+                    type="search"
+                    placeholder="Search by branch, commit, type, or PR…"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                    className="flex-1 min-w-60"
+                />
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -173,9 +190,6 @@ export function VisualReviewRunsScene(): JSX.Element {
                         loadCounts()
                     }}
                     loading={runsLoading}
-                    // Push refresh away from the segmented filter; sitting flush
-                    // next to the active-tab handle made it look like another tab.
-                    className="ml-auto"
                 >
                     Refresh
                 </LemonButton>
@@ -194,7 +208,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                     onForward: () => setPage(page + 1),
                 }}
                 nouns={['run', 'runs']}
-                emptyState={EMPTY_MESSAGES[activeTab]}
+                emptyState={searchQuery.trim() ? `No runs match “${searchQuery.trim()}”.` : EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({
                     onClick: () => router.actions.push(`/visual_review/runs/${run.id}`),
                     className: 'cursor-pointer',

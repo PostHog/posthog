@@ -396,7 +396,11 @@ class ConversionGoalProcessor:
 
     def _precompute_materialized_event_properties(self) -> set[str]:
         """Event property names the precompute path resolves into scalar columns of the preagg table."""
-        props = {self._resolve_field_name(field) for field in TRACKED_FIELDS}
+        # $session_id is materialized into the session_id column (see build_conversions_precompute_query),
+        # so it must be part of the restriction check — otherwise a user denied access to $session_id
+        # could still read it from the preagg table, bypassing the per-property HogQL masking.
+        props = {"$session_id"}
+        props.update(self._resolve_field_name(field) for field in TRACKED_FIELDS)
         math_property = getattr(self.goal, "math_property", None)
         if math_property:
             props.add(math_property)

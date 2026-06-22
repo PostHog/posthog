@@ -3,8 +3,11 @@ name: creating-ai-subscription
 description: >
   Create a recurring AI-generated PostHog report — schedule a free-text prompt to
   run on a cron, with the LLM-synthesized markdown delivered to email or Slack on
-  each tick. Use when the user wants "send me a weekly AI summary of X" rather than
-  a one-off report.
+  each tick. Use when the user wants a recurring AI summary of X on any cadence
+  (daily, weekly, monthly, yearly) rather than a one-off report. (To attach an AI
+  summary to an existing insight/dashboard
+  subscription instead of a free-text prompt, see `managing-subscriptions` and its
+  `summary_enabled` option.)
 ---
 
 # Creating a prompt subscription
@@ -21,9 +24,9 @@ derived and returned as the read-only `resource_type`:
   plans and runs HogQL over the project's data and synthesizes a fresh markdown report
   each tick (`resource_type: "ai_prompt"`)
 
-Use **this** skill for the **prompt** kind — i.e. when the user wants something like
-"send me a weekly AI summary of X" rather than a recurring snapshot of one existing
-insight/dashboard, or a single one-off report. Pick a prompt subscription when the
+Use **this** skill for the **prompt** kind — i.e. when the user wants a recurring AI
+summary of X (on any cadence — daily, weekly, monthly, yearly) rather than a recurring
+snapshot of one existing insight/dashboard, or a single one-off report. Pick a prompt subscription when the
 value is the _analysis itself_ (the LLM deciding what to query and writing it up),
 not a fixed chart they already built. For an insight/dashboard subscription, set
 `insight`/`dashboard` instead of `prompt` and the AI gates below don't apply.

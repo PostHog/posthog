@@ -1,11 +1,12 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
-from requests.exceptions import HTTPError
+from requests.exceptions import ChunkedEncodingError, HTTPError
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailerlite.mailerlite import (
@@ -123,6 +124,50 @@ class TestGetRows:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+    def test_chunked_encoding_error_is_retried(self) -> None:
+        # A mid-stream connection drop while reading the body raises ChunkedEncodingError, which
+        # must be retried so a single dropped connection doesn't fail the whole import.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        good_response = _make_response(_page([{"id": "1"}], None))
+        attempts: Iterator[ChunkedEncodingError | Response] = iter(
+            [
+                ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+                good_response,
+            ]
+        )
+
+        def fake_get(url: str, *_args: Any, **_kwargs: Any) -> Response:
+            result = next(attempts)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        with (
+            patch("posthog.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session") as MockSession,
+            patch("tenacity.nap.time.sleep"),
+        ):
+            MockSession.return_value.get.side_effect = fake_get
+            batches = list(get_rows("test-key", "subscribers", MagicMock(), manager))
+
+        assert batches == [[{"id": "1"}]]
+        assert MockSession.return_value.get.call_count == 2
+
+    def test_chunked_encoding_error_eventually_reraises(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with (
+            patch("posthog.temporal.data_imports.sources.mailerlite.mailerlite.make_tracked_session") as MockSession,
+            patch("tenacity.nap.time.sleep"),
+        ):
+            MockSession.return_value.get.side_effect = ChunkedEncodingError("Connection broken")
+            with pytest.raises(ChunkedEncodingError):
+                list(get_rows("test-key", "subscribers", MagicMock(), manager))
+
+        assert MockSession.return_value.get.call_count == 5
 
     def test_non_retryable_status_raises(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)

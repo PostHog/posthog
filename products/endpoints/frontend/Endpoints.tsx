@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { isHogQLQuery } from '~/queries/utils'
-import { EndpointType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType } from '~/types'
 
 import { humanizeQueryKind } from './common'
 import { EndpointFromInsightModal } from './EndpointFromInsightModal'
@@ -169,30 +170,45 @@ export const EndpointsTable = (): JSX.Element => {
                             >
                                 View usage
                             </LemonButton>
-                            <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
-                                Duplicate endpoint
-                            </LemonButton>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
+                                    Duplicate endpoint
+                                </LemonButton>
+                            </AccessControlAction>
 
                             <LemonDivider />
-                            <LemonButton
-                                onClick={() => {
-                                    handleEndpointActivation(record)
-                                }}
-                                fullWidth
-                                status="alt"
-                                data-attr="endpoint-activate"
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
-                            </LemonButton>
-                            <LemonButton
-                                onClick={() => {
-                                    handleDelete(record.name)
-                                }}
-                                fullWidth
-                                status="danger"
+                                <LemonButton
+                                    onClick={() => {
+                                        handleEndpointActivation(record)
+                                    }}
+                                    fullWidth
+                                    status="alt"
+                                    data-attr="endpoint-activate"
+                                >
+                                    {record.is_active ? 'Deactivate endpoint' : 'Activate endpoint'}
+                                </LemonButton>
+                            </AccessControlAction>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Endpoint}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Delete endpoint
-                            </LemonButton>
+                                <LemonButton
+                                    onClick={() => {
+                                        handleDelete(record.name)
+                                    }}
+                                    fullWidth
+                                    status="danger"
+                                >
+                                    Delete endpoint
+                                </LemonButton>
+                            </AccessControlAction>
                         </>
                     }
                 />

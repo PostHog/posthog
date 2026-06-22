@@ -6,10 +6,11 @@ from posthog.test.base import APIBaseTest, BaseTest
 from parameterized import parameterized_class
 from rest_framework import status
 
-from posthog.models import Cohort
 from posthog.models.person import Person
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @parameterized_class(("personhog",), [(False,), (True,)])

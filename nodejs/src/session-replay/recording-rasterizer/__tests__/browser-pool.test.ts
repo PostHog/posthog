@@ -73,6 +73,7 @@ describe('BrowserPool', () => {
         expect(pool.stats).toEqual({ usageCount: 1, activePages: 1 })
         const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
         expect(launchArgs.some((a) => a.startsWith('--proxy-server'))).toBe(false)
+        expect(launchArgs).toContain('--crash-dumps-dir=/tmp/chrome-crash-dumps')
     })
 
     it('launches separate browsers for concurrent pages', async () => {

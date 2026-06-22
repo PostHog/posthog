@@ -1,4 +1,4 @@
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type {
     ActionsNode,
@@ -16,8 +16,10 @@ import {
     ExperimentMetricType,
     ExperimentStatsValidationFailure,
     NodeKind,
+    isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal } from '~/types'
 
@@ -259,6 +261,18 @@ export function formatDeltaPercent(result: ExperimentVariantResult, decimals: nu
     return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
 }
 
+/**
+ * A proportion metric's value is a fraction of users in [0, 1] (conversion rate, retention rate, or
+ * the share crossing a mean metric's threshold), so it reads as a percentage. A plain mean metric is
+ * a raw average and a ratio metric is its own quotient, so neither is a proportion.
+ */
+export function isProportionMetric(metric: ExperimentMetric): boolean {
+    if (isExperimentMeanMetric(metric)) {
+        return metric.threshold != null
+    }
+    return isExperimentFunnelMetric(metric) || isExperimentRetentionMetric(metric)
+}
+
 export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isExperimentRatioMetric(metric)) {
         // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
@@ -273,9 +287,7 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isNaN(primaryValue)) {
         return '—'
     }
-    return isExperimentMeanMetric(metric)
-        ? humanFriendlyLargeNumber(primaryValue)
-        : `${(primaryValue * 100).toFixed(2)}%`
+    return isProportionMetric(metric) ? `${(primaryValue * 100).toFixed(2)}%` : humanFriendlyLargeNumber(primaryValue)
 }
 
 export function getMetricSubtitleValues(

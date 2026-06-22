@@ -117,22 +117,36 @@ export class StateManager {
         // otherwise pick the first scoped team deterministically. The org is
         // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            if (scoped_teams.includes(activeTeam.id)) {
+            if (activeTeam && scoped_teams.includes(activeTeam.id)) {
                 return { projectId: activeTeam.id }
             }
             return { projectId: scoped_teams[0]! }
         }
 
         // No team scoping: prefer the user's active org/team when the scope
-        // allows it.
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+        // allows it. `activeOrganization` / `activeTeam` can be null for users
+        // with no `current_organization` / `current_team` (newly provisioned
+        // accounts, users who left their last org) — fall through to the
+        // scoped-org fallback below when either is missing.
+        if (
+            activeOrganization &&
+            (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))
+        ) {
+            return activeTeam
+                ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
+                : { organizationId: activeOrganization.id }
         }
 
-        // Active org isn't in the scope. Pick the first allowed org and fall
-        // back to its first project. If the project lookup fails or the org has
-        // no projects, return the org alone and let the agent disambiguate.
-        const organizationId = scoped_organizations[0]!
+        // Active org isn't in the scope (or the user has no active org). Pick
+        // the first allowed org and fall back to its first project. If the
+        // project lookup fails or the org has no projects, return the org alone
+        // and let the agent disambiguate. With no scoped orgs and no active
+        // org, we have nothing to anchor on — return empty and let the caller
+        // surface a recoverable missing-context error.
+        const organizationId = scoped_organizations[0]
+        if (!organizationId) {
+            return {}
+        }
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
@@ -375,11 +389,25 @@ export class StateManager {
     async getAiConsentGiven(): Promise<boolean | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()
-            if (!org) {
-                return undefined
+            if (org) {
+                const consent = (org as { is_ai_data_processing_approved?: boolean | null })
+                    .is_ai_data_processing_approved
+                return !!consent
             }
-            const consent = (org as { is_ai_data_processing_approved?: boolean | null }).is_ai_data_processing_approved
-            return !!consent
+
+            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+            // `/api/organizations/{id}/` — see the guard in getCachedOrFetchOrg.
+            // But `/api/users/@me/` is exempt from team scoping and embeds the
+            // full org serializer (including the consent flag) for the user's
+            // *current* org. That org isn't necessarily the one owning the
+            // scoped project, so only trust the flag when it matches the active
+            // project's owning org; otherwise stay undefined so callers keep
+            // failing closed.
+            const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
+            if (user?.organization && project?.organization === user.organization.id) {
+                return !!user.organization.is_ai_data_processing_approved
+            }
+            return undefined
         } catch {
             return undefined
         }

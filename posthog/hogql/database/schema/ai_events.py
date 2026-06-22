@@ -1,3 +1,4 @@
+from posthog.hogql.database.lazy_join_tags import PERSON_DISTINCT_IDS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -10,10 +11,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
-)
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 
 
 class AiEventsTable(Table):
@@ -88,7 +86,7 @@ class AiEventsTable(Table):
         "pdi": LazyJoin(
             from_field=["distinct_id"],
             join_table=PersonDistinctIdsTable(),
-            join_function=join_with_person_distinct_ids_table,
+            resolver=PERSON_DISTINCT_IDS,
         ),
         "person": FieldTraverser(chain=["pdi", "person"]),
     }

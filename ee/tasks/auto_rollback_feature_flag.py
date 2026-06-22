@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
@@ -70,7 +70,7 @@ def check_condition(rollback_condition: dict, feature_flag: FeatureFlag) -> bool
         base_start_date = created_date.strftime("%Y-%m-%dT%H:%M:%S")
         base_end_date = (created_date + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 

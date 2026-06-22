@@ -113,4 +113,48 @@ describe('AddWidgetModal', () => {
         expect(screen.getByTestId('error-tracking-preview')).toBeInTheDocument()
         expect(screen.queryByText("You haven't captured any exceptions")).not.toBeInTheDocument()
     })
+
+    it('shows a group-level product nudge when the setup requirement is unmet', () => {
+        renderAddWidgetModal()
+
+        expect(screen.getByRole('link', { name: /Explore error tracking/i })).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/error-tracking'
+        )
+    })
+
+    it('does not show the nudge once the setup requirement is met', () => {
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: true })
+        renderAddWidgetModal()
+
+        expect(screen.queryByRole('link', { name: /Explore error tracking/i })).not.toBeInTheDocument()
+    })
+
+    it('does not nudge for product areas without a setup requirement', () => {
+        renderAddWidgetModal()
+
+        expect(screen.queryByRole('link', { name: /Explore experiments/i })).not.toBeInTheDocument()
+    })
+
+    it('collapses and expands a section when its header is clicked', async () => {
+        renderAddWidgetModal()
+
+        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(screen.queryByRole('checkbox', { name: 'Top issues' })).not.toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+    })
+
+    it('resets collapsed sections when the modal is reopened', async () => {
+        const logic = renderAddWidgetModal()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(logic.values.addWidgetCollapsedGroups).toContain('error_tracking')
+
+        logic.actions.setAddWidgetModalOpen(true)
+        expect(logic.values.addWidgetCollapsedGroups).toEqual([])
+    })
 })

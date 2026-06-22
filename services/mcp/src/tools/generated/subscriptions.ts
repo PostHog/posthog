@@ -74,6 +74,12 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
         }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
+        }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
@@ -116,7 +122,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
             query: {
                 cursor: params.cursor,
                 status: params.status,
@@ -144,7 +150,7 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SubscriptionDelivery>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
         return filtered
@@ -241,6 +247,12 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
+        }
+        if (params.summary_enabled !== undefined) {
+            body['summary_enabled'] = params.summary_enabled
+        }
+        if (params.summary_prompt_guide !== undefined) {
+            body['summary_prompt_guide'] = params.summary_prompt_guide
         }
         const result = await context.api.request<Schemas.Subscription>({
             method: 'PATCH',

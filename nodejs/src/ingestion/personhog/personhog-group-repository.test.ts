@@ -591,11 +591,12 @@ describe('PersonHogGroupRepository', () => {
         it('insertGroupType', async () => {
             mockPostgres.insertGroupType.mockResolvedValue([0 as GroupTypeIndex, true])
             const repo = createRepo(100)
+            const createdAt = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
-            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0)
+            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0, createdAt)
 
             expect(result).toEqual([0, true])
-            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0)
+            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0, createdAt)
         })
 
         it('inTransaction', async () => {

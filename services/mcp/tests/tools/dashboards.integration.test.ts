@@ -474,13 +474,13 @@ describe('Dashboards', { concurrent: false }, () => {
                 (entry: { widget_type: string }) => entry.widget_type === 'error_tracking_list'
             )
             expect(errorTracking).toBeTruthy()
-            expect(errorTracking.config_schema_hints?.limit?.max).toBe(25)
+            expect(errorTracking.config_schema?.properties?.limit?.default).toBe(10)
 
             const sessionReplay = catalog.results.find(
                 (entry: { widget_type: string }) => entry.widget_type === 'session_replay_list'
             )
             expect(sessionReplay).toBeTruthy()
-            expect(sessionReplay.config_schema_hints?.orderBy?.default).toBe('start_time')
+            expect(sessionReplay.config_schema?.properties?.orderBy?.default).toBe('start_time')
         })
 
         it('dashboard-widgets-batch-add and dashboard-widgets-run workflow', async () => {

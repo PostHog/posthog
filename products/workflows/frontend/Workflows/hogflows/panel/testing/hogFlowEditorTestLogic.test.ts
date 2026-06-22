@@ -1,7 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_GROUP_TYPES } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { GroupType, GroupTypeIndex } from '~/types'
+import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
 import {
     createGlobalsFromResponse,
@@ -107,6 +112,45 @@ describe('hogFlowEditorTestLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+    })
+
+    describe('groupTypesForTest gating on group_analytics', () => {
+        const orgWithFeatures = (features: AvailableFeature[]): OrganizationType => ({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            available_product_features: features.map((key) => ({ key, name: key })),
+        })
+
+        it('exposes all group types when group_analytics is available', () => {
+            initKeaTests(true, undefined as any, undefined as any, orgWithFeatures([AvailableFeature.GROUP_ANALYTICS]))
+            useMocks({ get: { '/api/projects/:team/groups_types': MOCK_GROUP_TYPES } })
+            useAvailableFeatures([AvailableFeature.GROUP_ANALYTICS])
+            groupsModel.mount()
+            groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            expect(logic.values.groupsEnabled).toBe(true)
+            expect(logic.values.groupTypesForTest.size).toBe(MOCK_GROUP_TYPES.length)
+            expect(groupSelectColumns(logic.values.groupTypesForTest)).toHaveLength(MOCK_GROUP_TYPES.length)
+        })
+
+        it('resolves no group types without group_analytics, matching gated real execution', () => {
+            initKeaTests(true, undefined as any, undefined as any, orgWithFeatures([]))
+            useMocks({ get: { '/api/projects/:team/groups_types': MOCK_GROUP_TYPES } })
+            useAvailableFeatures([])
+            groupsModel.mount()
+            // Group types load ungated, mirroring groupsModel.afterMount in real usage
+            groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+
+            expect(logic.values.groupsEnabled).toBe(false)
+            // groupsModel still loaded the types ungated...
+            expect(logic.values.groupTypes.size).toBe(MOCK_GROUP_TYPES.length)
+            // ...but the test run must not use them, so no group columns are queried and groups stay empty
+            expect(logic.values.groupTypesForTest.size).toBe(0)
+            expect(groupSelectColumns(logic.values.groupTypesForTest)).toEqual([])
+        })
     })
 
     describe('accumulatedVariables reducer', () => {

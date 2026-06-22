@@ -131,19 +131,19 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         expect(sessionId).toBeTruthy()
 
         // Client caches the tools payload at init. cli mode collapses the wire
-        // roster to a single `exec`.
+        // roster to the single `exec` umbrella tool (the sibling `render-ui` tool
+        // is gated behind the `mcp-render-ui` flag, which is off in tests).
         const cachedTools = await clientA.listTools()
-        expect(cachedTools.tools).toHaveLength(1)
-        expect(cachedTools.tools[0]!.name).toBe('exec')
+        expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec'])
 
-        // headers_2 — pool member with a non-coding-agent vendor. If the
-        // resolver re-derived mode from the live request, `vendorClient='ClaudeAI'`
-        // + cached `clientName='Anthropic/ClaudeAI'` both miss the coding-agent
-        // fragments -> resolves to tools mode -> a `tools/list` would expose the
-        // full multi-tool roster. With the initial vendor hint cached, the request
-        // stays in cli mode and the roster still collapses to a single `exec`.
+        // headers_2 — pool member flipping to a different Anthropic vendor.
+        // `ClaudeAI` is itself an Anthropic client, so it resolves to cli mode on
+        // its own merits; combined with the cached session hints from init, the
+        // request stays in cli mode and the roster still collapses to the `exec`
+        // umbrella tool. Every Anthropic vendor (the `x-anthropic-client` header)
+        // runs in cli mode, so no pooled vendor flip can downgrade to tools mode.
         const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeAI')
-        expect(pooledRoster.map((t) => t.name)).toEqual(['exec'])
+        expect(pooledRoster.map((t) => t.name).sort()).toEqual(['exec'])
 
         await clientA.close()
     })

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
@@ -96,6 +96,37 @@ describe('MetricCard', () => {
             expect(container.textContent).toContain('+200.0%')
         })
 
+        it('ignores a quick pass-through and only follows the cursor once it settles past the dwell', () => {
+            jest.useFakeTimers()
+            try {
+                const { container, chart } = renderHogChart(
+                    <MetricCard
+                        title="Total"
+                        data={[100, 200, 300, 400]}
+                        labels={LABELS}
+                        theme={THEME}
+                        animationMs={0}
+                        formatValue={(v) => `$${Math.round(v)}`}
+                    />
+                )
+
+                // Cursor crosses a point but hasn't dwelled — headline stays at rest.
+                act(() => chart.hoverAtIndex(1))
+                expect(container.textContent).toContain('$400')
+                expect(container.textContent).toContain('Apr')
+                expect(container.textContent).not.toContain('$200')
+
+                // Pointer settles past the dwell — now the headline follows it.
+                act(() => {
+                    jest.advanceTimersByTime(140)
+                })
+                expect(container.textContent).toContain('$200')
+                expect(container.textContent).toContain('Feb')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('updates the headline value and label when hovering a different point', () => {
             const { container, chart } = renderHogChart(
                 <MetricCard
@@ -104,6 +135,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
             )
@@ -120,6 +152,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     value={9999}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
@@ -138,6 +171,7 @@ describe('MetricCard', () => {
                     labels={LABELS}
                     theme={THEME}
                     animationMs={0}
+                    hoverIntentMs={0}
                     change={{ value: 12.5, label: '+12.5% vs. last week' }}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
@@ -190,6 +224,98 @@ describe('MetricCard', () => {
             expect(container.textContent).toContain('Last 12 months')
             expect(container.textContent).not.toContain('Apr')
         })
+
+        it('shows restingSubtitle at rest and yields to the hovered point label on hover', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    restingSubtitle="Avg"
+                />
+            )
+            expect(container.textContent).toContain('Avg')
+            expect(container.textContent).not.toContain('Apr')
+            chart.hoverAtIndex(1)
+            expect(container.textContent).toContain('Feb')
+            expect(container.textContent).not.toContain('Avg')
+        })
+
+        it('lets a supplied subtitle win over restingSubtitle at rest and on hover', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    subtitle="Last 12 months"
+                    restingSubtitle="Avg"
+                />
+            )
+            expect(container.textContent).toContain('Last 12 months')
+            expect(container.textContent).not.toContain('Avg')
+            chart.hoverAtIndex(1)
+            expect(container.textContent).toContain('Last 12 months')
+        })
+
+        it('with hoverChangeFromPreviousPoint, keeps the resting change but shows point-vs-previous on hover', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    change={{ value: 12.5, label: '+12.5% vs. prev period' }}
+                    hoverChangeFromPreviousPoint
+                />
+            )
+            expect(container.textContent).toContain('+12.5% vs. prev period')
+            chart.hoverAtIndex(2) // 300 vs previous point 200 → +50%
+            expect(container.textContent).toContain('+50.0%')
+            expect(container.textContent).not.toContain('+12.5% vs. prev period')
+        })
+
+        it('with hoverChangeFromPreviousPoint, keeps the pill suppressed across hover when change is null', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    change={null}
+                    hoverChangeFromPreviousPoint
+                />
+            )
+            expect(container.textContent).not.toContain('%')
+            chart.hoverAtIndex(2)
+            expect(container.textContent).not.toContain('%')
+        })
+
+        it('with hoverChangeFromPreviousPoint, hides the pill when hovering the first point', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    change={{ value: 12.5, label: '+12.5%' }}
+                    hoverChangeFromPreviousPoint
+                />
+            )
+            chart.hoverAtIndex(0)
+            expect(container.textContent).not.toContain('%')
+        })
     })
 
     describe('number-only (no data)', () => {
@@ -236,7 +362,7 @@ describe('MetricCard', () => {
                 />
             )
             expect(container.textContent).toContain(change.label)
-            const pill = container.querySelector('.rounded-full') as HTMLElement | null
+            const pill = container.querySelector('[data-attr="metric-card-change-pill"]') as HTMLElement | null
             expect(pill?.style.color).toBe(expectedColor)
         })
 
@@ -244,13 +370,71 @@ describe('MetricCard', () => {
             const { container } = render(
                 <MetricCard title="Revenue" value={8800} change={{ value: -4.2, label: '-4.2%' }} />
             )
-            const chevron = container.querySelector('.rounded-full svg')
+            const chevron = container.querySelector('[data-attr="metric-card-change-pill"] svg')
             expect(chevron?.getAttribute('class')).toContain('rotate-180')
         })
 
         it('applies dataAttr to the root', () => {
             const { container } = render(<MetricCard title="Revenue" value={8800} dataAttr="metric-revenue" />)
             expect(container.querySelector('[data-attr="metric-revenue"]')).not.toBeNull()
+        })
+    })
+
+    describe('inline change pill, fill, and subtitle', () => {
+        it('renders the change pill exactly once with changeInline (no header duplicate)', () => {
+            const { container } = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    changeInline
+                    change={{ value: 12.5, label: '+12.5%' }}
+                />
+            )
+            expect(container.querySelectorAll('[data-attr="metric-card-change-pill"]')).toHaveLength(1)
+        })
+
+        it('drops the fixed sparkline height when sparklineFill is set', () => {
+            const fixed = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200]}
+                    labels={['Jan', 'Feb']}
+                    theme={THEME}
+                    sparklineHeight={120}
+                />
+            )
+            expect(
+                (fixed.container.querySelector('[data-attr="metric-card-sparkline"]') as HTMLElement).style.height
+            ).toBe('120px')
+
+            const filled = renderHogChart(
+                <MetricCard title="Total" data={[100, 200]} labels={['Jan', 'Feb']} theme={THEME} sparklineFill />
+            )
+            expect(
+                (filled.container.querySelector('[data-attr="metric-card-sparkline"]') as HTMLElement).style.height
+            ).toBe('')
+        })
+
+        it('renders the subtitle when provided and omits the row when empty', () => {
+            const withSubtitle = renderHogChart(
+                <MetricCard
+                    title="Total"
+                    data={[100, 200]}
+                    labels={['Jan', 'Feb']}
+                    theme={THEME}
+                    subtitle="Last 7 days"
+                />
+            )
+            expect(withSubtitle.container.querySelector('[data-attr="metric-card-subtitle"]')?.textContent).toBe(
+                'Last 7 days'
+            )
+
+            const valueOnly = render(<MetricCard title={null} value={42} />)
+            expect(valueOnly.container.querySelector('[data-attr="metric-card-subtitle"]')).toBeNull()
         })
     })
 })

@@ -7,6 +7,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 
 @dataclass
@@ -30,6 +31,7 @@ class EmitBackfillSignalInput:
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput) -> list[ErrorTrackingIssueData]:
     """Fetch the 100 most recent error tracking issues ordered by first seen."""
     from posthog.schema import DateRange, ErrorTrackingQuery
@@ -37,7 +39,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
     from posthog.models import Team
     from posthog.sync import database_sync_to_async
 
-    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+    from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
     team = await Team.objects.aget(id=input.team_id)
 
@@ -51,7 +53,6 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
                 orderDirection="DESC",
                 volumeResolution=1,
                 limit=100,
-                useQueryV2=False,
                 withFirstEvent=True,
                 withAggregations=False,
             ),
@@ -89,6 +90,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> None:
     """Emit an issue_created signal for a single error tracking issue."""
     from posthog.models import Team
