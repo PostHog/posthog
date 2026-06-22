@@ -146,6 +146,7 @@ export function FunnelLineChart({
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
     const labels = steps[0]?.labels ?? EMPTY_STRINGS
     const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
+    const showAnnotations = !inSharedMode && funnelsFilter?.showAnnotations !== false
 
     const clickDeps: FunnelLineChartClickDeps = {
         hasPersonsModal: showPersonsModal,
@@ -206,9 +207,7 @@ export function FunnelLineChart({
                 dataAttr="trend-line-graph-funnel"
                 onError={handleChartError}
             >
-                {!inSharedMode && funnelsFilter?.showAnnotations !== false && (
-                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />
-                )}
+                {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
             </TimeSeriesLineChart>
         </ChartLegend>
     )
