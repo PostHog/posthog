@@ -111,7 +111,7 @@ class TestAttemptScopedRunUuid:
             patch("posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableHelper"),
         ):
             mock_s3_writer_cls.return_value = MagicMock(get_run_uuid=MagicMock(return_value="wfrun-abc-a3"))
-            pipeline = PipelineV3(
+            pipeline: PipelineV3 = PipelineV3(
                 source_response=mock_resource,
                 logger=_make_logger(),
                 job_id="job-1",
@@ -133,6 +133,7 @@ class TestAttemptScopedRunUuid:
         pipeline = _make_pipeline()
         pipeline._attempt = 2
         pipeline._reset_pipeline = True
+        pipeline._cdp_producer = MagicMock(should_produce_table=AsyncMock(return_value=False))
 
         with (
             patch(
@@ -160,7 +161,7 @@ class TestAttemptScopedRunUuid:
         ):
             mock_activity.in_activity.return_value = False
             pipeline._resource.items = MagicMock(return_value=iter([]))
-            pipeline._batcher.should_yield.return_value = False
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[union-attr]
 
             await pipeline.run()
 

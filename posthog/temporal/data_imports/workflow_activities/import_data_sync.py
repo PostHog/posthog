@@ -12,6 +12,7 @@ from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -96,7 +97,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
         model = await _get_external_data_job(inputs.run_id)
 
-        attempt = activity.info().attempt if activity.in_activity() else 1
+        attempt = current_activity_attempt()
         if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
             await logger.ainfo(
                 "Skipping retry - job already terminal",

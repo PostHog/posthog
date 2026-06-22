@@ -82,9 +82,9 @@ class TestPostgresProducerSendBatch:
 class TestPostgresProducerFlush:
     def test_returns_count_and_resets(self) -> None:
         producer = _make_producer()
-        producer.send_batch_notification(_make_batch_result(0))
-        producer.send_batch_notification(_make_batch_result(1))
-        producer.send_batch_notification(_make_batch_result(2))
+        producer.send_batch_notification(_make_batch_result(batch_index=1))
+        producer.send_batch_notification(_make_batch_result(batch_index=2))
+        producer.send_batch_notification(_make_batch_result(batch_index=3))
 
         count = producer.flush()
 
