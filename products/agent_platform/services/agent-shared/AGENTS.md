@@ -29,13 +29,42 @@ for the wider dev flow.
   `KafkaLogSink` (with optional `tap` for test assertions);
   `AnalyticsSink` + `CaptureAnalyticsSink` + `NoopAnalyticsSink`
   (latter is the dev fallback when no PostHog destination is wired);
-  `SecretBroker`; `CredentialBroker` interface.
+  `SecretBroker`; `CredentialBroker` interface;
+  `Metrics` utilities (`initMetrics`, `createMetricsServer`,
+  `recordHttpRequest`, `isMetricsExcludedPath`) + typed metric
+  registry; see below.
 - [src/memory/](src/memory/) — `MemoryStore` interface +
   `S3MemoryStore`. Markdown + YAML frontmatter file format;
   MiniSearch-backed BM25 over file bodies for the
   `@posthog/memory-search` tool. **Tests always run against real
   SeaweedFS/S3, never an in-process fake** — same philosophy as the
   real-PG tests; a fake just hides shape drift.
+
+## Metrics
+
+`src/runtime/metrics.ts` provides the Prometheus instrumentation surface
+shared by all three deployable services:
+
+- **Shared registry** — `prom-client`-backed, includes Node process
+  metrics (memory, CPU, event loop lag) by default.
+- **`initMetrics({ service })`** — one-time init that sets a `service`
+  default label on the registry and registers Node default process
+  metrics. Idempotent.
+- **`createMetricsServer({ port, log })`** — spins up a minimal HTTP
+  listener on the given port (default 6738, via `config.metricsPort` /
+  `AGENT_METRICS_PORT`) serving `/metrics` and `/_metrics`. This is
+  intentionally separate from each service's main request port so the
+  scrape endpoint is never exposed on the public ingress.
+- **`recordHttpRequest(labels, durationSeconds)`** — framework-agnostic
+  helper for the `agent_http_request_duration_seconds` histogram.
+- **`isMetricsExcludedPath(path)`** — returns `true` for health and
+  metrics paths (`/healthz`, `/_health`, `/_ready`, `/metrics`,
+  `/_metrics`); used by the log sink to exclude scrape noise from
+  request logs.
+
+Each service defines its own domain-specific metrics (session outcomes,
+queue depth, sweep runs, etc.) in `<service>/src/metrics.ts` — only the
+shared infrastructure lives here.
 
 ## Rules of engagement
 
