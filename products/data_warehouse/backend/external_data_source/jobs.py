@@ -24,6 +24,7 @@ JOB_STATUS_TRANSITION_REJECTED = Counter(
 def update_external_job_status(
     job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
 ) -> ExternalDataJob:
+    is_first_terminal_transition = False
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
 

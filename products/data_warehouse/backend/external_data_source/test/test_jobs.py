@@ -264,6 +264,8 @@ class TestUpdateExternalJobStatus:
         assert result.status == first_status
         db_job = ExternalDataJob.objects.get(id=job.id)
         assert db_job.status == first_status
+        expected_error = "first error" if first_status == ExternalDataJob.Status.FAILED else None
+        assert db_job.latest_error == expected_error
 
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()
