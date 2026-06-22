@@ -186,7 +186,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             sync_saved_query_workflow(self, create=not schedule_exists)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.warning(
+            logger.exception(
                 "failed_to_schedule_saved_query",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
