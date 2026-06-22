@@ -1287,16 +1287,16 @@ class SignalReportViewSet(
             # Captured for both suppress and snooze (transition to potential) flows.
             if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
                 user = self.request.user
+                is_authenticated = getattr(user, "is_authenticated", False)
+                user_uuid = getattr(user, "uuid", None) if is_authenticated else None
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
                         reason=dismissal_reason,
                         note=dismissal_note,
-                        user_id=getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
-                        user_uuid=str(user.uuid)
-                        if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
-                        else None,
+                        user_id=getattr(user, "id", None) if is_authenticated else None,
+                        user_uuid=str(user_uuid) if user_uuid else None,
                     ),
                     attribution=resolve_request_attribution(self.request, self.team.id),
                 )

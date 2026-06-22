@@ -264,6 +264,8 @@ async def maybe_autostart_implementation_task(
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
         return
 
+    assert priority is not None  # narrowed by the `priority is None` skip_reason guard above
+
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
     team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
 
