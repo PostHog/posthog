@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -1064,7 +1065,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "incremental_fields",
         "delete_data",
     ]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
@@ -1097,6 +1098,30 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.soft_delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(parameters=[LogEntryRequestSerializer])
+    @action(methods=["GET"], detail=True, filter_backends=[])
+    def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        param_serializer = LogEntryRequestSerializer(data=request.query_params)
+        if not param_serializer.is_valid():
+            raise ValidationError(param_serializer.errors)
+        params = param_serializer.validated_data
+        data = fetch_log_entries(
+            team_id=self.team_id,
+            log_source="external_data_jobs",
+            log_source_id=str(instance.id),
+            limit=params["limit"],
+            instance_id=params.get("instance_id"),
+            after=params.get("after"),
+            before=params.get("before"),
+            search=params.get("search"),
+            level=params["level"].split(",") if params.get("level") else None,
+        )
+        page = self.paginate_queryset(data)
+        if page is not None:
+            return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
+        return Response(LogEntrySerializer(data, many=True).data)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
