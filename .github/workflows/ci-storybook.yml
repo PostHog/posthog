@@ -85,13 +85,16 @@ jobs:
 
             # The `frontend` filter's `products/**/*.{ts,tsx}` rule matches the
             # Node-only agent-platform services/packages, which contain no stories
-            # and aren't in the bundle. We can't just add a `!` negation to that
-            # filter: under dorny's default `some` quantifier a `!path` predicate
-            # matches every file NOT under `path`, so the filter would stay true for
-            # almost any PR (the over-match described in the output comment above).
-            # Instead use a second `predicate-quantifier: every` filter: true only
-            # when some changed file lives OUTSIDE those dirs. AND-ed into the
-            # `frontend` output so a services-only PR skips the visual-regression suite.
+            # and aren't in the bundle. Appending a plain `!products/agent_platform/
+            # services/**` negation to that rule wouldn't help: dorny's default
+            # `some` quantifier OR-matches predicates, so the broad rule still
+            # matches a services file and the negation is effectively neutralized
+            # (same gotcha as the output comment above). Carving the dirs out with
+            # in-glob extglobs is possible but cryptic and would have to be repeated
+            # across every filter, so instead use a second `predicate-quantifier:
+            # every` filter: true only when some changed file lives OUTSIDE those
+            # dirs. AND-ed into the `frontend` output so a services-only PR skips the
+            # visual-regression suite.
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: exclude
               if: github.event_name != 'push'
