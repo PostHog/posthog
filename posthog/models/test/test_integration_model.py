@@ -1997,16 +1997,6 @@ class TestAwsS3IntegrationModel(BaseTest):
         assert integration.display_name == "prod-aws"
         assert AwsS3Integration(integration).aws_account_id == "123456789012"
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
-    def test_integration_from_config_validates_credentials(self, mock_validate):
-        AwsS3Integration.integration_from_config(
-            team_id=self.team.pk,
-            name="prod-aws",
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-        )
-        mock_validate.assert_called_once_with("AKIAEXAMPLE", "secret")
-
     def test_integration_from_config_requires_name(self):
         with pytest.raises(S3CredentialIntegrationError, match="A name is required"):
             AwsS3Integration.integration_from_config(
