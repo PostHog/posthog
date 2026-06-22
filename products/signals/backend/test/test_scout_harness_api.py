@@ -738,6 +738,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 1440
 
+    def test_list_excludes_withheld_config(self) -> None:
+        # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
+        # in the config list — the read surface stays consistent with the seeding + dispatch gates.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking")
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-alpha"]
+
     @parameterized.expand(
         [
             ("skill_present", "Watches error tracking for new and spiking issues."),
@@ -898,6 +913,41 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
             == canonical_names
         )
+
+    def test_sync_respects_withheld_skills_holdback(self) -> None:
+        # A scout held back via the `signals-scout` flag denylist must not be seeded or
+        # config-materialized by the on-demand sync endpoint, the same as the scheduled path. The
+        # holdback resolves through `team_limits.withheld_skills_for_team`, so patch the flag read
+        # there (same module `_METADATA_PAYLOAD_PATH` points at).
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        skill_names = {c["skill_name"] for c in response.json()}
+        assert "signals-scout-error-tracking" not in skill_names
+        assert "signals-scout-general" in skill_names
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking", deleted=False).exists()
+
+    def test_sync_excludes_previously_seeded_withheld_config(self) -> None:
+        # A config seeded before the scout was withheld still exists in storage; the sync response
+        # must not surface it (visibility boundary), even though we don't tombstone the row.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking")
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "signals-scout-error-tracking" not in {c["skill_name"] for c in response.json()}
+        # Storage is untouched — the row is hidden from the response, not deleted.
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
 
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey

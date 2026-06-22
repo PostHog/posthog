@@ -98,13 +98,25 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     return enabled_skills, enabled_interval
 
 
-def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None = None) -> set[str]:
+def register_missing_configs(
+    team_id: int,
+    seed_config_layers: list[dict] | None = None,
+    withheld_skill_names: frozenset[str] | set[str] | None = None,
+) -> set[str]:
     """Auto-create a config for each scout skill lacking a row, honouring an optional seed posture.
 
     Idempotent — `get_or_create` keyed on the `(team, skill_name)` unique constraint, so
     concurrent callers (coordinator tick racing an API call) converge on one row. Returns
     the set of live `signals-scout-*` skill names for the team, so the caller can skip
     dispatching configs whose skill is gone.
+
+    `withheld_skill_names` is the per-team holdback denylist (resolved by the coordinator from
+    the `signals-scout` flag's `withheld_skills` key). Withheld skills are dropped from the
+    returned set before any work, so no config is seeded for them AND the coordinator (which
+    dispatches only configs whose skill is in this return) never runs them — the second and
+    third enforcement points of the holdback, after `sync_canonical_skills` keeps the skill row
+    from being seeded at all. Belt-and-suspenders for the case where a row already exists (a team
+    that was previously allowed): the scout stays visible but is never enabled or dispatched here.
 
     `seed_config_layers` are the team's flag config layers, most-specific first (its `team_configs`
     override, then the fleet `default_team_config`); `_resolve_seed_posture` resolves them per key.
@@ -134,6 +146,12 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         ).values_list("name", "metadata")
     )
     skill_names = {name for name, _ in rows}
+    # Drop held-back scouts up front: no config is seeded for them, and the returned set the
+    # coordinator dispatches from never includes them. `sync_canonical_skills` already keeps
+    # withheld skills from being seeded as `LLMSkill` rows, so this is mostly belt-and-suspenders
+    # — it also covers a team that was previously allowed and still has the row.
+    if withheld_skill_names:
+        skill_names -= set(withheld_skill_names)
     # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
     # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick.
     ensure_scout_category(team_id)

@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _read_flag_payload,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
+    _resolve_withheld_skills,
     _runs_today_by_team,
     _team_configs,
 )
@@ -172,6 +173,10 @@ def _collect_planned_runs(
     default_team_config = default_team_config or {}
     due: list[_DueRun] = []
     for team in _participating_teams(enrolled_team_ids):
+        # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
+        # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):
+        # skip seeding the skill, skip seeding/enabling a config, and skip dispatch.
+        withheld_for_team = _resolve_withheld_skills(team.id, team_configs, default_team_config)
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
         # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
         # tombstones rows whose canonical was removed from disk (the runner cold-start sync
@@ -179,7 +184,7 @@ def _collect_planned_runs(
         # harness-seeded row the team hasn't edited, so a merged SKILL.md change rolls out
         # within one coordinator tick. Idempotent; a failure here doesn't abort the tick.
         try:
-            sync_canonical_skills(team, prune=True)
+            sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_for_team)
         except Exception:
             logger.exception(
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",
@@ -190,7 +195,9 @@ def _collect_planned_runs(
         # layers (not a shallow merge) lets `_resolve_seed_posture` fall back per key, so a
         # malformed per-team value doesn't clobber a valid fleet default.
         seed_config_layers = [team_configs.get(team.id) or {}, default_team_config]
-        live_skills = register_missing_configs(team.id, seed_config_layers)
+        # `register_missing_configs` drops withheld skills from its return, so they're already
+        # excluded from `live_skills` (and thus from dispatch below) as well as from seeding.
+        live_skills = register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld_for_team)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
