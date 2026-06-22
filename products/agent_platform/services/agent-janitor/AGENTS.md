@@ -25,6 +25,9 @@ for the wider dev flow.
   skill paths).
 - [src/index.ts](src/index.ts) — prod bin entry.
 - [src/lib.ts](src/lib.ts) — library entry (`buildJanitorApp`).
+- [src/metrics.ts](src/metrics.ts) — Prometheus metrics: sweep
+  runs/failures/duration, swept-by-action counts, cron runs/fired/errors,
+  `agent_session_queue_depth` gauge by state (sampled once per sweep).
 
 ## Rules of engagement
 
