@@ -21,6 +21,20 @@ fn lock_env() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+const GIT_INFO_ENV_VARS: &[&str] = &[
+    "GITHUB_ACTIONS",
+    "GITHUB_SHA",
+    "GITHUB_REF_NAME",
+    "GITHUB_REPOSITORY",
+    "GITHUB_SERVER_URL",
+    "VERCEL",
+    "VERCEL_GIT_PROVIDER",
+    "VERCEL_GIT_REPO_OWNER",
+    "VERCEL_GIT_REPO_SLUG",
+    "VERCEL_GIT_COMMIT_REF",
+    "VERCEL_GIT_COMMIT_SHA",
+];
+
 fn make_git_dir_with_config(config_content: &str) -> PathBuf {
     let temp_root = std::env::temp_dir().join(format!("posthog_cli_git_test_{}", Uuid::now_v7()));
     let git_dir = temp_root.join(".git");
@@ -110,19 +124,7 @@ fn assert_posthog_git_info(worktree_dir: PathBuf, branch: &str, commit_id: &str)
 #[test]
 fn test_get_commit_sha_from_loose_ref() {
     let _env_lock = lock_env();
-    let _env_guard = EnvVarGuard::clear(&[
-        "GITHUB_ACTIONS",
-        "GITHUB_SHA",
-        "GITHUB_REF_NAME",
-        "GITHUB_REPOSITORY",
-        "GITHUB_SERVER_URL",
-        "VERCEL",
-        "VERCEL_GIT_PROVIDER",
-        "VERCEL_GIT_REPO_OWNER",
-        "VERCEL_GIT_REPO_SLUG",
-        "VERCEL_GIT_COMMIT_REF",
-        "VERCEL_GIT_COMMIT_SHA",
-    ]);
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
 
     let temp_root =
         std::env::temp_dir().join(format!("posthog_cli_loose_ref_test_{}", Uuid::now_v7()));
@@ -146,19 +148,7 @@ fn test_get_commit_sha_from_loose_ref() {
 #[test]
 fn test_get_commit_sha_loose_ref_takes_precedence_over_packed_refs() {
     let _env_lock = lock_env();
-    let _env_guard = EnvVarGuard::clear(&[
-        "GITHUB_ACTIONS",
-        "GITHUB_SHA",
-        "GITHUB_REF_NAME",
-        "GITHUB_REPOSITORY",
-        "GITHUB_SERVER_URL",
-        "VERCEL",
-        "VERCEL_GIT_PROVIDER",
-        "VERCEL_GIT_REPO_OWNER",
-        "VERCEL_GIT_REPO_SLUG",
-        "VERCEL_GIT_COMMIT_REF",
-        "VERCEL_GIT_COMMIT_SHA",
-    ]);
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
 
     let temp_root = std::env::temp_dir().join(format!(
         "posthog_cli_ref_precedence_test_{}",
@@ -258,19 +248,7 @@ fn test_get_repo_infos_ssh_without_dot_git() {
 #[test]
 fn test_get_git_info_from_regular_repo_packed_refs() {
     let _env_lock = lock_env();
-    let _env_guard = EnvVarGuard::clear(&[
-        "GITHUB_ACTIONS",
-        "GITHUB_SHA",
-        "GITHUB_REF_NAME",
-        "GITHUB_REPOSITORY",
-        "GITHUB_SERVER_URL",
-        "VERCEL",
-        "VERCEL_GIT_PROVIDER",
-        "VERCEL_GIT_REPO_OWNER",
-        "VERCEL_GIT_REPO_SLUG",
-        "VERCEL_GIT_COMMIT_REF",
-        "VERCEL_GIT_COMMIT_SHA",
-    ]);
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
 
     let temp_root =
         std::env::temp_dir().join(format!("posthog_cli_regular_repo_test_{}", Uuid::now_v7()));
@@ -291,19 +269,7 @@ fn test_get_git_info_from_regular_repo_packed_refs() {
 #[test]
 fn test_get_git_info_from_worktree_git_file_cases() {
     let _env_lock = lock_env();
-    let _env_guard = EnvVarGuard::clear(&[
-        "GITHUB_ACTIONS",
-        "GITHUB_SHA",
-        "GITHUB_REF_NAME",
-        "GITHUB_REPOSITORY",
-        "GITHUB_SERVER_URL",
-        "VERCEL",
-        "VERCEL_GIT_PROVIDER",
-        "VERCEL_GIT_REPO_OWNER",
-        "VERCEL_GIT_REPO_SLUG",
-        "VERCEL_GIT_COMMIT_REF",
-        "VERCEL_GIT_COMMIT_SHA",
-    ]);
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
 
     for (case_name, absolute_gitdir, commondir, use_packed_ref) in [
         (
@@ -375,6 +341,57 @@ fn test_get_git_info_from_worktree_git_file_cases() {
 
         let _ = fs::remove_dir_all(temp_root);
     }
+}
+
+#[test]
+fn test_get_git_info_from_worktree_config_precedence() {
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
+
+    let temp_root = std::env::temp_dir().join(format!(
+        "posthog_cli_worktree_config_test_{}",
+        Uuid::now_v7()
+    ));
+    let worktree_dir = temp_root.join("worktree");
+    let common_git_dir = temp_root.join("repo.git");
+    let worktree_git_dir = common_git_dir.join("worktrees/worktree");
+    let branch = "feature/config-worktree";
+    let commit_id = "0123456789abcdef0123456789abcdef01234567";
+
+    fs::create_dir_all(&worktree_dir).expect("failed to create worktree directory");
+    fs::create_dir_all(&worktree_git_dir).expect("failed to create worktree git directory");
+    fs::create_dir_all(&common_git_dir).expect("failed to create common git directory");
+    fs::write(
+        worktree_dir.join(".git"),
+        format!("gitdir: {}\n", worktree_git_dir.display()),
+    )
+    .expect("failed to write worktree .git file");
+    fs::write(worktree_git_dir.join("commondir"), "../..\n").expect("failed to write commondir");
+    write_head(&worktree_git_dir, branch);
+    write_loose_ref(&common_git_dir, branch, commit_id);
+    write_repo_config(&common_git_dir);
+    fs::write(
+        worktree_git_dir.join("config.worktree"),
+        r#"
+[remote "origin"]
+    url = https://github.com/PostHog/worktree-override.git
+"#,
+    )
+    .expect("failed to write worktree config");
+
+    let info = get_git_info(Some(worktree_dir))
+        .expect("should not error")
+        .expect("should return info");
+
+    assert_eq!(info.branch, branch);
+    assert_eq!(info.commit_id, commit_id);
+    assert_eq!(
+        info.remote_url.as_deref(),
+        Some("https://github.com/PostHog/worktree-override.git")
+    );
+    assert_eq!(info.repo_name.as_deref(), Some("worktree-override"));
+
+    let _ = fs::remove_dir_all(temp_root);
 }
 
 #[test]

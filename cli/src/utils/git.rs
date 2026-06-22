@@ -14,7 +14,7 @@ pub struct GitInfo {
     pub commit_id: String,
 }
 
-struct GitDirs {
+struct GitRepositoryPaths {
     git_dir: PathBuf,
     common_dir: PathBuf,
     worktree_dir: PathBuf,
@@ -25,21 +25,17 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         return Ok(Some(info));
     }
 
-    let git_dirs = match find_git_dirs(dir) {
-        Some(dirs) => dirs,
+    let repository_paths = match find_git_repository_paths(dir) {
+        Some(paths) => paths,
         None => return Ok(None),
     };
 
-    let remote_url = get_remote_url_from_dirs(&git_dirs.git_dir, &git_dirs.common_dir);
-    let repo_name = get_repo_name_from_dirs(
-        &git_dirs.git_dir,
-        &git_dirs.common_dir,
-        Some(&git_dirs.worktree_dir),
-    );
+    let remote_url = get_remote_url_from_paths(&repository_paths);
+    let repo_name = get_repo_name_from_paths(&repository_paths);
     let branch =
-        get_branch_name(&git_dirs.git_dir).context("Failed to determine current branch")?;
-    let commit = get_commit_sha(&git_dirs.git_dir, &git_dirs.common_dir, &branch)
-        .context("Failed to determine commit sha")?;
+        get_branch_name(&repository_paths.git_dir).context("Failed to determine current branch")?;
+    let commit =
+        get_commit_sha(&repository_paths, &branch).context("Failed to determine commit sha")?;
 
     Ok(Some(GitInfo {
         remote_url,
@@ -111,14 +107,14 @@ fn build_vercel_remote_url(
     Some(format!("{base_url}/{owner}/{repo_slug}.git"))
 }
 
-fn find_git_dirs(dir: Option<PathBuf>) -> Option<GitDirs> {
+fn find_git_repository_paths(dir: Option<PathBuf>) -> Option<GitRepositoryPaths> {
     let mut current_dir = dir.unwrap_or(std::env::current_dir().ok()?);
 
     loop {
         let git_path = current_dir.join(".git");
         if git_path.is_dir() {
             let git_dir = normalize_existing_path(git_path);
-            return Some(GitDirs {
+            return Some(GitRepositoryPaths {
                 common_dir: git_dir.clone(),
                 git_dir,
                 worktree_dir: current_dir,
@@ -128,7 +124,7 @@ fn find_git_dirs(dir: Option<PathBuf>) -> Option<GitDirs> {
         if git_path.is_file() {
             let git_dir = parse_git_dir_file(&git_path)?;
             let common_dir = get_common_dir(&git_dir);
-            return Some(GitDirs {
+            return Some(GitRepositoryPaths {
                 git_dir,
                 common_dir,
                 worktree_dir: current_dir,
@@ -176,22 +172,27 @@ fn normalize_existing_path(path: PathBuf) -> PathBuf {
 }
 
 fn config_paths(git_dir: &Path, common_dir: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![git_dir.join("config"), git_dir.join("config.worktree")];
+    let mut paths = vec![git_dir.join("config.worktree")];
 
     if common_dir != git_dir {
         paths.push(common_dir.join("config"));
     }
 
+    paths.push(git_dir.join("config"));
     paths
 }
 
 pub fn get_remote_url(git_dir: &Path) -> Option<String> {
-    get_remote_url_from_dirs(git_dir, git_dir)
+    get_remote_url_from_paths(&GitRepositoryPaths {
+        git_dir: git_dir.to_path_buf(),
+        common_dir: git_dir.to_path_buf(),
+        worktree_dir: git_dir.parent().unwrap_or(git_dir).to_path_buf(),
+    })
 }
 
-fn get_remote_url_from_dirs(git_dir: &Path, common_dir: &Path) -> Option<String> {
+fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
     // Try grab it from the git config
-    for config_path in config_paths(git_dir, common_dir) {
+    for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
         if !config_path.exists() {
             continue;
         }
@@ -219,16 +220,16 @@ fn get_remote_url_from_dirs(git_dir: &Path, common_dir: &Path) -> Option<String>
 }
 
 pub fn get_repo_name(git_dir: &Path) -> Option<String> {
-    get_repo_name_from_dirs(git_dir, git_dir, git_dir.parent())
+    get_repo_name_from_paths(&GitRepositoryPaths {
+        git_dir: git_dir.to_path_buf(),
+        common_dir: git_dir.to_path_buf(),
+        worktree_dir: git_dir.parent().unwrap_or(git_dir).to_path_buf(),
+    })
 }
 
-fn get_repo_name_from_dirs(
-    git_dir: &Path,
-    common_dir: &Path,
-    worktree_dir: Option<&Path>,
-) -> Option<String> {
+fn get_repo_name_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
-    for config_path in config_paths(git_dir, common_dir) {
+    for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
         if !config_path.exists() {
             continue;
         }
@@ -250,7 +251,7 @@ fn get_repo_name_from_dirs(
         }
     }
 
-    if let Some(name) = worktree_dir.and_then(|dir| dir.file_name()) {
+    if let Some(name) = paths.worktree_dir.file_name() {
         return Some(name.to_string_lossy().to_string());
     }
 
@@ -279,7 +280,9 @@ fn get_branch_name(git_dir: &Path) -> Result<String> {
     }
 }
 
-fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<String> {
+fn get_commit_sha(paths: &GitRepositoryPaths, branch: &str) -> Result<String> {
+    let git_dir = &paths.git_dir;
+
     if branch == "HEAD-detached" {
         // For detached HEAD, read directly from HEAD
         let head_path = git_dir.join("HEAD");
@@ -293,7 +296,7 @@ fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<Str
     }
 
     // Try to read the commit from the branch reference (loose ref)
-    for ref_path in branch_ref_paths(git_dir, common_dir, branch) {
+    for ref_path in branch_ref_paths(paths, branch) {
         if !ref_path.exists() {
             continue;
         }
@@ -309,53 +312,61 @@ fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<Str
 
     // Fall back to packed-refs — Git packs loose refs into this file during
     // garbage collection or clone, which is common on Windows and in CI.
-    if let Some(commit_id) = get_packed_ref(git_dir, common_dir, branch) {
+    if let Some(commit_id) = get_packed_ref(paths, branch) {
         return Ok(commit_id);
     }
 
     anyhow::bail!("Could not determine commit ID")
 }
 
-fn branch_ref_paths(git_dir: &Path, common_dir: &Path, branch: &str) -> Vec<PathBuf> {
-    let mut paths = vec![git_dir.join("refs/heads").join(branch)];
+fn branch_ref_paths(paths: &GitRepositoryPaths, branch: &str) -> Vec<PathBuf> {
+    let mut ref_paths = vec![paths.git_dir.join("refs/heads").join(branch)];
 
-    if common_dir != git_dir {
-        paths.push(common_dir.join("refs/heads").join(branch));
+    if paths.common_dir != paths.git_dir {
+        ref_paths.push(paths.common_dir.join("refs/heads").join(branch));
     }
 
-    paths
+    ref_paths
 }
 
-fn get_packed_ref(git_dir: &Path, common_dir: &Path, branch: &str) -> Option<String> {
+fn get_packed_ref(paths: &GitRepositoryPaths, branch: &str) -> Option<String> {
     let ref_name = format!("refs/heads/{branch}");
-    let mut paths = vec![git_dir.join("packed-refs")];
+    let mut packed_ref_paths = vec![paths.git_dir.join("packed-refs")];
 
-    if common_dir != git_dir {
-        paths.push(common_dir.join("packed-refs"));
+    if paths.common_dir != paths.git_dir {
+        packed_ref_paths.push(paths.common_dir.join("packed-refs"));
     }
 
-    for path in paths {
+    for path in packed_ref_paths {
         let Ok(content) = fs::read_to_string(path) else {
             continue;
         };
 
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') || line.starts_with('^') {
-                continue;
-            }
+        if let Some(commit_id) = parse_packed_refs(&content, &ref_name) {
+            return Some(commit_id);
+        }
+    }
 
-            let mut parts = line.split_whitespace();
-            let Some(commit_id) = parts.next() else {
-                continue;
-            };
-            let Some(packed_ref) = parts.next() else {
-                continue;
-            };
+    None
+}
 
-            if packed_ref == ref_name {
-                return Some(commit_id.to_string());
-            }
+fn parse_packed_refs(content: &str, ref_name: &str) -> Option<String> {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with('^') {
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+        let Some(commit_id) = parts.next() else {
+            continue;
+        };
+        let Some(packed_ref) = parts.next() else {
+            continue;
+        };
+
+        if packed_ref == ref_name {
+            return Some(commit_id.to_string());
         }
     }
 
