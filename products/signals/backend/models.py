@@ -761,9 +761,10 @@ class SignalReportArtefact(UUIDModel):
 
         Status types are latest-wins (`append_status`), `signal_finding` is keyed by signal_id,
         `dismissal` entries stack, log types accumulate (`add_log`), and anything else
-        (`video_segment`) is a plain append. No type is writer-restricted: an agent can append a
-        new status version just like the pipeline — the newest row of a status type is the
-        report's canonical status.
+        (`video_segment`) is a plain append. This model-level helper accepts every content model —
+        an agent can append a new status version just like the pipeline, and the newest row of a
+        status type is the report's canonical status. (The HTTP write API additionally refuses
+        legacy read-only types such as `video_segment` — see `NON_WRITABLE_ARTEFACT_TYPES`.)
         """
         artefact_type = artefact_type_for(content)
         if artefact_type in cls.STATUS_ARTEFACT_TYPES:

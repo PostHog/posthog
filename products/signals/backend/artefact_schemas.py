@@ -412,6 +412,12 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 
+# Artefact types the write API must reject. `video_segment` is a legacy, fully-permissive type
+# (`dict | list`, so even `{}` validates) that predates the typed-content contract; accepting writes
+# would let callers persist arbitrary or empty payloads. It stays readable so stored legacy rows
+# still parse, but new ones can never be created or updated through the API.
+NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset({"video_segment"})
+
 
 def artefact_type_for(content: BaseModel) -> str:
     """The artefact type a content model persists as (exact class match).

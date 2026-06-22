@@ -54,6 +54,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     Dismissal,
     SuggestedReviewers,
@@ -1675,8 +1676,8 @@ class SignalReportArtefactViewSet(
         ],
         summary="Append an artefact to a report",
         description=(
-            "Append an artefact of any type to a report. Everything is append-only: log entries "
-            "(code reference, commit, task run, note) accumulate, while "
+            "Append an artefact to a report (see artefact_type for the writable types). Everything "
+            "is append-only: log entries (code reference, commit, task run, note) accumulate, while "
             "status types (safety / actionability / priority judgments, repo selection, suggested "
             "reviewers) are latest-wins — appending a new version supersedes the previous one as the "
             "report's canonical status. Content is validated against the type's schema."
@@ -1695,14 +1696,17 @@ class SignalReportArtefactViewSet(
         if not report_exists:
             raise NotFound()
         artefact_type = request.validated_data["artefact_type"]
+        writable_types = sorted(set(SignalReportArtefact.ArtefactType.values) - NON_WRITABLE_ARTEFACT_TYPES)
         if artefact_type not in SignalReportArtefact.ArtefactType.values:
             return Response(
-                {
-                    "error": (
-                        f"Unknown artefact type '{artefact_type}'. "
-                        f"Valid types: {', '.join(sorted(SignalReportArtefact.ArtefactType.values))}."
-                    )
-                },
+                {"error": f"Unknown artefact type '{artefact_type}'. Valid types: {', '.join(writable_types)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if artefact_type in NON_WRITABLE_ARTEFACT_TYPES:
+            # Legacy permissive types (e.g. video_segment) have no real content validation, so the
+            # write API refuses them — they stay readable for existing rows but can't be created.
+            return Response(
+                {"error": f"Artefact type '{artefact_type}' is read-only and cannot be created through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         content = request.validated_data["content"]
@@ -1780,6 +1784,13 @@ class SignalReportArtefactViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type in NON_WRITABLE_ARTEFACT_TYPES:
+            # Legacy read-only types (e.g. video_segment) can't be created via the API, so they
+            # can't be edited through it either.
+            return Response(
+                {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             artefact.update_content(request.validated_data["content"])
         except ArtefactContentValidationError as e:

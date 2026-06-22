@@ -9,6 +9,7 @@ from rest_framework import serializers
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
     AutonomyPriority,
     SignalReport,
@@ -498,9 +499,13 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         return value
 
 
+# Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
+# by the write API, so it must not be advertised as an option here.
+_WRITABLE_ARTEFACT_TYPES = sorted(set(SignalReportArtefact.ArtefactType.values) - NON_WRITABLE_ARTEFACT_TYPES)
+
 _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
-    + ", ".join(sorted(SignalReportArtefact.ArtefactType.values))
+    + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
     "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."

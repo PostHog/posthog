@@ -762,6 +762,19 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand([("empty", {}), ("populated", {"start": 1, "end": 2})])
+    def test_post_rejects_read_only_video_segment_type(self, _name, content):
+        # video_segment is a legacy permissive type with no real content validation (even {} passes),
+        # so the write API must refuse it outright rather than persist an unvalidated payload.
+        report = self._create_report()
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "video_segment", "content": content}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
     def test_post_rejects_scalar_content(self):
         report = self._create_report()
         response = self.client.post(
@@ -817,6 +830,26 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         artefact.refresh_from_db()
         assert json.loads(artefact.content) == {"note": "after", "author": None}
         assert artefact.updated_at is not None
+
+    def test_patch_rejects_read_only_video_segment_type(self):
+        # A legacy video_segment row stays readable, but the read-only type can't be edited via the API.
+        report = self._create_report()
+        legacy = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.VIDEO_SEGMENT,
+            content=json.dumps({"start": 1, "end": 2}),
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(legacy.id)),
+            data=json.dumps({"content": {"start": 9, "end": 9}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+        legacy.refresh_from_db()
+        assert json.loads(legacy.content) == {"start": 1, "end": 2}
 
     def test_patch_updates_status_artefact_validated_against_its_type(self):
         report = self._create_report()
