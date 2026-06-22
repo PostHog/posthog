@@ -19,7 +19,7 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toValidUTF8": HogQLFunctionMeta("toValidUTF8", 1, 1),
     "format": HogQLFunctionMeta("format", 2, None),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
-    "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
+    "concat": HogQLFunctionMeta("concat", 1, None, case_sensitive=False),
     "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),
     "substringUTF8": HogQLFunctionMeta("substringUTF8", 3, 3),
     "appendTrailingCharIfAbsent": HogQLFunctionMeta("appendTrailingCharIfAbsent", 2, 2),
@@ -36,7 +36,7 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "decodeXMLComponent": HogQLFunctionMeta("decodeXMLComponent", 1, 1),
     "extractTextFromHTML": HogQLFunctionMeta("extractTextFromHTML", 1, 1),
     "ascii": HogQLFunctionMeta("ascii", 1, 1, case_sensitive=False),
-    "concatWithSeparator": HogQLFunctionMeta("concatWithSeparator", 2, None),
+    "concatWithSeparator": HogQLFunctionMeta("concatWithSeparator", 1, None),
 }
 
 # searching in strings

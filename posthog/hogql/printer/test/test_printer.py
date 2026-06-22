@@ -2302,6 +2302,17 @@ class TestPrinter(BaseTest):
             f"concat('', %(hogql_val_0)s, toString(3), toString(4), '')",
         )
 
+    def test_single_arg_concat(self):
+        # ClickHouse's concat accepts one or more arguments; HogQL must not reject a single arg
+        self.assertEqual(
+            self._expr("concat('a')"),
+            f"concat(%(hogql_val_0)s)",
+        )
+        self.assertEqual(
+            self._expr("concat(3)"),
+            f"concat(toString(3))",
+        )
+
     def test_concat_pipes(self):
         self.assertEqual(
             self._expr("'a' || 'b' || 3 || timestamp"),
