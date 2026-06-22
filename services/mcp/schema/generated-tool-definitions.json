@@ -30,7 +30,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -120,7 +120,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -757,7 +757,7 @@
         "feature_flag": "agent-platform"
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Anomaly detection (detector_config) is only supported for trends insights.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -813,7 +813,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends insights only), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -1952,6 +1952,20 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-canvas-partial-update": {
+        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update canvas code",
+        "title": "Update canvas code",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "desktop-file-system-create": {
         "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
@@ -2580,6 +2594,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "experiment-calculate-running-time": {
+        "description": "Estimate the recommended sample size and how many days an experiment needs to run to detect an effect. This is a stateless statistical calculation — it does not read or modify any experiment, so it works for planning before an experiment exists.\n\nRequired: metric_type ('funnel' for conversion rates, 'mean_count' for events per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' or 'retention' for ratio-style metrics) and minimum_detectable_effect (the smallest relative change to detect, as a percentage — e.g. 5 means a 5% lift). number_of_variants defaults to 2 (control + one test).\n\nProvide the baseline one of two ways: pass baseline_value directly (a conversion rate as a fraction 0-1 for funnels, or an average per user for mean metrics), or pass baseline_stats (raw control-group statistics) and let the server derive it. Ratio and retention metrics REQUIRE baseline_stats (with denominator_sum / denominator_sum_squares / numerator_denominator_sum_product for the delta-method variance) or an explicit variance — baseline_value alone is not enough.\n\nOptionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get recommended_running_time_days. The response returns baseline_value, variance (null for funnels), recommended_sample_size (total across variants), and recommended_running_time_days.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Calculate experiment running time",
+        "title": "Calculate experiment running time",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "experiment-copy-to-project": {
@@ -3600,6 +3628,20 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-reports-bulk-set-state": {
+        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze signal reports in bulk",
+        "title": "Dismiss or snooze signal reports in bulk",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
@@ -3629,7 +3671,7 @@
         }
     },
     "inbox-reports-set-state": {
-        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "description": "Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal: pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
@@ -3866,6 +3908,20 @@
             "readOnlyHint": true
         }
     },
+    "integrations-github-repos-retrieve": {
+        "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a has_more flag. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List GitHub integration repositories",
+        "title": "List GitHub integration repositories",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-list": {
         "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized.",
         "category": "Integrations",
@@ -3937,7 +3993,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -3951,7 +4007,7 @@
         }
     },
     "llma-evaluation-delete": {
-        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "description": "Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete evaluation",
@@ -3965,7 +4021,7 @@
         }
     },
     "llma-evaluation-get": {
-        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation",
@@ -3993,7 +4049,7 @@
         }
     },
     "llma-evaluation-list": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
@@ -4119,7 +4175,7 @@
         }
     },
     "llma-evaluation-summary-create": {
-        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "description": "Generate an AI-powered summary of boolean AI observability evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Summarize evaluation results",
@@ -4148,7 +4204,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -5976,7 +6032,7 @@
         }
     },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create` (one skill) or `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -5988,6 +6044,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "signals-scout-config-sync": {
+        "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned configs.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Sync scout configs",
+        "title": "Sync scout configs",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true
     },
     "signals-scout-config-update": {
         "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",

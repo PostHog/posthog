@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
 from uuid import uuid4
@@ -16,6 +17,7 @@ from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
     PersonRemovalContext,
+    _property_removal_where,
     data_deletion_request_event_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
@@ -1771,3 +1773,27 @@ def test_pickup_sensor_run_key_changes_across_attempts():
     assert isinstance(second, dagster.RunRequest)
     assert second.run_key == f"{request.pk}:1"
     assert second.run_key != first.run_key
+
+
+def _property_removal_ctx(**overrides) -> DeletionRequestContext:
+    base = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        events=["$pageview"],
+        properties=["$ip"],
+    )
+    return replace(base, **overrides)
+
+
+def test_property_removal_where_scopes_to_events_by_default():
+    sql, params = _property_removal_where(_property_removal_ctx())
+    assert "AND event IN %(events)s" in sql
+    assert params["events"] == ["$pageview"]
+
+
+def test_property_removal_where_omits_event_filter_when_delete_all_events():
+    sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
+    assert "event IN" not in sql
+    assert "events" not in params

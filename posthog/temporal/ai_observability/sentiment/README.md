@@ -60,6 +60,18 @@ uv run --group sentiment bin/download-sentiment-model
 
 This is a no-op if the model already exists.
 
+### Runtime CPU controls
+
+The ONNX Runtime session defaults to one intra-op and one inter-op thread to
+avoid CPU oversubscription when Temporal runs multiple
+sentiment activities concurrently.
+Override these only for a dedicated worker with measured headroom:
+
+```bash
+POSTHOG_SENTIMENT_ONNX_INTRA_OP_NUM_THREADS=2
+POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS=1
+```
+
 ## Running tests
 
 ```bash

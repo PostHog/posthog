@@ -17,12 +17,12 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.services.sandbox_config import (
+from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (

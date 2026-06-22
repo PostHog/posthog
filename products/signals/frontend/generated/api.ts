@@ -25,6 +25,8 @@ import type {
     ScoutEmissionReportLinkApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportBulkStateRequestApi,
+    SignalReportBulkStateResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -182,7 +184,7 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -199,6 +201,32 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk-state/`
+}
+
+/**
+ * Transition many reports to a new state in one call.
+ *
+ * Each id is processed independently: a report whose transition isn't allowed from its
+ * current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+ * rest still go through. Returns one result per requested id (in request order, after
+ * de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+ * inspect `results` / the counts to see what happened.
+ */
+export const signalsReportsBulkStateCreate = async (
+    projectId: string,
+    signalReportBulkStateRequestApi: SignalReportBulkStateRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkStateResponseApi> => {
+    return apiMutator<SignalReportBulkStateResponseApi>(getSignalsReportsBulkStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkStateRequestApi),
     })
 }
 
@@ -260,6 +288,24 @@ export const signalsScoutConfigUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalScoutConfigApi),
+    })
+}
+
+export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/sync/`
+}
+
+/**
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * @summary Sync scout configs
+ */
+export const signalsScoutConfigSync = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi[]> => {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -308,6 +308,7 @@ class TestRevenueAnalyticsGrossRevenueQueryRunner(ClickhouseTestMixin, APIBaseTe
             runner = RevenueAnalyticsGrossRevenueQueryRunner(
                 team=self.team,
                 query=query,
+                user=self.user,
             )
 
             response = runner.calculate()
