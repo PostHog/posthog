@@ -7,6 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTopToBottomFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import funnelTopToBottomBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import funnelTopToBottomBreakdownCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdownCompare.json'
 import funnelTopToBottomCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -72,6 +73,15 @@ export const Breakdown: Story = {
 // below), each scaled to the shared baseline — not two periods crammed into one bar.
 export const FunnelTopToBottomCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} width={720} />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    },
+}
+
+// Breakdown + compare: each step stacks a bar per (breakdown value, period), paired by value with
+// the previous-period bar desaturated under its current-period sibling.
+export const FunnelTopToBottomBreakdownCompare: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} width={720} />,
     parameters: {
         featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
     },

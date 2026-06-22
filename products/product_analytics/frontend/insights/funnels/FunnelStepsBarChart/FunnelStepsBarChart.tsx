@@ -10,6 +10,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -64,9 +65,26 @@ export function FunnelStepsBarChart({
         () =>
             buildFunnelStepsBarData(steps, {
                 getColor: getFunnelsColor,
-                getLabel: (variant) => String(variant.breakdown_value ?? variant.name ?? ''),
+                // Breakdown + compare bars share a breakdown value across periods, so the legend
+                // must also name the period; plain breakdown/compare bars keep their single label.
+                getLabel: (variant) =>
+                    variant.compare_label && hasBreakdown(variant.breakdown_value)
+                        ? `${String(variant.breakdown_value)} · ${
+                              variant.compare_label === 'current' ? 'Current' : 'Previous'
+                          }`
+                        : String(variant.breakdown_value ?? variant.name ?? ''),
             }),
         [steps, getFunnelsColor]
+    )
+
+    // Only breakdown + compare needs a legend mapping color → breakdown value (and period); plain
+    // breakdown reads off the results table and pure compare is self-evident, so neither regresses.
+    const isBreakdownCompare = steps[0]?.nested_breakdown?.some(
+        (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
+    )
+    const config = useMemo(
+        () => (isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig),
+        [isBreakdownCompare]
     )
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
@@ -118,7 +136,7 @@ export function FunnelStepsBarChart({
                         series={series}
                         labels={labels}
                         theme={theme}
-                        config={chartConfig}
+                        config={config}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
                         onError={handleChartError}
