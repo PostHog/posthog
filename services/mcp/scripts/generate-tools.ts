@@ -704,7 +704,13 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
+            } else if (
+                override.description ||
+                override.default !== undefined ||
+                override.optional ||
+                override.required ||
+                castHelper
+            ) {
                 // Locate the Orval source schema this param came from, so we can reference
                 // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
                 let sourceImport: string | null = null
@@ -717,6 +723,12 @@ function composeToolSchema(
                 }
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.required) {
+                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
+                        // tool schema requires the field, matching the backend serializer.
+                        expr += '.unwrap()'
+                        optionalParamNames.delete(paramName)
+                    }
                     if (override.default !== undefined) {
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }

@@ -52,6 +52,7 @@ function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevisi
             ],
             ...spec,
         }),
+        encrypted_env: null,
     }
 }
 

@@ -68,6 +68,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # BigQuery raises this 400 BadRequest when it can't compile a view it's importing, e.g.
+            # "Invalid table-valued function EXTERNAL_QUERY; failed to parse view '<dataset>.<view>'".
+            # For a federated EXTERNAL_QUERY view this means the upstream schema drifted away from the
+            # view definition — a column the view selects was renamed or dropped in the source database
+            # ("prepare statement failed. Error: ERROR:  column \"x\" does not exist"). It's a
+            # deterministic mismatch between the customer's view and their data; retrying can't recover
+            # it — they must fix the view definition or restore the column. The "permission denied for
+            # table" / "Access Denied:" keys only cover federation ACL failures, so this slips through
+            # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
+            # than the volatile view/column names.
+            "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as
@@ -106,6 +117,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # proxy). Authentication can't succeed until the key file is fixed, so retrying just
             # hammers the endpoint and spams error tracking.
             BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at an ngrok tunnel that's offline:
+            # google-auth POSTs the token request and gets back ngrok's HTML error page instead of
+            # an OAuth JSON response, so it raises a `RefreshError` carrying that page. Google's real
+            # token endpoint is never fronted by ngrok, so this is a misconfigured `token_uri` — the
+            # user must fix their key file; retrying can't recover. Matched on ngrok's stable
+            # offline-endpoint code rather than the volatile tunnel subdomain in the page.
+            "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by

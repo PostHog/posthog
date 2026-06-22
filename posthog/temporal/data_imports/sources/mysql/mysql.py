@@ -16,6 +16,7 @@ module-scope primitives.
 
 from __future__ import annotations
 
+import time
 import datetime
 import collections
 from collections.abc import Iterator
@@ -281,6 +282,57 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
 
 
+# Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
+# Postgres source's `_retry_on_connection_dropped` budget so the in-process window spans the few
+# seconds a real failover / idle cull / tunnel hiccup takes to recover, rather than exhausting in
+# ~3s and surfacing the drop as error-tracking noise.
+_MAX_CONNECT_ATTEMPTS = 5
+
+
+def _is_transient_connect_drop(e: BaseException) -> bool:
+    """Return True if the connection was dropped mid-handshake — a transient blip.
+
+    pymysql reports a socket close while reading the server greeting as the same
+    2013 code we see mid-query, but at connect time it means the server hung up
+    before the handshake finished (an overloaded server, a proxy idle cull, a
+    failover, a momentary network blip) — a fresh attempt recovers. The one 2013
+    that is *not* transient is the SSL-version mismatch (a deterministic config
+    error, already non-retryable): it arrives with an `[SSL: ...` suffix, so
+    exclude that and let it surface.
+    """
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _LOST_CONNECTION_DURING_QUERY_CODE:
+        return False
+    return "[SSL:" not in " ".join(str(arg) for arg in e.args)
+
+
+def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
+    """Open a pymysql connection, retrying a transient drop during the handshake.
+
+    Mirrors the in-process connect retry the Postgres source uses: a momentary
+    drop while establishing the connection recovers on a fresh attempt, so retry
+    it here with a bounded backoff instead of failing schema discovery / sync setup
+    on the first blip and surfacing it as captured error-tracking noise.
+    """
+    attempt = 0
+    while True:
+        try:
+            return pymysql.connect(**kwargs)
+        except pymysql.err.OperationalError as e:
+            attempt += 1
+            if attempt >= _MAX_CONNECT_ATTEMPTS or not _is_transient_connect_drop(e):
+                raise
+            structlog.get_logger().warning(
+                "Transient MySQL connection drop during connect; retrying",
+                attempt=attempt,
+                max_attempts=_MAX_CONNECT_ATTEMPTS,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
+
+
 def _release_streaming_cursor(cursor: SSCursor) -> None:
     """Detach an unbuffered cursor from its connection without draining it.
 
@@ -449,7 +501,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             }
             if read_timeout is not None:
                 kwargs["read_timeout"] = read_timeout
-            with pymysql.connect(**kwargs) as conn:
+            with _connect_with_transient_retry(kwargs) as conn:
                 yield conn
 
     # ------------------------------------------------------------------
