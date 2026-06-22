@@ -8181,6 +8181,7 @@ export namespace Schemas {
       ttl_ms?: number;
       allow_agent_approver?: boolean;
     };
+      requires_identity?: string;
     } | {
       kind: 'custom_template';
       from_template: string;
@@ -8205,6 +8206,7 @@ export namespace Schemas {
 
     export type AgentRevisionSpecMcpsItemAuth = {
       integration?: string;
+      provider?: string;
     };
 
     export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
@@ -8244,6 +8246,27 @@ export namespace Schemas {
       alias?: string;
       /** @minimum 0 */
       version?: number;
+    };
+
+    export type AgentRevisionSpecIdentityProvidersItem = {
+      kind: 'posthog';
+      /** @minLength 1 */
+      id?: string;
+      binding?: 'principal' | 'agent';
+      scopes?: string[];
+      client_id?: string;
+    } | {
+      kind: 'oauth2';
+      /** @minLength 1 */
+      id: string;
+      binding?: 'principal' | 'agent';
+      authorize_url: string;
+      token_url: string;
+      /** @minLength 1 */
+      client_id: string;
+      client_secret_ref?: string;
+      scopes?: string[];
+      userinfo_url?: string;
     };
 
     export type AgentRevisionSpecSecretsItem = string | {
@@ -8337,6 +8360,7 @@ export namespace Schemas {
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
       integrations: string[];
+      identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
       secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
@@ -8492,6 +8516,37 @@ export namespace Schemas {
       count: number;
       /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
       tables: AgentTableHeader[];
+    }
+
+    export interface AgentUserConnection {
+      id: string;
+      provider: string;
+      scopes: string[];
+      /** active | revoked */
+      state: string;
+      /** @nullable */
+      subject?: string | null;
+      /** @nullable */
+      access_expires_at?: string | null;
+      created_at: string;
+      updated_at: string;
+      /** @nullable */
+      revoked_at?: string | null;
+    }
+
+    export interface AgentUserWithConnections {
+      id: string;
+      /** Edge-identity kind: slack | jwt | posthog | service | … */
+      principal_kind: string;
+      principal_id: string;
+      metadata?: unknown;
+      created_at: string;
+      connections: AgentUserConnection[];
+    }
+
+    export interface AgentUsersList {
+      count: number;
+      results: AgentUserWithConnections[];
     }
 
     export interface AggregatedSpanRow {
@@ -33843,6 +33898,7 @@ export namespace Schemas {
       ttl_ms?: number;
       allow_agent_approver?: boolean;
     };
+      requires_identity?: string;
     } | {
       kind: 'custom_template';
       from_template: string;
@@ -33867,6 +33923,7 @@ export namespace Schemas {
 
     export type PatchedAgentRevisionSpecMcpsItemAuth = {
       integration?: string;
+      provider?: string;
     };
 
     export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
@@ -33906,6 +33963,27 @@ export namespace Schemas {
       alias?: string;
       /** @minimum 0 */
       version?: number;
+    };
+
+    export type PatchedAgentRevisionSpecIdentityProvidersItem = {
+      kind: 'posthog';
+      /** @minLength 1 */
+      id?: string;
+      binding?: 'principal' | 'agent';
+      scopes?: string[];
+      client_id?: string;
+    } | {
+      kind: 'oauth2';
+      /** @minLength 1 */
+      id: string;
+      binding?: 'principal' | 'agent';
+      authorize_url: string;
+      token_url: string;
+      /** @minLength 1 */
+      client_id: string;
+      client_secret_ref?: string;
+      scopes?: string[];
+      userinfo_url?: string;
     };
 
     export type PatchedAgentRevisionSpecSecretsItem = string | {
@@ -33999,6 +34077,7 @@ export namespace Schemas {
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
       integrations: string[];
+      identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
       secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
