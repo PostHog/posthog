@@ -554,11 +554,14 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
 
     content = (signal.get("content") or "").strip()
     if content:
-        # Truncate the raw markdown before converting so the cut can't slice a converted
-        # Slack link/emphasis token (which would render broken), then render to mrkdwn.
-        if len(content) > _SIGNAL_CONTENT_MAX_LEN:
-            content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _markdown_to_slack_mrkdwn(content)}})
+        # Render markdown to mrkdwn first, then truncate the rendered output: truncating raw
+        # markdown could slice a link/emphasis token mid-syntax, and conversion can lengthen
+        # text past Slack's section limit. Truncating post-defang output stays safe — a
+        # trailing cut can't synthesize a live mention (no closing `>` can appear).
+        rendered = _markdown_to_slack_mrkdwn(content)
+        if len(rendered) > _SIGNAL_CONTENT_MAX_LEN:
+            rendered = rendered[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered}})
 
     detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:
