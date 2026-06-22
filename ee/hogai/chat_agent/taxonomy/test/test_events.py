@@ -166,7 +166,8 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_retrieve_event_or_action_properties_event_not_found(self):
         result = await self.toolkit.retrieve_event_or_action_properties_parallel(["test"])
-        assert "Properties do not exist in the taxonomy for the event test." == result["test"]
+        assert "No properties were found for the event test" in result["test"]
+        assert "Do not tell the user the event test does not exist" in result["test"]
 
     async def test_retrieve_event_or_action_properties_action_mixed(self):
         result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "event1"])
@@ -185,10 +186,7 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "no-properties-event"])
 
         assert "no-properties-event" in result
-        assert (
-            "Properties do not exist in the taxonomy for the event no-properties-event."
-            == result["no-properties-event"]
-        )
+        assert "No properties were found for the event no-properties-event" in result["no-properties-event"]
         assert "<properties>" in result["232"]
 
     def tearDown(self):

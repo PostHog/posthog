@@ -119,9 +119,21 @@ class TaxonomyErrorMessages:
         return f"{item_type} not found"
 
     @staticmethod
+    def taxonomy_still_computing(item_type: str) -> str:
+        """The taxonomy result was not available yet (cache miss / still computing) — NOT a confirmed absence."""
+        return (
+            f"{item_type} could not be retrieved right now — the taxonomy may still be computing. "
+            "This does not mean they don't exist. Try again shortly; do not tell the user they don't exist."
+        )
+
+    @staticmethod
     def event_properties_not_found(event_name: str) -> str:
-        """Standard message for when no properties exist for an event/action."""
-        return f"Properties do not exist in the taxonomy for the {event_name}."
+        """No properties found within the recent data window — NOT a confirmation the event/action is absent."""
+        return (
+            f"No properties were found for the {event_name} in the recent event data. This does not necessarily "
+            f"mean the {event_name} or its properties don't exist — they may simply have no data in the analyzed "
+            f"time window. Do not tell the user the {event_name} does not exist."
+        )
 
 
 class TaxonomyTaskExecutorNode(
@@ -485,7 +497,7 @@ class TaxonomyAgentToolkit:
                 status=TaskExecutionStatus.FAILED,
             )
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            result = TaxonomyErrorMessages.generic_not_found("Properties")
+            result = TaxonomyErrorMessages.taxonomy_still_computing("Properties")
             return TaskResult(
                 id=task.id,
                 result=result,

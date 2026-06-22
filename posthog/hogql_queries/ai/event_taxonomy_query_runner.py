@@ -14,7 +14,7 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.ai.utils import TAXONOMY_DATA_WINDOW_DAYS, TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
@@ -159,7 +159,10 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
         )
 
     def _get_subquery_filter(self) -> ast.Expr:
-        date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
+        date_filter = parse_expr(
+            "timestamp >= now() - INTERVAL {window_days} DAY",
+            placeholders={"window_days": ast.Constant(value=TAXONOMY_DATA_WINDOW_DAYS)},
+        )
         filter_expr: list[ast.Expr] = [date_filter]
         if self.query.event:
             filter_expr.append(

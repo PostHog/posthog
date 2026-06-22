@@ -250,9 +250,16 @@ class TaxonomyAgentToolkit:
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
 
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            return "Properties have not been found."
+            return (
+                f"Properties for the {verbose_name} could not be retrieved right now — the taxonomy may still be "
+                "computing. This does not mean they don't exist. Try again shortly; do not tell the user they don't exist."
+            )
         if not response.results:
-            return f"Properties do not exist in the taxonomy for the {verbose_name}."
+            return (
+                f"No properties were found for the {verbose_name} in the recent event data. This does not necessarily "
+                f"mean the {verbose_name} or its properties don't exist — they may simply have no data in the analyzed "
+                f"time window. Do not tell the user the {verbose_name} does not exist."
+            )
 
         # Intersect properties with their types.
         restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
@@ -274,7 +281,11 @@ class TaxonomyAgentToolkit:
         props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | restricted)
 
         if not props:
-            return f"Properties do not exist in the taxonomy for the {verbose_name}."
+            return (
+                f"No properties were found for the {verbose_name} in the recent event data. This does not necessarily "
+                f"mean the {verbose_name} or its properties don't exist — they may simply have no data in the analyzed "
+                f"time window. Do not tell the user the {verbose_name} does not exist."
+            )
 
         return format_prompt_string(
             PROPERTIES_EXAMPLE_PROMPT,
@@ -334,7 +345,10 @@ class TaxonomyAgentToolkit:
 
         response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            return f"The {verbose_name} does not exist in the taxonomy."
+            return (
+                f"Property values for the {verbose_name} could not be retrieved right now — the taxonomy may still be "
+                "computing. This does not mean they don't exist. Try again shortly; do not tell the user they don't exist."
+            )
 
         prop = next((item for item in response.results or [] if item.property == property_name), None)
         if not prop:
