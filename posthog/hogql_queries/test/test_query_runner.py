@@ -66,7 +66,7 @@ except ImportError:
     pass
 from posthog.slo.types import SloOutcome
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
+from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
 MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE = {

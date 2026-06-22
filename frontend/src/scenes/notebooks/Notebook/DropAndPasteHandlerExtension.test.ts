@@ -247,7 +247,7 @@ describe('DropAndPasteHandlerExtension', () => {
     })
 
     describe('parseMarkdownPasteContent', () => {
-        // A flattened markdown table glued with no whitespace, as AI chats / rendered docs
+        // A flattened markdown table glued with no whitespace, as AI responses / rendered docs
         // put it on the clipboard. The matching HTML carries it as plain pipe-text, not a
         // real <table>, so without the table exception it would be lost on paste.
         const FLATTENED_TABLE =

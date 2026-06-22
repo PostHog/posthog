@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -2299,6 +2299,16 @@ export namespace Schemas {
       value: number;
     }
 
+    export type LegendPosition = typeof LegendPosition[keyof typeof LegendPosition];
+
+
+    export const LegendPosition = {
+      Top: 'top',
+      Bottom: 'bottom',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export type MetricSummary = typeof MetricSummary[keyof typeof MetricSummary];
 
 
@@ -2393,6 +2403,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Metric display: change pill color when the metric decreased. Defaults to red. */
       metricChangeDecreaseColor?: string | null;
       /** Metric display: change pill color when the metric increased. Defaults to green. */
@@ -8669,7 +8681,7 @@ export namespace Schemas {
       column?: string | null;
       /** How to read the result rows — an explicit choice, no implicit default. */
       evaluation: HogQLAlertEvaluation;
-      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row). */
       label_column?: string | null;
       type: HogQLAlertConfigType;
     }
@@ -8926,7 +8938,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -15526,7 +15538,13 @@ export namespace Schemas {
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
      * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
      * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16158,7 +16176,13 @@ export namespace Schemas {
       Datorama: 'Datorama',
       Ahrefs: 'Ahrefs',
       Lightfield: 'Lightfield',
+      Appstack: 'Appstack',
+      Razorpay: 'Razorpay',
+      Neon: 'Neon',
+      NewRelic: 'NewRelic',
       Custom: 'Custom',
+      Tile38: 'Tile38',
+      Chatwoot: 'Chatwoot',
     } as const;
 
     /**
@@ -16797,7 +16821,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17194,6 +17224,26 @@ export namespace Schemas {
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
     }
+
+    /**
+     * * `already_fixed` - Already fixed
+     * * `report_unclear` - Report is unclear to me
+     * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wontfix_intentional` - Won't fix - intentional behavior
+     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `other` - Something else…
+     */
+    export type DismissalReasonEnum = typeof DismissalReasonEnum[keyof typeof DismissalReasonEnum];
+
+
+    export const DismissalReasonEnum = {
+      AlreadyFixed: 'already_fixed',
+      ReportUnclear: 'report_unclear',
+      AnalysisWrong: 'analysis_wrong',
+      WontfixIntentional: 'wontfix_intentional',
+      WontfixIrrelevant: 'wontfix_irrelevant',
+      Other: 'other',
+    } as const;
 
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
@@ -21090,7 +21140,7 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21185,7 +21235,7 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
-      /** Requested sync mode for the schema.
+      /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21878,7 +21928,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -21905,6 +21961,8 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     /**
@@ -21962,6 +22020,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -24977,6 +25037,8 @@ export namespace Schemas {
     }
 
     export interface LogValueResult {
+      /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+      count?: number | null;
       id: string;
       name: string;
     }
@@ -25953,6 +26015,59 @@ export namespace Schemas {
       Vercel: 'vercel',
     } as const;
 
+    export interface IntegrationAccessRequest {
+      /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+       *
+       * * `anthropic` - Anthropic
+       * * `apns` - Apple Push
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `hubspot` - Hubspot
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `reddit-ads` - Reddit Ads
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel */
+      kind: IntegrationKindEnum;
+      /**
+         * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+         * @maxLength 2000
+         */
+      reason: string;
+    }
+
+    export interface IntegrationAccessRequestResponse {
+      /** Whether the access request was accepted and the project admins were notified. */
+      success: boolean;
+    }
+
     /**
      * Standard Integration serializer.
      */
@@ -26404,6 +26519,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26470,6 +26587,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26595,6 +26714,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -28711,6 +28832,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion: boolean | null;
+    }
+
+    export interface OrganizationAIAccessRequestResponse {
+      /** Whether the access request was accepted and the organization admins were notified. */
+      success: boolean;
     }
 
     /**
@@ -30912,37 +31038,54 @@ export namespace Schemas {
       results: Run[];
     }
 
-    export interface SandboxEnvironmentList {
-      readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      network_access_level?: NetworkAccessLevelEnum;
-      /**
-         * List of allowed domains for custom network access
-         * @items.maxLength 255
-         */
-      allowed_domains?: string[];
-      /**
-         * List of repositories this environment applies to (format: org/repo)
-         * @items.maxLength 255
-         */
-      repositories?: string[];
-      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-      private?: boolean;
-      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-      internal?: boolean;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      readonly updated_at: string;
+    /**
+     * @nullable
+     */
+    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
+     */
+    export interface TaskUserBasicInfo {
+      id: number;
+      uuid: string;
+      distinct_id: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
+      /** @nullable */
+      role_at_organization?: string | null;
     }
 
-    export interface PaginatedSandboxEnvironmentListList {
+    /**
+     * List response for sandbox environments (subset of fields).
+     */
+    export interface SandboxEnvironmentDTO {
+      id: string;
+      name: string;
+      network_access_level: string;
+      allowed_domains?: string[];
+      repositories?: string[];
+      private: boolean;
+      internal: boolean;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+    }
+
+    export interface PaginatedSandboxEnvironmentDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: SandboxEnvironmentList[];
+      results: SandboxEnvironmentDTO[];
     }
 
     /**
@@ -32235,139 +32378,216 @@ export namespace Schemas {
       results: Tagger[];
     }
 
-    export interface TaskAutomation {
-      readonly id: string;
-      /** @maxLength 255 */
+    /**
+     * Detail/create/update/run response for a task automation.
+     */
+    export interface TaskAutomationDTO {
+      id: string;
       name: string;
       prompt: string;
-      /** @maxLength 255 */
-      repository: string;
       /** @nullable */
-      github_integration?: number | null;
-      /** @maxLength 100 */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
       cron_expression: string;
-      /** @maxLength 128 */
-      timezone?: string;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      enabled?: boolean;
+      timezone: string;
       /** @nullable */
-      readonly last_run_at: string | null;
+      template_id: string | null;
+      enabled: boolean;
       /** @nullable */
-      readonly last_run_status: string | null;
+      last_run_at: string | null;
       /** @nullable */
-      readonly last_task_id: string | null;
+      last_run_status: string | null;
+      last_task_id: string;
       /** @nullable */
-      readonly last_task_run_id: string | null;
+      last_task_run_id: string | null;
       /** @nullable */
-      readonly last_error: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
+      last_error: string | null;
+      created_at: string;
+      updated_at: string;
     }
 
-    export interface PaginatedTaskAutomationList {
+    export interface PaginatedTaskAutomationDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: TaskAutomation[];
+      results: TaskAutomationDTO[];
     }
 
     /**
-     * * `implementation` - Implementation
+     * * `claude` - claude
+     * * `codex` - codex
      */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
 
 
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
     } as const;
 
     /**
-     * Latest run details for this task
-     * @nullable
+     * * `anthropic` - anthropic
+     * * `openai` - openai
      */
-    export type TaskLatestRun = { [key: string]: unknown } | null;
+    export type TaskRunDetailDTOProviderEnum = typeof TaskRunDetailDTOProviderEnum[keyof typeof TaskRunDetailDTOProviderEnum];
 
-    export interface Task {
-      readonly id: string;
-      /** @nullable */
-      readonly task_number: number | null;
-      readonly slug: string;
-      /**
-         * Short human-readable title. Auto-generated from `description` when omitted.
-         * @maxLength 255
-         */
-      title?: string;
-      title_manually_set?: boolean;
-      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
-      description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
-      origin_product?: OriginProductEnum;
-      /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
-         * @maxLength 255
-         * @nullable
-         */
-      repository?: string | null;
-      /**
-         * GitHub integration for this task
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * User-scoped GitHub integration to use for user-authored cloud runs.
-         * @nullable
-         */
-      github_user_integration?: string | null;
-      /** @nullable */
-      signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
-      /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
-      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
-      archived?: boolean;
-      /** @nullable */
-      readonly archived_at: string | null;
-      /**
-         * Latest run details for this task
-         * @nullable
-         */
-      readonly latest_run: TaskLatestRun;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly created_by: UserBasic;
-      /**
-         * Custom prompt for CI fixes. If blank, a default prompt will be used.
-         * @nullable
-         */
-      ci_prompt?: string | null;
+
+    export const TaskRunDetailDTOProviderEnum = {
+      Anthropic: 'anthropic',
+      Openai: 'openai',
+    } as const;
+
+    export interface TaskRunArtifactResponse {
+      /** Stable identifier for the artifact within this run */
+      id?: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Artifact size in bytes */
+      size?: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key for the artifact */
+      storage_path: string;
+      /** Timestamp when the artifact was uploaded */
+      uploaded_at: string;
     }
 
-    export interface PaginatedTaskList {
+    /**
+     * @nullable
+     */
+    export type TaskRunDetailDTOOutput = { [key: string]: unknown } | null;
+
+    export type TaskRunDetailDTOState = { [key: string]: unknown };
+
+    /**
+     * Detail response for a task run.
+     *
+     * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+     * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+     * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+     * ``latest_run`` shape by the task detail response.
+     */
+    export interface TaskRunDetailDTO {
+      id: string;
+      /** Parent task id this run belongs to. */
+      task: string;
+      /** @nullable */
+      stage: string | null;
+      /** @nullable */
+      branch: string | null;
+      status: string;
+      environment: string;
+      /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+       *
+       * * `anthropic` - anthropic
+       * * `openai` - openai */
+      provider?: TaskRunDetailDTOProviderEnum | null;
+      /**
+         * Configured LLM model identifier for this run.
+         * @nullable
+         */
+      model?: string | null;
+      /** Configured reasoning effort for this run when the selected model supports it.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Presigned S3 URL for log access (valid for 1 hour).
+         * @nullable
+         */
+      log_url?: string | null;
+      /** @nullable */
+      error_message: string | null;
+      /** @nullable */
+      output: TaskRunDetailDTOOutput;
+      state: TaskRunDetailDTOState;
+      readonly artifacts: readonly TaskRunArtifactResponse[];
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+    }
+
+    export interface PaginatedTaskDetailDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: Task[];
+      results: TaskDetailDTO[];
+    }
+
+    export interface PaginatedTaskRunDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskRunDetailDTO[];
     }
 
     /**
@@ -32402,129 +32622,31 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
-    /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
-
-
-    export const RuntimeAdapterEnum = {
-      Claude: 'claude',
-      Codex: 'codex',
-    } as const;
-
-    export type TaskRunDetailProviderEnum = typeof TaskRunDetailProviderEnum[keyof typeof TaskRunDetailProviderEnum];
-
-
-    export const TaskRunDetailProviderEnum = {
-      Anthropic: 'anthropic',
-      Openai: 'openai',
-    } as const;
-
-    export interface TaskRunArtifactResponse {
-      /** Stable identifier for the artifact within this run */
-      id?: string;
-      /** Artifact file name */
-      name: string;
-      /** Artifact classification (plan, context, etc.) */
-      type: string;
-      /** Source of the artifact, such as agent_output or user_attachment */
-      source?: string;
-      /** Artifact size in bytes */
-      size?: number;
-      /** Optional MIME type */
-      content_type?: string;
-      /** S3 object key for the artifact */
-      storage_path: string;
-      /** Timestamp when the artifact was uploaded */
-      uploaded_at: string;
-    }
-
-    export interface TaskRunDetail {
-      readonly id: string;
-      readonly task: string;
-      /**
-         * Current stage for this run (e.g., 'research', 'plan', 'build')
-         * @maxLength 100
-         * @nullable
-         */
-      stage?: string | null;
-      /**
-         * Branch name for the run
-         * @maxLength 255
-         * @nullable
-         */
-      branch?: string | null;
-      status?: TaskRunStatusEnum;
-      /** Execution environment
-       *
-       * * `local` - Local
-       * * `cloud` - Cloud */
-      environment?: TaskRunEnvironmentEnum;
-      /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterEnum | null;
-      /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-      readonly provider: TaskRunDetailProviderEnum | null;
-      /**
-         * Configured LLM model identifier for this run.
-         * @nullable
-         */
-      readonly model: string | null;
-      /** Configured reasoning effort for this run when the selected model supports it. */
-      readonly reasoning_effort: ReasoningEffortEnum | null;
-      /**
-         * Presigned S3 URL for log access (valid for 1 hour).
-         * @nullable
-         */
-      readonly log_url: string | null;
-      /**
-         * Error message if execution failed
-         * @nullable
-         */
-      error_message?: string | null;
-      /** Run output data (e.g., PR URL, commit SHA, etc.) */
-      output?: unknown;
-      /** Run state data for resuming or tracking execution state */
-      state?: unknown;
-      readonly artifacts: readonly TaskRunArtifactResponse[];
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** @nullable */
-      readonly completed_at: string | null;
-    }
-
-    export interface PaginatedTaskRunDetailList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskRunDetail[];
-    }
-
     export interface TaskRunSummary {
       status: TaskRunStatusEnum | null;
       environment: TaskRunEnvironmentEnum | null;
     }
 
-    export interface TaskSummary {
-      readonly id: string;
-      readonly title: string;
+    /**
+     * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+     */
+    export interface TaskSummaryDTO {
+      id: string;
+      title: string;
       /** @nullable */
-      readonly repository: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly latest_run: TaskRunSummary | null;
+      repository: string | null;
+      created_at: string;
+      updated_at: string;
+      latest_run?: TaskRunSummary | null;
     }
 
-    export interface PaginatedTaskSummaryList {
+    export interface PaginatedTaskSummaryDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: TaskSummary[];
+      results: TaskSummaryDTO[];
     }
 
     /**
@@ -33946,7 +34068,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -34129,6 +34251,15 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    /**
+     * Payload for publishing a freeform canvas's React source via the agent.
+     */
+    export interface PatchedCanvasPublish {
+      code?: string;
+      prompt?: string;
+      name?: string;
     }
 
     export interface PatchedClusteringJob {
@@ -35426,7 +35557,7 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -35546,6 +35677,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -38164,36 +38297,37 @@ export namespace Schemas {
       readonly is_default?: boolean;
     }
 
-    export interface PatchedSandboxEnvironment {
-      readonly id?: string;
-      /** @maxLength 255 */
+    /**
+     * Request body for creating or updating a sandbox environment.
+     */
+    export interface PatchedSandboxEnvironmentWrite {
+      /**
+         * Display name for the environment.
+         * @maxLength 255
+         */
       name?: string;
+      /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+       *
+       * * `trusted` - Trusted
+       * * `full` - Full
+       * * `custom` - Custom */
       network_access_level?: NetworkAccessLevelEnum;
       /**
-         * List of allowed domains for custom network access
+         * Allowed domains for custom network access.
          * @items.maxLength 255
          */
       allowed_domains?: string[];
-      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      /** Whether to include default trusted domains (GitHub, npm, PyPI). */
       include_default_domains?: boolean;
       /**
-         * List of repositories this environment applies to (format: org/repo)
+         * Repositories this environment applies to (format: org/repo).
          * @items.maxLength 255
          */
       repositories?: string[];
-      /** Encrypted environment variables (write-only, never returned in responses) */
+      /** Encrypted environment variables (write-only, never returned in responses). */
       environment_variables?: unknown;
-      /** Whether this environment has any environment variables set */
-      readonly has_environment_variables?: boolean;
-      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
-      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-      readonly internal?: boolean;
-      /** Computed domain allowlist based on network_access_level and allowed_domains */
-      readonly effective_domains?: readonly string[];
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedSavedHeatmapRequest {
@@ -39336,110 +39470,44 @@ export namespace Schemas {
     }
 
     /**
-     * Latest run details for this task
-     * @nullable
+     * Request body for creating or updating a task automation.
      */
-    export type PatchedTaskLatestRun = { [key: string]: unknown } | null;
-
-    export interface PatchedTask {
-      readonly id?: string;
-      /** @nullable */
-      readonly task_number?: number | null;
-      readonly slug?: string;
+    export interface PatchedTaskAutomationWrite {
       /**
-         * Short human-readable title. Auto-generated from `description` when omitted.
+         * Display name (stored as the backing task's title).
          * @maxLength 255
          */
-      title?: string;
-      title_manually_set?: boolean;
-      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
-      description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
-      origin_product?: OriginProductEnum;
-      /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
-         * @maxLength 255
-         * @nullable
-         */
-      repository?: string | null;
-      /**
-         * GitHub integration for this task
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * User-scoped GitHub integration to use for user-authored cloud runs.
-         * @nullable
-         */
-      github_user_integration?: string | null;
-      /** @nullable */
-      signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
-      /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
-      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
-      archived?: boolean;
-      /** @nullable */
-      readonly archived_at?: string | null;
-      /**
-         * Latest run details for this task
-         * @nullable
-         */
-      readonly latest_run?: PatchedTaskLatestRun;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
-      /**
-         * Custom prompt for CI fixes. If blank, a default prompt will be used.
-         * @nullable
-         */
-      ci_prompt?: string | null;
-    }
-
-    export interface PatchedTaskAutomation {
-      readonly id?: string;
-      /** @maxLength 255 */
       name?: string;
+      /** The automation prompt (stored as the backing task's description). */
       prompt?: string;
-      /** @maxLength 255 */
+      /**
+         * Target repository in the format organization/repository.
+         * @maxLength 255
+         */
       repository?: string;
-      /** @nullable */
+      /**
+         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+         * @nullable
+         */
       github_integration?: number | null;
-      /** @maxLength 100 */
+      /**
+         * Standard 5-field cron expression (minute hour day month weekday).
+         * @maxLength 100
+         */
       cron_expression?: string;
-      /** @maxLength 128 */
+      /**
+         * IANA timezone the schedule runs in.
+         * @maxLength 128
+         */
       timezone?: string;
       /**
+         * Optional template identifier this automation was created from.
          * @maxLength 255
          * @nullable
          */
       template_id?: string | null;
+      /** Whether the schedule is active; paused when false. */
       enabled?: boolean;
-      /** @nullable */
-      readonly last_run_at?: string | null;
-      /** @nullable */
-      readonly last_run_status?: string | null;
-      /** @nullable */
-      readonly last_task_id?: string | null;
-      /** @nullable */
-      readonly last_task_run_id?: string | null;
-      /** @nullable */
-      readonly last_error?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedTaskRunSetOutputRequest {
@@ -39512,6 +39580,81 @@ export namespace Schemas {
        *
        * * `local` - local */
       environment?: TaskRunUpdateEnvironmentEnum;
+    }
+
+    /**
+     * * `implementation` - Implementation
+     */
+    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+
+
+    export const SignalReportTaskRelationshipEnum = {
+      Implementation: 'implementation',
+    } as const;
+
+    /**
+     * Request body for creating or updating a task.
+     *
+     * Field required/default semantics match the ``Task`` model. The view passes
+     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+     * facade ``create_task`` / ``update_task`` functions.
+     */
+    export interface PatchedTaskWrite {
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Whether the title was set by a human (vs auto-generated from the description). */
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration for this task.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /**
+         * Signal report this task implements, when created from a report.
+         * @nullable
+         */
+      signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /** JSON schema used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. */
+      archived?: boolean;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -44412,7 +44555,7 @@ export namespace Schemas {
          */
       content: string;
       /**
-         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
          * @nullable
          */
       run_id?: string | null;
@@ -44728,36 +44871,37 @@ export namespace Schemas {
       fields: S3PresignedPostFields;
     }
 
-    export interface SandboxEnvironment {
-      readonly id: string;
-      /** @maxLength 255 */
+    /**
+     * Request body for creating or updating a sandbox environment.
+     */
+    export interface SandboxEnvironmentWrite {
+      /**
+         * Display name for the environment.
+         * @maxLength 255
+         */
       name: string;
+      /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+       *
+       * * `trusted` - Trusted
+       * * `full` - Full
+       * * `custom` - Custom */
       network_access_level?: NetworkAccessLevelEnum;
       /**
-         * List of allowed domains for custom network access
+         * Allowed domains for custom network access.
          * @items.maxLength 255
          */
       allowed_domains?: string[];
-      /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+      /** Whether to include default trusted domains (GitHub, npm, PyPI). */
       include_default_domains?: boolean;
       /**
-         * List of repositories this environment applies to (format: org/repo)
+         * Repositories this environment applies to (format: org/repo).
          * @items.maxLength 255
          */
       repositories?: string[];
-      /** Encrypted environment variables (write-only, never returned in responses) */
+      /** Encrypted environment variables (write-only, never returned in responses). */
       environment_variables?: unknown;
-      /** Whether this environment has any environment variables set */
-      readonly has_environment_variables: boolean;
-      /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+      /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
-      /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-      readonly internal: boolean;
-      /** Computed domain allowlist based on network_access_level and allowed_domains */
-      readonly effective_domains: readonly string[];
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     export interface SavedHeatmapListResponse {
@@ -45265,22 +45409,92 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
-    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+    export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
 
-    export const SignalReportStateRequestStateEnum = {
+    export const SignalReportStateEnum = {
       Suppressed: 'suppressed',
       Potential: 'potential',
     } as const;
+
+    export interface SignalReportBulkStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+       *
+       * * `suppressed` - suppressed
+       * * `potential` - potential */
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+      /**
+         * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+         * @minimum 1
+         * @maximum 100000
+         */
+      snooze_for?: number;
+      /**
+         * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.
+         * @maxItems 100
+         */
+      ids: string[];
+    }
+
+    export interface SignalReportBulkStateResult {
+      /** The report id this result refers to. */
+      id: string;
+      /** One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you. */
+      outcome: string;
+      /**
+         * The report's status after the transition. Present only when outcome is 'transitioned'.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkStateResponse {
+      /** One result per requested id, in request order (after de-duplication). */
+      results: SignalReportBulkStateResult[];
+      /** Number of reports whose state was changed. */
+      transitioned_count: number;
+      /** Number of reports whose transition was not allowed. */
+      skipped_count: number;
+      /** Number of reports that failed on invalid request data. */
+      failed_count: number;
+      /** Number of requested ids not visible to the caller. */
+      not_found_count: number;
+    }
 
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential */
-      state: SignalReportStateRequestStateEnum;
-      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-      dismissal_reason?: string;
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
       /**
          * Optional free-form note explaining the dismissal. Capped at 4000 characters.
          * @maxLength 4000
@@ -46437,7 +46651,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -47102,7 +47322,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -47118,6 +47344,8 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     export interface SourceSetupWebhook {
@@ -47867,6 +48095,47 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for creating or updating a task automation.
+     */
+    export interface TaskAutomationWrite {
+      /**
+         * Display name (stored as the backing task's title).
+         * @maxLength 255
+         */
+      name: string;
+      /** The automation prompt (stored as the backing task's description). */
+      prompt: string;
+      /**
+         * Target repository in the format organization/repository.
+         * @maxLength 255
+         */
+      repository: string;
+      /**
+         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * Standard 5-field cron expression (minute hour day month weekday).
+         * @maxLength 100
+         */
+      cron_expression: string;
+      /**
+         * IANA timezone the schedule runs in.
+         * @maxLength 128
+         */
+      timezone?: string;
+      /**
+         * Optional template identifier this automation was created from.
+         * @maxLength 255
+         * @nullable
+         */
+      template_id?: string | null;
+      /** Whether the schedule is active; paused when false. */
+      enabled?: boolean;
+    }
+
+    /**
      * Request body for the presence beacon and beacon-leave endpoints.
      *
      * `device_id` is the UUID of the caller's `UserPushToken` row, which the
@@ -48180,6 +48449,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /**
+         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
+         * @maxLength 120
+         */
+      home_quick_action?: string;
     }
 
     /**
@@ -48431,6 +48705,71 @@ export namespace Schemas {
          * @maxItems 5000
          */
       ids: string[];
+    }
+
+    /**
+     * Request body for creating or updating a task.
+     *
+     * Field required/default semantics match the ``Task`` model. The view passes
+     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+     * facade ``create_task`` / ``update_task`` functions.
+     */
+    export interface TaskWrite {
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Whether the title was set by a human (vs auto-generated from the description). */
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration for this task.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /**
+         * Signal report this task implements, when created from a report.
+         * @nullable
+         */
+      signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /** JSON schema used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. */
+      archived?: boolean;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -49478,6 +49817,8 @@ export namespace Schemas {
       id: string;
       /** Display name — currently identical to `id`. */
       name: string;
+      /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+      count?: number;
     }
 
     /**
@@ -53445,6 +53786,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsLlmSkillsListParams = {
+    /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
     /**
      * Filter skills by the ID of the user who created them.
      */
@@ -59725,6 +60070,10 @@ export namespace Schemas {
     };
 
     export type LlmSkillsListParams = {
+    /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
     /**
      * Filter skills by the ID of the user who created them.
      */

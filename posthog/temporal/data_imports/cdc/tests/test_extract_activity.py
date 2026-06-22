@@ -39,6 +39,7 @@ def _make_source(source_id=None, job_inputs=None):
     source.team_id = 1
     source.source_type = "Postgres"
     source.deleted = False
+    source.created_at = datetime(2025, 1, 1, tzinfo=UTC)  # before the SSL cutoff unless overridden
     source.job_inputs = (
         job_inputs
         if job_inputs is not None
@@ -177,14 +178,47 @@ class TestGetCDCAdapter:
         from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
 
         adapter = PostgresCDCAdapter()
-        source = _make_source(job_inputs={})
+        # Minimal connection inputs, omitting the cdc/slot fields to exercise their defaults.
+        source = _make_source(
+            job_inputs={"host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"}
+        )
         reader = adapter.create_reader(source)
         assert isinstance(reader, PgCDCStreamReader)
 
-        assert reader._params.host == ""
         assert reader._params.port == 5432
-        assert reader._params.sslmode == "prefer"
         assert reader._params.slot_name == ""
+        assert reader._params.publication_name == ""
+
+    def test_create_reader_requires_ssl_for_recent_source_without_tunnel(self):
+        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+
+        adapter = PostgresCDCAdapter()
+        source = _make_source()
+        source.created_at = datetime(2026, 3, 1, tzinfo=UTC)  # after the SSL cutoff
+        reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
+        assert reader._params.require_ssl is True
+
+    def test_create_reader_honors_ssh_tunnel_tls_opt_out(self):
+        # Two-arg source_requires_ssl: a recent source reached over an SSH tunnel that opted
+        # out of TLS must NOT be force-upgraded on the data path (single-arg would return True).
+        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+
+        adapter = PostgresCDCAdapter()
+        source = _make_source()
+        source.created_at = datetime(2026, 3, 1, tzinfo=UTC)  # after the SSL cutoff
+
+        opted_out_config = MagicMock()
+        opted_out_config.ssh_tunnel = MagicMock(enabled=True, require_tls=MagicMock(enabled=False))
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.parse_config",
+            return_value=opted_out_config,
+        ):
+            reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
+        assert reader._params.require_ssl is False
 
 
 def _make_extract_activity(source, log=None) -> CDCExtractActivity:
@@ -1404,7 +1438,7 @@ class TestSlotInvalidationRecovery:
         # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
         cdc_extract_activity(inputs)
 
-        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["users"])
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
 
@@ -1416,6 +1450,37 @@ class TestSlotInvalidationRecovery:
         assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
 
         mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recreate_passes_source_qualified_table_names(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # Recovery must resolve each schema's real source location from its metadata,
+        # not assume every table lives in the source's default schema. Otherwise a table
+        # in a non-default schema gets jammed under `public` and the publication rebuild
+        # fails with `relation "public.tll.students" does not exist`.
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        schema.name = "students"
+        schema.sync_type_config["schema_metadata"] = {"source_schema": "tll", "source_table_name": "students"}
+        mock_adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["tll.students"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -1476,10 +1541,10 @@ class TestCleanupOrphanSlotsRetentionCap:
 
     def _setup(self, mock_get_adapter, MockSourceModel, lag_mb, cap_mb):
         source = _make_source()
-        qs = MockSourceModel.objects.filter.return_value
-        qs.exclude.return_value.exclude.return_value.exclude.return_value.exclude.return_value = [source]
+        MockSourceModel.objects.filter.return_value.iterator.return_value = [source]
 
         cdc_config = MagicMock()
+        cdc_config.enabled = True
         cdc_config.slot_name = "posthog_slot"
         cdc_config.publication_name = "posthog_pub"
         cdc_config.management_mode = "posthog"
@@ -1494,10 +1559,14 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_retention_cap_lowers_critical_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_retention_cap_lowers_critical_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
@@ -1508,10 +1577,14 @@ class TestCleanupOrphanSlotsRetentionCap:
         assert source.status is MockSourceModel.Status.ERROR
         source.save.assert_called()
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_unlimited_retention_keeps_configured_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_unlimited_retention_keeps_configured_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
         cleanup_orphan_slots_activity()
