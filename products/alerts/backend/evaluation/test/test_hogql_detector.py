@@ -45,7 +45,7 @@ def test_scores_the_latest_value(latest, expect_anomaly):
     assert evaluation.value == latest
     assert bool(evaluation.breaches) is expect_anomaly
     if expect_anomaly:
-        assert "Anomaly detected" in evaluation.breaches[0]
+        assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
 
 
 def test_last_row_truncation_guard_rejects_a_capped_result():
