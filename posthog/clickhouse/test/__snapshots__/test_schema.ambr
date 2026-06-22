@@ -2915,6 +2915,38 @@
   
   '''
 # ---
+# name: test_create_table_query[marketing_costs_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS marketing_costs_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      source_id String,
+      source_name String,
+      grain LowCardinality(String),
+      match_key String,
+      campaign_id String,
+      campaign_name String,
+      ad_group_id String,
+      ad_group_name String,
+      ad_id String,
+      ad_name String,
+      cost_date Date,
+  
+      cost Float64,
+      clicks Float64,
+      impressions Float64,
+      reported_conversions Float64,
+      reported_conversion_value Float64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_marketing_costs_preaggregated', cityHash64(source_name, campaign_id))
+  
+  '''
+# ---
 # name: test_create_table_query[marketing_touchpoints_preaggregated]
   '''
   
@@ -5689,6 +5721,43 @@
   
   PARTITION BY toYYYYMMDD(expires_at)
   ORDER BY (team_id, job_id, person_id, conversion_timestamp)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_marketing_costs_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_costs_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      source_id String,
+      source_name String,
+      grain LowCardinality(String),
+      match_key String,
+      campaign_id String,
+      campaign_name String,
+      ad_group_id String,
+      ad_group_name String,
+      ad_id String,
+      ad_name String,
+      cost_date Date,
+  
+      cost Float64,
+      clicks Float64,
+      impressions Float64,
+      reported_conversions Float64,
+      reported_conversion_value Float64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.marketing_costs_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, source_name, grain, campaign_id, ad_group_id, ad_id, cost_date)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
@@ -9820,6 +9889,43 @@
   
   PARTITION BY toYYYYMMDD(expires_at)
   ORDER BY (team_id, job_id, person_id, conversion_timestamp)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_marketing_costs_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_costs_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      source_id String,
+      source_name String,
+      grain LowCardinality(String),
+      match_key String,
+      campaign_id String,
+      campaign_name String,
+      ad_group_id String,
+      ad_group_name String,
+      ad_id String,
+      ad_name String,
+      cost_date Date,
+  
+      cost Float64,
+      clicks Float64,
+      impressions Float64,
+      reported_conversions Float64,
+      reported_conversion_value Float64,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.marketing_costs_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, source_name, grain, campaign_id, ad_group_id, ad_id, cost_date)
   TTL expires_at
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
