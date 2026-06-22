@@ -8173,6 +8173,20 @@
         },
         "feature_flag": "visual-review"
     },
+    "warehouse-tables-refresh-schema-create": {
+        "description": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Refresh table schema from source",
+        "title": "Refresh table schema from source",
+        "required_scopes": ["warehouse_table:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
         "category": "Web analytics",

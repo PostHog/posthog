@@ -20,6 +20,7 @@ import {
     WarehouseSavedQueriesRunCreateBody,
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
+    WarehouseTablesRefreshSchemaCreateParams,
 } from '@/generated/data_warehouse/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -410,6 +411,21 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
     },
 })
 
+const WarehouseTablesRefreshSchemaCreateSchema = WarehouseTablesRefreshSchemaCreateParams.omit({ project_id: true })
+
+const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRefreshSchemaCreateSchema, unknown> => ({
+    name: 'warehouse-tables-refresh-schema-create',
+    schema: WarehouseTablesRefreshSchemaCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof WarehouseTablesRefreshSchemaCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_tables/${encodeURIComponent(String(params.id))}/refresh_schema/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-warehouse-data-health-issues-retrieve': dataWarehouseDataHealthIssuesRetrieve,
     'sql-variables-create': sqlVariablesCreate,
@@ -424,4 +440,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-run-history': viewRunHistory,
     'view-unmaterialize': viewUnmaterialize,
     'view-update': viewUpdate,
+    'warehouse-tables-refresh-schema-create': warehouseTablesRefreshSchemaCreate,
 }
