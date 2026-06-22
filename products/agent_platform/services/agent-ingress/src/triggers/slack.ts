@@ -38,6 +38,8 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         challenge?: string
         event?: SlackEvent
         event_id?: string
+        // `message` events carry the workspace here, not on `event.team`.
+        team_id?: string
     }
     if (body.type === 'url_verification') {
         res.json({ challenge: body.challenge })
@@ -75,7 +77,8 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   ack_reaction?: string
               })
     const trusted = slackConfig.trusted_workspaces
-    const workspaceId = event.team ?? 'unknown'
+    // message events lack event.team; fall back to the envelope team_id.
+    const workspaceId = event.team ?? body.team_id ?? 'unknown'
     if (trusted !== '*' && (!Array.isArray(trusted) || !trusted.includes(workspaceId))) {
         // The rejected workspace id is otherwise only in the 403 body — surface
         // it (plus the configured allowlist) so "why is Slack getting a 403?"
@@ -231,12 +234,9 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             application: resolved.application,
             revision: resolved.revision,
             externalKey,
-            // Slack retries the events callback up to 3 times if it doesn't see
-            // a 200 within 3s. `event_id` is Slack's per-event uuid — identical
-            // across retries, unique per real event — so it's the right
-            // idempotency key. Falls back to ts when an older payload shape
-            // doesn't carry event_id.
-            idempotencyKey: body.event_id ? `slack:event:${body.event_id}` : `slack:ts:${event.ts}`,
+            // (channel, ts) = one message: collapses app_mention + message.* and
+            // Slack retries (same ts, distinct event_ids) into a single turn.
+            idempotencyKey: `slack:msg:${event.channel}:${event.ts}`,
             seed: { role: 'user', content: slackContext, timestamp: Date.now(), sender: slackPrincipal },
             principal: slackPrincipal,
             trigger: 'slack',
