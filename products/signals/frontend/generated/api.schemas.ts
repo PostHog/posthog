@@ -335,6 +335,47 @@ export interface PatchedSignalScoutConfigApi {
 }
 
 /**
+ * A team's enforced scout run caps and current usage.
+ *
+ * These are the values the coordinator actually applies at dispatch (resolved per-team override →
+ * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+ * user thinks they configured.
+ */
+export interface ScoutLimitsApi {
+    /** Most scout runs the team can start in a single 30-minute coordinator tick. */
+    max_runs_per_tick: number
+    /**
+     * Most scout runs the team can start per rolling 24 hours, or null when uncapped.
+     * @nullable
+     */
+    max_runs_per_day: number | null
+    /** Scout runs the team has started in the trailing 24 hours. */
+    runs_today: number
+    /**
+     * Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.
+     * @nullable
+     */
+    runs_remaining_today: number | null
+}
+
+/**
+ * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+ * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+ * change without a deploy to either app.
+ */
+export interface ScoutMetadataApi {
+    /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+    enrolled: boolean
+    /**
+     * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
+     * @nullable
+     */
+    banner_message: string | null
+    /** The team's enforced scout run caps and current usage. */
+    limits: ScoutLimitsApi
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {
@@ -1216,7 +1257,7 @@ export interface RememberRequestApi {
      */
     content: string
     /**
-     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost.
      * @nullable
      */
     run_id?: string | null

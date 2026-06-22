@@ -31,6 +31,7 @@ Partition Strategy:
 
 import os
 import json
+import math
 import time
 import calendar
 import dataclasses
@@ -257,12 +258,23 @@ def _connect_duckgres(target: DucklingTarget) -> psycopg.Connection[Any]:
         target.team_id,
         organization_id=target.organization_id,
     )
-    return psycopg.connect(
+    conn = psycopg.connect(
         conninfo,
         autocommit=True,
         connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
         options=_duckgres_backfill_options(),
     )
+    # Pin the session to UTC. The ranged partition DELETEs compare the TIMESTAMPTZ catalog
+    # columns against bare 'YYYY-MM-DD' strings, a cast that uses the session TimeZone; with
+    # ICU loaded that defaults to system-local, which would shift the half-open [day,
+    # next_day) window off the UTC day the ClickHouse export wrote and strand/over-delete
+    # rows at day boundaries. Best-effort: never fail a connection over this — a server that
+    # doesn't expose the setting just keeps its prior (UTC-on-our-containers) behavior.
+    try:
+        conn.execute("SET TimeZone='UTC'")
+    except Exception as exc:
+        logger.warning("duckling_set_timezone_failed", error=str(exc), error_type=type(exc).__name__)
+    return conn
 
 
 _CONNECTION_DROPPED_SQLSTATES = {
@@ -473,6 +485,47 @@ EXPECTED_DUCKLAKE_EVENTS_COLUMNS = {
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
+# Fan a single export out across many right-sized Parquet files instead of one
+# monster object. ClickHouse PARTITION BY with a {_partition_id} placeholder in the
+# S3 path emits one file per bucket, so an export becomes ~fanout files. The
+# year/month/day Hive layout (and DuckLake's matching SET PARTITIONED BY) is
+# unchanged — only the number of files inside each day= directory grows, which is
+# what gives reads parallelism and keeps per-file scans cheap. Bucketing on a hash
+# of distinct_id spreads rows evenly and keeps each file independently scannable.
+#
+# The fan-out is computed PER EXPORT from a cheap row-count estimate, not fixed:
+# team-day volumes span many orders of magnitude (a top team's day is tens of
+# millions of rows; a small team's is a handful), so one constant would either
+# leave huge days as monster files or shatter tiny days into a swarm of near-empty
+# objects. We target ~TARGET_ROWS_PER_FILE rows per file and clamp to
+# [1, MAX_S3_FILE_FANOUT]. Row count (not bytes) is the signal because it's the
+# dominant driver of file size and the only one ClickHouse estimates cheaply from
+# the primary key without scanning the wide columns; wide-row teams can be tuned via
+# the per-run config. At ~4KB/event-row, 1M rows lands a file near ~4GB.
+#
+# MAX_S3_FILE_FANOUT is bounded by WRITER MEMORY, not file count: ClickHouse's
+# PartitionedSink keeps one Parquet writer open per active bucket for the whole
+# INSERT (a footer is written only at stream close), and a uniform hash key activates
+# all N buckets at once. Each writer buffers at most one in-progress row group, so
+# peak ≈ N × output_format_parquet_row_group_size_bytes (× parallel-encoding
+# overhead). With that byte cap pinned to 128 MiB (see PARQUET_WRITER_SETTINGS),
+# 256 × 128 MiB ≈ 32 GiB stays comfortably under the 100 GiB max_memory_usage ceiling.
+# N may exceed ClickHouse's max_partitions_per_insert_block (default 100) safely —
+# that limit gates MergeTree part creation, not the s3() PartitionedSink.
+TARGET_ROWS_PER_FILE = 1_000_000
+MAX_S3_FILE_FANOUT = 256
+
+# Parquet writer settings shared by every export. The byte cap is the load-bearing one:
+# it bounds each open partition writer's in-progress row group, so aggregate writer
+# memory scales as fan-out × this value (see MAX_S3_FILE_FANOUT). For wide event rows it
+# is also the binding row-group flush trigger (the row pin below only binds for the
+# narrower persons rows, which flush on rows first). 128 MiB row groups stay large enough
+# for efficient DuckLake/DuckDB reads while keeping high-fan-out writes within budget.
+PARQUET_WRITER_SETTINGS: dict[str, Any] = {
+    "output_format_parquet_row_group_size_bytes": 128 * 1024 * 1024,  # 128 MiB — bounds per-partition writer memory
+    "output_format_parquet_row_group_size": 250_000,  # secondary cap; binds for narrow persons rows
+}
+
 # Shared concurrency key across events + persons backfills. Each duckling
 # connection spins up a duckgres worker, and the per-org worker pool is capped
 # (maxWorkers in the duckgres chart) and shared with product queries — so the
@@ -590,6 +643,14 @@ class DucklingBackfillConfig(Config):
     create_tables_if_missing: bool = True
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
+    # Dynamic S3 fan-out: each export is split into ~ceil(row_count / target_rows_per_file)
+    # Parquet files, clamped to [1, max_s3_file_fanout]. Huge team-days produce many
+    # right-sized files; tiny ones stay a single file. The fan-out also drives writer
+    # memory (peak ≈ fan-out × per-partition row-group buffer; see PARQUET_WRITER_SETTINGS),
+    # so for teams with unusually wide rows, lowering target_rows_per_file both keeps files
+    # in range AND raises fan-out — pair it with a lower max_s3_file_fanout if memory is tight.
+    target_rows_per_file: int = TARGET_ROWS_PER_FILE
+    max_s3_file_fanout: int = MAX_S3_FILE_FANOUT
 
 
 def parse_partition_key(key: str) -> tuple[int, str]:
@@ -1047,6 +1108,42 @@ def validate_duckling_persons_schema(
     )
 
 
+def _compute_fanout(row_count: int, target_rows_per_file: int, max_fanout: int) -> int:
+    """Pick how many Parquet files to split an export into.
+
+    Sizes the fan-out to the export's actual volume: one file per ~target_rows_per_file
+    rows, clamped to [1, max_fanout]. A near-empty export collapses to a single file; a
+    tens-of-millions-of-rows day spreads across many right-sized files.
+
+    Pure arithmetic — no ClickHouse I/O, so no retry decorator (the count that feeds it
+    is retried in _estimate_export_row_count).
+
+    Fails closed to a single file on an empty export or a non-positive config (these are
+    user-tunable, so a 0 target must not divide-by-zero the backfill).
+    """
+    if row_count <= 0 or target_rows_per_file <= 0 or max_fanout <= 0:
+        return 1
+    return max(1, min(math.ceil(row_count / target_rows_per_file), max_fanout))
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    reraise=True,
+)
+def _estimate_export_row_count(client: Client, count_sql: str, settings: dict[str, Any]) -> int:
+    """Cheap row-count estimate used to size the export fan-out.
+
+    `count()` over a team-day reads only the primary-key marks (team_id is the leading
+    key), so it does not scan the wide event/person columns the export itself streams.
+    Retried like the export itself — it's the only other ClickHouse call on the path, and
+    a transient failure here shouldn't fail the whole partition before the INSERT runs.
+    """
+    result = client.execute(count_sql, settings=settings)
+    return int(result[0][0]) if result and result[0] else 0
+
+
 @retry(
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -1221,42 +1318,61 @@ def export_events_to_duckling_s3(
 ) -> str | None:
     """Export events for a team/date to the duckling's S3 bucket.
 
+    The day is fanned out across a volume-sized number of Parquet files via ClickHouse
+    PARTITION BY rather than one giant per-day object (see _compute_fanout).
+
     ClickHouse uses its EC2 instance role for S3 access. The duckling bucket policy
     explicitly allows the ClickHouse EC2 role, so no explicit credentials are needed.
 
     Returns:
-        S3 path that was written, or None if dry_run.
+        S3 glob matching every file this run produced for the day, or None if dry_run.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
     day = date.strftime("%d")
     date_str = date.strftime("%Y-%m-%d")
 
-    # Path without s3:// scheme for the HTTPS URL
-    path_without_scheme = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/year={year}/month={month}/day={day}/{run_id}.parquet"
+    day_dir = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/year={year}/month={month}/day={day}"
+
+    # {_partition_id} is substituted by ClickHouse per PARTITION BY bucket, so one
+    # INSERT emits {run_id}_0.parquet … {run_id}_{N-1}.parquet. The run_id prefix
+    # keeps each run's files isolated: a re-run writes a fresh set, and registration
+    # globs only this run's files (see register_files_with_duckling), so a replay can
+    # never re-register a prior run's objects. Prior runs' physical files are left in
+    # place — they're orphaned from the catalog by the DELETE-before-register step and
+    # are harmless; deleting registered S3 files would corrupt the catalog.
+    partition_path = f"{day_dir}/{run_id}_{{_partition_id}}.parquet"
+    file_glob = f"{day_dir}/{run_id}_*.parquet"
 
     # ClickHouse needs HTTPS URL format for cross-account S3 access
-    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, path_without_scheme)
+    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, partition_path)
 
-    # S3 path with scheme for DuckLake registration
-    s3_path = f"s3://{target.bucket}/{path_without_scheme}"
+    # S3 glob with scheme that registration enumerates to find every produced file
+    s3_glob = f"s3://{target.bucket}/{file_glob}"
 
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
-    # Event rows are wide (large properties/person_properties JSON), and the Parquet
-    # writer buffers a full row group per encoding thread before flushing — this is where
-    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Peak
-    # memory is ~ row_group_size * bytes_per_row * threads, so the 1M-row default builds
-    # multi-GB groups that blow the limit under parallel encoding. 250k rows lands each
-    # group in Parquet's recommended byte range (~hundreds of MB) while keeping read
-    # efficiency near the default; the raised ceiling is headroom on top.
+    # Event rows are wide (large properties/person_properties JSON). With PARTITION BY,
+    # writer memory is dominated by the per-partition row-group buffers (one open writer
+    # per active bucket), so we cap the row group by bytes via PARQUET_WRITER_SETTINGS;
+    # the 100 GiB ceiling is headroom on top. See the PARQUET_WRITER_SETTINGS /
+    # MAX_S3_FILE_FANOUT comments for the fan-out × buffer memory model.
     export_settings = settings.copy()
-    export_settings.update(
-        {
-            "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB, matching the full-persons export
-            "output_format_parquet_row_group_size": 250_000,  # down from the 1M default
-        }
-    )
+    export_settings.update(PARQUET_WRITER_SETTINGS)
+    export_settings["max_memory_usage"] = 100 * 1024 * 1024 * 1024  # 100GB, matching the full-persons export
+
+    info = f"team_id={team_id}, date={date_str}"
+
+    if config.dry_run:
+        context.log.info(
+            f"[DRY RUN] Would estimate row count for {info} and fan the export across up to "
+            f"{config.max_s3_file_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
+        )
+        return None
+
+    # Size the fan-out to this team-day's actual volume.
+    row_count = _estimate_export_row_count(client, f"SELECT count() FROM events WHERE {where_clause}", settings)
+    fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
 
     # ClickHouse uses its EC2 instance role - no credentials needed
     # The duckling bucket policy allows the ClickHouse EC2 role
@@ -1265,6 +1381,7 @@ def export_events_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
+    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
         {EVENTS_COLUMNS}
     FROM events
@@ -1272,89 +1389,123 @@ def export_events_to_duckling_s3(
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
-    info = f"team_id={team_id}, date={date_str}"
-
-    if config.dry_run:
-        context.log.info(f"[DRY RUN] Would export with SQL: {export_sql[:800]}...")
-        return None
-
-    context.log.info(f"Exporting events for {info} to {s3_path}")
+    context.log.info(f"Exporting events for {info} ({row_count} rows → {fanout} file(s)) to {s3_glob}")
     logger.info(
         "duckling_export_start",
         team_id=team_id,
         date=date_str,
-        s3_path=s3_path,
+        s3_glob=s3_glob,
+        row_count=row_count,
+        fanout=fanout,
     )
 
     try:
         _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported events for {info}")
         logger.info("duckling_export_success", team_id=team_id, date=date_str)
-        return s3_path
+        return s3_glob
     except Exception:
         context.log.exception(f"Failed to export events for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_export_failed", team_id=team_id, date=date_str)
         raise
 
 
-def register_file_with_duckling(
+def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
+    """Enumerate the Parquet files a fanned-out export produced for one run.
+
+    The export writes a variable (and possibly empty) number of files — one per
+    non-empty PARTITION BY bucket — so registration discovers them by globbing the
+    run's output rather than predicting names. The glob is run-scoped, so it never
+    returns a prior run's objects.
+    """
+    with conn.cursor() as cur:
+        cur.execute("SELECT file FROM glob(%s) ORDER BY file", (s3_glob,))
+        return [row[0] for row in cur.fetchall()]
+
+
+def register_files_with_duckling(
     context: AssetExecutionContext,
     target: DucklingTarget,
-    s3_path: str,
+    s3_glob: str,
     config: DucklingBackfillConfig,
     conn: psycopg.Connection[Any],
-) -> bool:
-    """Register an exported Parquet file with the duckling's DuckLake catalog.
+) -> int:
+    """Register every Parquet file a fanned-out events export produced.
 
-    Cross-account S3 access is configured server-side on the duckling's duckgres
-    via IRSA, so the DAG only needs a pgwire connection.
+    A team-day export now emits many files, so this globs the run's output and
+    registers each one exactly once. Cross-account S3 access is configured
+    server-side on the duckling's duckgres via IRSA, so the DAG only needs a pgwire
+    connection.
 
     DuckLake transaction conflicts are retried server-side by duckgres. Connection
     retries live in the caller — this helper operates on a connection it doesn't own.
+    Because ducklake_add_data_files APPENDS with no dedup-by-path, the caller must
+    have cleared the day's existing rows (DELETE) before calling, so a replay can't
+    double-register.
 
     Args:
         context: Dagster asset execution context.
         target: The resolved duckling target (duckgres connection identity + S3 bucket).
-        s3_path: S3 path of the Parquet file to register.
+        s3_glob: S3 glob matching every file this run produced for the day.
         config: Job configuration.
         conn: psycopg connection to the org's duckgres server.
 
     Returns:
-        True if registration succeeded, False otherwise.
+        Number of files registered (0 if skipped, dry_run, or the day was empty).
     """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
-        return False
+        return 0
 
     if config.dry_run:
-        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake (org {target.organization_id})")
-        return False
+        context.log.info(
+            f"[DRY RUN] Would register files matching {s3_glob} with DuckLake (org {target.organization_id})"
+        )
+        return 0
 
     alias = DUCKLAKE_ALIAS
 
-    context.log.info(f"Registering file with DuckLake: {s3_path}")
     try:
-        conn.execute(
-            psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
-                psql.Literal(alias),
-                psql.Literal(s3_path),
+        files = _glob_run_files(conn, s3_glob)
+        if not files:
+            context.log.info(f"No files produced for {s3_glob}, nothing to register")
+            return 0
+
+        context.log.info(f"Registering {len(files)} file(s) with DuckLake from {s3_glob}")
+        for s3_path in files:
+            # allow_missing tolerates columns the live ingestion path added to the
+            # duckling table via schema evolution but the backfill export doesn't carry.
+            # Safe because the export SELECT is a fixed column set — a missing critical
+            # column (team_id/uuid/timestamp) would only arise from an export bug, not
+            # normal operation, and would surface as NULL-filled rows in downstream reads.
+            conn.execute(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
+                    psql.Literal(alias),
+                    psql.Literal(s3_path),
+                )
             )
-        )
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
         if not _connection_dropped(exc):
-            context.log.exception(f"Failed to register file {s3_path}")
+            context.log.exception(f"Failed to register files matching {s3_glob}")
             logger.exception(
                 "duckling_file_registration_failed",
-                s3_path=s3_path,
+                s3_glob=s3_glob,
                 team_id=target.team_id,
             )
         raise
 
-    context.log.info(f"Successfully registered: {s3_path}")
-    logger.info("duckling_file_registered", s3_path=s3_path, team_id=target.team_id)
-    return True
+    context.log.info(f"Successfully registered {len(files)} file(s) from {s3_glob}")
+    logger.info(
+        "duckling_files_registered",
+        s3_glob=s3_glob,
+        file_count=len(files),
+        team_id=target.team_id,
+    )
+    return len(files)
 
 
 def export_persons_to_duckling_s3(
@@ -1377,15 +1528,43 @@ def export_persons_to_duckling_s3(
     latest version of each person and distinct_id mapping.
 
     Returns:
-        S3 path that was written, or None if dry_run.
+        S3 glob matching every file this run produced, or None if dry_run.
     """
     year = date.strftime("%Y")
     month = date.strftime("%m")
     date_str = date.strftime("%Y-%m-%d")
 
-    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}/{run_id}.parquet"
-    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, path_without_scheme)
-    s3_path = f"s3://{target.bucket}/{path_without_scheme}"
+    period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}"
+    # Fanned out by PARTITION BY into {run_id}_*.parquet — see export_events_to_duckling_s3
+    # for why the run_id prefix keeps replays from re-registering prior files.
+    partition_path = f"{period_dir}/{run_id}_{{_partition_id}}.parquet"
+    file_glob = f"{period_dir}/{run_id}_*.parquet"
+    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, partition_path)
+    s3_glob = f"s3://{target.bucket}/{file_glob}"
+
+    info = f"team_id={team_id}, date={date_str}"
+
+    if config.dry_run:
+        context.log.info(
+            f"[DRY RUN] Would estimate row count for persons {info} and fan the export across up to "
+            f"{config.max_s3_file_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
+        )
+        return None
+
+    # Size the fan-out from a cheap proxy: persons modified that day (team_id is the
+    # leading primary key). Output rows are these persons' distinct_ids, so this under-counts
+    # by the distinct-ids-per-person ratio (~1-2). We can't use the accurate
+    # person_distinct_id2 count the full export uses: the daily filter is on person._timestamp
+    # (which day a person changed), and person_distinct_id2 has no equivalent per-day column —
+    # counting the actual output would mean running the FINAL'd JOIN, i.e. the export itself.
+    # The under-count only nudges files slightly above target; persons days are small and the
+    # max_s3_file_fanout clamp binds first.
+    row_count = _estimate_export_row_count(
+        client,
+        f"SELECT count() FROM person WHERE team_id = {team_id} AND toDate(_timestamp) = '{date_str}' AND is_deleted = 0",
+        settings,
+    )
+    fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
 
     # Join person with person_distinct_id2 to get distinct_ids
     # Use FINAL to handle ReplacingMergeTree deduplication
@@ -1395,6 +1574,7 @@ def export_persons_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
+    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL
@@ -1407,25 +1587,25 @@ def export_persons_to_duckling_s3(
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
-    info = f"team_id={team_id}, date={date_str}"
+    # Bound per-partition writer memory like the events export (see PARQUET_WRITER_SETTINGS).
+    export_settings = settings.copy()
+    export_settings.update(PARQUET_WRITER_SETTINGS)
 
-    if config.dry_run:
-        context.log.info(f"[DRY RUN] Would export persons with SQL: {export_sql[:800]}...")
-        return None
-
-    context.log.info(f"Exporting persons for {info} to {s3_path}")
+    context.log.info(f"Exporting persons for {info} ({row_count} persons → {fanout} file(s)) to {s3_glob}")
     logger.info(
         "duckling_persons_export_start",
         team_id=team_id,
         date=date_str,
-        s3_path=s3_path,
+        s3_glob=s3_glob,
+        row_count=row_count,
+        fanout=fanout,
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, settings, info)
+        _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported persons for {info}")
         logger.info("duckling_persons_export_success", team_id=team_id, date=date_str)
-        return s3_path
+        return s3_glob
     except Exception:
         context.log.exception(f"Failed to export persons for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_persons_export_failed", team_id=team_id, date=date_str)
@@ -1448,11 +1628,15 @@ def export_persons_full_to_duckling_s3(
     person_distinct_id2 to include distinct_ids.
 
     Returns:
-        S3 path that was written, or None if dry_run.
+        S3 glob matching every file this run produced, or None if dry_run.
     """
-    path_without_scheme = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year=0/month=0/{run_id}.parquet"
-    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, path_without_scheme)
-    s3_path = f"s3://{target.bucket}/{path_without_scheme}"
+    period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year=0/month=0"
+    # Fanned out by PARTITION BY into {run_id}_*.parquet — see export_events_to_duckling_s3
+    # for why the run_id prefix keeps replays from re-registering prior files.
+    partition_path = f"{period_dir}/{run_id}_{{_partition_id}}.parquet"
+    file_glob = f"{period_dir}/{run_id}_*.parquet"
+    s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, partition_path)
+    s3_glob = f"s3://{target.bucket}/{file_glob}"
 
     # Join person with person_distinct_id2 to get distinct_ids
     # Use FINAL to handle ReplacingMergeTree deduplication
@@ -1460,6 +1644,7 @@ def export_persons_full_to_duckling_s3(
     # Full exports need more memory due to FINAL + JOIN on large datasets
     # Also enable external sorting to spill to disk if memory is still exceeded
     full_export_settings = settings.copy()
+    full_export_settings.update(PARQUET_WRITER_SETTINGS)  # bound per-partition writer memory
     full_export_settings.update(
         {
             "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB for full exports
@@ -1467,11 +1652,30 @@ def export_persons_full_to_duckling_s3(
         }
     )
 
+    info = f"team_id={team_id}, full_export"
+
+    if config.dry_run:
+        context.log.info(
+            f"[DRY RUN] Would estimate row count for persons {info} and fan the export across up to "
+            f"{config.max_s3_file_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
+        )
+        return None
+
+    # Size the fan-out from the team's distinct-id rows (≈ output rows; team_id is the
+    # leading primary key). No FINAL — a slight overcount only nudges the file count up.
+    row_count = _estimate_export_row_count(
+        client,
+        f"SELECT count() FROM person_distinct_id2 WHERE team_id = {team_id} AND is_deleted = 0",
+        settings,
+    )
+    fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
+
     export_sql = f"""
     INSERT INTO FUNCTION s3(
         '{s3_url}',
         'Parquet'
     )
+    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL
@@ -1483,85 +1687,99 @@ def export_persons_full_to_duckling_s3(
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
     """
 
-    info = f"team_id={team_id}, full_export"
-
-    if config.dry_run:
-        context.log.info(f"[DRY RUN] Would export persons (full) with SQL: {export_sql[:800]}...")
-        return None
-
-    context.log.info(f"Exporting all persons for {info} to {s3_path}")
+    context.log.info(f"Exporting all persons for {info} ({row_count} distinct-ids → {fanout} file(s)) to {s3_glob}")
     logger.info(
         "duckling_persons_full_export_start",
         team_id=team_id,
-        s3_path=s3_path,
+        s3_glob=s3_glob,
+        row_count=row_count,
+        fanout=fanout,
     )
 
     try:
         _execute_export_with_retry(client, export_sql, full_export_settings, info)
         context.log.info(f"Successfully exported all persons for {info}")
         logger.info("duckling_persons_full_export_success", team_id=team_id)
-        return s3_path
+        return s3_glob
     except Exception:
         context.log.exception(f"Failed to export persons (full) for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_persons_full_export_failed", team_id=team_id)
         raise
 
 
-def register_persons_file_with_duckling(
+def register_persons_files_with_duckling(
     context: AssetExecutionContext,
     target: DucklingTarget,
-    s3_path: str,
+    s3_glob: str,
     config: DucklingBackfillConfig,
     conn: psycopg.Connection[Any],
-) -> bool:
-    """Register an exported persons Parquet file with the duckling's DuckLake catalog.
+) -> int:
+    """Register every Parquet file a fanned-out persons export produced.
+
+    Globs the run's output and registers each file exactly once. The caller must
+    have cleared the existing rows (DELETE) first so a replay can't double-register.
 
     DuckLake transaction conflicts are retried server-side by duckgres. Connection
     retries live in the caller — this helper operates on a connection it doesn't own.
+
+    Returns:
+        Number of files registered (0 if skipped, dry_run, or the export was empty).
     """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
-        return False
+        return 0
 
     if config.dry_run:
-        context.log.info(f"[DRY RUN] Would register {s3_path} with DuckLake (org {target.organization_id})")
-        return False
+        context.log.info(
+            f"[DRY RUN] Would register files matching {s3_glob} with DuckLake (org {target.organization_id})"
+        )
+        return 0
 
     alias = DUCKLAKE_ALIAS
 
-    context.log.info(f"Registering persons file with DuckLake: {s3_path}")
     try:
-        conn.execute(
-            psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
-                psql.Literal(alias),
-                psql.Literal(s3_path),
+        files = _glob_run_files(conn, s3_glob)
+        if not files:
+            context.log.info(f"No persons files produced for {s3_glob}, nothing to register")
+            return 0
+
+        context.log.info(f"Registering {len(files)} persons file(s) with DuckLake from {s3_glob}")
+        for s3_path in files:
+            # See the events registration site for the allow_missing rationale.
+            conn.execute(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
+                    psql.Literal(alias),
+                    psql.Literal(s3_path),
+                )
             )
-        )
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
         if not _connection_dropped(exc):
-            context.log.exception(f"Failed to register persons file {s3_path}")
+            context.log.exception(f"Failed to register persons files matching {s3_glob}")
             logger.exception(
                 "duckling_persons_file_registration_failed",
-                s3_path=s3_path,
+                s3_glob=s3_glob,
                 team_id=target.team_id,
             )
         raise
 
-    context.log.info(f"Successfully registered persons: {s3_path}")
+    context.log.info(f"Successfully registered {len(files)} persons file(s) from {s3_glob}")
     logger.info(
-        "duckling_persons_file_registered",
-        s3_path=s3_path,
+        "duckling_persons_files_registered",
+        s3_glob=s3_glob,
+        file_count=len(files),
         team_id=target.team_id,
     )
-    return True
+    return len(files)
 
 
 @asset(
     partitions_def=duckling_events_partitions_def,
     name="duckling_events_backfill",
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **EVENTS_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **EVENTS_CONCURRENCY_TAG},
 )
 def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill events from ClickHouse to a customer's duckling.
@@ -1580,7 +1798,10 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
        c. Registers the Parquet file with the duckling's DuckLake catalog (via cross-account role)
     """
     team_id, dates = parse_partition_key_dates(context.partition_key)
-    run_id = context.run.run_id[:8]
+    # 16 hex chars (64 bits): the file prefix that scopes each run's glob. The exactly-once
+    # guarantee is the ranged DELETE, not prefix uniqueness, but a wider prefix makes a
+    # same-day re-run sharing a prefix (→ globbing a prior run's orphans) effectively impossible.
+    run_id = context.run.run_id[:16]
 
     context.log.info(f"Starting duckling backfill for team_id={team_id}, dates={len(dates)} day(s)")
     logger.info(
@@ -1641,9 +1862,8 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
         # Process each date in the partition
-        total_exported = 0
+        days_exported = 0
         total_registered = 0
-        s3_paths: list[str] = []
 
         for partition_date in dates:
             date_str = partition_date.strftime("%Y-%m-%d")
@@ -1670,41 +1890,40 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                         settings=merged_settings,
                     )
 
-            s3_path = cluster.any_host_by_role(
+            s3_glob = cluster.any_host_by_role(
                 fn=do_export,
                 workload=workload,
                 node_role=NodeRole.DATA,
             ).result()
 
-            # Register with DuckLake if we have a file
-            if s3_path:
-                total_exported += 1
-                s3_paths.append(s3_path)
+            # Register every file the day's fanned-out export produced
+            if s3_glob:
+                days_exported += 1
                 if session is not None:
 
-                    def register_events_file(
+                    def register_events_files(
                         conn: psycopg.Connection[Any],
-                        path: str = s3_path,
+                        glob: str = s3_glob,
                         date: datetime = partition_date,
-                    ) -> bool:
+                    ) -> int:
                         # Idempotent replay unit: ducklake_add_data_files APPENDS with no
-                        # dedup-by-path, so if a prior attempt committed the registration
+                        # dedup-by-path, so if a prior attempt committed some registrations
                         # but the worker died before the client saw the ack, re-clear the
-                        # day's range first (idempotent DELETE) then re-add — the net state
-                        # is exactly this file for the day, wherever the prior attempt died.
+                        # day's range first (idempotent DELETE) then re-add all of this run's
+                        # files — the net state is exactly this run's file set for the day,
+                        # wherever the prior attempt died.
                         if config.cleanup_existing_partition_data:
                             delete_events_partition_data(context, target, team_id, date, conn=conn)
-                        return register_file_with_duckling(context, target, path, config, conn)
+                        return register_files_with_duckling(context, target, glob, config, conn)
 
-                    if session.run(f"register events file {date_str}", register_events_file):
-                        total_registered += 1
+                    total_registered += session.run(f"register events files {date_str}", register_events_files)
 
         context.add_output_metadata(
             {
                 "team_id": team_id,
                 "partition_key": context.partition_key,
                 "dates_processed": len(dates),
-                "files_exported": total_exported,
+                "days_exported": days_exported,
                 "files_registered": total_registered,
                 "bucket": target.bucket,
             }
@@ -1712,13 +1931,13 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
         context.log.info(
             f"Completed duckling backfill for team_id={team_id}: "
-            f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
+            f"{days_exported}/{len(dates)} days exported, {total_registered} files registered"
         )
         logger.info(
             "duckling_backfill_complete",
             team_id=team_id,
             dates_processed=len(dates),
-            files_exported=total_exported,
+            days_exported=days_exported,
             files_registered=total_registered,
         )
 
@@ -1730,7 +1949,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 @asset(
     partitions_def=duckling_persons_partitions_def,
     name="duckling_persons_backfill",
-    tags={"owner": JobOwners.TEAM_DATA_STACK.value, **PERSONS_CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value, **PERSONS_CONCURRENCY_TAG},
 )
 def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBackfillConfig) -> None:
     """Backfill persons from ClickHouse to a customer's duckling.
@@ -1753,7 +1972,10 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     """
     partition_key = context.partition_key
     is_full = is_full_export_partition(partition_key)
-    run_id = context.run.run_id[:8]
+    # 16 hex chars (64 bits): the file prefix that scopes each run's glob. The exactly-once
+    # guarantee is the ranged DELETE, not prefix uniqueness, but a wider prefix makes a
+    # same-day re-run sharing a prefix (→ globbing a prior run's orphans) effectively impossible.
+    run_id = context.run.run_id[:16]
 
     if is_full:
         team_id = int(partition_key)
@@ -1841,52 +2063,47 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                         settings=merged_settings,
                     )
 
-            s3_path = cluster.any_host_by_role(
+            s3_glob = cluster.any_host_by_role(
                 fn=do_full_export,
                 workload=workload,
                 node_role=NodeRole.DATA,
             ).result()
 
-            files_exported = 1 if s3_path else 0
             files_registered = 0
-            if s3_path and session is not None:
+            if s3_glob and session is not None:
 
-                def register_full_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                def register_full_persons_files(conn: psycopg.Connection[Any], glob: str = s3_glob) -> int:
                     # Idempotent replay unit (see _DuckgresSession): re-clear all of the
-                    # team's persons (idempotent DELETE) then re-add, so a replay after a
-                    # committed-but-unacked registration can't double-register the file.
+                    # team's persons (idempotent DELETE) then re-add all of this run's files,
+                    # so a replay after a committed-but-unacked registration can't double-register.
                     if config.cleanup_existing_partition_data:
                         delete_persons_partition_data(context, target, team_id, partition_date=None, conn=conn)
-                    return register_persons_file_with_duckling(context, target, path, config, conn)
+                    return register_persons_files_with_duckling(context, target, glob, config, conn)
 
-                if session.run("register persons file (full)", register_full_persons_file):
-                    files_registered = 1
+                files_registered = session.run("register persons files (full)", register_full_persons_files)
 
             context.add_output_metadata(
                 {
                     "team_id": team_id,
                     "partition_key": partition_key,
                     "export_mode": "full",
-                    "files_exported": files_exported,
                     "files_registered": files_registered,
                     "bucket": target.bucket,
                 }
             )
 
             context.log.info(
-                f"Completed duckling persons full backfill for team_id={team_id}: "
-                f"{files_exported} file exported, {files_registered} registered"
+                f"Completed duckling persons full backfill for team_id={team_id}: {files_registered} files registered"
             )
             logger.info(
                 "duckling_persons_backfill_complete",
                 team_id=team_id,
                 export_mode="full",
-                files_exported=files_exported,
                 files_registered=files_registered,
             )
         else:
             # DAILY EXPORT MODE - process each date in the partition
-            total_exported = 0
+            days_exported = 0
             total_registered = 0
 
             for partition_date in dates:
@@ -1916,30 +2133,30 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                             settings=merged_settings,
                         )
 
-                s3_path = cluster.any_host_by_role(
+                s3_glob = cluster.any_host_by_role(
                     fn=do_export,
                     workload=workload,
                     node_role=NodeRole.DATA,
                 ).result()
 
-                if s3_path:
-                    total_exported += 1
+                if s3_glob:
+                    days_exported += 1
                     if session is not None:
 
-                        def register_persons_file(
+                        def register_persons_files(
                             conn: psycopg.Connection[Any],
-                            path: str = s3_path,
+                            glob: str = s3_glob,
                             date: datetime = partition_date,
-                        ) -> bool:
+                        ) -> int:
                             # Idempotent replay unit (see _DuckgresSession): re-clear the
-                            # day's range (idempotent DELETE) then re-add, so a replay after
-                            # a committed-but-unacked registration can't double-register.
+                            # day's range (idempotent DELETE) then re-add all of this run's
+                            # files, so a replay after a committed-but-unacked registration
+                            # can't double-register.
                             if config.cleanup_existing_partition_data:
                                 delete_persons_partition_data(context, target, team_id, date, conn=conn)
-                            return register_persons_file_with_duckling(context, target, path, config, conn)
+                            return register_persons_files_with_duckling(context, target, glob, config, conn)
 
-                        if session.run(f"register persons file {date_str}", register_persons_file):
-                            total_registered += 1
+                        total_registered += session.run(f"register persons files {date_str}", register_persons_files)
 
             context.add_output_metadata(
                 {
@@ -1947,7 +2164,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                     "partition_key": partition_key,
                     "export_mode": "daily",
                     "dates_processed": len(dates),
-                    "files_exported": total_exported,
+                    "days_exported": days_exported,
                     "files_registered": total_registered,
                     "bucket": target.bucket,
                 }
@@ -1955,14 +2172,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
             context.log.info(
                 f"Completed duckling persons daily backfill for team_id={team_id}: "
-                f"{total_exported}/{len(dates)} days exported, {total_registered} registered"
+                f"{days_exported}/{len(dates)} days exported, {total_registered} files registered"
             )
             logger.info(
                 "duckling_persons_backfill_complete",
                 team_id=team_id,
                 export_mode="daily",
                 dates_processed=len(dates),
-                files_exported=total_exported,
+                days_exported=days_exported,
                 files_registered=total_registered,
             )
 
@@ -2245,8 +2462,7 @@ duckling_events_backfill_job = define_asset_job(
     name="duckling_events_backfill_job",
     selection=["duckling_events_backfill"],
     tags={
-        "owner": JobOwners.TEAM_DATA_STACK.value,
-        "disable_slack_notifications": True,
+        "owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value,
         **EVENTS_CONCURRENCY_TAG,
     },
 )
@@ -2450,8 +2666,7 @@ duckling_persons_backfill_job = define_asset_job(
     name="duckling_persons_backfill_job",
     selection=["duckling_persons_backfill"],
     tags={
-        "owner": JobOwners.TEAM_DATA_STACK.value,
-        "disable_slack_notifications": True,
+        "owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value,
         **PERSONS_CONCURRENCY_TAG,
     },
 )

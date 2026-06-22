@@ -751,10 +751,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'field-notes',
                 'mcp-analytics',
                 'metrics',
-                'replay-admin-export',
             ])
         )
-        expect(flags).toHaveLength(20)
+        expect(flags).toHaveLength(19)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

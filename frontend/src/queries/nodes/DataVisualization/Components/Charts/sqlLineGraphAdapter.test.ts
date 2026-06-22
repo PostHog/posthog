@@ -1,4 +1,10 @@
-import { type TooltipContext, type TrendLineConfig, type YAxisConfig } from '@posthog/quill-charts'
+import {
+    type TooltipContext,
+    type TrendLineConfig,
+    type ValueLabelContext,
+    type ValueLabelsConfig,
+    type YAxisConfig,
+} from '@posthog/quill-charts'
 
 import { compactNumber } from 'lib/utils/numbers'
 
@@ -351,6 +357,27 @@ describe('sqlLineGraphAdapter', () => {
             expect(series.key).toBe('chrome')
         })
 
+        it('honors a custom display label, falling back to the column name', () => {
+            const [custom, fallback] = buildSeries(
+                [ySeries('revenue', [1], { display: { label: 'Total revenue' } }), ySeries('count', [2])],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(custom.label).toBe('Total revenue')
+            expect(fallback.label).toBe('count')
+        })
+
+        it('honors a custom display label on a breakdown series, falling back to the breakdown value', () => {
+            const [custom, fallback] = buildSeries(
+                [
+                    breakdownSeries('chrome', [1], { display: { label: 'Chrome browser' } }),
+                    breakdownSeries('safari', [2]),
+                ],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(custom.label).toBe('Chrome browser')
+            expect(fallback.label).toBe('safari')
+        })
+
         it('derives each series quill type from its displayType', () => {
             const [bar, line, area] = buildSeries(
                 [
@@ -621,6 +648,33 @@ describe('sqlLineGraphAdapter', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', goalLines })
             expect(config.goalLines).toHaveLength(1)
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
+        })
+
+        it('omits value labels unless showValuesOnSeries is set', () => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
+            expect(config.valueLabels).toBeUndefined()
+        })
+
+        it('formats each value label from its own series column when showValuesOnSeries is set', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showValuesOnSeries: true },
+                timezone: 'UTC',
+                ySeriesData: [
+                    ySeries('revenue', [1200], { formatting: { prefix: '$' } }),
+                    ySeries('conversion', [12], { formatting: { suffix: '%' } }),
+                ],
+            })
+            expect(config.valueLabels).toEqual(expect.objectContaining({ formatter: expect.any(Function) }))
+            const formatter = (config.valueLabels as ValueLabelsConfig).formatter!
+            const ctx = (rawValue: number): ValueLabelContext => ({
+                rawValue,
+                bandValues: [rawValue],
+                isPercent: false,
+            })
+            // The label reads context.rawValue (not the percent-fraction `value` arg) with each series' settings.
+            expect(formatter(0, 0, 0, ctx(1200))).toBe('$1200')
+            expect(formatter(0, 1, 0, ctx(12))).toBe('12%')
         })
 
         it.each<[string, SqlLineYSeries[], TrendLineConfig[]]>([

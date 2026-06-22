@@ -717,7 +717,7 @@ class TestTicketAPI(APIBaseTest):
         # tagged_items prefetch, and the session-activity metadata write (deferred to on_commit,
         # which this test class patches to run synchronously)
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

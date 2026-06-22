@@ -117,43 +117,43 @@ fn make_msg(token: &str, distinct_id: &str) -> SerializedKafkaMessage {
     }
 }
 
-async fn wait_for_state(registry: &WorkerRegistry, worker_idx: usize, expected: WorkerState) {
+async fn wait_for_state(registry: &WorkerRegistry, worker: &str, expected: WorkerState) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if registry.state(worker_idx) == expected {
+        if registry.state(worker) == expected {
             return;
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "timed out waiting for worker {worker_idx} to become {expected:?}"
+            "timed out waiting for worker {worker} to become {expected:?}"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
-async fn wait_for_dead(registry: &WorkerRegistry, worker_idx: usize) {
+async fn wait_for_dead(registry: &WorkerRegistry, worker: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if registry.is_dead(worker_idx) {
+        if registry.is_dead(worker) {
             return;
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "timed out waiting for worker {worker_idx} to be declared dead"
+            "timed out waiting for worker {worker} to be declared dead"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 
-async fn wait_for_not_unhealthy(registry: &WorkerRegistry, worker_idx: usize) {
+async fn wait_for_not_unhealthy(registry: &WorkerRegistry, worker: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
-        if registry.state(worker_idx) != WorkerState::Unhealthy {
+        if registry.state(worker) != WorkerState::Unhealthy {
             return;
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "timed out waiting for worker {worker_idx} to leave Unhealthy"
+            "timed out waiting for worker {worker} to leave Unhealthy"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -176,7 +176,7 @@ async fn test_new_keys_skip_unhealthy_worker() {
     Arc::clone(&registry).start_probing(token.clone());
 
     w1.set_healthy(false);
-    wait_for_state(&registry, 1, WorkerState::Unhealthy).await;
+    wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
     let keys: Vec<_> = (0..10)
         .map(|i| make_msg("t", &format!("user-{i}")))
@@ -184,9 +184,12 @@ async fn test_new_keys_skip_unhealthy_worker() {
     let sub_batches = dispatcher.assign(keys);
 
     assert!(
-        sub_batches.iter().all(|b| b.worker_idx == 0),
+        sub_batches.iter().all(|b| b.worker.as_ref() == w0.url),
         "all assignments should go to w0; workers used: {:?}",
-        sub_batches.iter().map(|b| b.worker_idx).collect::<Vec<_>>()
+        sub_batches
+            .iter()
+            .map(|b| b.worker.to_string())
+            .collect::<Vec<_>>()
     );
 
     token.cancel();
@@ -210,26 +213,31 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
     // open (don't call on_sub_batch_resolved) so the pin stays alive.
     let b1 = dispatcher.assign(vec![make_msg("t", "user-1")]);
     assert_eq!(b1.len(), 1);
-    let pinned_to = b1[0].worker_idx;
-    let other = 1 - pinned_to;
+    let pinned_to = b1[0].worker.clone();
+    let other = if pinned_to.as_ref() == w0.url {
+        w1.url.clone()
+    } else {
+        w0.url.clone()
+    };
 
     // Kill the pinned worker's health endpoint.
-    if pinned_to == 0 {
+    if pinned_to.as_ref() == w0.url {
         w0.set_healthy(false);
     } else {
         w1.set_healthy(false);
     }
 
     // Wait for Unhealthy then dead declaration.
-    wait_for_state(&registry, pinned_to, WorkerState::Unhealthy).await;
-    wait_for_dead(&registry, pinned_to).await;
+    wait_for_state(&registry, &pinned_to, WorkerState::Unhealthy).await;
+    wait_for_dead(&registry, &pinned_to).await;
 
     // Next assign: the stale pin is evicted and the key re-routes to the live worker.
     let b2 = dispatcher.assign(vec![make_msg("t", "user-1")]);
     assert_eq!(b2.len(), 1, "expected exactly one sub-batch");
     assert_eq!(
-        b2[0].worker_idx, other,
-        "user-1 should reroute to w{other} after w{pinned_to} is dead"
+        b2[0].worker.as_ref(),
+        other,
+        "user-1 should reroute to the live worker after {pinned_to} is dead"
     );
 
     token.cancel();
@@ -253,13 +261,13 @@ async fn test_worker_recovery_detected_by_probe() {
     let token = CancellationToken::new();
     Arc::clone(&registry).start_probing(token.clone());
 
-    wait_for_state(&registry, 1, WorkerState::Unhealthy).await;
+    wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
     // Recover w1.
     w1.set_healthy(true);
 
     // Wait until w1 leaves Unhealthy (Degraded or Healthy).
-    wait_for_not_unhealthy(&registry, 1).await;
+    wait_for_not_unhealthy(&registry, &w1.url).await;
 
     // Assign a large set of fresh keys. Both workers should get some, since w1
     // is now at least Degraded (Healthy | Degraded both receive assignments).
@@ -268,10 +276,10 @@ async fn test_worker_recovery_detected_by_probe() {
         .collect();
     let sub_batches = dispatcher.assign(keys);
 
-    let workers_used: std::collections::HashSet<usize> =
-        sub_batches.iter().map(|b| b.worker_idx).collect();
+    let workers_used: std::collections::HashSet<String> =
+        sub_batches.iter().map(|b| b.worker.to_string()).collect();
     assert!(
-        workers_used.contains(&1),
+        workers_used.contains(&w1.url),
         "w1 should receive new keys after recovery; workers used: {workers_used:?}"
     );
 
@@ -307,23 +315,23 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
         3,
         "3 keys across 3 workers must yield 3 sub-batches"
     );
-    let workers_covered: std::collections::HashSet<usize> =
-        first.iter().map(|b| b.worker_idx).collect();
+    let workers_covered: std::collections::HashSet<String> =
+        first.iter().map(|b| b.worker.to_string()).collect();
     assert_eq!(workers_covered.len(), 3, "all 3 workers must receive a pin");
 
     // Remember which routing key was pinned to w1 — we'll re-assign it later
     // to verify it migrates to a live worker.
     let w1_key = first
         .iter()
-        .find(|b| b.worker_idx == 1)
+        .find(|b| b.worker.as_ref() == w1.url)
         .unwrap()
         .routing_keys[0]
         .clone();
 
     // Kill w1 and wait for dead declaration (first batch stays open throughout).
     w1.set_healthy(false);
-    wait_for_state(&registry, 1, WorkerState::Unhealthy).await;
-    wait_for_dead(&registry, 1).await;
+    wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
+    wait_for_dead(&registry, &w1.url).await;
 
     // Fresh keys must only land on w0 or w2.
     let fresh = dispatcher.assign(vec![
@@ -332,9 +340,12 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
         make_msg("t", "new-3"),
     ]);
     assert!(
-        fresh.iter().all(|b| b.worker_idx != 1),
+        fresh.iter().all(|b| b.worker.as_ref() != w1.url),
         "fresh keys must not route to dead w1; workers used: {:?}",
-        fresh.iter().map(|b| b.worker_idx).collect::<Vec<_>>()
+        fresh
+            .iter()
+            .map(|b| b.worker.to_string())
+            .collect::<Vec<_>>()
     );
 
     // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
@@ -347,7 +358,8 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
         "rerouted key must produce exactly one sub-batch"
     );
     assert_ne!(
-        rerouted[0].worker_idx, 1,
+        rerouted[0].worker.as_ref(),
+        w1.url,
         "key previously pinned to w1 must reroute to a live worker, not w1"
     );
 
@@ -371,8 +383,8 @@ async fn test_all_workers_unhealthy_returns_empty() {
     let token = CancellationToken::new();
     Arc::clone(&registry).start_probing(token.clone());
 
-    wait_for_state(&registry, 0, WorkerState::Unhealthy).await;
-    wait_for_state(&registry, 1, WorkerState::Unhealthy).await;
+    wait_for_state(&registry, &w0.url, WorkerState::Unhealthy).await;
+    wait_for_state(&registry, &w1.url, WorkerState::Unhealthy).await;
 
     let sub_batches = dispatcher.assign(vec![make_msg("t", "user-1")]);
     assert!(

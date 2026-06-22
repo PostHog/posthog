@@ -9,16 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    ExportedRecordingApi,
-    ExportedRecordingCreateApi,
-    PaginatedExportedRecordingListApi,
     PaginatedSessionRecordingListApi,
     PaginatedSessionRecordingPlaylistListApi,
     PaginatedSingleSessionSummaryMinimalListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
-    SessionRecordingExportsListParams,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
@@ -43,68 +39,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getSessionRecordingExportsListUrl = (projectId: string, params?: SessionRecordingExportsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/session_recording_exports/?${stringifiedParams}`
-        : `/api/projects/${projectId}/session_recording_exports/`
-}
-
-export const sessionRecordingExportsList = async (
-    projectId: string,
-    params?: SessionRecordingExportsListParams,
-    options?: RequestInit
-): Promise<PaginatedExportedRecordingListApi> => {
-    return apiMutator<PaginatedExportedRecordingListApi>(getSessionRecordingExportsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSessionRecordingExportsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/session_recording_exports/`
-}
-
-/**
- * @summary Trigger a session recording export
- */
-export const sessionRecordingExportsCreate = async (
-    projectId: string,
-    exportedRecordingCreateApi: ExportedRecordingCreateApi,
-    options?: RequestInit
-): Promise<ExportedRecordingApi> => {
-    return apiMutator<ExportedRecordingApi>(getSessionRecordingExportsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedRecordingCreateApi),
-    })
-}
-
-export const getSessionRecordingExportsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/session_recording_exports/${id}/`
-}
-
-export const sessionRecordingExportsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ExportedRecordingApi> => {
-    return apiMutator<ExportedRecordingApi>(getSessionRecordingExportsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
 
 export const getSessionRecordingPlaylistsListUrl = (
     projectId: string,
