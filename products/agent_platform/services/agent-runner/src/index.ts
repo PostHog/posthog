@@ -28,8 +28,10 @@ import {
     DirectHttpClient,
     EncryptedEnvSecretResolver,
     EncryptedFields,
+    createMetricsServer,
     HttpClient,
     HttpGatewayClient,
+    initMetrics,
     installProcessHandlers,
     isDev,
     KafkaLogSink,
@@ -70,6 +72,12 @@ const log = createLogger('agent-runner')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
+
+    // Prometheus: register Node process defaults + start the dedicated scrape
+    // server before any work. Separate port from /healthz so the metrics
+    // surface is independent of the liveness server's lifecycle.
+    initMetrics({ service: 'agent-runner' })
+    const metricsServer = createMetricsServer({ port: config.metricsPort, log })
 
     // Fail-fast prod guard for the dev-only bearer attached to auth-less
     // external MCP refs. Prod must route auth via integrations or the
@@ -377,6 +385,7 @@ async function main(): Promise<void> {
         log.info({ sig }, 'shutdown signal received — suspending in-flight sessions')
         healthy = false
         healthServer.close()
+        metricsServer.close()
         void worker.stop()
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'))

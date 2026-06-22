@@ -35,7 +35,7 @@ import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
-import { asyncHandler, errorHandler, requestLogger } from './http-utils'
+import { asyncHandler, errorHandler, httpMetricsMiddleware, requestLogger } from './http-utils'
 import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
@@ -145,6 +145,9 @@ export function buildApp(opts: BuildAppOpts): Express {
     // First in the chain so it sees — and times — every request, including
     // those that never match a route (404s) or fail body parsing (400s).
     app.use(requestLogger(log))
+    // Record HTTP latency/status for every request. Sits right after the
+    // logger so it shares the same view of unmatched + rejected requests.
+    app.use(httpMetricsMiddleware())
     const bus = opts.bus
     const resolver = new RevisionResolver({
         revisions: opts.revisions,

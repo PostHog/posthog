@@ -144,7 +144,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question, panelId: maxPanelId } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -257,11 +257,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     }
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
-    }
-    // For non-admins, disable button when consent not given (admins see popup instead)
-    const isAdmin = !dataProcessingApprovalDisabledReason
-    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
-        disabledReason = dataProcessingApprovalDisabledReason
     }
 
     useEffect(() => {
@@ -476,7 +471,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         mainAxis: state.placement.includes('top') ? 30 : 1,
                                     })),
                                 ]}
-                                hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
+                                hidden={!threadLoading && !pendingPrompt}
                             >
                                 <LemonButton
                                     data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
@@ -501,9 +496,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         submit(inputValue)
                                     }}
                                     tooltip={
-                                        disabledReason ? (
-                                            disabledReason
-                                        ) : showStopButton ? (
+                                        // If there's a disabled reason tooltip shown below, don't show a tooltip here
+                                        // Else, show the tooltip based on the button state
+                                        disabledReason ? undefined : showStopButton ? (
                                             <>
                                                 Let's bail <KeyboardShortcut enter />
                                             </>
