@@ -741,10 +741,7 @@ function ScheduleSection({
                     </span>
                     <LemonSelect
                         fullWidth
-                        disabledReason={
-                            accessDisabledReason ??
-                            (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
-                        }
+                        disabledReason={accessDisabledReason}
                         value={draftFrequency}
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
                         options={frequencyOptions}
