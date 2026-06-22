@@ -912,29 +912,65 @@ def graph_reply_to_activity(
     ``"<channelId>;messageid=<rootId>"`` conversation id so ``create_or_update_teams_ticket``
     finds the existing ticket with ``is_thread_reply=True``.
     """
+    msg_id = msg.get("id")
     if msg.get("messageType") != "message":
+        logger.debug(
+            "teams_reply_skipped",
+            reason="not_a_message",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+            message_type=msg.get("messageType"),
+        )
         return None
     if msg.get("deletedDateTime"):
+        logger.debug(
+            "teams_reply_skipped",
+            reason="deleted",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
         return None
 
     body = msg.get("body") or {}
     content = body.get("content") or ""
     if not content.strip():
+        logger.debug(
+            "teams_reply_skipped",
+            reason="empty_content",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
         return None
 
     from_field = msg.get("from") or {}
     user = from_field.get("user") or {}
     aad_object_id = user.get("id")
     if not aad_object_id:
+        logger.debug(
+            "teams_reply_skipped",
+            reason="no_author",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
         return None
 
-    msg_id = msg.get("id")
     if not msg_id:
+        logger.debug(
+            "teams_reply_skipped",
+            reason="no_msg_id",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+        )
         return None
 
+    # Graph's /replies endpoint only returns replies belonging to this root thread, so
+    # we trust the endpoint scoping rather than re-validating replyToId (it can differ
+    # from the root id for nested quote-replies, which we still want to ingest).
     reply_to_id = msg.get("replyToId")
-    if reply_to_id and str(reply_to_id) != str(root_message_id):
-        return None
 
     return {
         "id": msg_id,

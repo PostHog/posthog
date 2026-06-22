@@ -5122,8 +5122,11 @@ const api = {
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
-        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
-            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        async artefacts(
+            id: SignalReport['id'],
+            params: { limit?: number } = {}
+        ): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
         async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
             return await new ApiRequest().signalReport(reportId).withAction('signals').get()
