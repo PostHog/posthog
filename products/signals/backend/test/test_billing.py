@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 PERIOD_START = datetime(2026, 6, 1, tzinfo=UTC)
 PERIOD_END = datetime(2026, 7, 1, tzinfo=UTC)
 
+# Sentinel so a test can force a raw `output` (e.g. SQL NULL or a non-string pr_url) without
+# colliding with the str | None pr_url path.
+_UNSET = object()
+
 
 def _at(day: int, hour: int = 12) -> datetime:
     return datetime(2026, 6, day, hour, tzinfo=UTC)
@@ -48,6 +52,7 @@ class TestSignalsBilling(BaseTest):
         pr_url: str | None = "https://github.com/x/y/pull/1",
         team: Team | None = None,
         relationship: str = SignalReportTask.Relationship.IMPLEMENTATION,
+        output: object = _UNSET,
     ) -> "TaskRunModel":
         team = team or self.team
         Task, TaskRun = _task_model(), _task_run_model()
@@ -55,9 +60,8 @@ class TestSignalsBilling(BaseTest):
             team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
         SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
-        return TaskRun.objects.create(
-            team=team, task=task, output=({"pr_url": pr_url} if pr_url is not None else {}), created_at=created_at
-        )
+        run_output = output if output is not _UNSET else ({"pr_url": pr_url} if pr_url is not None else {})
+        return TaskRun.objects.create(team=team, task=task, output=run_output, created_at=created_at)
 
     def _credits(self) -> dict[int, int]:
         return dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END))
@@ -95,6 +99,26 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(10), pr_url=pr_url)
         self.assertEqual(self._credits(), {})
 
+    def test_run_with_null_output_not_billed(self) -> None:
+        # `output` is null=True, so SQL NULL is the real default for a run with no PR — not {}.
+        report = self._report()
+        self._pr_run(report, created_at=_at(10), output=None)
+        self.assertEqual(self._credits(), {})
+
+    @parameterized.expand(
+        [
+            ("number", 123),
+            ("bool", True),
+            ("object", {"html_url": "https://github.com/x/y/pull/1"}),
+            ("array", ["https://github.com/x/y/pull/1"]),
+        ]
+    )
+    def test_non_string_pr_url_not_billed(self, _name: str, pr_url: object) -> None:
+        # `startswith` must match only present, string-typed values; a non-string pr_url never bills.
+        report = self._report()
+        self._pr_run(report, created_at=_at(10), output={"pr_url": pr_url})
+        self.assertEqual(self._credits(), {})
+
     def test_bridge_team_mismatch_not_billed(self) -> None:
         # A malformed bridge whose team disagrees with the run/report must not produce a charge.
         Task, TaskRun = _task_model(), _task_run_model()
@@ -124,6 +148,23 @@ class TestSignalsBilling(BaseTest):
         )
         TaskRun.objects.create(
             team=other, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
+        )
+        self.assertEqual(self._credits(), {})
+
+    def test_task_team_mismatch_not_billed(self) -> None:
+        # Bridge/run/report all agree but the task belongs to another team — fail closed.
+        # Isolates the task__team_id check; the bridge-mismatch test breaks every clause at once.
+        Task, TaskRun = _task_model(), _task_run_model()
+        other = Team.objects.create(organization=self.organization, name="other")
+        report = self._report()
+        task = Task.objects.create(
+            team=other, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        )
+        TaskRun.objects.create(
+            team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
         )
         self.assertEqual(self._credits(), {})
 
@@ -179,6 +220,14 @@ class TestSignalsBilling(BaseTest):
         self.assertEqual(dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)), {self.team.id: 1500})
         self.assertEqual(get_signals_billing_credits_by_team(july_start, august_start), [])
 
+    def test_earlier_pr_on_different_task_excludes_report(self) -> None:
+        # A report can have several implementation tasks. If any of them shipped a PR before the
+        # period, the report's first PR predates the window and must not be re-billed here.
+        report = self._report()
+        self._pr_run(report, created_at=datetime(2026, 5, 20, tzinfo=UTC))  # task A, last month
+        self._pr_run(report, created_at=_at(15))  # task B, this month
+        self.assertEqual(self._credits(), {})
+
     def test_multiple_prs_in_period_billed_once(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=_at(5))
@@ -190,7 +239,15 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(19), relationship=SignalReportTask.Relationship.RESEARCH)
         self.assertEqual(self._credits(), {})
 
-    @parameterized.expand([(SignalReport.Status.RESOLVED,), (SignalReport.Status.SUPPRESSED,)])
+    @parameterized.expand(
+        [
+            (SignalReport.Status.RESOLVED,),
+            (SignalReport.Status.SUPPRESSED,),
+            # Billing follows the shipped PR, not the report's lifecycle: a report deleted after its
+            # implementation landed is still charged once (matching "regardless of later status changes").
+            (SignalReport.Status.DELETED,),
+        ]
+    )
     def test_billed_regardless_of_status_after_landing(self, status: str) -> None:
         report = self._report(status=status)
         self._pr_run(report, created_at=_at(8))
