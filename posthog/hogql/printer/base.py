@@ -1074,12 +1074,14 @@ class BasePrinter(Visitor[str]):
             if passthrough is not None:
                 return passthrough
 
-            # SQL/Python-style cast names (int, float, string, …) map to HogQL's to<Type>
-            # functions. Prefer that hint over the lexically-nearest name — for a short input
-            # like "int" the closest match is the operator "in", which sends users down the
-            # wrong path instead of toward "toInt".
-            cast_suggestion = f"to{node.name.capitalize()}"
-            if cast_suggestion in ALL_EXPOSED_FUNCTION_NAMES:
+            # SQL/Python-style cast names (int, float, string, uuid, …) map to HogQL's
+            # to<Type> functions. Prefer that hint over the lexically-nearest name — for a
+            # short input like "int" the closest match is the operator "in", which sends
+            # users down the wrong path instead of toward "toInt". Match case-insensitively
+            # so casts with internal capitals (toUUID, toDateTime) are found and the
+            # canonically-cased name is suggested.
+            cast_suggestion = {name.lower(): name for name in ALL_EXPOSED_FUNCTION_NAMES}.get(f"to{node.name}".lower())
+            if cast_suggestion is not None:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{cast_suggestion}(...)'?"
                 )

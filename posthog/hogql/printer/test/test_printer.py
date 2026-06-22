@@ -1306,6 +1306,14 @@ class TestPrinter(BaseTest):
             "float(event)",
             "Unsupported function call 'float(...)'. Perhaps you meant 'toFloat(...)'?",
         )
+        self._assert_expr_error(
+            "string(event)",
+            "Unsupported function call 'string(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "uuid(event)",
+            "Unsupported function call 'uuid(...)'. Perhaps you meant 'toUUID(...)'?",
+        )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
