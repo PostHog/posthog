@@ -8,7 +8,6 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { timeZoneLabel } from 'lib/utils/timezones'
@@ -25,13 +24,6 @@ const FREQUENCY_OPTIONS: { value: CadenceFrequency; label: string }[] = [
 
 // 0=Mon … 6=Sun, matching CadenceState.weekdays.
 const WEEKDAY_PILLS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
-
-const VERDICT_OPTIONS = [
-    { value: '', label: 'Any verdict' },
-    { value: 'yes', label: 'Yes' },
-    { value: 'no', label: 'No' },
-    { value: 'inconclusive', label: 'Inconclusive' },
-]
 
 function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -127,59 +119,6 @@ function ScheduleSection(): JSX.Element {
     )
 }
 
-function SelectionSection(): JSX.Element {
-    const { visionActionForm } = useValues(visionActionsLogic)
-    const { setVisionActionFormValue } = useActions(visionActionsLogic)
-    const { selection } = visionActionForm
-
-    const patch = (next: Partial<typeof selection>): void =>
-        setVisionActionFormValue('selection', { ...selection, ...next })
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex gap-2">
-                <div className="flex-1">
-                    <label className="text-sm font-semibold">Lookback window (days)</label>
-                    <LemonInput
-                        type="number"
-                        min={1}
-                        value={selection.window_days ?? undefined}
-                        onChange={(val) => patch({ window_days: val ?? undefined })}
-                    />
-                </div>
-                <div className="flex-1">
-                    <label className="text-sm font-semibold">Verdict</label>
-                    <LemonSelect
-                        value={selection.verdict ?? ''}
-                        options={VERDICT_OPTIONS}
-                        onChange={(val) => patch({ verdict: val || undefined })}
-                        fullWidth
-                    />
-                </div>
-                <div className="flex-1">
-                    <label className="text-sm font-semibold">Min score</label>
-                    <LemonInput
-                        type="number"
-                        value={selection.min_score ?? undefined}
-                        onChange={(val) => patch({ min_score: val ?? undefined })}
-                    />
-                </div>
-            </div>
-            <div>
-                <label className="text-sm font-semibold">Tags</label>
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={selection.tags ?? []}
-                    options={[]}
-                    onChange={(tags) => patch({ tags: tags.length ? tags : undefined })}
-                    placeholder="Add tags to filter by"
-                />
-            </div>
-        </div>
-    )
-}
-
 function DeliverySection(): JSX.Element {
     const { visionActionForm } = useValues(visionActionsLogic)
     const { setVisionActionFormValue } = useActions(visionActionsLogic)
@@ -259,11 +198,6 @@ export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Elem
                 <div>
                     <h4 className="mb-1">Schedule</h4>
                     <ScheduleSection />
-                </div>
-
-                <div>
-                    <h4 className="mb-1">What to summarize</h4>
-                    <SelectionSection />
                 </div>
 
                 <LemonField name="prompt_guide" label="Guidance" info="Optional. Steers how the AI writes the summary.">

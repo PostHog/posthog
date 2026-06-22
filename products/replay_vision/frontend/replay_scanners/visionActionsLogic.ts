@@ -13,7 +13,7 @@ import {
     visionActionsPartialUpdate,
 } from '../generated/api'
 import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
-import type { SelectionApi, VisionActionApi } from '../generated/api.schemas'
+import type { VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE, parseRruleToCadence } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
@@ -26,7 +26,6 @@ export interface VisionActionForm {
     name: string
     cadence: CadenceState
     timezone: string
-    selection: SelectionApi
     prompt_guide: string
     integration_id: number | null
     channel: string
@@ -36,7 +35,6 @@ const NEW_ACTION_FORM = (): VisionActionForm => ({
     name: '',
     cadence: { ...DEFAULT_CADENCE },
     timezone: dayjs.tz.guess(),
-    selection: { window_days: 1 },
     prompt_guide: '',
     integration_id: null,
     channel: '',
@@ -124,7 +122,6 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                     name: form.name.trim(),
                     scanner: props.scannerId,
                     trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
-                    selection: form.selection,
                     synthesis_config: { prompt_guide: form.prompt_guide },
                     delivery_config:
                         form.integration_id && form.channel
@@ -203,7 +200,6 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 name: action.name,
                 cadence: parseRruleToCadence(action.trigger_config?.rrule),
                 timezone: action.trigger_config?.timezone || dayjs.tz.guess(),
-                selection: action.selection ?? {},
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',

@@ -21,7 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
-from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -89,7 +89,7 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         logger.info("vision_action.synthesis.over_credit_budget", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_OVER_BUDGET)
 
-    lines = _fetch_observation_lines(team, action)
+    lines = _fetch_observation_lines(team, action, run)
     if not lines:
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
@@ -111,10 +111,30 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
     return SynthesizeGroupSummaryResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
 
 
-def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
-    """Fetch observations matching the action's `selection` and format them as untrusted-data lines.
+def _window_start(team: Team, action: VisionAction, run: VisionActionRun) -> datetime:
+    """Start of the observation window for this run: the previous successful run, else 24h back.
 
-    Models the summarizer fetch in `max_tools._fetch_and_format`, applying the selection window.
+    Each run summarizes everything new since the last delivered summary, so the cadence itself defines
+    the period (a daily action covers ~a day, a weekly one ~a week) with no manual lookback. The first
+    run — or the first after a gap of failures — looks back 24h. Anchoring on the last *completed* run
+    (not merely the previous run) means a failed run's observations are picked up by the next success
+    rather than dropped.
+    """
+    previous_run_at = (
+        VisionActionRun.objects.for_team(team.id)
+        .filter(vision_action_id=action.id, status=VisionActionRunStatus.COMPLETED, scheduled_at__isnull=False)
+        .exclude(pk=run.pk)
+        .order_by("-scheduled_at")
+        .values_list("scheduled_at", flat=True)
+        .first()
+    )
+    return previous_run_at or (datetime.now(UTC) - timedelta(hours=24))
+
+
+def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionActionRun) -> list[str]:
+    """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
+
+    Models the summarizer fetch in `max_tools._fetch_and_format`.
     """
     selection: dict[str, Any] = action.selection or {}
     scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
@@ -122,12 +142,11 @@ def _fetch_observation_lines(team: Team, action: VisionAction) -> list[str]:
         return []
 
     observations_qs = ReplayObservation.objects.filter(
-        team_id=team.id, scanner_id__in=scanner_ids, status=ObservationStatus.SUCCEEDED
+        team_id=team.id,
+        scanner_id__in=scanner_ids,
+        status=ObservationStatus.SUCCEEDED,
+        created_at__gte=_window_start(team, action, run),
     )
-
-    window_days = selection.get("window_days")
-    if isinstance(window_days, int) and window_days > 0:
-        observations_qs = observations_qs.filter(created_at__gte=datetime.now(UTC) - timedelta(days=window_days))
 
     rows = observations_qs.order_by("-created_at").values_list("scanner_result", "created_at")[:MAX_OBSERVATIONS]
 

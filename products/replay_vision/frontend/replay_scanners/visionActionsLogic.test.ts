@@ -101,7 +101,6 @@ describe('visionActionsLogic', () => {
         const existing: VisionActionApi = {
             ...action('e'),
             trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
-            selection: { window_days: 7, verdict: 'yes' },
             synthesis_config: { prompt_guide: 'focus on checkout' },
             delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
         }
@@ -114,7 +113,6 @@ describe('visionActionsLogic', () => {
                 name: 'action-e',
                 cadence: { frequency: 'weekly', weekdays: [0, 2], hour: 14, minute: 30 },
                 timezone: 'Europe/Prague',
-                selection: { window_days: 7, verdict: 'yes' },
                 prompt_guide: 'focus on checkout',
                 integration_id: 5,
                 channel: 'C123',
