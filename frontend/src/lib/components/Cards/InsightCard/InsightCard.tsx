@@ -318,7 +318,7 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
-                        persistDisplayOptions={persistDisplayOptions}
+                        persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
