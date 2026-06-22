@@ -41,7 +41,6 @@ import {
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
-    collapseAdjacentEmptyPromptNodes,
     ensureEditableNotebookDocument,
     getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
@@ -395,7 +394,7 @@ export function MarkdownNotebook({
     value,
     onChange,
     onAskAI,
-    isAskAIDisabled = false,
+    isAskAIDisabled: isAIPromptSubmitDisabled = false,
     createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
@@ -2386,10 +2385,6 @@ export function MarkdownNotebook({
             nodeId: string,
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
-            if (isAskAIDisabled || documentRef.current.nodes.some(isPromptComponentNode)) {
-                return
-            }
-
             onInteractionStateChange?.(true)
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -2422,7 +2417,7 @@ export function MarkdownNotebook({
             if (didUpdate) {
                 commitDocument({
                     ...currentDocument,
-                    nodes: collapseAdjacentEmptyPromptNodes(nextNodes, nodeId),
+                    nodes: nextNodes,
                 })
             } else {
                 commitDocument({
@@ -2440,7 +2435,7 @@ export function MarkdownNotebook({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [commitDocument, isAskAIDisabled, onInteractionStateChange]
+        [commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2454,7 +2449,6 @@ export function MarkdownNotebook({
 
     const renderedNodes = getRenderedNodes()
     const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
-    const isAskAIInsertionDisabled = isAskAIDisabled || document.nodes.some(isPromptComponentNode)
     const focusAIPromptNodeId = useMemo(
         () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
         [document.nodes, focusAIPromptRequest]
@@ -2482,7 +2476,7 @@ export function MarkdownNotebook({
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
                 onAskAI ? openAIPrompt : undefined,
-                isAskAIInsertionDisabled,
+                false,
                 extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
             ),
         [
@@ -2491,7 +2485,6 @@ export function MarkdownNotebook({
             replaceNode,
             onAskAI,
             openAIPrompt,
-            isAskAIInsertionDisabled,
             extraInsertCommands,
             insertMenuApi,
         ]
@@ -3286,7 +3279,7 @@ export function MarkdownNotebook({
     }
 
     const askAIAboutSelection = (): void => {
-        if (!floatingToolbar || !onAskAI || isAskAIInsertionDisabled) {
+        if (!floatingToolbar || !onAskAI) {
             return
         }
 
@@ -3367,7 +3360,7 @@ export function MarkdownNotebook({
         }
         commitDocument({
             ...currentDocument,
-            nodes: collapseAdjacentEmptyPromptNodes(nextNodes, promptNode.id),
+            nodes: nextNodes,
         })
 
         floatingToolbarPositionLockRef.current = null
@@ -4717,6 +4710,10 @@ export function MarkdownNotebook({
     }
 
     const submitAIPromptForNode = (nodeId: string, queryOverride?: string): boolean => {
+        if (isAIPromptSubmitDisabled) {
+            return false
+        }
+
         const activeAIPromptMenu = insertMenu?.nodeId === nodeId && insertMenu.mode === 'ai' ? insertMenu : null
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -5246,6 +5243,7 @@ export function MarkdownNotebook({
                         focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
                             ? focusAIPromptRequest
                             : undefined,
+                    isAIPromptSubmitDisabled,
                     submitInsertMenuSelection: (queryOverride) =>
                         submitInsertMenuSelectionForNode(node.id, queryOverride),
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
@@ -5413,7 +5411,7 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
-                            isAskAIDisabled={isAskAIInsertionDisabled}
+                            isAskAIDisabled={false}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

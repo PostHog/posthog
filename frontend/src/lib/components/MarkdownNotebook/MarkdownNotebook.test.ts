@@ -3352,7 +3352,7 @@ ${queryMarkdown}`)
         expect(aiRequest.query).toContain('Full-notebook artifact content must not include the prompt')
     })
 
-    it('disables Ask AI in the insert menu while an AI request is active', () => {
+    it('opens Ask AI prompts while an AI request is active but blocks submission', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -3370,19 +3370,26 @@ ${queryMarkdown}`)
 
         const askAIButton = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
         expect(askAIButton.textContent).toEqual('Ask AI')
-        expect(askAIButton.disabled).toBe(true)
+        expect(askAIButton.disabled).toBe(false)
         expect(askAIButton.getAttribute('aria-selected')).toEqual('true')
 
         fireEvent.click(askAIButton)
-        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="" />`)
+
+        const promptInput = getAIPromptInput(container)
+        updateAIPromptInput(promptInput, 'Summarize this')
+        const changeCount = onChange.mock.calls.length
+
+        fireEvent.keyDown(promptInput, { key: 'Enter' })
+        fireEvent.click(container.querySelector('button[aria-label="Send prompt"]') as HTMLButtonElement)
 
         expect(onAskAI).not.toHaveBeenCalled()
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n `)
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenCalledTimes(changeCount)
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeInstanceOf(HTMLElement)
     })
 
-    it('disables Ask AI in the insert menu while an Ask AI prompt is already open', () => {
+    it('opens another Ask AI prompt while one is already open', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -3399,16 +3406,15 @@ ${queryMarkdown}`)
 
         const askAIButton = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
         expect(askAIButton.textContent).toEqual('Ask AI')
-        expect(askAIButton.disabled).toBe(true)
-        const changeCount = onChange.mock.calls.length
+        expect(askAIButton.disabled).toBe(false)
 
         fireEvent.click(askAIButton)
-        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
 
         expect(onAskAI).not.toHaveBeenCalled()
-        expect(onChange).toHaveBeenCalledTimes(changeCount)
-        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(1)
-        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="" />\n\n<Prompt question="" />`
+        )
+        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(2)
     })
 
     it('marks only the active AI writing block as pending and read-only', () => {
@@ -5174,7 +5180,7 @@ First paragraph
         expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
     })
 
-    it('disables selection Ask AI when an Ask AI prompt is already open', () => {
+    it('opens a selection Ask AI prompt when another Ask AI prompt is already open', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -5189,13 +5195,12 @@ First paragraph
 
         selectTextNode(getFirstTextNode(textBlock), 0, 'First'.length, true)
         const askAIButton = container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement
-        const changeCount = onChange.mock.calls.length
 
         fireEvent.click(askAIButton)
 
         expect(onAskAI).not.toHaveBeenCalled()
-        expect(onChange).toHaveBeenCalledTimes(changeCount)
-        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(1)
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`<Prompt question="" source="selection"`))
+        expect(container.querySelectorAll('.MarkdownNotebook__ai-prompt-tag')).toHaveLength(2)
     })
 
     it('adds a link from the formatting toolbar', () => {

@@ -208,10 +208,12 @@ describe('notebookAI', () => {
         )
     })
 
-    it('does not insert duplicate empty follow-up prompts', () => {
+    it('inserts another empty follow-up prompt when one is already open', () => {
         const markdown = '# Notebook\n\n<Prompt question="" />\n\nAnswer text'
 
-        expect(insertNotebookAIFollowUpPromptAfterResponse(markdown, 2, '<Prompt question="" />')).toEqual(markdown)
+        expect(insertNotebookAIFollowUpPromptAfterResponse(markdown, 2, '<Prompt question="" />')).toEqual(
+            '# Notebook\n\n<Prompt question="" />\n\nAnswer text\n\n<Prompt question="" />'
+        )
     })
 
     it('keeps the AI response anchored on the final list item before a follow-up prompt', () => {

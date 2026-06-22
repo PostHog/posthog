@@ -1,9 +1,8 @@
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from './markdown'
-import type { NotebookBlockNode, NotebookComponentBlockNode, NotebookPropValue } from './types'
+import type { NotebookBlockNode } from './types'
 import { getNodeFingerprint, getNodeSignature, getNodeText } from './utils'
 
 export const NOTEBOOK_AI_WRITING_PLACEHOLDER = 'Thinking...'
-const NOTEBOOK_PROMPT_COMPONENT_TAG = 'Prompt'
 
 export type NotebookAIResponseMarkdownResult = {
     markdown: string
@@ -97,9 +96,6 @@ export function insertNotebookAIFollowUpPromptAfterResponse(
     if (!promptNodes.length) {
         return markdown
     }
-    if (promptNodes.some(isEmptyNotebookPromptNode) && document.nodes.some(isEmptyNotebookPromptNode)) {
-        return markdown
-    }
 
     const insertionIndex = responseNodeIndex + 1
     const nextNodes = [
@@ -112,24 +108,6 @@ export function insertNotebookAIFollowUpPromptAfterResponse(
         ...document,
         nodes: nextNodes,
     })
-}
-
-function isEmptyNotebookPromptNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
-    return (
-        node.type === 'component' &&
-        node.tagName === NOTEBOOK_PROMPT_COMPONENT_TAG &&
-        isEmptyNotebookStringProp(node.props.question) &&
-        isEmptyNotebookStringProp(node.props.selectedMarkdown) &&
-        isEmptyNotebookStringProp(node.props.ref)
-    )
-}
-
-function isEmptyNotebookStringProp(value: NotebookPropValue | undefined): boolean {
-    if (typeof value === 'string') {
-        return !value.trim()
-    }
-
-    return value === undefined
 }
 
 function applyNotebookAIResponseMarkdown(
