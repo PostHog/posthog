@@ -73,8 +73,12 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
             lemonToast.info(`Top up of ${humanFriendlyCurrency(values.topUpAmountUsd)} is mocked for now.`)
             actions.closeTopUpModal()
         },
-        loadSpendSeriesFailure: ({ error }) => lemonToast.error(`Couldn't load gateway spend: ${error}`),
-        loadModelUsageFailure: ({ error }) => lemonToast.error(`Couldn't load gateway usage: ${error}`),
+        loadSpendSeriesFailure: ({ error }) => {
+            lemonToast.error(`Couldn't load gateway spend: ${error}`)
+        },
+        loadModelUsageFailure: ({ error }) => {
+            lemonToast.error(`Couldn't load gateway usage: ${error}`)
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadSpendSeries()
