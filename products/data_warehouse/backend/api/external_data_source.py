@@ -379,9 +379,12 @@ def normalize_bigquery_job_inputs_for_storage(job_inputs: dict[str, Any]) -> dic
     integration_id = job_inputs.get("google_cloud_service_account_integration_id")
     if integration_id in (None, ""):
         return job_inputs
-
     normalized_job_inputs = dict(job_inputs)
-    normalized_job_inputs["google_cloud_service_account_integration_id"] = int(integration_id)
+    try:
+        normalized_job_inputs["google_cloud_service_account_integration_id"] = int(integration_id)
+    except (ValueError, TypeError):
+        # Keep the original value if conversion fails - validation will catch it later
+        pass
     normalized_job_inputs.pop("key_file", None)
     return normalized_job_inputs
 
