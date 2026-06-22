@@ -460,6 +460,9 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "posthog"},
                             "id": {"type": "string", "minLength": 1, "default": "posthog"},
                             "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            # Backend-injected on promote (the provisioned
+                            # OAuthApplication's client_id). Authors never set it.
+                            "client_id": {"type": "string"},
                         },
                         "required": ["kind"],
                         "additionalProperties": False,

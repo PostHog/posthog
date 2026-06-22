@@ -72,6 +72,7 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentRevision
 from .serializers import (
@@ -1544,6 +1545,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"Set the value(s) via the env editor then retry."
             )
 
+        # Managed PostHog identity providers: ensure each declared `{kind:posthog}`
+        # provider has a (normal, user-consented) OAuthApplication and inject its
+        # client_id into the spec. Idempotent; runs before the state flip so the
+        # frozen-and-live spec carries the client_id the runner links against.
+        spec_mutated = provision_posthog_identity_apps(
+            application=revision.application, revision=revision, acting_user=request.user
+        )
+
         # All three writes — demote previous live, set this live, point the
         # application — must succeed or fail together. select_for_update on
         # the application row serializes concurrent promotes so two callers
@@ -1558,7 +1567,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 previously_live.state = "archived"
                 previously_live.save(update_fields=["state", "updated_at"])
             revision.state = "live"
-            revision.save(update_fields=["state", "updated_at"])
+            revision.save(update_fields=["state", "spec", "updated_at"] if spec_mutated else ["state", "updated_at"])
             application.live_revision = revision
             application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
