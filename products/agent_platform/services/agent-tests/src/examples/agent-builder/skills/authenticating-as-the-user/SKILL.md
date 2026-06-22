@@ -128,10 +128,10 @@ session owner and only their own identity ever resolves.
 
 1. Add the MCP: `{ "id": "posthog", "url": "<mcp url>", "auth": { "provider": "posthog" } }`.
 2. Declare `identity_providers: [{ "kind": "posthog", "scopes": [...] }]` with
-   `user:read` + the surfaces it needs. **Set this with
-   `posthog__agent-applications-revisions-spec-update`, not `…-partial-update`** —
-   partial-update's typed schema silently drops `identity_providers` (and an MCP's
-   `auth.provider`). After writing, `…-revisions-retrieve` to confirm both landed.
+   `user:read` + the surfaces it needs. Set it with
+   `posthog__agent-applications-revisions-partial-update` (or `…-spec-update` for a
+   whole-spec replace); both accept `identity_providers` and an MCP's `auth.provider`.
+   `…-revisions-retrieve` afterwards to confirm both landed.
 3. If Slack-triggered: `allow_workspace_participants: false`, and tell it in
    `agent.md` to relay the connect link when a call comes back needing one.
 4. Validate, freeze, promote — promote provisions the OAuth app. Then the user

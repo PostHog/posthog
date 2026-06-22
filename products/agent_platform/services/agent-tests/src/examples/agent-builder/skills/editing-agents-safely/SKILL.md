@@ -55,8 +55,8 @@ Choose the right verb:
 
 | Verb                                                    | When                                                                                             | Reversibility                              |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| `posthog__agent-applications-revisions-spec-update`     | Change `spec` — use this for `identity_providers`, `mcps[].auth.provider`, or any full-spec edit | Easy — overwrites the spec                 |
-| `posthog__agent-applications-revisions-partial-update`  | Change common `spec` fields (model, limits, triggers, tools[]) — typed schema, see caveat below  | Easy — the next update overwrites          |
+| `posthog__agent-applications-revisions-partial-update`  | Change `spec` fields (model, limits, triggers, tools[], identity_providers, mcps) — merges into the spec | Easy — the next update overwrites          |
+| `posthog__agent-applications-revisions-spec-update`     | Replace the whole `spec` at once (a large rewrite)                                               | Easy — overwrites the spec                 |
 | `posthog__agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)                                                         | Easy — re-write                            |
 | `posthog__agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)                                                        | Easy — re-write                            |
 | `posthog__agent-applications-revisions-skills-destroy`  | Delete one skill                                                                                 | **Hard** — content gone unless you have it |
@@ -68,13 +68,8 @@ no bulk bundle-replace verb, which is deliberate: edit the one thing
 that changed (`agent-md-update` / `skills-update` / `tools-update`)
 rather than rewriting the whole bundle.
 
-**Caveat — `partial-update` vs `spec-update`.** `partial-update` has a
-typed body schema that silently **drops fields it doesn't know**, including
-`identity_providers` (and other newer spec fields). If you're setting
-`identity_providers`, an MCP's `auth.provider`, or anything that comes back
-missing after a `partial-update`, use **`spec-update`** instead — its schema
-is open, so the whole spec lands as written. Always `revisions-retrieve`
-after to confirm what actually persisted.
+After any `spec` write, `posthog__agent-applications-revisions-retrieve` to
+confirm what actually persisted.
 
 When the edit changes `spec` (a trigger, tool, limit, model,
 `reasoning`), don't hand-edit the structure from memory. There's no
