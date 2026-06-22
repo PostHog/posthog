@@ -47966,6 +47966,19 @@ export namespace Schemas {
       Service: 'service',
     } as const;
 
+    /**
+     * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
+     */
+    export interface StreamReadTokenResponse {
+      /** Run-scoped JWT the browser presents to the agent-proxy to read this run's live event stream */
+      token: string;
+      /**
+         * Base URL of the agent-proxy to read the stream from when routing via the proxy is enabled for this user. Null means read from the Django endpoint directly (same-origin). The client appends the run's stream path and sends the token as a Bearer header when this is set.
+         * @nullable
+         */
+      stream_base_url: string | null;
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
