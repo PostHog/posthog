@@ -178,6 +178,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
     )
     conclusion_comment = serializers.CharField(
+        max_length=400,
         required=False,
         allow_null=True,
         allow_blank=True,
@@ -619,6 +620,7 @@ class EndExperimentSerializer(serializers.Serializer):
         help_text="The conclusion of the experiment.",
     )
     conclusion_comment = serializers.CharField(
+        max_length=400,
         required=False,
         allow_null=True,
         allow_blank=True,

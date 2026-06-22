@@ -576,6 +576,27 @@ class TestExperimentCRUD(APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    @parameterized.expand(
+        [
+            ("at_limit", 400, status.HTTP_200_OK),
+            ("over_limit", 401, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_conclusion_comment_enforces_max_length(self, _name: str, length: int, expected_status: int) -> None:
+        experiment = Experiment.objects.create(team=self.team, name="Test Experiment", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"conclusion": "won", "conclusion_comment": "a" * length},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        experiment.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(experiment.conclusion_comment, "a" * length)
+        else:
+            self.assertIsNone(experiment.conclusion_comment)
+
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_creating_experiment_reports_user_action(self, mock_report_user_action):
         ff_key = "tracked-experiment"
