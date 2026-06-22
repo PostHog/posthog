@@ -508,8 +508,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
+            # Cancel background loops as soon as the run ends, not just in `finally` —
+            # a hang in the cleanup path below must not leave credential refresh running.
             if relay_task is not None:
                 await self._cancel_relay(relay_task)
+            if credential_refresh_task is not None:
+                await self._cancel_relay(credential_refresh_task)
+                credential_refresh_task = None
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
