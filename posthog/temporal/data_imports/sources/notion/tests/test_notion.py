@@ -236,12 +236,16 @@ class TestNotion:
 
     def test_request_400_raises_bad_request(self) -> None:
         # Notion 400s a block it won't expand (e.g. has_children backed by synced/external content).
-        # It must surface as the typed NotionBadRequestError so the fan-out streams can skip it.
-        session = FakeSession([FakeResponse({}, status_code=400)])
-        with pytest.raises(NotionBadRequestError):
+        # It must surface as the typed NotionBadRequestError, carrying the body so callers can log
+        # Notion's `code`/`message`, so the fan-out streams can skip it.
+        response = FakeResponse({}, status_code=400)
+        response.text = '{"code":"validation_error","message":"boom"}'
+        session = FakeSession([response])
+        with pytest.raises(NotionBadRequestError) as exc_info:
             cast(Any, _request).__wrapped__(
                 cast(requests.Session, session), "GET", "/v1/blocks/b1/children", mock.MagicMock(), params={}
             )
+        assert "validation_error" in str(exc_info.value)
 
     def test_request_400_is_not_retried(self) -> None:
         # A 400 is not transient, so tenacity must propagate it immediately rather than burn attempts.

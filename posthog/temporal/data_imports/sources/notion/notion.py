@@ -146,7 +146,9 @@ def _request(
     # block even though it advertised has_children. The fan-out streams skip it; on the collection
     # endpoints (search/users) a 400 is a genuine bad request and propagates as a sync failure.
     if response.status_code == 400:
-        raise NotionBadRequestError(f"Notion rejected request: url={url}")
+        # Carry Notion's error body so callers can log its `code`/`message` (e.g. `validation_error`),
+        # which distinguishes the known has_children quirk from an unexpected 400.
+        raise NotionBadRequestError(f"Notion rejected request: url={url}, body={response.text}")
 
     if not response.ok:
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
@@ -286,11 +288,12 @@ def _iter_block_children(
                 block_id=block_id,
             )
             return
-        except NotionBadRequestError:
+        except NotionBadRequestError as e:
             logger.warning(
                 "Notion: skipping block whose children Notion rejected",
                 page_id=page_id,
                 block_id=block_id,
+                error=str(e),
             )
             return
         for block in data.get("results", []):
@@ -345,10 +348,11 @@ def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) ->
                     page_id=page_id,
                 )
                 break
-            except NotionBadRequestError:
+            except NotionBadRequestError as e:
                 logger.warning(
                     "Notion: skipping comments Notion rejected for page",
                     page_id=page_id,
+                    error=str(e),
                 )
                 break
             for comment in data.get("results", []):
