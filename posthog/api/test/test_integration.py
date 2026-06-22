@@ -600,8 +600,12 @@ class TestAwsS3Integration:
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
         }
-        # Credentials must never surface in the API response.
-        assert "aws_secret_access_key" not in response.json()["config"]
+        # Credentials must never surface anywhere in the API response (sensitive_config is not a
+        # serializer field; this guards against a leak into config or any other exposed field).
+        response_body = json.dumps(response.json())
+        assert "aws_access_key_id" not in response_body
+        assert "aws_secret_access_key" not in response_body
+        assert "AKIAEXAMPLE" not in response_body
 
     @patch("posthog.models.integration.AwsS3Integration.validate_credentials")
     def test_create_rejects_invalid_credentials(self, mock_validate, client: HttpClient):
@@ -707,8 +711,11 @@ class TestS3CompatibleIntegration:
         assert integration.integration_id == "my-r2"
         assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
         assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
-        # Credentials must never surface in the API response.
-        assert "aws_secret_access_key" not in response.json()["config"]
+        # Credentials must never surface anywhere in the API response (sensitive_config is not a
+        # serializer field; this guards against a leak into config or any other exposed field).
+        response_body = json.dumps(response.json())
+        assert "aws_access_key_id" not in response_body
+        assert "aws_secret_access_key" not in response_body
 
     def test_create_rejects_duplicate_name(self, client: HttpClient):
         client.force_login(self.user)
