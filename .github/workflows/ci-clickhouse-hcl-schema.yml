@@ -9,6 +9,9 @@ on:
     push:
         branches:
             - master
+        paths:
+            - 'posthog/clickhouse/hcl/**'
+            - '.github/workflows/ci-clickhouse-hcl-schema.yml'
     pull_request:
         paths:
             - 'posthog/clickhouse/hcl/**'
@@ -25,8 +28,9 @@ permissions:
     packages: read
 
 env:
-    # Pin to a published chschema image. Override via repo variable if needed.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:latest' }}
+    # Pin to a concrete chschema build (not :latest) for reproducibility — same
+    # sha the wrapper and charts dump pipeline use. Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-2a066e4' }}
 
 jobs:
     ops-hcl-guard:

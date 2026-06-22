@@ -10,7 +10,10 @@
 # (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
 set -euo pipefail
 
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:latest}"
+# Pinned to a concrete build (not :latest) for reproducibility — same sha the
+# charts dump pipeline runs. Override via $HCLEXP_IMAGE; bump when intentionally
+# upgrading hclexp.
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-2a066e4}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"

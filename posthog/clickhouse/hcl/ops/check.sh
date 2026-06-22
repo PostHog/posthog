@@ -55,12 +55,16 @@ for env in local dev prod-us prod-eu; do
 
   if has_golden "$env"; then
     echo "== $env: diff vs golden =="
-    out="$("$HCLEXP" diff -left "$layers" -right "$GOLDEN/$env-ops.hcl" 2>/dev/null)"
+    err="$(mktemp)"
+    out="$("$HCLEXP" diff -left "$layers" -right "$GOLDEN/$env-ops.hcl" 2>"$err")"
     if [[ "$out" != "no differences" ]]; then
-      echo "FAIL: drift in $env"; echo "$out"; rc=1
+      # On a tool failure (image not pulled, missing golden, bad arg) $out is
+      # empty — surface stderr so "FAIL: drift" is never an empty mystery.
+      echo "FAIL: drift in $env"; echo "$out"; cat "$err"; rc=1
     else
       echo "no differences"
     fi
+    rm -f "$err"
   fi
 done
 
