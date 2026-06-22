@@ -161,7 +161,7 @@ class TestAttemptScopedRunUuid:
         ):
             mock_activity.in_activity.return_value = False
             pipeline._resource.items = MagicMock(return_value=iter([]))
-            pipeline._batcher.should_yield.return_value = False  # type: ignore[union-attr]
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
 
             await pipeline.run()
 
