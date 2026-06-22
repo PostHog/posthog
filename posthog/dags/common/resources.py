@@ -242,7 +242,7 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 
 @dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
     """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
 
     Every existing consumer of this resource (`detach_distinct_id_op`,

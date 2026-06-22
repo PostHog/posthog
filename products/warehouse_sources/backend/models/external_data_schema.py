@@ -1,3 +1,4 @@
+import sys
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
@@ -5,7 +6,6 @@ from typing import Any, Literal, Optional
 from django.conf import settings
 from django.db import models
 
-import numpy
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
 
@@ -16,13 +16,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 
-from products.data_warehouse.backend.data_load.service import (
-    external_data_workflow_exists,
-    pause_external_data_schedule,
-    sync_external_data_job_workflow,
-    unpause_external_data_schedule,
-)
-from products.data_warehouse.backend.s3 import get_s3_client
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 type IncrementalFieldValue = str | int | float | None
@@ -43,6 +36,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
         CDC = "cdc", "cdc"
+        XMIN = "xmin", "xmin"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -58,14 +52,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
     )
+    last_error_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this schema's failure was last included in a failure digest email.",
+    )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
     )
+    # Normalized leaf subdir under the source's S3 folder that Delta data is written to (the actual
+    # folder name, e.g. `my_table`, not `My Table`). Pins legacy rows (renamed to qualified form
+    # during multi-schema migration) to their original path. Empty for rows written before this
+    # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
+    s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
@@ -77,11 +81,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # null = sync all columns (default). Non-empty list = exact column projection.
     # PK + active incremental field are always retained server-side regardless of this list.
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
+    row_filters = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 
     class Meta:
         db_table = "posthog_externaldataschema"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+        super().save(*args, **kwargs)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -105,6 +122,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_cdc(self):
         return self.sync_type == self.SyncType.CDC
+
+    @property
+    def is_xmin(self):
+        return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def xmin_last_value(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_last_value", None)
+        return None
+
+    @property
+    def xmin_ceiling(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_ceiling", None)
+        return None
+
+    @property
+    def xmin_num_wraparound(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_num_wraparound", None)
+        return None
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -153,6 +192,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
+
+        return None
+
+    @property
+    def incremental_field_lookback_seconds(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_lookback_seconds", None)
 
         return None
 
@@ -239,6 +285,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def resolved_s3_folder_name(self) -> str | None:
+        # JSON fallback covers rows written by old workers before the column rollout.
+        if self.s3_folder_name:
+            return self.s3_folder_name
+        legacy_key = (self.sync_type_config or {}).get("dwh_storage_key")
+        if isinstance(legacy_key, str) and legacy_key:
+            return legacy_key
+        return None
+
+    @property
     def foreign_keys(self) -> list[dict[str, str]] | None:
         metadata = self.schema_metadata
         if metadata:
@@ -273,6 +329,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         self.sync_type_config.pop("backfilled_partition_format", None)
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
 
@@ -285,7 +344,14 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     ) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
-        last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        # a numpy scalar can only arrive here if numpy is already imported (the import-pipeline
+        # paths that produce one import it); gating keeps numpy off the django.setup() path
+        if "numpy" in sys.modules:
+            import numpy  # noqa: PLC0415
+
+            last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        else:
+            last_value_py = last_value
         last_value_json: Any
 
         if last_value_py is None:
@@ -322,12 +388,25 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if save:
             self.save()
 
+    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
+        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+        # instead of skipping it.
+        self.sync_type_config["xmin_last_value"] = ceiling_xid
+        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
+        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
+
+        if save:
+            self.save()
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
 
     def delete_table(self):
+        # s3fs/boto3 at module scope would load at app population — only this method needs them
+        from products.data_warehouse.backend.s3 import get_s3_client  # noqa: PLC0415
+
         if self.table is not None:
             # Prevent deleting S3 data and soft-deleting the table if another active schema shares it
             other_schemas = (
@@ -357,7 +436,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if value is None or value == "None" or field_type is None:
         return None
 
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+    if (
+        field_type == IncrementalFieldType.Integer
+        or field_type == IncrementalFieldType.Numeric
+        or field_type == IncrementalFieldType.XID
+    ):
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
@@ -377,6 +460,25 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
+
+
+def apply_incremental_lookback(
+    value: Any, field_type: IncrementalFieldType | None, lookback_seconds: int | None
+) -> Any:
+    """Shift a processed incremental watermark back by `lookback_seconds` for the source query only.
+
+    Used to re-read a rolling overlap window each incremental run so late or backdated rows (whose
+    incremental field lands at or below the stored watermark) are picked up. The persisted watermark
+    is never mutated — this only adjusts the value bound into the source's WHERE clause. Timestamp/date
+    fields only; for `Date` a sub-day lookback rounds down to whole days.
+    """
+    if value is None or not isinstance(lookback_seconds, int) or lookback_seconds <= 0:
+        return value
+
+    if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        return value - timedelta(seconds=lookback_seconds)
+
+    return value
 
 
 @database_sync_to_async
@@ -401,6 +503,15 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 
 
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+    # data_load.service imports temporalio at module scope; this is a models module, so a
+    # top-level import would put the Temporal client on the django.setup() path
+    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
+        external_data_workflow_exists,
+        pause_external_data_schedule,
+        sync_external_data_job_workflow,
+        unpause_external_data_schedule,
+    )
+
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()

@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -10,16 +10,19 @@ from django.db import models, transaction
 
 import structlog
 
-from posthog.schema import DataWarehouseSavedQueryOrigin, HogQLQueryModifiers
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
@@ -27,7 +30,9 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    columns_in_position_order,
     remove_named_tuples,
+    stamp_column_positions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -133,6 +138,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
+        if isinstance(self.columns, dict):
+            stamp_column_positions(self.columns)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -285,7 +292,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -302,7 +310,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):
@@ -319,8 +327,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return f"https://{settings.DATAWAREHOUSE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable]:
+        self, modifiers: Optional["HogQLQueryModifiers"] = None
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable, DirectMySQLTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
@@ -333,7 +341,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        for column, type in columns.items():
+        # jsonb scrambles key order, so restore the stamped column positions
+        for column, type in columns_in_position_order(columns):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

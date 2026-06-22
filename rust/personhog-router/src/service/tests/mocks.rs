@@ -7,7 +7,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -22,7 +23,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
@@ -182,6 +185,14 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
         self.check_error()?;
         Ok(DeletePersonsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 })
     }
 
     async fn check_cohort_membership(
@@ -363,5 +374,29 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
         self.check_error()?;
         Ok(DeleteGroupTypeMappingsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn split_person(
+        &self,
+        _request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status> {
+        self.check_error()?;
+        Ok(SplitPersonResponse { splits: vec![] })
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        self.check_error()?;
+        Ok(SetPersonDistinctIdVersionFloorResponse { person: None })
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        self.check_error()?;
+        Ok(SetPersonVersionFloorResponse { updated: false })
     }
 }

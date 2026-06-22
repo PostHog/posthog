@@ -20,6 +20,7 @@ from posthog.schema import (
     CachedTrendsQueryResponse,
     ChartDisplayType,
     Compare,
+    CompareFilter,
     CompareItem,
     DashboardFilter,
     DataWarehouseEventsModifier,
@@ -32,6 +33,7 @@ from posthog.schema import (
     InCohortVia,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
@@ -123,6 +125,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
+
+        # The Metric change pill compares to the previous period, but the display has no compare toggle —
+        # force it when the pill needs it (shown, not "latest", and a previous period exists).
+        if (
+            query.trendsFilter
+            and query.trendsFilter.display == ChartDisplayType.METRIC
+            and query.trendsFilter.metricShowChange is not False
+            and query.trendsFilter.metricSummary != MetricSummary.LATEST
+            and not (query.dateRange and query.dateRange.date_from == "all")
+        ):
+            if query.compareFilter is None:
+                query.compareFilter = CompareFilter(compare=True)
+            else:
+                query.compareFilter.compare = True
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
@@ -512,9 +528,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
-        # Weekend filtering is two layers: the WHERE clause (in trends_query_builder) excludes
-        # weekend events from aggregation, and this post-processor removes weekend date buckets
-        # from the response so the chart x-axis shows only weekdays.
+        # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
+        # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
+        # weekend date buckets from the response so the chart x-axis shows weekdays.
         # For week/month intervals we keep all buckets since they span multiple days.
         # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
         if (

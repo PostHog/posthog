@@ -86,7 +86,7 @@ async def _persist_content_snapshot(
 
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[SubscriptionInfo]:
-    now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
+    now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)

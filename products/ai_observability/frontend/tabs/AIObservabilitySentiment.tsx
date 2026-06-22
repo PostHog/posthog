@@ -44,7 +44,7 @@ function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | nul
         if (!Array.isArray(parsed) || index < 0 || index >= parsed.length) {
             return null
         }
-        const normalized = normalizeMessages([parsed[index]], 'user')
+        const normalized = normalizeMessages([parsed[index]], 'user').messages
         return normalized[0] ?? null
     } catch {
         return null

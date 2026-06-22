@@ -214,9 +214,18 @@ class SlackThreadHandler:
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_pr_opened(self, pr_url: str, task_url: str | None) -> None:
-        """Post PR opened message with action buttons."""
-        mention_prefix = f"<@{self.context.mentioning_slack_user_id}> " if self.context.mentioning_slack_user_id else ""
+    def post_pr_opened(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = None,
+    ) -> None:
+        """Post PR opened message with action buttons.
+
+        ``reply_target_slack_user_id`` is the resolved actor — typically the
+        most recent thread participant. ``None`` produces an untagged message.
+        """
+        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}Pull request opened."
 
         buttons: list[dict[str, Any]] = [

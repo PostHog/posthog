@@ -1,11 +1,21 @@
 import { ApiError } from 'lib/api-error'
 
-import { sessionReplayWidgetConfigSchema } from '../../widget_types/configSchemas'
+import { sessionReplayWidgetConfigSchema } from '../../generated/widget-configs.zod'
 import {
+    SESSION_REPLAY_WIDGET_FORM_FIELD_NAMES,
     parseSessionReplayWidgetConfigApiError,
     patchSessionReplayWidgetFilterFields,
     validateSessionReplayWidgetConfigInput,
 } from './sessionReplayWidgetConfigValidation'
+
+describe('sessionReplayWidgetConfigValidation', () => {
+    it('form picked fields exist on the generated config schema', () => {
+        const shape = sessionReplayWidgetConfigSchema.shape
+        for (const field of SESSION_REPLAY_WIDGET_FORM_FIELD_NAMES) {
+            expect(shape).toHaveProperty(field)
+        }
+    })
+})
 
 describe('validateSessionReplayWidgetConfigInput', () => {
     it('rejects limit above 25 with inline-friendly message', () => {
@@ -19,8 +29,20 @@ describe('validateSessionReplayWidgetConfigInput', () => {
 
         expect(result.success).toBe(false)
         if (!result.success) {
-            expect(result.fieldErrors.limit).toBe('Must be an integer between 1 and 25.')
+            expect(result.fieldErrors.limit).toBe('Too big: expected number to be <=25')
         }
+    })
+
+    it('rejects invalid order direction', () => {
+        const result = validateSessionReplayWidgetConfigInput({
+            limit: 10,
+            orderBy: 'start_time',
+            orderDirection: 'SIDEWAYS',
+            filterTestAccounts: true,
+            baseConfig: sessionReplayWidgetConfigSchema.parse({}),
+        })
+
+        expect(result.success).toBe(false)
     })
 
     it('accepts valid config and preserves tile filter fields from base config', () => {
@@ -77,6 +99,20 @@ describe('patchSessionReplayWidgetFilterFields', () => {
         expect(next.dateRange).toEqual({ date_from: '-30d' })
         expect(next.widgetFilters?.['qf-1']).toMatchObject({ value: 'Chrome' })
     })
+
+    it('sets and clears the saved filter without dropping other tile filters', () => {
+        const config = sessionReplayWidgetConfigSchema.parse({ dateRange: { date_from: '-7d' } })
+
+        const withSavedFilter = patchSessionReplayWidgetFilterFields(config, { savedFilterId: 'abc123' })
+        expect(withSavedFilter.savedFilterId).toBe('abc123')
+
+        const dateChanged = patchSessionReplayWidgetFilterFields(withSavedFilter, { dateFrom: '-30d' })
+        expect(dateChanged.savedFilterId).toBe('abc123')
+
+        const cleared = patchSessionReplayWidgetFilterFields(dateChanged, { savedFilterId: null })
+        expect(cleared.savedFilterId).toBeNull()
+        expect(cleared.dateRange).toEqual({ date_from: '-30d' })
+    })
 })
 
 describe('parseSessionReplayWidgetConfigApiError', () => {
@@ -92,7 +128,7 @@ describe('parseSessionReplayWidgetConfigApiError', () => {
                 dateRange: { date_from: '-7d' },
             })
         ).toEqual({
-            limit: 'Must be an integer between 1 and 25.',
+            limit: 'Too big: expected number to be <=25',
         })
     })
 })

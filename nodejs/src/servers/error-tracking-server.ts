@@ -1,4 +1,19 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { ProducerName } from '~/common/outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createIngestionProducerRegistry } from '~/common/outputs/registry'
+import { createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
+import {
+    ErrorTrackingConsumerConfig,
+    ErrorTrackingOutputsConfig,
+    getDefaultErrorTrackingOutputsConfig,
+} from '~/ingestion/pipelines/errortracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -11,15 +26,11 @@ import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
@@ -27,18 +38,6 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
-import { CookielessManager, CookielessServerConfig } from '../ingestion/cookieless/cookieless-manager'
-import {
-    ErrorTrackingConsumerConfig,
-    ErrorTrackingOutputsConfig,
-    getDefaultErrorTrackingOutputsConfig,
-} from '../ingestion/error-tracking/config'
-import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { createPersonHogClient } from '../ingestion/personhog'
-import { PersonHogGroupReadRepository } from '../ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '../ingestion/personhog/personhog-person-read-repository'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -48,7 +47,6 @@ import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
-import { ReadOnlyGroupTypeManager } from '../worker/ingestion/readonly-group-type-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -65,9 +63,8 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -99,9 +96,8 @@ export class ErrorTrackingServer implements NodeServer {
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
             ...config,
         }
@@ -132,7 +128,7 @@ export class ErrorTrackingServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        this.producerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
 

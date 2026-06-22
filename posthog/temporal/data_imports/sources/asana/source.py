@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,9 +35,9 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ASANA,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter an Asana personal access token to pull your Asana data into the PostHog Data warehouse.
 
 You can create a personal access token from the [developer console](https://app.asana.com/0/my-apps).

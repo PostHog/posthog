@@ -50,8 +50,10 @@ async def test_capture_fires_only_when_blocked(ateam, safe, expect_capture):
     assert kwargs["properties"]["source_type"] == "cross_source_issue"
     assert kwargs["properties"]["source_id"] == "run:abc:finding:def"
     assert kwargs["properties"]["weight"] == 0.7
-    assert kwargs["properties"]["extra"]["skill_name"] == "error-tracking"
-    assert kwargs["properties"]["extra"]["task_run_id"] == "task-run-1"
+    # extra is flattened to top-level scalars, never forwarded as a nested dict
+    assert kwargs["properties"]["skill_name"] == "error-tracking"
+    assert kwargs["properties"]["task_run_id"] == "task-run-1"
+    assert "extra" not in kwargs["properties"]
     assert "project" in kwargs["groups"]
 
 

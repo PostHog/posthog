@@ -18,6 +18,25 @@ tools:
     inbox-processing-pause-update:
         operation: signals_processing_pause_update
         enabled: false
+    inbox-reports-bulk-set-state:
+        operation: signals_reports_bulk_state_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Dismiss or snooze signal reports in bulk
+        description: >
+            Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`,
+            for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report
+            ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason`
+            (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each
+            id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one
+            entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` /
+            `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as
+            `skipped` (the single-report 409) while the rest still go through.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -33,10 +52,10 @@ tools:
         description: >
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
-            by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search
-            across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers
-            (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by
-            default.
+            by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
+            search across title and summary, source_product (e.g. error_tracking, session_replay), and
+            suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by
+            '-is_suggested_reviewer,status,-updated_at' by default.
         response:
             include:
                 - id
@@ -46,6 +65,8 @@ tools:
                 - priority
                 - actionability
                 - already_addressed
+                - dismissal_reason
+                - dismissal_note
                 - signal_count
                 - total_weight
                 - source_products
@@ -81,12 +102,16 @@ tools:
         enrich_url: '{id}'
         title: Dismiss or snooze a signal report
         description: >
-            Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user
-            has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for
-            later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g.
-            'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are
-            persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions
-            again later. Returns 409 if the transition is not allowed from the report's current status.
+            Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the
+            user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the
+            pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI
+            (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`),
+            so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal:
+            pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for
+            anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale
+            survives later transitions. Returns 409 if the transition is not allowed from the report's current status.
+            To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per
+            report.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
@@ -179,6 +204,22 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-scout-config-create:
+        operation: signals_scout_config_create
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a scout config
+        description: >
+            Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the
+            coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200),
+            `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
+            (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
+            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -192,9 +233,10 @@ tools:
         title: List scout configs
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
-            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
-            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
-            them.
+            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
+            once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next
+            tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
+            `signals-scout-config-update` to tune them.
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
@@ -224,6 +266,7 @@ tools:
             Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
+            Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
     signals-scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
@@ -239,10 +282,30 @@ tools:
             (stuck onboardings), connected integrations, warehouse sources, signal source configs (split
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
-            `llma-skill-get`) to orient on the team in one tool call instead of paginating through
+            `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-runs-emission-reports:
+        operation: signals_scout_runs_emission_reports
+        enabled: true
+        scopes:
+            - signal_scout:read
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List the inbox reports a scout run's findings linked to
+        description: >
+            For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into —
+            the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission
+            with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
+            `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
+            deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
+            surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
+            it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
@@ -256,10 +319,10 @@ tools:
         title: List a scout run's emitted findings
         description: >
             Return the findings a `SignalScoutRun` emitted to the inbox, newest first — one row per emit with its
-            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, and the deterministic
-            `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see
-            *what* a run actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`).
-            Strictly team-scoped — a run UUID belonging to another team returns 404.
+            `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the
+            deterministic `source_id` (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal.
+            Use this to see *what* a run actually surfaced, not just how many (`emitted_count`) or which ids
+            (`emitted_finding_ids`). Strictly team-scoped — a run UUID belonging to another team returns 404.
     signals-scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
@@ -274,11 +337,14 @@ tools:
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox) and `emitted_finding_ids`. Pass `emitted=true` to return only runs that emitted
-            at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive
-            substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass
-            `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a
-            window. Results capped at 100.
+            run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error`
+            (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with
+            `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary
+            scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs
+            that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
+            case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
+            findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
+            to scope to a window. Results capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -290,10 +356,11 @@ tools:
             idempotent: true
         title: Get a scout run by ID
         description: >
-            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`, `emitted_count`, and
-            `emitted_finding_ids`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings
-            live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in
-            `emitted_finding_ids`). Strictly team-scoped — a UUID belonging to another team returns 404.
+            Return the full `SignalScoutRun` row for the given `run_id`, including the agent's end-of-run `summary`,
+            `emitted_count`, and `emitted_finding_ids`. Status, timestamps, `error` (full TaskRun error message), and
+            the derived `failure_reason` flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows
+            queryable by `source_id = run:<run_id>:finding:<finding_id>` (one per id in `emitted_finding_ids`). Strictly
+            team-scoped — a UUID belonging to another team returns 404.
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
@@ -332,7 +399,9 @@ tools:
         title: Search the scout scratchpad
         description: >
             Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive
-            substring match on the entry's `content` and `key`. Results capped at 100.
+            substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist
+            without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

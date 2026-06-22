@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -120,7 +120,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
-    created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+        ),
     event: zod
         .string()
         .optional()
@@ -247,7 +252,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -304,7 +309,64 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -1390,6 +1452,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -1413,7 +1481,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -2382,6 +2450,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -2438,7 +2512,9 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
@@ -2546,7 +2622,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -2603,7 +2679,64 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -3686,6 +3819,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -3709,7 +3848,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -4682,6 +4821,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -4742,7 +4887,9 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -4758,10 +4905,10 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
 
 /**
  * Archive an ended experiment.
-
-Hides the experiment from the default list view. The experiment can be
-restored at any time by updating archived=false. Returns 400 if the
-experiment is already archived or has not ended yet.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. Returns 400 if the
+ * experiment is already archived or has not ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4773,11 +4920,29 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
+export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
+    target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
+    feature_flag_key: zod.string().optional().describe('Optional feature flag key to use in the destination team.'),
+    name: zod.string().optional().describe('Optional name for the copied experiment.'),
+})
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4873,7 +5038,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         feature_flag_key: zod
             .string()
             .describe(
-                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+                "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
@@ -4930,7 +5095,64 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+            ),
+        running_time_calculation: zod
+            .union([
+                zod.object({
+                    exposure_estimate_config: zod
+                        .union([
+                            zod.object({
+                                conversionRateInputType: zod
+                                    .enum(['manual', 'automatic'])
+                                    .describe(
+                                        "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data."
+                                    ),
+                                manualBaselineValue: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.'
+                                    ),
+                                manualExposureRate: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.'
+                                    ),
+                                manualMetricType: zod
+                                    .union([zod.enum(['funnel', 'mean_count', 'mean_sum_or_avg']), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Metric type the manual baseline value refers to. Only used in manual mode.'
+                                    ),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.'
+                        ),
+                    minimum_detectable_effect: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.'
+                        ),
+                    recommended_running_time: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Estimated number of days needed to reach the recommended sample size.'),
+                    recommended_sample_size: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('Recommended number of exposed users needed for statistical significance.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -6016,6 +6238,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -6039,7 +6267,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -7012,6 +7240,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .optional()
                                 .describe('For retention metrics: start event.'),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                ),
                             upper_bound_percentile: zod
                                 .union([
                                     zod
@@ -7072,31 +7306,33 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe(
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+    )
 
 /**
  * End a running experiment without shipping a variant.
-
-Sets end_date to now and marks the experiment as stopped. The feature
-flag is NOT modified — users continue to see their assigned variants
-and exposure events ($feature_flag_called) continue to be recorded.
-However, only data up to end_date is included in experiment results.
-
-Use this when:
-
-- You want to freeze the results window without changing which variant
-  users see.
-- A variant was already shipped manually via the feature flag UI and
-  the experiment just needs to be marked complete.
-
-The end_date can be adjusted after ending via PATCH if it needs to be
-backdated (e.g. to match when the flag was actually paused).
-
-Other options:
-- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
-- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
-
-Returns 400 if the experiment is not running.
+ *
+ * Sets end_date to now and marks the experiment as stopped. The feature
+ * flag is NOT modified — users continue to see their assigned variants
+ * and exposure events ($feature_flag_called) continue to be recorded.
+ * However, only data up to end_date is included in experiment results.
+ *
+ * Use this when:
+ *
+ * - You want to freeze the results window without changing which variant
+ *   users see.
+ * - A variant was already shipped manually via the feature flag UI and
+ *   the experiment just needs to be marked complete.
+ *
+ * The end_date can be adjusted after ending via PATCH if it needs to be
+ * backdated (e.g. to match when the flag was actually paused).
+ *
+ * Other options:
+ * - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+ * - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+ *
+ * Returns 400 if the experiment is not running.
  */
 export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7126,11 +7362,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Launch a draft experiment.
-
-Validates the experiment is in draft state, activates its linked feature flag,
-sets start_date to the current server time, and transitions the experiment to running.
-Returns 400 if the experiment has already been launched or if the feature flag
-configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ *
+ * Validates the experiment is in draft state, activates its linked feature flag,
+ * sets start_date to the current server time, and transitions the experiment to running.
+ * Returns 400 if the experiment has already been launched or if the feature flag
+ * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7143,12 +7379,12 @@ export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Pause a running experiment.
-
-Deactivates the linked feature flag so it is no longer returned by the
-/decide endpoint. Users fall back to the application default (typically
-the control experience), and no new exposure events are recorded (i.e.
-$feature_flag_called is not fired).
-Returns 400 if the experiment is not running or is already paused.
+ *
+ * Deactivates the linked feature flag so it is no longer returned by the
+ * /decide endpoint. Users fall back to the application default (typically
+ * the control experience), and no new exposure events are recorded (i.e.
+ * $feature_flag_called is not fired).
+ * Returns 400 if the experiment is not running or is already paused.
  */
 export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7161,14 +7397,14 @@ export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Reset an experiment back to draft state.
-
-Clears start/end dates, conclusion, and archived flag. The feature
-flag is left unchanged — users continue to see their assigned variants.
-
-Previously collected events still exist but won't be included in
-results unless the start date is manually adjusted after re-launch.
-
-Returns 400 if the experiment is already in draft state.
+ *
+ * Clears start/end dates, conclusion, and archived flag. The feature
+ * flag is left unchanged — users continue to see their assigned variants.
+ *
+ * Previously collected events still exist but won't be included in
+ * results unless the start date is manually adjusted after re-launch.
+ *
+ * Returns 400 if the experiment is already in draft state.
  */
 export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7181,11 +7417,11 @@ export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Resume a paused experiment.
-
-Reactivates the linked feature flag so it is returned by /decide again.
-Users are re-bucketed deterministically into the same variants they had
-before the pause, and exposure tracking resumes.
-Returns 400 if the experiment is not running or is not paused.
+ *
+ * Reactivates the linked feature flag so it is returned by /decide again.
+ * Users are re-bucketed deterministically into the same variants they had
+ * before the pause, and exposure tracking resumes.
+ * Returns 400 if the experiment is not running or is not paused.
  */
 export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7198,25 +7434,25 @@ export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
 
 /**
  * Ship a variant and (optionally) end the experiment.
-
-Updates the feature flag so the selected variant gets 100% of the variant
-distribution. By default, existing release conditions on the flag are preserved
-untouched — the variant is served only to users who already match them. Pass
-``release_to_everyone: true`` to also prepend a catch-all release condition
-that rolls the variant out to 100% of users (overrides any existing release
-conditions on the flag).
-
-Can be called on both running and stopped experiments. If the experiment is
-still running, it will also be ended (end_date set and status marked as stopped).
-If the experiment has already ended, only the flag is rewritten - this supports
-the "end first, ship later" workflow.
-
-If an approval policy requires review before changes on the flag take effect,
-the API returns 409 with a change_request_id. The experiment is NOT ended until
-the change request is approved and the user retries.
-
-Returns 400 if the experiment is in draft state, the variant_key is not found
-on the flag, or the experiment has no linked feature flag.
+ *
+ * Updates the feature flag so the selected variant gets 100% of the variant
+ * distribution. By default, existing release conditions on the flag are preserved
+ * untouched — the variant is served only to users who already match them. Pass
+ * ``release_to_everyone: true`` to also prepend a catch-all release condition
+ * that rolls the variant out to 100% of users (overrides any existing release
+ * conditions on the flag).
+ *
+ * Can be called on both running and stopped experiments. If the experiment is
+ * still running, it will also be ended (end_date set and status marked as stopped).
+ * If the experiment has already ended, only the flag is rewritten - this supports
+ * the "end first, ship later" workflow.
+ *
+ * If an approval policy requires review before changes on the flag take effect,
+ * the API returns 409 with a change_request_id. The experiment is NOT ended until
+ * the change request is approved and the user retries.
+ *
+ * Returns 400 if the experiment is in draft state, the variant_key is not found
+ * on the flag, or the experiment has no linked feature flag.
  */
 export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7255,10 +7491,10 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7284,9 +7520,9 @@ export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ z
 
 /**
  * Unarchive an archived experiment.
-
-Restores the experiment to the default list view. Returns 400 if the
-experiment is not currently archived.
+ *
+ * Restores the experiment to the default list view. Returns 400 if the
+ * experiment is not currently archived.
  */
 export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7298,11 +7534,119 @@ export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const ExperimentsCalculateRunningTimeCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+
+export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
+
+export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_type: zod
+            .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
+            .describe(
+                '* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention'
+            )
+            .describe(
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention"
+            ),
+        minimum_detectable_effect: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin)
+            .describe('Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.'),
+        number_of_variants: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
+            .describe('Total number of variants including control (default 2).'),
+        exposure_rate_per_day: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
+            .nullish()
+            .describe('Expected exposures per day. When provided, the response includes the recommended running time.'),
+        baseline_value: zod
+            .number()
+            .nullish()
+            .describe(
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.'
+            ),
+        variance: zod
+            .number()
+            .nullish()
+            .describe(
+                'Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.'
+            ),
+        baseline_stats: zod
+            .union([
+                zod
+                    .object({
+                        number_of_samples: zod
+                            .number()
+                            .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
+                            .describe('Number of control-group samples (users/units) observed.'),
+                        sum: zod
+                            .number()
+                            .describe(
+                                'Sum of the metric values across the control group (for funnels, the numerator/conversions).'
+                            ),
+                        sum_squares: zod
+                            .number()
+                            .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
+                            .describe('Sum of squared metric values. Required for ratio/retention variance.'),
+                        denominator_sum: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of the denominator values. Required for ratio/retention metrics.'),
+                        denominator_sum_squares: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of squared denominator values (ratio/retention variance).'),
+                        numerator_denominator_sum_product: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Sum of numerator×denominator products, used for the delta-method covariance term.'
+                            ),
+                        step_counts: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
+                    })
+                    .describe(
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio/retention)\nthe delta-method variance, instead of passing `baseline_value`/`variance` directly.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
+    })
+    .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
  */
 export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

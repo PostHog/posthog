@@ -5,27 +5,23 @@ import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelU
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
-export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
-export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
+import {
+    buildFunnelBarHorizontalFiller,
+    FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    RATE_TO_PERCENT,
+    type FunnelBarHorizontalSegmentMeta,
+    type FunnelBarHorizontalStepData,
+} from '../shared/funnelBarHorizontalShared'
 
-/** Every step's bar is its own single-band chart, so they only line up if they share this
- *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
- *  percentages, so the axis is `0–100`. */
-export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: [number, number] = [0, 100]
-
-const RATE_TO_PERCENT = 100
-
-export interface FunnelBarHorizontalSegmentMeta {
-    isDropOff: boolean
-    breakdownIndex: number | null
-}
-
-/** Series for one step's single-band bar. Each series' `data` has exactly one value. */
-export interface FunnelBarHorizontalStepData {
-    /** Band label — a single per-chart slot, so just the step index as a string. */
-    label: string
-    series: Series<FunnelBarHorizontalSegmentMeta>[]
-}
+// Re-exported so existing importers (the chart component, tests) keep a single entry point even
+// though the neutral primitives now live in the shared module for the MCP bundle to reuse.
+export {
+    FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+    FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
+    type FunnelBarHorizontalSegmentMeta,
+    type FunnelBarHorizontalStepData,
+} from '../shared/funnelBarHorizontalShared'
 
 interface BuildOptions {
     stepReference: FunnelStepReference
@@ -86,7 +82,41 @@ function buildBreakdownSegments(
         })
     }
 
-    return [...segments, buildFiller(segments, options.fillerColor)]
+    return [...segments, buildFunnelBarHorizontalFiller(segments, options.fillerColor)]
+}
+
+/** One step in compare mode: two stacked bars (current, then previous), each a full 0–100 track
+ *  rather than two segments sharing one track. `bars[0]` is current, `bars[1]` previous; previous is
+ *  omitted only when the backend sent no previous-period series for the step. */
+export interface FunnelBarHorizontalCompareStep {
+    bars: FunnelBarHorizontalStepData[]
+}
+
+/** Builds the top-to-bottom compare layout: one bar per period, per step. Each bar is scaled to the
+ *  shared baseline already baked into `conversionRates.fromBasisStep` (so the larger period's first
+ *  step fills the track and the other is proportional), and takes its color from the *current step's*
+ *  variant — both periods share step i's color, with `getColor` dimming the `previous` series. This is
+ *  the key difference from `buildBreakdownSegments`, whose representative comes from step 0. */
+export function buildFunnelBarHorizontalCompareData(
+    steps: FunnelStepWithConversionMetrics[],
+    options: BuildOptions
+): FunnelBarHorizontalCompareStep[] {
+    return steps.map((step, stepIndex) => {
+        const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
+            const segment: Series<FunnelBarHorizontalSegmentMeta> = {
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
+                label: options.getLabel(variant),
+                data: [variant.conversionRates.fromBasisStep * RATE_TO_PERCENT],
+                color: options.getColor(variant),
+                meta: { isDropOff: false, breakdownIndex },
+            }
+            return {
+                label: String(stepIndex),
+                series: [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex)],
+            }
+        })
+        return { bars }
+    })
 }
 
 function buildSingleSegment(
@@ -104,20 +134,5 @@ function buildSingleSegment(
         meta: { isDropOff: false, breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
     }
 
-    return [segment, buildFiller([segment], options.fillerColor)]
-}
-
-function buildFiller(
-    segments: Series<FunnelBarHorizontalSegmentMeta>[],
-    color: string
-): Series<FunnelBarHorizontalSegmentMeta> {
-    const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
-    return {
-        key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
-        label: 'Drop-off',
-        data: [Math.max(0, RATE_TO_PERCENT - covered)],
-        color,
-        visibility: { tooltip: false },
-        meta: { isDropOff: true, breakdownIndex: null },
-    }
+    return [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor)]
 }

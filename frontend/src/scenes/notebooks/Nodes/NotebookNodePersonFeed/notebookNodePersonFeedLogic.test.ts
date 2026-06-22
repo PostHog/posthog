@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -146,10 +147,10 @@ describe('notebookNodePersonFeedLogic', () => {
                 [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                     results: mockSessionsWithRecording,
                 },
-                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async (
-                    req: any
-                ) => {
-                    const { session_ids } = await req.json()
+                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async ({
+                    request,
+                }) => {
+                    const { session_ids } = (await request.json()) as Record<string, any>
                     const sessionId = session_ids[0]
                     if (failingSessionIds.includes(sessionId)) {
                         return [500, { detail: 'Server error' }]
@@ -249,11 +250,16 @@ describe('notebookNodePersonFeedLogic', () => {
     })
 
     describe('canSummarize selector', () => {
-        it('returns true', async () => {
+        // AI session summaries are PostHog Cloud only, so the block is gated on isCloudOrDev.
+        it.each([
+            { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
+            { realm: 'self-hosted', preflight: { cloud: false, is_debug: false }, expected: false },
+        ])('is $expected on $realm', async ({ preflight, expected }) => {
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
+            preflightLogic.actions.loadPreflightSuccess(preflight as any)
 
-            expect(logic.values.canSummarize).toBe(true)
+            expect(logic.values.canSummarize).toBe(expected)
         })
     })
 

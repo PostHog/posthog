@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -36,6 +37,7 @@ class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PENDO,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Pendo",
             caption="""Enter your Pendo integration key to pull your Pendo data into the PostHog Data warehouse.
 
@@ -44,7 +46,6 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
             iconPath="/static/services/pendo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pendo",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

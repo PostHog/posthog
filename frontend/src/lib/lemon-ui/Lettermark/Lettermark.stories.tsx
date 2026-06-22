@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 
 import { Lettermark, LettermarkColor, LettermarkProps, NUM_LETTERMARK_STYLES } from './Lettermark'
 

@@ -19,3 +19,8 @@ class ExportContext(BaseModel):
     session_id: str
     team_id: int
     redis_config: RedisConfig
+
+
+class MarkExportFailedInput(BaseModel):
+    exported_recording_id: UUID
+    error_message: str

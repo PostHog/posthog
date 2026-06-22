@@ -27,6 +27,10 @@ export type RequestProperties = {
     mcpConversationId?: string | undefined
     viaSseRedirect?: boolean | undefined
     requestStartTime?: number | undefined
+    // Dev/test-only per-request feature-flag overrides — a JSON object string from
+    // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
+    // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
+    featureFlagOverrides?: string | undefined
 }
 
 export type ClientInfo = {
@@ -79,5 +83,6 @@ export function parseRequestProperties(
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         transport,
         requestStartTime: Date.now(),
+        featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,
     }
 }

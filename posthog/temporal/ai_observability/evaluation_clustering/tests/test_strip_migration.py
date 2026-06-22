@@ -10,6 +10,7 @@ both layers.
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -22,15 +23,13 @@ from posthog.temporal.ai_observability.evaluation_clustering.data import fetch_g
 _RESOLVE_PATH = "posthog.temporal.ai_observability.evaluation_clustering.data.resolve_trace_ids_for_generation_uuids"
 _WINDOW_START = datetime(2026, 4, 27, 7, 0, 0, tzinfo=UTC)
 _WINDOW_END = datetime(2026, 4, 27, 8, 0, 0, tzinfo=UTC)
+_GENERATION_ID_1 = "12345678-1234-1234-1234-123456789abc"
+_GENERATION_ID_2 = "12345678-1234-1234-1234-123456789abd"
 
 
 @pytest.fixture
-def team(db):
-    from posthog.models.organization import Organization
-    from posthog.models.team import Team
-
-    organization = Organization.objects.create(name="Test Org")
-    return Team.objects.create(organization=organization, name="Test Team")
+def team():
+    return SimpleNamespace(id=1)
 
 
 def _resolver_response(rows: list[list]) -> MagicMock:
@@ -39,7 +38,6 @@ def _resolver_response(rows: list[list]) -> MagicMock:
     return response
 
 
-@pytest.mark.django_db
 class TestFetchGenerationContents:
     def test_empty_id_list_short_circuits(self, team):
         # No queries at all when there's nothing to fetch — guards against
@@ -57,7 +55,7 @@ class TestFetchGenerationContents:
             assert mock_resolver.call_count == 0
             assert mock_resolve.call_count == 0
 
-    @patch(_RESOLVE_PATH, return_value={"gid-1": "trace-A", "gid-2": "trace-B"})
+    @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A", _GENERATION_ID_2: "trace-B"})
     def test_returns_per_generation_dict(self, _mock_resolve, team):
         with patch(
             "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
@@ -65,28 +63,41 @@ class TestFetchGenerationContents:
             # Row tuple: (generation_id, model, input_raw, output_raw)
             mock_resolver.return_value = _resolver_response(
                 [
-                    ["gid-1", "gpt-4o", '[{"role":"user","content":"hi"}]', '[{"role":"assistant","content":"hello"}]'],
-                    ["gid-2", "gpt-4o", '[{"role":"user","content":"yo"}]', '[{"role":"assistant","content":"sup"}]'],
+                    [
+                        _GENERATION_ID_1,
+                        "gpt-4o",
+                        '[{"role":"user","content":"hi"}]',
+                        '[{"role":"assistant","content":"hello"}]',
+                    ],
+                    [
+                        _GENERATION_ID_2,
+                        "gpt-4o",
+                        '[{"role":"user","content":"yo"}]',
+                        '[{"role":"assistant","content":"sup"}]',
+                    ],
                 ]
             )
             result = fetch_generation_contents(
-                team, generation_ids=["gid-1", "gid-2"], window_start=_WINDOW_START, window_end=_WINDOW_END
+                team,
+                generation_ids=[_GENERATION_ID_1, _GENERATION_ID_2],
+                window_start=_WINDOW_START,
+                window_end=_WINDOW_END,
             )
-            assert set(result.keys()) == {"gid-1", "gid-2"}
-            assert result["gid-1"]["model"] == "gpt-4o"
-            assert "hi" in result["gid-1"]["input"]
-            assert "hello" in result["gid-1"]["output"]
+            assert set(result.keys()) == {_GENERATION_ID_1, _GENERATION_ID_2}
+            assert result[_GENERATION_ID_1]["model"] == "gpt-4o"
+            assert "hi" in result[_GENERATION_ID_1]["input"]
+            assert "hello" in result[_GENERATION_ID_1]["output"]
 
-    @patch(_RESOLVE_PATH, return_value={"gid-1": "trace-A"})
+    @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
     def test_truncates_input_and_output(self, _mock_resolve, team):
         big = "x" * 5000
         with patch(
             "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
         ) as mock_resolver:
-            mock_resolver.return_value = _resolver_response([["gid-1", "gpt-4o", big, big]])
+            mock_resolver.return_value = _resolver_response([[_GENERATION_ID_1, "gpt-4o", big, big]])
             result = fetch_generation_contents(
                 team,
-                generation_ids=["gid-1"],
+                generation_ids=[_GENERATION_ID_1],
                 max_input_chars=100,
                 max_output_chars=200,
                 window_start=_WINDOW_START,
@@ -94,12 +105,12 @@ class TestFetchGenerationContents:
             )
             # `_truncate` returns `s[:limit] + "… [N more chars]"` so the prefix
             # length is `limit` and the total length is `limit + suffix_len`.
-            assert result["gid-1"]["input"].startswith("x" * 100)
-            assert "more chars]" in result["gid-1"]["input"]
-            assert result["gid-1"]["output"].startswith("x" * 200)
-            assert "more chars]" in result["gid-1"]["output"]
+            assert result[_GENERATION_ID_1]["input"].startswith("x" * 100)
+            assert "more chars]" in result[_GENERATION_ID_1]["input"]
+            assert result[_GENERATION_ID_1]["output"].startswith("x" * 200)
+            assert "more chars]" in result[_GENERATION_ID_1]["output"]
 
-    @patch(_RESOLVE_PATH, return_value={"gid-1": "trace-A"})
+    @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
     def test_query_reads_native_heavy_columns_from_ai_events(self, _mock_resolve, team):
         """The whole point of the migration is that `input` / `output_choices`
         come off the dedicated `ai_events` columns rather than NULL JSON-extracts
@@ -109,7 +120,7 @@ class TestFetchGenerationContents:
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generation_contents(
-                team, generation_ids=["gid-1"], window_start=_WINDOW_START, window_end=_WINDOW_END
+                team, generation_ids=[_GENERATION_ID_1], window_start=_WINDOW_START, window_end=_WINDOW_END
             )
 
             kwargs = mock_resolver.call_args.kwargs
@@ -126,7 +137,7 @@ class TestFetchGenerationContents:
             assert kwargs["settings"].max_execution_time == CLUSTERING_QUERY_MAX_EXECUTION_TIME
             assert kwargs["query_type"] == "GenerationContentsForLabeling"
 
-    @patch(_RESOLVE_PATH, return_value={"gid-1": "trace-A", "gid-2": "trace-B"})
+    @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A", _GENERATION_ID_2: "trace-B"})
     def test_trace_ids_flow_into_heavy_query(self, _mock_resolve, team):
         """The discovered trace_ids must land in the WHERE so the heavy fetch
         gets the full ai_events sorting-key prefix + cityHash64 sharding-key
@@ -136,7 +147,10 @@ class TestFetchGenerationContents:
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generation_contents(
-                team, generation_ids=["gid-1", "gid-2"], window_start=_WINDOW_START, window_end=_WINDOW_END
+                team,
+                generation_ids=[_GENERATION_ID_1, _GENERATION_ID_2],
+                window_start=_WINDOW_START,
+                window_end=_WINDOW_END,
             )
 
             placeholders = mock_resolver.call_args.kwargs["placeholders"]
@@ -152,7 +166,25 @@ class TestFetchGenerationContents:
             "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
         ) as mock_resolver:
             result = fetch_generation_contents(
-                team, generation_ids=["gid-1"], window_start=_WINDOW_START, window_end=_WINDOW_END
+                team, generation_ids=[_GENERATION_ID_1], window_start=_WINDOW_START, window_end=_WINDOW_END
             )
             assert result == {}
             assert mock_resolver.call_count == 0
+
+    @patch(_RESOLVE_PATH, return_value={_GENERATION_ID_1: "trace-A"})
+    def test_malformed_generation_ids_are_filtered_before_uuid_queries(self, mock_resolve, team):
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_clustering.data.execute_with_ai_events_fallback"
+        ) as mock_resolver:
+            mock_resolver.return_value = _resolver_response([[_GENERATION_ID_1, "gpt-4o", "input", "output"]])
+            result = fetch_generation_contents(
+                team,
+                generation_ids=["not-a-uuid", _GENERATION_ID_1],
+                window_start=_WINDOW_START,
+                window_end=_WINDOW_END,
+            )
+
+            assert set(result.keys()) == {_GENERATION_ID_1}
+            assert mock_resolve.call_args.kwargs["generation_uuids"] == [_GENERATION_ID_1]
+            ids = mock_resolver.call_args.kwargs["placeholders"]["ids"]
+            assert [expr.value for expr in ids.exprs] == [_GENERATION_ID_1]

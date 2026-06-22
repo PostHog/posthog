@@ -85,7 +85,7 @@ export function WidgetCardBody({
     )
 }
 
-/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContent`. */
+/** Passes flex height from the card shell into widget body content. */
 function WidgetCardBodySlot({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
 }
@@ -194,20 +194,17 @@ export function WidgetLoadingState({ children, rowCount, className }: WidgetLoad
 
 type WidgetCardContentProps = {
     children: React.ReactNode
-    footer?: React.ReactNode
     className?: string
 }
 
-/** Scrollable widget body — use for all tile content (lists, setup prompts, empty states). */
-export function WidgetCardContent({ children, footer, className }: WidgetCardContentProps): JSX.Element {
+/** Scrollable widget body — compose with optional `WidgetContentFooter` as a sibling. */
+export function WidgetCardContent({ children, className }: WidgetCardContentProps): JSX.Element {
     return (
-        <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
-            {footer ? (
-                <div className="flex shrink-0 justify-center pt-0.5" data-slot="widget-card-content-footer">
-                    {footer}
-                </div>
-            ) : null}
+        <div
+            data-slot="widget-card-content"
+            className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden', className)}
+        >
+            {children}
         </div>
     )
 }
@@ -231,8 +228,10 @@ export type WidgetListCountNoun = {
     plural: string
 }
 
+export const WIDGET_LIST_COUNT_EVENTS: WidgetListCountNoun = { singular: 'event', plural: 'events' }
 export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue', plural: 'issues' }
 export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
+export const WIDGET_LIST_COUNT_EXPERIMENTS: WidgetListCountNoun = { singular: 'experiment', plural: 'experiments' }
 
 export function formatWidgetListCountFooter(
     shown: number,

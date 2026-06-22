@@ -197,6 +197,10 @@ class EndpointRunResponseSerializer(serializers.Serializer):
     """Response from executing an endpoint query."""
 
     name = serializers.CharField(help_text="URL-safe endpoint name that was executed.")
+    execution_id = serializers.UUIDField(
+        required=False,
+        help_text="Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs.",
+    )
     results = serializers.ListField(
         required=False,
         help_text="Query result rows. Each row is a list of values matching the columns order.",

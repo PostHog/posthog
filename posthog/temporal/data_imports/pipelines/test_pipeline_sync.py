@@ -5,14 +5,60 @@ from asgiref.sync import sync_to_async
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.pipelines.helpers import build_table_name, resolve_table_and_folder_names
 from posthog.temporal.data_imports.pipelines.pipeline_sync import merge_columns
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import columns_in_position_order, stamp_column_positions
+
+
+class TestResolveTableAndFolderNames:
+    @parameterized.expand(
+        [
+            # Stripe CamelCase: folder snake_cases, but the table keeps the only-lowercased raw name.
+            (
+                "stripe_camelcase",
+                "BalanceTransaction",
+                "balance_transaction",
+                "BalanceTransaction",
+                "balance_transaction",
+            ),
+            (
+                "stripe_compound",
+                "CustomerBalanceTransaction",
+                "customer_balance_transaction",
+                "CustomerBalanceTransaction",
+                "customer_balance_transaction",
+            ),
+            # Already snake_case: table and folder match.
+            ("plain_snake", "charge", "charge", "charge", "charge"),
+            # Native multi-schema (never migrated): dotted name drives the table, folder snake_cases the dot.
+            ("native_multi_schema", "public.orders", "public_orders", "public.orders", "public_orders"),
+            # Legacy migrated row: folder is pinned to the original (differs from normalize(name)),
+            # so the table anchors to the pinned folder, not the qualified name.
+            ("legacy_pinned", "public.users", "users", "users", "users"),
+            # No folder set: behaves like a plain row, table from the raw name.
+            ("no_folder", "BalanceTransaction", None, "BalanceTransaction", "balance_transaction"),
+        ]
+    )
+    def test_resolve(
+        self, _name: str, schema_name: str, resolved_folder: str | None, exp_table: str, exp_folder: str
+    ) -> None:
+        table_storage_name, folder_name = resolve_table_and_folder_names(schema_name, resolved_folder)
+        assert table_storage_name == exp_table
+        assert folder_name == exp_folder
+
+    def test_table_name_unchanged_for_camelcase_source(self) -> None:
+        # The regression guard: a populated (snake_cased) folder must NOT rename the HogQL table.
+        source = ExternalDataSource(source_type="Stripe", prefix="")
+        table_storage_name, _ = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
+        assert build_table_name(source, table_storage_name) == "stripe_balancetransaction"
 
 
 def _register_companion_sync(
@@ -302,3 +348,34 @@ class TestValidateSchemaAndUpdateTable(BaseTest):
         await sync_to_async(schema.refresh_from_db)()
         assert schema.table_id is not None
         assert schema.table_id != active_table.id
+
+
+class TestMergeColumnsPositions:
+    def test_partial_introspection_preserves_column_order(self):
+        # "b" transiently missing from introspection: its preserved entry keeps position=1, and
+        # the present columns carry theirs over, so re-stamping doesn't scramble the order.
+        existing = {
+            "a": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 0},
+            "b": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 1},
+            "c": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 2},
+        }
+        db_columns = {"a": "String", "c": "String"}
+        table_schema_dict = {"a": "StringDatabaseField", "c": "StringDatabaseField"}
+
+        merged = merge_columns(db_columns, table_schema_dict, existing)
+        stamp_column_positions(merged)
+
+        assert [name for name, _ in columns_in_position_order(merged)] == ["a", "b", "c"]
+
+    def test_new_column_appends_after_existing_order(self):
+        existing = {
+            "a": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 0},
+            "b": {"clickhouse": "String", "hogql": "StringDatabaseField", "position": 1},
+        }
+        db_columns = {"new_col": "String", "a": "String", "b": "String"}
+        table_schema_dict = {"new_col": "StringDatabaseField", "a": "StringDatabaseField", "b": "StringDatabaseField"}
+
+        merged = merge_columns(db_columns, table_schema_dict, existing)
+        stamp_column_positions(merged)
+
+        assert [name for name, _ in columns_in_position_order(merged)] == ["a", "b", "new_col"]

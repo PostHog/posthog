@@ -50,7 +50,7 @@ export const getSurveysListUrl = (projectId: string, params?: SurveysListParams)
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -164,9 +164,9 @@ export const getSurveysArchivedResponseUuidsRetrieveUrl = (projectId: string, id
 
 /**
  * Get list of archived response UUIDs for HogQL filtering.
-
-Returns list of UUIDs that the frontend can use to filter out archived responses
-in HogQL queries.
+ *
+ * Returns list of UUIDs that the frontend can use to filter out archived responses
+ * in HogQL queries.
  */
 export const surveysArchivedResponseUuidsRetrieve = async (
     projectId: string,
@@ -185,9 +185,9 @@ export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: st
 
 /**
  * Duplicate a survey to multiple projects in a single transaction.
-
-Accepts a list of target team IDs and creates a copy of the survey in each project.
-Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
+ *
+ * Accepts a list of target team IDs and creates a copy of the survey in each project.
+ * Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
 export const surveysDuplicateToProjectsCreate = async (
     projectId: string,
@@ -240,7 +240,7 @@ export const getSurveysResponsesListUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -315,7 +315,7 @@ export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -328,15 +328,15 @@ export const getSurveysStatsRetrieveUrl = (projectId: string, id: string, params
 
 /**
  * Get survey response statistics for a specific survey.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-    include_per_question_stats: Optional boolean to include per-question response counts and distributions
-
-Returns:
-    Survey statistics including event counts, unique respondents, and conversion rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+ *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
+ *
+ * Returns:
+ *     Survey statistics including event counts, unique respondents, and conversion rates
  */
 export const surveysStatsRetrieve = async (
     projectId: string,
@@ -373,7 +373,7 @@ export const getSurveysSummarizeResponsesCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -454,13 +454,13 @@ export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
 
 /**
  * Get response counts for all surveys.
-
-Args:
-    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
-    survey_ids: Optional comma-separated list of survey IDs to filter by
-
-Returns:
-    Dictionary mapping survey IDs to response counts
+ *
+ * Args:
+ *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+ *     survey_ids: Optional comma-separated list of survey IDs to filter by
+ *
+ * Returns:
+ *     Dictionary mapping survey IDs to response counts
  */
 export const surveysResponsesCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysResponsesCountRetrieveUrl(projectId), {
@@ -474,7 +474,7 @@ export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: Sur
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -487,13 +487,13 @@ export const getSurveysGlobalStatsRetrieveUrl = (projectId: string, params?: Sur
 
 /**
  * Get aggregated response statistics across all surveys.
-
-Args:
-    date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-    date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
-
-Returns:
-    Aggregated statistics across all surveys including total counts and rates
+ *
+ * Args:
+ *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+ *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *
+ * Returns:
+ *     Aggregated statistics across all surveys including total counts and rates
  */
 export const surveysGlobalStatsRetrieve = async (
     projectId: string,

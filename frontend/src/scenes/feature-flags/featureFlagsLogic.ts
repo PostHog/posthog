@@ -6,7 +6,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -95,7 +96,8 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         flagMatchesSearch(flag, filters.search) &&
         flagMatchesStatus(flag, filters.active) &&
         flagMatchesType(flag, filters.type) &&
-        (!filters.created_by_id || flag.created_by?.id === filters.created_by_id) &&
+        (!filters.created_by_id?.length ||
+            (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
         (!filters.evaluation_runtime || flag.evaluation_runtime === filters.evaluation_runtime)
     )
@@ -124,7 +126,7 @@ export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlag
 
 export interface FeatureFlagsFilters {
     active?: string
-    created_by_id?: number
+    created_by_id?: number[]
     type?: string
     search?: string
     order?: string
@@ -380,7 +382,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | string[]> = {
+            const searchParams: Record<string, string | number | string[] | number[]> = {
                 ...values.filters,
             }
 
@@ -419,7 +421,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             const { page, created_by_id, active, type, search, order, evaluation_runtime, tags } = searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id,
+                created_by_id: parseNumericArrayFilter(created_by_id),
                 type,
                 order,
                 evaluation_runtime,

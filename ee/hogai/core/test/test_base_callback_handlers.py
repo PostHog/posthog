@@ -9,6 +9,7 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
+from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.runner import SubagentCallbackHandler
 
 
@@ -66,7 +67,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         )
 
         self.assertEqual(len(runner._callback_handlers), 1)
-        mock_get_client.assert_called_once_with("US")
+        mock_get_client.assert_called_once_with("US", flush_at=1, before_send=ai_event_truncator)
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")
@@ -78,7 +79,7 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         mock_eu_client = Mock()
         mock_us_client = Mock()
 
-        def get_client_side_effect(region):
+        def get_client_side_effect(region, **kwargs):
             if region == "EU":
                 return mock_eu_client
             elif region == "US":
@@ -95,8 +96,8 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
 
         self.assertEqual(len(runner._callback_handlers), 2)
         self.assertEqual(mock_get_client.call_count, 2)
-        mock_get_client.assert_any_call("EU")
-        mock_get_client.assert_any_call("US")
+        mock_get_client.assert_any_call("EU", flush_at=1, before_send=ai_event_truncator)
+        mock_get_client.assert_any_call("US", flush_at=1, before_send=ai_event_truncator)
 
     @patch("ee.hogai.core.runner.is_cloud")
     @patch("ee.hogai.core.runner.get_instance_region")

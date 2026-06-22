@@ -24,8 +24,6 @@ from opentelemetry import trace
 from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
-from posthog.schema import ParserMode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
@@ -40,6 +38,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clear_locations
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema_enums import ParserMode
 
 logger = getLogger(__name__)
 
@@ -1720,6 +1719,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             left=self.visit(ctx.columnExpr(0)),
             right=self.visit(ctx.columnExpr(1)),
             negated=bool(ctx.NOT()),
+        )
+
+    def visitColumnExprNullSafeEq(self, ctx: HogQLParser.ColumnExprNullSafeEqContext):
+        # MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b`
+        return ast.IsDistinctFrom(
+            left=self.visit(ctx.columnExpr(0)),
+            right=self.visit(ctx.columnExpr(1)),
+            negated=True,
         )
 
     def visitColumnExprTrim(self, ctx: HogQLParser.ColumnExprTrimContext):
