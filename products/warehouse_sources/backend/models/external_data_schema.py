@@ -89,7 +89,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
         # only fills it when empty, so an existing folder is never overwritten by a later rename.
@@ -98,7 +98,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             update_fields = kwargs.get("update_fields")
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
-        super().save(*args, **kwargs)
+
+        if skip_activity_log:
+            # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
+            # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
+            # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
+            # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -337,7 +345,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         self.initial_sync_complete = False
 
-        self.save()
+        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -386,7 +394,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
@@ -396,7 +404,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["xmin_num_wraparound"] = num_wraparound
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
 
     def soft_delete(self):
         self.deleted = True
