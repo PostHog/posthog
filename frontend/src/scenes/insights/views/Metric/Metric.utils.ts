@@ -1,5 +1,7 @@
 import { type MetricChange } from '@posthog/quill-charts'
 
+import { IntervalType } from '~/types'
+
 // Above this magnitude the exact percentage is noise (it comes from a near-zero start), so show ∞ instead.
 export const MAX_CHANGE_PERCENT = 10_000 // ≈100×
 
@@ -67,22 +69,20 @@ interface ComparableSeries {
     compare_label?: string | null
 }
 
-// The previous comparison period, when "compare to previous" is on. Matched by `compare_label` rather
-// than position so it stays correct if the results array ever holds more than the current series.
+// Matched by `compare_label`, not array position (the backend doesn't guarantee order).
 export function selectPreviousSeriesSummary(
-    compareEnabled: boolean,
     results: readonly ComparableSeries[] | undefined
 ): MetricSeriesSummary | undefined {
-    if (!compareEnabled || !results) {
-        return undefined
-    }
-    const previous = results.find((series) => series.compare_label === 'previous')
+    const previous = results?.find((series) => series.compare_label === 'previous')
     return previous ? { total: previous.count, data: previous.data } : undefined
 }
 
-// The change pill, matched to the chosen summary:
-//  - `total`/`average` with a comparison period → this period's total/average vs the previous period's.
-//  - `latest`, or `total`/`average` without a comparison period → first → last of the current series.
+export function selectCurrentSeries<T extends { compare_label?: string | null }>(
+    results: readonly T[] | undefined
+): T | undefined {
+    return results?.find((series) => series.compare_label !== 'previous') ?? results?.[0]
+}
+
 export function computeMetricSummaryChange(
     summary: MetricSummary,
     current: MetricSeriesSummary,
@@ -94,4 +94,19 @@ export function computeMetricSummaryChange(
             : changeBetween(meanOfFinite(previous.data), meanOfFinite(current.data))
     }
     return computeMetricChange(current.data)
+}
+
+// Keep in sync with computeMetricSummaryChange — same total/average-vs-previous vs first→last split.
+export function getMetricChangeTooltip(
+    summary: MetricSummary,
+    hasComparison: boolean,
+    interval: IntervalType | null | undefined
+): string {
+    if (!hasComparison || summary === 'latest') {
+        const noun = interval ?? 'day'
+        return `Comparing the first ${noun}'s value to the most recent ${noun}'s value.`
+    }
+    return summary === 'total'
+        ? "Comparing this period's total to the previous period's total."
+        : "Comparing this period's average to the previous period's average."
 }

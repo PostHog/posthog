@@ -709,15 +709,18 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         context = AccountContext(
             team=self._team,
+            user=self._user,
             account_id=account_id,
             external_id=external_id,
         )
 
+        # Object-level access is enforced inside the facade (AccountContextData is a
+        # contract, not a model, so check_object_access can't gate it here); a denied
+        # account comes back as None and is reported as not found.
         account = await context.aget_account()
         if account is None:
             raise MaxToolRetryableError(context.get_not_found_message())
 
-        await self.check_object_access(account, "viewer", resource="account", action="read")
         return await context.format_account(account)
 
     async def _read_activity_log(

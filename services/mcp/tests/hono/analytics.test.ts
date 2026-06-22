@@ -23,6 +23,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         reqCtx: {
             safelyGetAnalyticsContext: vi.fn(async () => undefined),
             getSessionUuid: vi.fn(async () => 'session-uuid'),
+            getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
         } as any,
         context: {
             stateManager: {},
