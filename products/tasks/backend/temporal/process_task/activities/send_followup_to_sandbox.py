@@ -9,18 +9,18 @@ from temporalio import activity
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
-from products.tasks.backend.services.agent_command import (
+from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     send_refresh_session,
     send_user_message,
 )
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
-from products.tasks.backend.stream.redis_stream import get_task_run_stream_key
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,

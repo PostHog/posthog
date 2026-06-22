@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -14,7 +15,6 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
