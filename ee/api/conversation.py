@@ -422,6 +422,10 @@ class ConversationViewSet(
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
+        # drf-spectacular introspects with a fake view (no URL kwargs), so `self.team` would
+        # raise KeyError: 'team_id'. Skip the eager team/user lookup during schema generation.
+        if getattr(self, "swagger_fake_view", False):
+            return context
         context["team"] = self.team
         context["user"] = cast(User, self.request.user)
         return context
