@@ -73,7 +73,18 @@ export function getCoreFilterDefinition(
             const parsedIndex = Number(suffix)
             if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
                 const index = parsedIndex + 1
-                const ordinal = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+                const lastTwo = index % 100
+                const lastOne = index % 10
+                const ordinal =
+                    lastTwo >= 11 && lastTwo <= 13
+                        ? 'th'
+                        : lastOne === 1
+                          ? 'st'
+                          : lastOne === 2
+                            ? 'nd'
+                            : lastOne === 3
+                              ? 'rd'
+                              : 'th'
                 return {
                     label: `Survey response for ${index}${ordinal} question`,
                     description: `The response value for the ${index}${ordinal} question in the survey.`,
