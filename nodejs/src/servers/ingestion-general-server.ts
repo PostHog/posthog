@@ -1,4 +1,15 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
+import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
+import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -15,8 +26,6 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
-import { createClientWarningsConsumer } from '../ingestion/clientwarnings'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -24,7 +33,6 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
-import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {
     DatabaseConnectionConfig,
@@ -36,10 +44,7 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
-import { createHeatmapsConsumer } from '../ingestion/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
@@ -48,10 +53,6 @@ import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManagerComponent } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -252,6 +253,7 @@ export class IngestionGeneralServer implements NodeServer {
             personRepository,
             cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+            aiSubpipelineFactory: createAiEventSubpipeline,
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {
