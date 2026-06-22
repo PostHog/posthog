@@ -7,13 +7,11 @@ import builtins
 import dataclasses
 from datetime import datetime, timedelta
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
-from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from dateutil.parser import isoparse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
@@ -126,13 +124,15 @@ def _get_event_list_cache_key(
 # zipping HogQL result rows back into the dict shape `ClickhouseEventSerializer` expects.
 EVENT_LIST_SELECT_COLUMNS = ["uuid", "event", "properties", "timestamp", "distinct_id", "elements_chain"]
 
-# Property-filter keys EventsQuery's schema accepts. Legacy-only keys (property_type,
-# property_type_format) are dropped — the schema forbids them and property_to_expr doesn't need them.
-_ALLOWED_PROPERTY_KEYS = {"key", "value", "operator", "type", "label", "group_type_index"}
+# Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
+# They are render hints with no filter semantics, so dropping them preserves old behavior. Any
+# OTHER unexpected key is left in place so the schema rejects it (fail loud) rather than being
+# silently ignored.
+_LEGACY_PROPERTY_KEYS_TO_DROP = {"property_type", "property_type_format"}
 
 
 def _clean_property_node(node: dict) -> dict:
-    """Strip schema-rejected keys from a property filter, recursing into property groups.
+    """Drop legacy render-hint keys from a property filter, recursing into property groups.
 
     A group node (`{"type": "AND"/"OR", "values": [...]}`) keeps its structure so the runner's
     `property_to_expr` preserves nested AND/OR; only leaf filters are key-filtered.
@@ -140,7 +140,7 @@ def _clean_property_node(node: dict) -> dict:
     values = node.get("values")
     if isinstance(values, list):
         return {"type": node.get("type"), "values": [_clean_property_node(v) for v in values if isinstance(v, dict)]}
-    return {k: v for k, v in node.items() if k in _ALLOWED_PROPERTY_KEYS}
+    return {k: v for k, v in node.items() if k not in _LEGACY_PROPERTY_KEYS_TO_DROP}
 
 
 def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None") -> Iterator[dict]:
@@ -157,16 +157,6 @@ def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None")
             stack.extend(v for v in values if isinstance(v, dict))
         else:
             yield node
-
-
-def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
-    try:
-        parsed = isoparse(timestamp)
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=tzinfo)
-        return parsed
-    except ValueError:
-        return relative_date_parse(timestamp, tzinfo)
 
 
 def run_events_query(
@@ -198,9 +188,9 @@ def run_events_query(
     """
     tzinfo = team.timezone_info
 
-    before_dt = parse_timestamp(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
+    before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
     if after:
-        after_dt: Optional[datetime] = parse_timestamp(after, tzinfo)
+        after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
     elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
         after_dt = before_dt - timedelta(hours=24)
     else:
@@ -222,11 +212,12 @@ def run_events_query(
         applied_window_seconds = time_window_seconds
 
     # Match the legacy behaviour for actions with no match groups (or that no longer exist):
-    # an empty result, not an error. The runner would otherwise raise.
+    # an empty result, not an error. The runner would otherwise raise. A malformed action_id
+    # is left to fail (int() raises) — bad input should error, not silently return nothing.
     if action_id:
         try:
             action = Action.objects.get(pk=int(action_id), team__project_id=team.project_id)
-        except (Action.DoesNotExist, ValueError):
+        except Action.DoesNotExist:
             return [], False, applied_window_seconds
         if not action.steps:
             return [], False, applied_window_seconds
