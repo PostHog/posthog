@@ -339,8 +339,8 @@ class BatchConsumer:
             return
         try:
             owns = await self._adapter.verify_advisory_lock(lock_conn, team_id=batch.team_id, schema_id=batch.schema_id)
-        except Exception:
-            raise OwnershipLostError("lock verification query failed")
+        except Exception as e:
+            raise OwnershipLostError("lock verification query failed") from e
         if not owns:
             raise OwnershipLostError(f"advisory lock lost for ({batch.team_id}, {batch.schema_id})")
 
