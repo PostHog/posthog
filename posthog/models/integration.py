@@ -3440,23 +3440,25 @@ def _create_unique_s3_integration(
 ) -> Integration:
     """Create an S3-family integration, rejecting a name already taken for this team and kind.
 
-    `name` is the user-facing identifier, so it must be unique — we create rather than upsert, so
-    re-using a name is a 400 instead of silently overwriting an existing credential set. Rotating
-    credentials is therefore delete-and-recreate (the viewset is create-only; there is no update).
+    Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
+    from the external connection (an OAuth account id, service-account email, etc.). So we create
+    rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
+    set — matching the only other user-named integration (Anthropic). Rotating credentials is
+    therefore delete-and-recreate (the viewset is create-only; there is no update endpoint).
     """
-    if Integration.objects.filter(team_id=team_id, kind=kind, integration_id=name).exists():
-        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
     try:
-        return Integration.objects.create(
-            team_id=team_id,
-            kind=kind,
-            integration_id=name,
-            config=config,
-            sensitive_config=sensitive_config,
-            created_by=created_by,
-        )
+        # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+        # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
+        with transaction.atomic():
+            return Integration.objects.create(
+                team_id=team_id,
+                kind=kind,
+                integration_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by=created_by,
+            )
     except IntegrityError:
-        # Lost the race against a concurrent create with the same name; the unique constraint held.
         raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
 
 
