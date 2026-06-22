@@ -61,6 +61,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.constants import INITIAL_PERMISSION_MODE_CHOICES
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.repo_selection.cascade import select_repository_for_message
+from products.tasks.backend.visibility import task_visibility_q
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -249,6 +250,20 @@ class SandboxOpenSerializer(serializers.Serializer):
             "for an already-existing conversation."
         ),
     )
+
+    def validate_task_id(self, value: uuid.UUID) -> Task:
+        """Resolve the Task to bind, scoped to the team and the requesting user's visibility.
+
+        Mirrors the tasks API's `task_visibility_q` gate so a team member can't bind a conversation
+        to a teammate's private task by guessing its id. Returns the resolved Task (consumed directly
+        by the view), so an unreadable id surfaces as a 400 here rather than failing deeper in routing.
+        """
+        team = self.context["team"]
+        user = self.context["user"]
+        try:
+            return Task.objects.filter(team=team, deleted=False).filter(task_visibility_q(user.id)).get(id=value)
+        except Task.DoesNotExist:
+            raise serializers.ValidationError("Task not found or not accessible.")
 
 
 class SandboxMessageResponseSerializer(serializers.Serializer):
@@ -673,11 +688,11 @@ class ConversationViewSet(
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )
-        serializer = SandboxOpenSerializer(data=request.data)
+        serializer = SandboxOpenSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
 
         conversation, created = self._get_or_create_sandbox_conversation(
-            request, bind_task_id=serializer.validated_data.get("task_id")
+            request, bind_task=serializer.validated_data.get("task_id")
         )
         has_content = bool(serializer.validated_data.get("content"))
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
@@ -696,7 +711,7 @@ class ConversationViewSet(
         )
 
     def _get_or_create_sandbox_conversation(
-        self, request: Request, *, bind_task_id: uuid.UUID | None = None
+        self, request: Request, *, bind_task: Task | None = None
     ) -> tuple[Conversation, bool]:
         """Resolve the URL-keyed conversation, creating it on first use (the client mints the id).
 
@@ -706,9 +721,9 @@ class ConversationViewSet(
         `open` immediately rejects. Returns whether the row was created this request so the caller can
         drop it again if nothing ends up being provisioned.
 
-        `bind_task_id` binds the new row to an existing Task (validated to this team), so the first
-        message resumes that Task's run instead of starting a fresh task. It only applies on create —
-        an existing conversation keeps the Task it was born with.
+        `bind_task` (already validated for team + visibility by `SandboxOpenSerializer`) binds the new
+        row to an existing Task, so the first message resumes that Task's run instead of starting a
+        fresh task. It only applies on create — an existing conversation keeps the Task it was born with.
         """
         conversation_id = self.kwargs[self.lookup_url_kwarg]
         user = cast(User, request.user)
@@ -727,7 +742,7 @@ class ConversationViewSet(
                 type=Conversation.Type.ASSISTANT,
                 is_internal=is_impersonated_session(request),
                 agent_runtime=Conversation.AgentRuntime.SANDBOX,
-                task=self._resolve_bind_task(bind_task_id) if bind_task_id is not None else None,
+                task=bind_task,
             )
             return conversation, True
         if conversation.user != user or conversation.team != self.team:
@@ -735,13 +750,6 @@ class ConversationViewSet(
         if conversation.deleted:
             raise exceptions.NotFound("Conversation does not exist")
         return conversation, False
-
-    def _resolve_bind_task(self, task_id: uuid.UUID) -> Task:
-        """Fetch the Task to bind a new conversation to, scoped to this team (IDOR-safe)."""
-        try:
-            return Task.objects.filter(team=self.team, deleted=False).get(id=task_id)
-        except Task.DoesNotExist:
-            raise exceptions.NotFound("Task not found.")
 
     def _compute_sandbox_conversion(
         self, request: Request, conversation: Conversation, has_content: bool

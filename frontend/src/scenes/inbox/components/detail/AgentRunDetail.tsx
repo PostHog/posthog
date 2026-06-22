@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import {
     IconArrowRight,
@@ -14,9 +15,9 @@ import { LemonButton, Link, Spinner, LemonSelect, LemonSkeleton, LemonTag, Toolt
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SignalNode } from 'scenes/debug/signals/types'
-import { PENDING_SANDBOX_BIND_TASK_KEY } from 'scenes/max/maxLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { SandboxRunViewer } from 'scenes/max/sandbox/components/SandboxRunViewer'
 import { isTerminalRunStatus } from 'scenes/max/sandboxStreamLogic'
 import { urls } from 'scenes/urls'
@@ -210,29 +211,27 @@ function TaskLogBody({
 }
 
 /**
- * "Open task": continues the selected task in a new PostHog AI chat. It stashes the task id in
- * sessionStorage (recency-stamped, mirroring `PENDING_MAX_CONTEXT_KEY`) and opens a blank chat;
- * the user's first message creates a conversation bound to this task, resuming its run interactively.
- * Gated to a terminal run — the live Task log already covers an in-progress run, and taking over a
- * running automation run is out of scope.
+ * "Open task": continues the selected task in a new PostHog AI chat bound to it — the chat's first
+ * message creates a conversation linked to this task and resumes its run interactively. A plain click
+ * opens PostHog AI in the side panel (staying in the inbox); cmd/ctrl/middle-click follows the href to
+ * open a new tab, carrying the bind via the `bind_task` URL param. Gated to a terminal run — the live
+ * Task log already covers an in-progress run, and taking over a running automation run is out of scope.
  */
 function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+    const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)
-
-    const handleOpen = (): void => {
-        try {
-            sessionStorage.setItem(PENDING_SANDBOX_BIND_TASK_KEY, JSON.stringify({ taskId, timestamp: Date.now() }))
-        } catch {
-            // sessionStorage unavailable — the chat still opens, it just won't be pre-bound to the task.
-        }
-        newInternalTab(urls.ai())
-    }
 
     return (
         <LemonButton
             size="xsmall"
             type="secondary"
-            onClick={handleOpen}
+            to={combineUrl(urls.ai(), { [SANDBOX_BIND_TASK_PARAM]: taskId }).url}
+            onClick={(e) => {
+                // Plain left-click: open the side panel in place rather than navigating to /ai.
+                // Link lets a modified click (cmd/ctrl/middle) through to the href for a new tab.
+                e.preventDefault()
+                openSidePanelMaxWithTaskBind(taskId)
+            }}
             disabledReason={isTerminal ? undefined : 'Available once the run finishes'}
             tooltip="Continue this task in a new PostHog AI chat"
         >

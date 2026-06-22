@@ -50,17 +50,13 @@ interface StoredMaxContext {
     timestamp: number
 }
 
-/** Key for a pending sandbox task-bind (set by inbox "Open task") in sessionStorage */
-export const PENDING_SANDBOX_BIND_TASK_KEY = 'posthog.pending_sandbox_bind_task'
-
-/** Maximum age for a restored task-bind (5 minutes) */
-const PENDING_BIND_TASK_MAX_AGE_MS = 5 * 60 * 1000
-
-/** Stored task-bind structure for sessionStorage */
-interface StoredSandboxBindTask {
-    taskId: string
-    timestamp: number
-}
+/**
+ * `/ai` query param carrying a sandbox Task to bind a fresh chat to (set by inbox "Open task").
+ * A URL param (rather than sessionStorage) so the binding survives opening the chat in a new tab or
+ * window. The side panel — which doesn't sync the URL — receives the same binding via a direct
+ * `setPendingBindTaskId` (see `maxGlobalLogic.openSidePanelMaxWithTaskBind`).
+ */
+export const SANDBOX_BIND_TASK_PARAM = 'bind_task'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -717,22 +713,13 @@ export const maxLogic = kea<maxLogicType>([
                 actions.toggleConversationHistory()
             }
 
-            // A fresh chat (no `chat` param) may carry a pending task-bind from inbox "Open task".
-            // Read it last so it survives the `startNewConversation` above (which clears it). The
-            // first message then resumes that task's run. Mirrors the PENDING_MAX_CONTEXT_KEY read.
-            if (!search.chat) {
-                try {
-                    const stored = sessionStorage.getItem(PENDING_SANDBOX_BIND_TASK_KEY)
-                    if (stored) {
-                        sessionStorage.removeItem(PENDING_SANDBOX_BIND_TASK_KEY)
-                        const { taskId, timestamp }: StoredSandboxBindTask = JSON.parse(stored)
-                        if (taskId && Date.now() - timestamp < PENDING_BIND_TASK_MAX_AGE_MS) {
-                            actions.setPendingBindTaskId(taskId)
-                        }
-                    }
-                } catch {
-                    // sessionStorage unavailable or data malformed — proceed as a normal new chat.
-                }
+            // A fresh chat (no `chat` param) may carry a task to bind via the URL (inbox "Open task").
+            // Read it after the `startNewConversation` above (which clears it) so it survives, and the
+            // first message resumes that task's run. The param naturally drops once `setConversationId`
+            // rewrites the URL to `?chat=<id>` after the first message.
+            const bindTaskId = search[SANDBOX_BIND_TASK_PARAM]
+            if (!search.chat && bindTaskId) {
+                actions.setPendingBindTaskId(String(bindTaskId))
             }
         },
     })),

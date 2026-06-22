@@ -1380,7 +1380,8 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.mock_select_repo.assert_not_awaited()
 
     def test_open_rejects_task_id_from_another_team(self):
-        # IDOR guard: a Task from another team can't be bound. The request 404s and creates no row.
+        # IDOR guard: a Task from another team isn't visible, so the serializer rejects it (400) and
+        # no conversation row is created.
         other_team = Team.objects.create(organization=self.organization, name="other team")
         other_task = Task.objects.create(
             team=other_team,
@@ -1400,9 +1401,64 @@ class TestConversationSandboxRoute(APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
         m_session.return_value.open.assert_not_called()
+
+    def test_open_rejects_task_not_visible_to_user(self):
+        # A teammate's personal task isn't visible (task_visibility_q), so it can't be bound by id.
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        teammate_task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=teammate,
+        )
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(teammate_task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+        m_session.return_value.open.assert_not_called()
+
+    def test_open_binds_team_visible_signal_report_task(self):
+        # Signals tasks are team-scoped artifacts visible to any team member, even when created under a
+        # system-picked user — so a teammate's signal-report task can be bound.
+        teammate = User.objects.create_and_join(self.organization, "teammate2@posthog.com", "password")
+        signal_task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=teammate,
+        )
+        conversation_id = str(uuid.uuid4())
+        sentinel = SandboxRouteResult(
+            task_id=str(signal_task.id), run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "continue this task", "trace_id": str(uuid.uuid4()), "task_id": str(signal_task.id)},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Conversation.objects.get(id=conversation_id).task_id, signal_task.id)
 
     def test_open_ignores_task_id_for_existing_conversation(self):
         # Binding only happens on create — an existing conversation keeps the Task it was born with
