@@ -17,7 +17,7 @@ use crate::{
     error::UnhandledError,
     metric_consts::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_SECONDS, PROCESS_TRANSIENT_DB_ERRORS,
+        PROCESS_REQUEST_DURATION_SECONDS,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
@@ -230,11 +230,9 @@ pub async fn process_events(
             let err = Arc::new(err);
             // Transient connection drops are infrastructure blips, not bugs: the
             // request still fails (and is retried upstream), but capturing them as
-            // error-tracking exceptions just floods our own issues. Downgrade to a
-            // metric instead of a captured exception.
-            if err.is_transient() {
-                metrics::counter!(PROCESS_TRANSIENT_DB_ERRORS).increment(1);
-            } else {
+            // error-tracking exceptions just floods our own issues. Skip the capture
+            // for transient drops — they're already surfaced via the warn! log above.
+            if !err.is_transient() {
                 common_posthog::capture_exception(
                     err.clone(),
                     [
