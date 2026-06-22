@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -349,6 +350,64 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check exception capture', () => {
+        let captureExceptionSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest
+                .spyOn(toolbarPosthogJS, 'captureException')
+                .mockImplementation(() => undefined as any)
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        const hostCheckEvents = (): any[] => captureSpy.mock.calls.filter((c) => c[0] === 'toolbar ui host check')
+
+        const mountWithFailingCheck = async (failure: () => Promise<any>): Promise<void> => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return failure()
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+        }
+
+        it('does not capture an exception for an expected HTTP error (e.g. reverse-proxy 404)', async () => {
+            await mountWithFailingCheck(() => Promise.resolve({ ok: false, status: 404 }))
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            const events = hostCheckEvents()
+            expect(events).toHaveLength(1)
+            expect(events[0][1]).toMatchObject({ status: 'error', error_type: 'http_error' })
+        })
+
+        it('does not capture an exception for a CORS/network failure', async () => {
+            await mountWithFailingCheck(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(hostCheckEvents()[0][1]).toMatchObject({ status: 'error', error_type: 'network_or_cors' })
+        })
+
+        it('captures an exception only for genuinely unexpected failures', async () => {
+            await mountWithFailingCheck(() => Promise.reject(new Error('something weird')))
+
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({
+                toolbar_context: 'ui_host_check',
+                error_type: 'unknown',
+            })
+            expect(hostCheckEvents()[0][1]).toMatchObject({ status: 'error', error_type: 'unknown' })
         })
     })
 

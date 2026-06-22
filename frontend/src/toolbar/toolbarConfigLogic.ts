@@ -660,13 +660,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Expected client-side failures (HTTP errors from reverse proxies that don't forward
+            // /toolbar_oauth/check, CORS/network blocks, timeouts) are recoverable via the config
+            // modal below, so we only record them as analytics. Reserve exception capture for
+            // genuinely unexpected failures so reverse-proxy misconfigurations don't surface as
+            // error-tracking issues.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
