@@ -467,18 +467,26 @@ class HyperCache:
         key: KeyType,
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
+        track_expiry: bool = False,
     ) -> int | None:
         """
-        Write only to the configured cache backend (self.cache_client), skipping S3
-        and expiry tracking.
+        Write only to the configured cache backend (self.cache_client), skipping S3.
 
-        Use this for backfills where S3 is known to already hold fresh data
-        (e.g. populated by the normal sync() path) and the only cold tier is the
-        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
-        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Use this for backfills and TTL refreshes where S3 already holds fresh data
+        (e.g. via the normal sync() path) and the only cold tier is the cache backend.
+        In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is the dedicated flags
+        Redis; in dev/test it's whatever the alias resolves to.
+
+        When track_expiry=True and key is a Team, the expiry sorted-set entry is
+        re-stamped too, keeping a redis-only refresh visible to the refresh task.
+
         Returns the serialized size in bytes, or None for None/missing values.
         """
-        return self._set_cache_value_redis(key, data, ttl=ttl)
+        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        # Tracking needs a Team to derive the identifier without a DB lookup.
+        if track_expiry and isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
+        return size
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """Test helper alias for delete_cache_entry."""

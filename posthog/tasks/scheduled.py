@@ -27,7 +27,11 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.remote_config import (
+    cleanup_stale_remote_config_expiry_tracking_task,
+    refresh_expiring_remote_config_cache_entries,
+    sync_all_remote_configs,
+)
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -278,6 +282,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_stale_flag_definitions_expiry_tracking_task.s(),
         name="flag definitions cache expiry tracking cleanup",
+    )
+
+    # Remote config (array/config.json) cache refresh - hourly at minute 45
+    sender.add_periodic_task(
+        crontab(hour="*", minute="45"),
+        refresh_expiring_remote_config_cache_entries.s(),
+        name="refresh expiring remote config cache entries",
+    )
+
+    # Remote config cache expiry tracking cleanup - daily at 3:45 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="45"),
+        cleanup_stale_remote_config_expiry_tracking_task.s(),
+        name="remote config cache expiry tracking cleanup",
     )
 
     # Team metadata cache verification - hourly at minute 20
