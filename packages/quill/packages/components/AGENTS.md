@@ -35,7 +35,7 @@ Rules:
 - Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
-- Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes.
+- Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 

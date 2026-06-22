@@ -29,9 +29,8 @@ export function useTrendsLegendConfig({
     const { featureFlags } = useValues(featureFlagLogic)
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     const { canEditInsight } = useValues(insightLogic)
-    const { indexedResults, getTrendsHidden, showLegend, legendSeriesIsolationMenuEligible } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { indexedResults, getTrendsHidden, showLegend, legendPosition, legendSeriesIsolationMenuEligible } =
+        useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
 
     const resultById = useMemo(() => {
@@ -50,6 +49,7 @@ export function useTrendsLegendConfig({
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
+            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {
@@ -77,6 +77,7 @@ export function useTrendsLegendConfig({
         indexedResults,
         getTrendsHidden,
         showLegend,
+        legendPosition,
         legendInteractive,
         legendSeriesIsolationMenuEligible,
         resultById,

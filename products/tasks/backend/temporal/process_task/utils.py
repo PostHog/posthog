@@ -185,6 +185,7 @@ class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
+    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -676,7 +677,7 @@ def build_sandbox_environment_variables(
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
     """
-    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 
     env_vars: dict[str, str] = {}
 

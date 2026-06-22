@@ -19,9 +19,12 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.common.worker import create_worker
 
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
-from products.tasks.backend.temporal import (
+from products.tasks.backend.facade.agents import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    CustomPromptSandboxContext,
+    LocalSkillsCache,
+)
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
@@ -575,7 +578,10 @@ class SandboxedDemoData:
         self.agent_model = agent_model
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
-        from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+        from django.apps import apps
+
+        CodeInvite = apps.get_model("tasks", "CodeInvite")
+        CodeInviteRedemption = apps.get_model("tasks", "CodeInviteRedemption")
 
         org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
