@@ -19,7 +19,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
 
     actions({
         loadRuns: true,
-        loadRunsSuccess: (runs: VisionActionRunApi[]) => ({ runs }),
+        loadRunsSuccess: (runs: VisionActionRunApi[], count: number) => ({ runs, count }),
         loadRunsFailure: true,
         loadAction: true,
         loadActionSuccess: (action: VisionActionApi) => ({ action }),
@@ -31,6 +31,12 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
             [] as VisionActionRunApi[],
             {
                 loadRunsSuccess: (_, { runs }) => runs,
+            },
+        ],
+        runsCount: [
+            0,
+            {
+                loadRunsSuccess: (_, { count }) => count,
             },
         ],
         // Loading starts true so the page shows a spinner, not a flash of "no runs", before the first fetch.
@@ -67,7 +73,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
             }
             try {
                 const response = await visionActionsRunsList(String(teamId), props.actionId, { limit: 100 })
-                actions.loadRunsSuccess(response.results ?? [])
+                actions.loadRunsSuccess(response.results ?? [], response.count ?? response.results?.length ?? 0)
             } catch (error: any) {
                 lemonToast.error(`Failed to load runs${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadRunsFailure()

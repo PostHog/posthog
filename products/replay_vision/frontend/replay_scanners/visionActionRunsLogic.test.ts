@@ -64,6 +64,7 @@ describe('visionActionRunsLogic', () => {
                     expect.objectContaining({ id: 'r1', status: 'completed' }),
                     expect.objectContaining({ id: 'r2', status: 'skipped' }),
                 ]),
+                runsCount: 2,
                 runsLoading: false,
             })
     })
