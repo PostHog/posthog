@@ -20,7 +20,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
@@ -551,11 +551,9 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        append_task_run_artefact(
+        record_implementation_task(
             team_id=self.team.id,
             report_id=str(report.id),
-            product="signals",
-            type="implementation",
             task_id=str(task.id),
         )
         run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
@@ -621,11 +619,9 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        append_task_run_artefact(
+        record_implementation_task(
             team_id=self.team.id,
             report_id=str(report.id),
-            product="signals",
-            type="implementation",
             task_id=str(task.id),
         )
         old_run = TaskRun.objects.create(
@@ -1491,7 +1487,8 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
             total_weight=1.0,
         )
 
-    def _create_task(self, team=None) -> Task:
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
         return Task.objects.create(
             team=team or self.team,
             title="task",

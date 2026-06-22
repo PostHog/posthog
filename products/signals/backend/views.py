@@ -67,7 +67,6 @@ from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -97,6 +96,7 @@ from products.signals.backend.task_attribution import (
     resolve_request_attribution,
     resolve_task_id_from_header,
 )
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
     BackfillErrorTrackingWorkflow,
@@ -666,7 +666,7 @@ class SignalReportViewSet(
         # per-row PR-url annotation, which the list action skips for performance.
         return tasks_facade.task_run_pr_url_exists_subquery(
             task__signal_report_tasks__report_id=OuterRef("id"),
-            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            task__signal_report_tasks__relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
@@ -917,7 +917,7 @@ class SignalReportViewSet(
         # Path: SignalReportTask(relationship=implementation) -> Task -> TaskRun(latest) -> output->'pr_url'
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             task__signal_report_tasks__report_id=OuterRef("id"),
-            task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            task__signal_report_tasks__relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 

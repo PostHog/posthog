@@ -1046,7 +1046,7 @@ class TestSignalReportArtefactAttribution(APIBaseTest):
         report = self._create_report()
         response = self.client.post(
             f"/api/projects/{self.team.id}/signals/reports/{report.id}/state/",
-            data=json.dumps({"state": "suppressed", "dismissal_reason": "not_a_bug"}),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "analysis_wrong"}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()

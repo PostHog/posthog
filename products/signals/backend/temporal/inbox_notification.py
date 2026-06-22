@@ -24,6 +24,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -48,7 +49,7 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
         SignalReportTask.objects.filter(
             team_id=team_id,
             report_id=report_id,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         ).values_list("task_id", flat=True)
     )
     if not impl_task_ids:

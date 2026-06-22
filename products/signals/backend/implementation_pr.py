@@ -1,6 +1,7 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 from products.signals.backend.models import SignalReportTask
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.tasks.backend.facade import api as tasks_facade
 
 
@@ -17,7 +18,7 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     pairs = list(
         SignalReportTask.objects.filter(
             report_id__in=report_ids,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            relationship=TASK_RUN_TYPE_IMPLEMENTATION,
         )
         .order_by("report_id")
         .values_list("report_id", "task_id")

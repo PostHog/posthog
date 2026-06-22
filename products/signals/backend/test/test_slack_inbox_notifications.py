@@ -30,7 +30,7 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
-from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 @pytest.mark.parametrize(
@@ -361,11 +361,9 @@ def _create_implementation_task_with_run(
         description="Fix the bug",
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
     )
-    append_task_run_artefact(
+    record_implementation_task(
         team_id=team.id,
         report_id=str(report.id),
-        product="signals",
-        type="implementation",
         task_id=str(task.id),
     )
     TaskRun.objects.create(
