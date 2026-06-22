@@ -1155,29 +1155,18 @@ class TestGetRowsToSyncStatementTimeout:
         def fetchall(self):
             return []
 
-    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    def test_count_statement_timeout(self, should_use_incremental_field):
+    def test_count_statement_timeout_full_table_returns_zero(self):
         logger = structlog.get_logger()
         count_query = sql.SQL("SELECT count(*) FROM t").format()
+        cursor = cast(psycopg.Cursor, self._Cursor())
+        assert _get_rows_to_sync(cursor, count_query, logger, should_use_incremental_field=False) == 0
 
-        if should_use_incremental_field:
-            with pytest.raises(psycopg.errors.QueryCanceled):
-                _get_rows_to_sync(
-                    self._Cursor(),
-                    count_query,
-                    logger,
-                    should_use_incremental_field=True,
-                )
-        else:
-            assert (
-                _get_rows_to_sync(
-                    self._Cursor(),
-                    count_query,
-                    logger,
-                    should_use_incremental_field=False,
-                )
-                == 0
-            )
+    def test_count_statement_timeout_incremental_reraises(self):
+        logger = structlog.get_logger()
+        count_query = sql.SQL("SELECT count(*) FROM t").format()
+        cursor = cast(psycopg.Cursor, self._Cursor())
+        with pytest.raises(psycopg.errors.QueryCanceled):
+            _get_rows_to_sync(cursor, count_query, logger, should_use_incremental_field=True)
 
 
 class TestServerCursorStatementTimeout:
