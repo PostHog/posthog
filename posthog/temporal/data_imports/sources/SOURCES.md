@@ -237,6 +237,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - agilecrm
 - aha
+- ahrefs
 - airbyte
 - akeneo
 - algolia
@@ -255,6 +256,7 @@ doesn't conflict with concurrent PRs.
 - appfigures
 - appfollow
 - apple_search_ads
+- appstack
 - apptivo
 - assemblyai
 - auth0
@@ -294,6 +296,7 @@ doesn't conflict with concurrent PRs.
 - chameleon
 - chargedesk
 - chargify
+- chatwoot
 - chift
 - chorus
 - churnkey
@@ -322,6 +325,7 @@ doesn't conflict with concurrent PRs.
 - customerly
 - databricks
 - datascope
+- datorama
 - db2
 - dbt
 - deputy
@@ -451,6 +455,7 @@ doesn't conflict with concurrent PRs.
 - lemlist
 - less_annoying_crm
 - lever
+- lightfield
 - linkedin_pages
 - linkrunner
 - linnworks
@@ -484,7 +489,9 @@ doesn't conflict with concurrent PRs.
 - nasa
 - navan
 - nebius_ai
+- neon
 - netsuite
+- new_relic
 - new_york_times
 - news_api
 - newsdata
@@ -558,6 +565,7 @@ doesn't conflict with concurrent PRs.
 - qualtrics
 - quickbooks
 - railz
+- razorpay
 - rd_station_marketing
 - recreation
 - recruitee
@@ -624,6 +632,8 @@ doesn't conflict with concurrent PRs.
 - stigg
 - stockdata
 - strava
+- streamelements
+- streamlabs
 - surveymonkey
 - surveysparrow
 - survicate
@@ -640,6 +650,7 @@ doesn't conflict with concurrent PRs.
 - ticketmaster
 - tickettailor
 - ticktick
+- tile38
 - timely
 - tinyemail
 - tmdb

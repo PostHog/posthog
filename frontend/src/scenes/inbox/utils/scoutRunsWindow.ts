@@ -1,8 +1,9 @@
 // Ported from PostHog Code desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
-// configs; no I/O. The runs the cloud API returns are already the newest-first,
-// 100-row-capped window the desktop assembled by hand, so the cursor-pagination
-// loop is dropped here – but the same window framing and labels are preserved.
+// configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
+// `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
+// `date_to` cursor (same as desktop), and these helpers frame all numbers as
+// "the recent window" with a "truncated" suffix when that walk hits its page cap.
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -165,6 +166,28 @@ export function deriveRunOutcome(run: SignalScoutRunSummary, now: Date): ScoutRu
         return 'queued'
     }
     return 'unknown'
+}
+
+/** The run-history filter chips on the scout detail surface. */
+export type ScoutRunFilter = 'all' | 'emitted' | 'quiet' | 'failed'
+
+/**
+ * Whether a run belongs under a given filter chip. Emitted/Quiet split completed runs by
+ * whether they wrote findings; Failed is any failed/cancelled run. There is no server-side
+ * `status` filter yet (api gap 1), so the detail view filters its window client-side.
+ */
+export function runMatchesFilter(run: SignalScoutRunSummary, filter: ScoutRunFilter): boolean {
+    const status = normalizeRunStatus(run.status)
+    switch (filter) {
+        case 'all':
+            return true
+        case 'emitted':
+            return (run.emitted_count ?? 0) > 0
+        case 'quiet':
+            return status === 'completed' && (run.emitted_count ?? 0) === 0
+        case 'failed':
+            return status === 'failed'
+    }
 }
 
 export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): string {

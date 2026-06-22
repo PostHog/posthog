@@ -44,6 +44,7 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
+    isAskAIDisabled,
     startInlineCommentAtSelection,
     lockPosition,
 }: {
@@ -59,6 +60,7 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
+    isAskAIDisabled?: boolean
     startInlineCommentAtSelection?: () => void
     lockPosition: () => void
 }): JSX.Element {
@@ -260,6 +262,8 @@ export function FormattingToolbar({
                     icon={<IconSparkles />}
                     tooltip="Ask AI"
                     aria-label="Ask AI"
+                    disabled={isAskAIDisabled}
+                    disabledReason={isAskAIDisabled ? 'Ask AI is already active' : undefined}
                     onClick={askAIAboutSelection}
                 />
             ) : null}

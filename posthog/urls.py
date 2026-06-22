@@ -30,7 +30,6 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.personal_finish import github_link_complete
-from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -106,7 +105,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     """
     import json
 
-    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+    from products.tasks.backend.facade.webhooks import get_github_webhook_secret, verify_github_signature
 
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -132,7 +131,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return dispatch_github_event(request, event_type, payload)
 
     if event_type == "pull_request":
-        from products.tasks.backend.webhooks import handle_pull_request_event
+        from products.tasks.backend.facade.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
 
@@ -279,7 +278,7 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
-    path("api/customer_analytics/", include("products.customer_analytics.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -402,7 +401,6 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
-    opt_slash_path("id-jag/token", IdJagViewSet.as_view(), name="id_jag_token"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports

@@ -189,4 +189,13 @@ export interface SessionQueue extends SessionInputsStore {
      * may still be retained.
      */
     listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
+    /**
+     * Count sessions grouped by state across the whole fleet. Backs the
+     * janitor's queue-depth Prometheus gauge — the singleton samples this once
+     * per sweep so we get `queued` backlog + `running` in-flight + terminal
+     * counts without every runner pod hammering the same aggregate. Returns a
+     * record keyed by state; states with no rows are simply absent (the caller
+     * zero-fills the gauge for known states).
+     */
+    countByState(): Promise<Partial<Record<AgentSession['state'], number>>>
 }

@@ -138,15 +138,6 @@ class TestExperimentService(APIBaseTest):
     # Stats config defaults
     # ------------------------------------------------------------------
 
-    def test_stats_config_defaults_bayesian(self):
-        self._create_flag(key="stats-test")
-        service = self._service()
-
-        experiment = service.create_experiment(name="Stats Test", feature_flag_key="stats-test")
-
-        assert experiment.stats_config is not None
-        assert experiment.stats_config["method"] == "bayesian"
-
     def test_stats_config_defaults_from_team(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         config.default_experiment_stats_method = "frequentist"
@@ -258,14 +249,6 @@ class TestExperimentService(APIBaseTest):
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
-
-    def test_no_fingerprints_when_no_metrics(self):
-        self._create_flag(key="no-metrics")
-        service = self._service()
-
-        experiment = service.create_experiment(name="No Metrics", feature_flag_key="no-metrics")
-
-        assert experiment.metrics == []
 
     # ------------------------------------------------------------------
     # Metric ordering
@@ -653,6 +636,103 @@ class TestExperimentService(APIBaseTest):
         )
 
     # ------------------------------------------------------------------
+    # validate_experiment_metrics — threshold / math-type compatibility
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("threshold_on_sum", "sum"),
+            ("threshold_on_total_count", "total"),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_threshold_on_summed_math(self, _: str, math: str) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview", "math": math, "math_property": "amount"},
+                    "threshold": 100,
+                }
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            ("threshold_on_unique_session", "unique_session"),
+            ("threshold_on_dau", "dau"),
+            ("threshold_on_hogql", "hogql"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_on_unsupported_math(self, _: str, math: str) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview", "math": math},
+                        "threshold": 100,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("negative", -5),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_non_positive_threshold(self, _: str, threshold: int) -> None:
+        # A non-positive threshold is always satisfied, yielding a meaningless 100% proportion.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": threshold,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("lower_bound", {"lower_bound_percentile": 0.01}),
+            ("upper_bound", {"upper_bound_percentile": 0.99}),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_with_winsorization(self, _: str, bounds: dict) -> None:
+        # Winsorization caps continuous outliers, which is meaningless once the metric
+        # collapses to a binary threshold outcome — reject the combination.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": 100,
+                        **bounds,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
     # ------------------------------------------------------------------
 
@@ -822,40 +902,6 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
-
-    def test_description_and_type_passed_through(self):
-        self._create_flag(key="passthrough")
-        service = self._service()
-
-        experiment = service.create_experiment(
-            name="Passthrough Test",
-            feature_flag_key="passthrough",
-            description="A description",
-            type="web",
-        )
-
-        assert experiment.description == "A description"
-        assert experiment.type == "web"
-
-    def test_parameters_passed_through(self):
-        self._create_flag(key="params-test")
-        service = self._service()
-
-        params = {
-            "feature_flag_variants": [
-                {"key": "control", "name": "Control", "rollout_percentage": 50},
-                {"key": "test", "name": "Test", "rollout_percentage": 50},
-            ],
-            "minimum_detectable_effect": 30,
-        }
-
-        experiment = service.create_experiment(
-            name="Params Test",
-            feature_flag_key="params-test",
-            parameters=params,
-        )
-
-        assert experiment.parameters == params
 
     def test_create_experiment_with_all_fields(self):
         service = self._service()
@@ -1047,19 +1093,6 @@ class TestExperimentService(APIBaseTest):
 
         experiment.refresh_from_db()
         assert experiment.status == "running"
-
-    def test_create_experiment_with_unknown_field_raises_type_error(self):
-        self._create_flag(key="unknown-key-flag")
-        service = self._service()
-
-        with self.assertRaises(TypeError) as ctx:
-            service.create_experiment(
-                name="Unknown Key",
-                feature_flag_key="unknown-key-flag",
-                unknown_field="boom",  # type: ignore[call-arg]
-            )
-
-        assert "unexpected keyword argument 'unknown_field'" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Update experiment

@@ -13,6 +13,11 @@ export interface ServiceFilterLogicProps {
     dateRange?: DateRange
 }
 
+export interface ServiceValue {
+    name: string
+    count?: number
+}
+
 export const serviceFilterLogic = kea<serviceFilterLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'Filters', 'serviceFilterLogic']),
     props({} as ServiceFilterLogicProps),
@@ -32,7 +37,7 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
 
     loaders(({ values, props: logicProps }) => ({
         allServiceNames: [
-            [] as string[],
+            [] as ServiceValue[],
             {
                 loadServiceNames: async () => {
                     const url = combineUrl(`api/environments/${values.currentTeamId}/logs/values`, {
@@ -44,14 +49,17 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
                     }).url
                     // nosemgrep: prefer-codegen-api
                     const response = await api.get(url)
-                    return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
+                    return (response.results ?? []) as ServiceValue[]
                 },
             },
         ],
     })),
 
     selectors({
-        serviceNames: [(s) => [s.allServiceNames], (allServiceNames): string[] => allServiceNames],
+        // Names only — kept for the legacy ServiceFilter dropdown (flag off).
+        serviceNames: [(s) => [s.allServiceNames], (allServiceNames): string[] => allServiceNames.map((r) => r.name)],
+        // Name + count — used by the facet rail to show per-value counts.
+        serviceValues: [(s) => [s.allServiceNames], (allServiceNames): ServiceValue[] => allServiceNames],
     }),
 
     listeners(({ actions }) => ({

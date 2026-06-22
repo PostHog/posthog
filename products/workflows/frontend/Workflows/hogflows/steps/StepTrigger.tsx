@@ -594,7 +594,6 @@ function StepTriggerConfigurationBatch({
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.FeatureFlags,
                         TaxonomicFilterGroupType.Metadata,
                     ]}
                     taxonomicFilterOptionsFromProp={{

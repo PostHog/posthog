@@ -299,6 +299,13 @@ export const urls = {
     // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    // Scout detail surface, full-width over the inbox list (the fleet section lives in the Configuration tab).
+    // An optional finding id deep-links straight to one emitted finding (best-effort: only resolves while
+    // that finding is still in the scout's recent runs window).
+    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
+        return `/inbox/scouts/${skillName}${segment}`
+    },
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',

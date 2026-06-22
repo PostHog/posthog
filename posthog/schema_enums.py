@@ -327,6 +327,11 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -417,11 +422,6 @@ class AssistantTool(StrEnum):
     OPEN_ACCOUNT = "open_account"
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class Display(StrEnum):
     AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
@@ -430,6 +430,7 @@ class Display(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
@@ -438,6 +439,12 @@ class Display(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+
+
+class MetricSummary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
 
 
 class YAxisScaleType(StrEnum):
@@ -561,6 +568,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
     BOLD_NUMBER = "BoldNumber"
+    METRIC = "Metric"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_TABLE = "ActionsTable"
@@ -1034,6 +1042,12 @@ class SourceType(StrEnum):
     ISSUE_CREATED = "issue_created"
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
+
+
+class EvaluationRuntime(StrEnum):
+    HOG = "hog"
+    LLM_JUDGE = "llm_judge"
+    SENTIMENT = "sentiment"
 
 
 class CorrelationType(StrEnum):
@@ -1770,7 +1784,18 @@ class ExternalDataSourceType(StrEnum):
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
     BRAINTRUST = "Braintrust"
+    STREAM_ELEMENTS = "StreamElements"
+    STREAMLABS = "Streamlabs"
+    DATORAMA = "Datorama"
+    AHREFS = "Ahrefs"
+    LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
+    RAZORPAY = "Razorpay"
+    NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
+    TILE38 = "Tile38"
+    CHATWOOT = "Chatwoot"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1792,6 +1817,7 @@ class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
+    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
@@ -2008,6 +2034,12 @@ class HogLanguage(StrEnum):
     LIQUID = "liquid"
 
 
+class HogQLAlertEvaluation(StrEnum):
+    LAST_ROW = "last_row"
+    FIRST_ROW = "first_row"
+    ANY_ROW = "any_row"
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -2151,6 +2183,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    POSTGRESQL = "postgresql"
 
 
 class IntervalType(StrEnum):
@@ -2310,11 +2343,6 @@ class MaxBillingContextSubscriptionLevel(StrEnum):
     FREE = "free"
     PAID = "paid"
     CUSTOM = "custom"
-
-
-class EvaluationType(StrEnum):
-    HOG = "hog"
-    LLM_JUDGE = "llm_judge"
 
 
 class Goal(Enum):
@@ -2640,6 +2668,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
@@ -2815,6 +2844,7 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
+    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -2946,6 +2976,7 @@ class SignalSourceProduct(StrEnum):
     SIGNALS_SCOUT = "signals_scout"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
+    REPLAY_VISION = "replay_vision"
 
 
 class SignalSourceType(StrEnum):
@@ -2963,6 +2994,7 @@ class SignalSourceType(StrEnum):
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
+    SCANNER_FINDING = "scanner_finding"
 
 
 class Severity(StrEnum):
@@ -3256,6 +3288,13 @@ class DetailedResultsAggregationType(StrEnum):
     MEDIAN = "median"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class UsageMetricDisplay(StrEnum):
     NUMBER = "number"
     SPARKLINE = "sparkline"
@@ -3304,6 +3343,12 @@ class WebAnalyticsOrderByFields(StrEnum):
     RAGE_CLICKS = "RageClicks"
     DEAD_CLICKS = "DeadClicks"
     ERRORS = "Errors"
+
+
+class WebAnalyticsPreComputeStrategy(StrEnum):
+    PRE_AGGREGATED = "pre_aggregated"
+    LAZY_PRECOMPUTE = "lazy_precompute"
+    LIVE = "live"
 
 
 class WebStatsBreakdown(StrEnum):

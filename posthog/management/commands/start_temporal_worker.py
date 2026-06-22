@@ -35,6 +35,10 @@ from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
 )
+from posthog.temporal.backfill_group_type_created_at import (
+    ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
+    WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -195,7 +199,7 @@ from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
-from products.logs.backend.temporal import (
+from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
@@ -207,7 +211,7 @@ from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
-from products.tasks.backend.temporal import (
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
@@ -257,6 +261,7 @@ _task_queue_specs = [
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENTS_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
+        + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
@@ -271,6 +276,7 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENTS_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
+        + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
     ),

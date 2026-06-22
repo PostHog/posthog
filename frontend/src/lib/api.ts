@@ -23,6 +23,7 @@ import {
     SignalScoutConfig,
     SignalScoutConfigUpdate,
     SignalScoutEmission,
+    SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -5121,8 +5122,11 @@ const api = {
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
-        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
-            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        async artefacts(
+            id: SignalReport['id'],
+            params: { limit?: number } = {}
+        ): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
         async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
             return await new ApiRequest().signalReport(reportId).withAction('signals').get()
@@ -5191,6 +5195,11 @@ const api = {
             },
             async emissions(runId: string): Promise<SignalScoutEmission[]> {
                 return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
+            },
+            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
+            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
+            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
             },
         },
         configs: {
@@ -5866,6 +5875,7 @@ const api = {
             slot_exists?: boolean
             publication_exists?: boolean
             lag_bytes?: number | null
+            published_tables?: string[]
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
         },
@@ -6872,10 +6882,6 @@ const api = {
 
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
         },
 
         async compose(data: {

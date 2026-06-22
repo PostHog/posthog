@@ -1,6 +1,42 @@
-import { retryWithBackoff } from 'lib/utils/async'
+import { PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
 
 describe('async utils', () => {
+    describe('withTimeout()', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('resolves with the value when the promise settles in time', async () => {
+            const result = await withTimeout(Promise.resolve('done'), 1000)
+            expect(result).toBe('done')
+        })
+
+        it('rejects with the original error when the promise rejects in time', async () => {
+            await expect(withTimeout(Promise.reject(new Error('boom')), 1000)).rejects.toThrow('boom')
+        })
+
+        it('rejects with a PromiseTimeoutError when the promise never settles', async () => {
+            // A promise that never resolves nor rejects — the stalled-fetch scenario.
+            const neverSettles = new Promise<string>(() => {})
+            const wrapped = withTimeout(neverSettles, 10000, 'loadRecents timed out')
+            const assertion = expect(wrapped).rejects.toThrow(PromiseTimeoutError)
+            await jest.advanceTimersByTimeAsync(10000)
+            await assertion
+            await expect(wrapped).rejects.toThrow('loadRecents timed out')
+        })
+
+        it('does not time out a promise that resolves just before the deadline', async () => {
+            const slow = new Promise<string>((resolve) => setTimeout(() => resolve('slow'), 9000))
+            const wrapped = withTimeout(slow, 10000)
+            await jest.advanceTimersByTimeAsync(9000)
+            await expect(wrapped).resolves.toBe('slow')
+        })
+    })
+
     describe('retryWithBackoff()', () => {
         it('returns result on first successful attempt', async () => {
             const fn = jest.fn().mockResolvedValue('success')

@@ -74,6 +74,15 @@ export function range(startOrEnd: number, end?: number): number[] {
     return Array.from({ length }, (_, i) => i + start)
 }
 
+// Split an array into consecutive sub-arrays of at most `size` items.
+export function chunk<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size))
+    }
+    return chunks
+}
+
 export function interleave(arr: any[], delimiter: any): any[] {
     return arr.flatMap((item, index, _arr) =>
         _arr.length - 1 !== index // check for the last item
