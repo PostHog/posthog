@@ -29,7 +29,25 @@ const SITE_URL_PLACEHOLDER = 'https://example.com/ or sc-domain:example.com'
  * renders it.
  */
 export function GoogleSearchConsoleSiteSelector(): JSX.Element {
-    const integrationId = useFormIntegrationId()
+    // FormContext.logic is set whenever this field renders inside a kea <Form> (both the
+    // new-source wizard and the existing-source config tab do). Only mount the hook-using
+    // inner component when it's present, so we never pass a null logic into useValues — and
+    // calling the hook conditionally here would itself violate the rules of hooks.
+    const formContext = useContext(FormContext)
+    if (!formContext.logic) {
+        return <SiteUrlTextField />
+    }
+    return <GoogleSearchConsoleSiteSelectorInner formLogic={formContext.logic} formKey={formContext.formKey} />
+}
+
+function GoogleSearchConsoleSiteSelectorInner({
+    formLogic,
+    formKey,
+}: {
+    formLogic: any
+    formKey: string
+}): JSX.Element {
+    const integrationId = useFormIntegrationId(formLogic, formKey)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
     const integrationIsValid = useMemo(() => {
@@ -45,6 +63,10 @@ export function GoogleSearchConsoleSiteSelector(): JSX.Element {
         return <GoogleSearchConsoleSiteFieldWithSuggestions integrationId={integrationId} />
     }
 
+    return <SiteUrlTextField />
+}
+
+function SiteUrlTextField(): JSX.Element {
     return (
         <LemonField name="site_url" label="Property URL">
             {({ value, onChange }) => (
@@ -61,16 +83,16 @@ export function GoogleSearchConsoleSiteSelector(): JSX.Element {
     )
 }
 
-function useFormIntegrationId(): number | undefined {
-    const formContext = useContext(FormContext)
-    const values = useValues((formContext.logic ?? null) as any) as Record<string, any> | null
-    if (!formContext.logic || !values) {
+function useFormIntegrationId(formLogic: any, formKey: string): number | undefined {
+    // formLogic is guaranteed non-null by the caller, so useValues always runs with a valid logic.
+    const values = useValues(formLogic) as Record<string, any> | null
+    if (!values) {
         return undefined
     }
     // Coerce to number — when the form is hydrated from a saved source's `job_inputs`
     // the integration ID arrives as a string from JSONB. Without the cast, downstream
     // `integration.id === id` lookups in `integrationsLogic` silently miss the match.
-    const raw = values[formContext.formKey]?.payload?.google_search_console_integration_id
+    const raw = values[formKey]?.payload?.google_search_console_integration_id
     const id = raw === undefined || raw === null || raw === '' ? undefined : Number(raw)
     return id && Number.isFinite(id) ? id : undefined
 }
