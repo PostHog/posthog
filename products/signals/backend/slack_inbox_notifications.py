@@ -11,11 +11,13 @@ All sends are best-effort.
 
 from __future__ import annotations
 
+import re
 import json
 import logging
 
 from django.conf import settings
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
@@ -44,6 +46,8 @@ _ACTIONABLE_VALUES = frozenset(
 )
 
 logger = logging.getLogger(__name__)
+
+_SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
@@ -278,7 +282,41 @@ def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | 
 
 
 def _escape_mrkdwn(text: str) -> str:
+    """Neutralize Slack control syntax (`&`, `<`, `>`) so untrusted text can't inject mentions/links."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
+# are escaped before conversion, so any literal angle bracket here was produced by the converter.
+_SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
+
+
+def _defang_unsafe_slack_tokens(text: str) -> str:
+    """Render any non-URL `<dest|label>` token the converter emitted as inert literal text.
+
+    `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form without checking
+    the scheme, so untrusted signal content could smuggle a broadcast or ping via `[x](!channel)`
+    or `[x](@U123)`. Tokens whose destination isn't a plain http(s) URL get their angle brackets
+    escaped so Slack shows the text instead of firing a mention.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        if _is_safe_http_url(match.group(1)):
+            return match.group(0)
+        return match.group(0).replace("<", "&lt;").replace(">", "&gt;")
+
+    return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
+
+
+def _markdown_to_slack_mrkdwn(text: str) -> str:
+    """Convert signal markdown to Slack mrkdwn, then neutralize any injected mentions.
+
+    Escaping runs first so raw `<@U…>`/`<!channel>` in untrusted content can't reach Slack;
+    after conversion, `_defang_unsafe_slack_tokens` strips any mention/broadcast the converter
+    synthesized from a `[text](!channel)`-style link. Kept local rather than shared with the
+    other `SlackMarkdownConverter` call sites: they render trusted LLM output, signals does not.
+    """
+    return _defang_unsafe_slack_tokens(_SLACK_MRKDWN_CONVERTER.convert(_escape_mrkdwn(text)))
 
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
@@ -506,9 +544,14 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
 
     content = (signal.get("content") or "").strip()
     if content:
-        if len(content) > _SIGNAL_CONTENT_MAX_LEN:
-            content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)}})
+        # Render markdown to mrkdwn first, then truncate the rendered output: truncating raw
+        # markdown could slice a link/emphasis token mid-syntax, and conversion can lengthen
+        # text past Slack's section limit. Truncating post-defang output stays safe — a
+        # trailing cut can't synthesize a live mention (no closing `>` can appear).
+        rendered = _markdown_to_slack_mrkdwn(content)
+        if len(rendered) > _SIGNAL_CONTENT_MAX_LEN:
+            rendered = rendered[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered}})
 
     detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:

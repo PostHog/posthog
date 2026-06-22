@@ -973,6 +973,68 @@ def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:
     assert "javascript:" not in detail
 
 
+def test_build_signal_thread_blocks_renders_markdown_content_as_mrkdwn() -> None:
+    # Markdown in the description (headings, bullets, emphasis, links) renders as Slack mrkdwn
+    # rather than showing literal `##`, `**`, and `[text](url)` noise.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "## Bug\n**Export** is broken, see [issue](https://example.com/i?a=1&b=2)\n- step one\n- step two",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Bug*" in content_text
+    assert "*Export*" in content_text
+    assert "<https://example.com/i?a=1&amp;b=2|issue>" in content_text
+    assert "• step one" in content_text
+    # No raw markdown syntax should survive the conversion.
+    assert "##" not in content_text
+    assert "**" not in content_text
+    assert "[issue]" not in content_text
+
+
+def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() -> None:
+    # Even when converting markdown, raw mention/link syntax in untrusted content stays inert.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "**Heads up** <!here> and <@U999> and a fake <https://evil.com|click here>",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Heads up*" in content_text  # markdown still rendered
+    assert "<!here>" not in content_text
+    assert "<@U999>" not in content_text
+    assert "<https://evil.com|click here>" not in content_text
+    assert "&lt;!here&gt;" in content_text
+    assert "&lt;@U999&gt;" in content_text
+
+
+def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links() -> None:
+    # `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form; an untrusted
+    # description could smuggle a broadcast/ping by pointing the link at `!channel` / `@U123`.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "[ping everyone](!channel) and [dm me](@U12345678) but [real](https://example.com) is fine",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    # No live mention/broadcast token survives.
+    assert "<!channel|" not in content_text
+    assert "<@U12345678|" not in content_text
+    assert "&lt;!channel|ping everyone&gt;" in content_text
+    assert "&lt;@U12345678|dm me&gt;" in content_text
+    # A genuine http(s) link is still rendered as a clickable Slack link.
+    assert "<https://example.com|real>" in content_text
+
+
 @pytest.mark.django_db
 def test_dispatch_posts_signal_evidence_into_thread(org_and_team):
     org, team = org_and_team
