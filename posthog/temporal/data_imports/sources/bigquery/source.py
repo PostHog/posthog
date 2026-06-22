@@ -126,6 +126,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # proxy). Authentication can't succeed until the key file is fixed, so retrying just
             # hammers the endpoint and spams error tracking.
             BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at an ngrok tunnel that's offline:
+            # google-auth POSTs the token request and gets back ngrok's HTML error page instead of
+            # an OAuth JSON response, so it raises a `RefreshError` carrying that page. Google's real
+            # token endpoint is never fronted by ngrok, so this is a misconfigured `token_uri` — the
+            # user must fix their key file; retrying can't recover. Matched on ngrok's stable
+            # offline-endpoint code rather than the volatile tunnel subdomain in the page.
+            "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
