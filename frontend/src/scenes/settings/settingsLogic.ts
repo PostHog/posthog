@@ -4,9 +4,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -15,6 +14,7 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { matchesFlagDefinition } from './flagGating'
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
@@ -73,43 +73,6 @@ const getSectionStringValue = (section: SettingSection): string => {
         return section.title
     }
     return section.id
-}
-
-export const matchesFlagDefinition = (
-    flagKey: Pick<Setting, 'flag'>['flag'],
-    featureFlags: FeatureFlagsSet
-): boolean => {
-    // No flag condition
-    if (!flagKey) {
-        return true
-    }
-
-    const flagsArray = Array.isArray(flagKey) ? flagKey : [flagKey]
-    for (const flagCondition of flagsArray) {
-        // Tuple flag condition ([flag, value])
-        if (Array.isArray(flagCondition)) {
-            const [flag, value] = flagCondition
-            const isConditionMet = featureFlags[FEATURE_FLAGS[flag]] === value
-            if (!isConditionMet) {
-                return false
-            }
-            // Negated flag condition (`!${FeatureFlagKey}`)
-        } else if (flagCondition.startsWith('!')) {
-            const flag = flagCondition.slice(1) as keyof typeof FEATURE_FLAGS
-            const isConditionMet = !featureFlags[FEATURE_FLAGS[flag]]
-            if (!isConditionMet) {
-                return false
-            }
-            // Normal flag condition (FeatureFlagKey)
-        } else {
-            const flag = flagCondition as keyof typeof FEATURE_FLAGS
-            const isConditionMet = !!featureFlags[FEATURE_FLAGS[flag]]
-            if (!isConditionMet) {
-                return false
-            }
-        }
-    }
-    return true
 }
 
 export const settingsLogic = kea<settingsLogicType>([

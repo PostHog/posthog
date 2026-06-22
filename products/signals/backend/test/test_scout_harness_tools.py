@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.apps import apps
 from django.utils import timezone
 
 import pytest_asyncio
@@ -29,22 +31,29 @@ from products.signals.backend.scout_harness.tools import (
 )
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS_PER_FINDING,
     SCOUT_SIGNAL_WEIGHT,
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
     _validate_inputs,
     emit_finding_sync,
+    normalize_tags,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_FAILURE_REASON_LENGTH, MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import (
     MAX_SCRATCHPAD_CONTENT_LENGTH,
     MAX_SCRATCHPAD_SEARCH_LIMIT,
 )
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def _make_task_run(team, *, status: str | None = None) -> TaskRun:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="scout run",
@@ -64,6 +73,7 @@ def _create_run(team, **overrides) -> SignalScoutRun:
     Default TaskRun status is COMPLETED so summary/detail surface a terminal
     state — tests that need IN_PROGRESS pass `task_run_status` explicitly.
     """
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task_run_status = overrides.pop("task_run_status", TaskRun.Status.COMPLETED)
     task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
@@ -136,6 +146,7 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_status_from_linked_task_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
 
         hits = search_recent_runs(team_id=self.team.id, limit=1)
@@ -217,6 +228,7 @@ class TestSearchRecentRuns(BaseTest):
         assert [h.run_id for h in hits] == [str(v1.id)]
 
     def test_failure_reason_and_error_surface_for_failed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
 
@@ -230,6 +242,7 @@ class TestSearchRecentRuns(BaseTest):
         assert detail.failure_reason == "boom: sandbox died"
 
     def test_failure_reason_falls_back_when_no_error_message(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.CANCELLED)
 
         hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
@@ -239,6 +252,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.run_id == str(run.id)
 
     def test_no_failure_reason_for_completed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
 
         hit = search_recent_runs(team_id=self.team.id, limit=1)[0]
@@ -247,6 +261,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.failure_reason is None
 
     def test_completed_run_with_error_message_does_not_surface_error(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         # A stray error_message on a run that still reached COMPLETED must not surface as a
         # failure signal — `error` and `failure_reason` are gated on terminal-failure status.
         run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
@@ -258,6 +273,7 @@ class TestSearchRecentRuns(BaseTest):
         assert hit.failure_reason is None
 
     def test_failure_reason_truncated_to_max_length(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _create_run(self.team, task_run_status=TaskRun.Status.FAILED)
         long_message = "x" * (MAX_FAILURE_REASON_LENGTH + 50)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message=long_message)
@@ -473,6 +489,55 @@ class TestValidateEmitInputs:
         _validate_inputs("ok", 0.5, [], "x" * MAX_FINDING_ID_LENGTH)
 
 
+class TestNormalizeTags:
+    """Pure normalization — no DB."""
+
+    @parameterized.expand(
+        [
+            ("already_clean", ["cost-spike"], ["cost-spike"]),
+            ("uppercase", ["Cost-Spike"], ["cost-spike"]),
+            ("spaces", ["cost spike"], ["cost-spike"]),
+            ("underscores", ["cost_spike"], ["cost-spike"]),
+            ("mixed_separators_and_case", ["  Cost _ Spike  "], ["cost-spike"]),
+            ("invalid_chars_stripped", ["cost!spike?"], ["costspike"]),
+            ("hyphen_runs_collapsed", ["cost--spike", "-edge-"], ["cost-spike", "edge"]),
+            (
+                "dedupes_post_normalization",
+                ["cost-spike", "Cost Spike", "silent-failure"],
+                ["cost-spike", "silent-failure"],
+            ),
+            ("preserves_first_seen_order", ["b-tag", "a-tag"], ["b-tag", "a-tag"]),
+        ]
+    )
+    def test_normalizes_to_slugs(self, _name: str, raw: list[str], expected: list[str]) -> None:
+        assert normalize_tags(raw) == expected
+
+    @parameterized.expand([("none", None), ("empty", [])])
+    def test_no_tags_returns_none(self, _name: str, raw: list[str] | None) -> None:
+        assert normalize_tags(raw) is None
+
+    @parameterized.expand([("only_punctuation", ["!!!"]), ("whitespace", ["   "]), ("only_hyphens", ["---"])])
+    def test_unsalvageable_tag_raises(self, _name: str, raw: list[str]) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags(raw)
+
+    def test_too_many_tags_raises(self) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags([f"tag-{i}" for i in range(MAX_TAGS_PER_FINDING + 1)])
+
+    def test_at_capacity_passes(self) -> None:
+        tags = [f"tag-{i}" for i in range(MAX_TAGS_PER_FINDING)]
+        assert normalize_tags(tags) == tags
+
+    def test_overlong_tag_raises(self) -> None:
+        with pytest.raises(InvalidEmitError):
+            normalize_tags(["a" * (MAX_TAG_LENGTH + 1)])
+
+    def test_tag_at_max_length_passes(self) -> None:
+        tag = "a" * MAX_TAG_LENGTH
+        assert normalize_tags([tag]) == [tag]
+
+
 class TestBuildEmitExtra:
     """Pure shaping — no DB. Asserts the dict matches what `SignalsScoutSignalExtra` expects."""
 
@@ -480,6 +545,7 @@ class TestBuildEmitExtra:
         return _build_extra(
             run_id="run-uuid",
             task_run_id="task-run-uuid",
+            task_id=None,
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
@@ -490,6 +556,7 @@ class TestBuildEmitExtra:
             dedupe_keys=None,
             time_range=None,
             mcp_trace_id=None,
+            tags=None,
         )
 
     def test_minimal_extra_has_only_required_fields(self) -> None:
@@ -505,7 +572,7 @@ class TestBuildEmitExtra:
         ]
         # Optional fields omitted, not None — pydantic with extra="forbid" tolerates absence
         # but rejects unexpected keys, so omission is the right shape.
-        for opt in ("hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id"):
+        for opt in ("task_id", "hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
@@ -518,6 +585,7 @@ class TestBuildEmitExtra:
         extra = _build_extra(
             run_id="run-uuid",
             task_run_id="task-run-uuid",
+            task_id="task-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
@@ -528,12 +596,15 @@ class TestBuildEmitExtra:
             dedupe_keys=["checkout-500-spike"],
             time_range=("2026-04-29T00:00:00Z", "2026-04-30T00:00:00Z"),
             mcp_trace_id="trace-abc",
+            tags=["cost-spike", "post-deploy-regression"],
         )
+        assert extra["task_id"] == "task-uuid"
         assert extra["hypothesis"] == "checkout post-deploy regression"
         assert extra["severity"] == "P1"
         assert extra["dedupe_keys"] == ["checkout-500-spike"]
         assert extra["time_range"] == {"date_from": "2026-04-29T00:00:00Z", "date_to": "2026-04-30T00:00:00Z"}
         assert extra["mcp_trace_id"] == "trace-abc"
+        assert extra["tags"] == ["cost-spike", "post-deploy-regression"]
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
@@ -541,6 +612,7 @@ class TestBuildEmitExtra:
         from posthog.schema import SignalsScoutSignalInput
 
         extra = self._minimal()
+        extra["tags"] = ["cost-spike"]
         SignalsScoutSignalInput.model_validate(
             {
                 "source_product": SOURCE_PRODUCT,
@@ -591,6 +663,7 @@ async def ateam_emit(aorganization_emit):
 
 @pytest_asyncio.fixture
 async def arun_emit(ateam_emit):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam_emit)
     task_run = await database_sync_to_async(_make_task_run)(ateam_emit, status=TaskRun.Status.IN_PROGRESS)
     run = await database_sync_to_async(SignalScoutRun.objects.create)(
@@ -827,6 +900,7 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             severity="P1",
             finding_id="f-emit",
+            tags=["post-deploy-regression"],
         )
 
     rows = await database_sync_to_async(lambda: list(SignalScoutEmission.all_teams.filter(scout_run=arun_emit)))()
@@ -838,7 +912,49 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
     assert emission.weight == SCOUT_SIGNAL_WEIGHT
     assert emission.confidence == 0.85
     assert emission.severity == "P1"
+    assert emission.tags == ["post-deploy-regression"]
     assert emission.source_id == f"run:{arun_emit.id}:finding:f-emit"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_normalizes_tags_into_extra_and_emission_row(ateam_emit, arun_emit):
+    # Messy agent-supplied tags reach both persistence surfaces (signal `extra` and the
+    # emission row) already normalized, so the vocabulary converges on slugs.
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            finding_id="f-tags",
+            tags=["Cost Spike", "cost_spike", "silent-failure"],
+        )
+
+    assert mock_emit.await_args is not None
+    assert mock_emit.await_args.kwargs["extra"]["tags"] == ["cost-spike", "silent-failure"]
+    emission = await database_sync_to_async(SignalScoutEmission.all_teams.get)(scout_run=arun_emit)
+    assert emission.tags == ["cost-spike", "silent-failure"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_without_tags_omits_extra_field_and_defaults_row_empty(ateam_emit, arun_emit):
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
+        await emit_finding(
+            team=ateam_emit,
+            run=arun_emit,
+            description="Checkout 500s post-deploy",
+            confidence=0.85,
+            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
+            finding_id="f-no-tags",
+        )
+
+    assert mock_emit.await_args is not None
+    assert "tags" not in mock_emit.await_args.kwargs["extra"]
+    emission = await database_sync_to_async(SignalScoutEmission.all_teams.get)(scout_run=arun_emit)
+    assert emission.tags == []
 
 
 @pytest.mark.asyncio
@@ -953,6 +1069,7 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
     """Same guard as the async path, exercised against `emit_finding_sync`."""
     from posthog.models import Organization, Team
 
+    TaskRun = apps.get_model("tasks", "TaskRun")
     org = Organization.objects.create(name="sync-mismatch-org", is_ai_data_processing_approved=True)
     owning_team = Team.objects.create(organization=org, name="owner")
     other_team = Team.objects.create(organization=org, name="other")

@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, Union
+from typing import ClassVar, Union, cast
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -2609,11 +2609,14 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     # ================================================================
 
     @parameterized.expand(
-        [
-            ("simple_column", "campaign_name", ast.Field),
-            ("constant_source", "const:linkedin", ast.Constant),
-            ("constant_currency", "const:USD", ast.Constant),
-        ]
+        cast(
+            list[tuple[str, str, type[ast.Expr]]],
+            [
+                ("simple_column", "campaign_name", ast.Field),
+                ("constant_source", "const:linkedin", ast.Constant),
+                ("constant_currency", "const:USD", ast.Constant),
+            ],
+        )
     )
     def test_resolve_field_or_constant(self, _name, field_value, expected_type):
         table = self._create_mock_table("test_table", "aws")

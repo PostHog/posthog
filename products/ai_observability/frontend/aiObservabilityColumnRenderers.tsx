@@ -290,7 +290,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let inputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(input)
-        inputNormalized = normalizeMessages(parsed, 'user')
+        inputNormalized = normalizeMessages(parsed, 'user').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
     }
@@ -312,7 +312,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let outputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(output)
-        outputNormalized = normalizeMessages(parsed, 'assistant')
+        outputNormalized = normalizeMessages(parsed, 'assistant').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
     }

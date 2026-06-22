@@ -91,6 +91,7 @@ from posthog.models.user import (
     OnboardingSkippedReason,
     ShortcutPosition,
 )
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -238,9 +239,9 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key and has not yet acknowledged "
-            "their existing credentials. Used to gate a one-shot review screen on first "
-            "post-provisioning login. Becomes False once the user POSTs to "
+            "True if the user has at least one Personal API Key or passkey and has not yet "
+            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
+            "first post-provisioning login. Becomes False once the user POSTs to "
             "`/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -386,7 +387,9 @@ class UserSerializer(serializers.ModelSerializer):
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
-        return PersonalAPIKey.objects.filter(user=instance).exists()
+        if PersonalAPIKey.objects.filter(user=instance).exists():
+            return True
+        return WebauthnCredential.objects.filter(user=instance).exists()
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
@@ -1271,7 +1274,8 @@ class UserViewSet(
             "Mark the user as having reviewed their existing credentials. Idempotent. "
             "Flips `requires_credential_review` to False so the post-login interstitial "
             "isn't shown again. Does not modify any credentials; the user revokes "
-            "individual Personal API Keys via the existing PAT endpoints from the same screen."
+            "individual Personal API Keys and passkeys via their existing endpoints from "
+            "the same screen."
         ),
     )
     @action(
@@ -1281,9 +1285,9 @@ class UserViewSet(
         authentication_classes=[SessionAuthentication],
     )
     def credentials_review_complete(self, request, **kwargs):
-        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
-        # screen, so accepting PersonalAPIKeyAuthentication here would let the
-        # attacker who minted the PAK silently dismiss their own surfacing.
+        # Session-only auth: this endpoint dismisses the partner-issued-credential
+        # review screen, so accepting PersonalAPIKeyAuthentication here would let
+        # the attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
         if user.credentials_reviewed_at is None:
             user.credentials_reviewed_at = django_timezone.now()

@@ -57,7 +57,7 @@ class TestSendGridSource:
         config = SendGridSource().get_source_config
         assert config.label == "SendGrid"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/sendgrid.png"
 
     def test_source_config_has_api_key_password_field(self) -> None:

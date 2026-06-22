@@ -104,8 +104,11 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
             (slackChannels: SlackChannelType[]) => {
-                return (channel: string) =>
-                    slackChannels.find((x) => x.id === slackChannelId(channel))?.is_member ?? false
+                return (channel: string): boolean | null => {
+                    const found = slackChannels.find((x) => x.id === slackChannelId(channel))
+                    // Null when unknown so the picker's strict `=== false` membership gate doesn't fire spuriously.
+                    return found ? (found.is_member ?? false) : null
+                }
             },
         ],
         isPrivateChannelWithoutAccess: [

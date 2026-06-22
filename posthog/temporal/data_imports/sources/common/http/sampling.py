@@ -21,9 +21,10 @@ Goals:
   `*` defaults.
 - Per-rule capture limit enforced via Redis `INCR` so multiple workers
   share the same counter.
-- All response keys preserved — values pass through `scrubadub`. Known
-  auth headers are dropped wholesale; auth-bearing query params are
-  scrubbed by `url_utils.scrub_url`.
+- Response values pass through `scrubadub`; auth-bearing JSON keys
+  (`access_token`, `client_secret`, …) are dropped wholesale by name.
+  Known auth headers are dropped wholesale; auth-bearing query params
+  are scrubbed by `url_utils.scrub_url`.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from posthog.temporal.data_imports.sources.common.http.url_utils import (
     scrub_url,
 )
 from posthog.temporal.data_imports.sources.common.sample_scrub import (
+    REDACT_FIELD_NAMES,
     CaptureConfig,
     CaptureRule,
     scrub_string as _scrub_string,
@@ -69,7 +71,16 @@ MAX_CONFIG_TTL_SECONDS = 24 * 60 * 60
 _REDACTED_HEADER = "REDACTED"
 _REDACTED_FORM_VALUE = "REDACTED"
 _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
-    {"authorization", "x-api-key", "x-sn-apikey", "x-auth-token", "cookie", "set-cookie", "proxy-authorization"}
+    {
+        "authorization",
+        "x-api-key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "ob-token-v1",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+    }
 )
 
 __all__ = ["CaptureConfig", "CaptureRule", "maybe_capture"]
@@ -285,7 +296,10 @@ def _scrub_body(body: Any) -> Any:
     if isinstance(body, str):
         parsed = _try_json(body)
         if parsed is not None:
-            return _scrub_value(parsed)
+            # Drop auth-bearing keys (e.g. an OAuth token-exchange response's
+            # `access_token`) before scrubadub, which can't recognise opaque
+            # tokens by value alone.
+            return _scrub_value(_redact_field_keys(parsed))
         # OAuth token-exchange / refresh / authorization-code flows post
         # `application/x-www-form-urlencoded` bodies like
         # `grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...`.
@@ -297,6 +311,19 @@ def _scrub_body(body: Any) -> Any:
             return form
         return _scrub_string(body)
     return _scrub_value(body)
+
+
+def _redact_field_keys(value: Any) -> Any:
+    """Recursively replace auth-bearing dict values (matched by key name against
+    `REDACT_FIELD_NAMES`) with a placeholder — mirrors the gRPC sample path."""
+    if isinstance(value, dict):
+        return {
+            k: (_REDACTED_FORM_VALUE if str(k).lower() in REDACT_FIELD_NAMES else _redact_field_keys(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_field_keys(item) for item in value]
+    return value
 
 
 def _try_json(text: str) -> Any | None:

@@ -145,6 +145,10 @@
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
     }
+
+    .WebTile--short-chart .InsightVizDisplay {
+        --insight-viz-min-height: 18rem;
+    }
 }
 
 .RevenueAnalyticsDashboard {
@@ -210,7 +214,8 @@
 
     &--ActionsTable,
     &--WorldMap,
-    &--BoldNumber {
+    &--BoldNumber,
+    &--Metric {
         min-height: auto;
         margin: 0;
     }
@@ -220,6 +225,11 @@
         align-items: center;
         justify-content: center;
     }
+}
+
+// Drop the viz padding so the Metric sparkline can bleed to the card edges.
+.InsightVizDisplay__content:has(.Metric) {
+    padding: 0;
 }
 
 .FunnelInsight {

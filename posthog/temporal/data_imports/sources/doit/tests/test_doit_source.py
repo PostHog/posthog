@@ -1,5 +1,7 @@
 import pytest
 
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY
+from posthog.temporal.data_imports.sources.doit.doit import DOIT_RETRY
 from posthog.temporal.data_imports.sources.doit.source import DoItSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -17,3 +19,10 @@ class TestDoItSource:
         errors = self.source.get_non_retryable_errors()
 
         assert pattern in errors
+
+    @pytest.mark.parametrize("status_code", [520, 521, 522, 523, 524])
+    def test_doit_retry_includes_cloudflare_transient_statuses(self, status_code):
+        assert status_code in (DOIT_RETRY.status_forcelist or ())
+
+    def test_doit_retry_preserves_default_statuses(self):
+        assert set(DEFAULT_RETRY.status_forcelist or ()).issubset(set(DOIT_RETRY.status_forcelist or ()))

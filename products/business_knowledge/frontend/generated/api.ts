@@ -9,11 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
     KnowledgeDocumentWindowApi,
+    KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PaginatedKnowledgeSourceListApi,
     PatchedUpdateTextSourceApi,
@@ -57,9 +59,9 @@ export const getBusinessKnowledgeDocumentsWindowListUrl = (
 }
 
 /**
- * Read-only access to parsed knowledge documents. Currently exposes only the
- * `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
- * around a chunk it found via search.
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
  */
 export const businessKnowledgeDocumentsWindowList = async (
     projectId: string,
@@ -68,6 +70,41 @@ export const businessKnowledgeDocumentsWindowList = async (
     options?: RequestInit
 ): Promise<KnowledgeDocumentWindowApi[]> => {
     return apiMutator<KnowledgeDocumentWindowApi[]>(getBusinessKnowledgeDocumentsWindowListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeDocumentsSearchListUrl = (
+    projectId: string,
+    params: BusinessKnowledgeDocumentsSearchListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/documents/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/documents/search/`
+}
+
+/**
+ * Read-only access to parsed knowledge documents. Exposes hybrid search
+ * (``search``) and a drill-down window (``window``) so an agent (PHAI or
+ * MCP) can find and explore business knowledge chunks.
+ */
+export const businessKnowledgeDocumentsSearchList = async (
+    projectId: string,
+    params: BusinessKnowledgeDocumentsSearchListParams,
+    options?: RequestInit
+): Promise<KnowledgeSearchResultApi[]> => {
+    return apiMutator<KnowledgeSearchResultApi[]>(getBusinessKnowledgeDocumentsSearchListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

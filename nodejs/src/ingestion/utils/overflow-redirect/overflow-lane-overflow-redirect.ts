@@ -1,4 +1,5 @@
-import { HealthCheckResult } from '../../../types'
+import { HealthCheckResult } from '~/types'
+
 import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'
 import { OverflowEventBatch, OverflowRedirectService } from './overflow-redirect-service'
 import { OverflowRedisRepository, OverflowType } from './overflow-redis-repository'

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,9 +35,9 @@ class TrelloSource(ResumableSource[TrelloSourceConfig, TrelloResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TRELLO,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Trello",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Trello API key and token to sync your boards, cards, lists and more into the PostHog Data warehouse.
 
 Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/admin) and generate a token with **read** access for your account.""",

@@ -58,7 +58,9 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_teams_with_query_metric,
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
@@ -488,6 +490,14 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 timestamp=now() - relativedelta(hours=12),
                 team=self.org_1_team_1,
             )
+            create_event(
+                event_uuid=uuid4(),
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties={"$lib": "posthog-node", "$ai_lib": "posthog-ai", "$is_identified": True},
+                timestamp=now() - relativedelta(hours=12),
+                team=self.org_1_team_1,
+            )
 
             # Events for org 1 team 2
             distinct_id = str(uuid4())
@@ -628,6 +638,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "node_events_count_in_period": 1,
                     "openclaw_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
+                    "posthog_ai_events_count_in_period": 1,
                     "edge_events_count_in_period": 1,
                     "convex_events_count_in_period": 1,
                     "android_events_count_in_period": 1,
@@ -677,7 +688,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
-                    "ai_event_count_in_period": 1,
+                    "ai_event_count_in_period": 2,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -702,6 +713,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "node_events_count_in_period": 1,
                             "openclaw_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
+                            "posthog_ai_events_count_in_period": 1,
                             "edge_events_count_in_period": 1,
                             "convex_events_count_in_period": 1,
                             "android_events_count_in_period": 1,
@@ -755,7 +767,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
-                            "ai_event_count_in_period": 1,
+                            "ai_event_count_in_period": 2,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -770,6 +782,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "node_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
+                            "posthog_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
@@ -861,6 +874,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "node_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
+                    "posthog_ai_events_count_in_period": 0,
                     "edge_events_count_in_period": 0,
                     "convex_events_count_in_period": 0,
                     "android_events_count_in_period": 0,
@@ -935,6 +949,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "node_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
+                            "posthog_ai_events_count_in_period": 0,
                             "edge_events_count_in_period": 0,
                             "convex_events_count_in_period": 0,
                             "android_events_count_in_period": 0,
@@ -1337,6 +1352,60 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
             assert report.event_explorer_api_rows_read == 100
             assert report.api_queries_query_count == 2
             assert report.api_queries_bytes_read > 16000  # locally it's about 16753
+
+
+class TestQueryUsageReportSQL:
+    @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
+    def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+
+        result = get_teams_with_query_metric(
+            begin=begin,
+            end=end,
+            query_types=["EventsQuery"],
+            access_method="personal_api_key",
+            metric="read_bytes",
+        )
+
+        assert result == [(1, 100)]
+        query = mock_sync_execute.call_args.args[0]
+        params = mock_sync_execute.call_args.args[1]
+        assert "AND event_time >= %(begin)s AND event_time < %(event_time_end)s" in query
+        assert "AND query_start_time >= %(begin)s AND query_start_time < %(end)s" in query
+        assert params["begin"] == begin
+        assert params["end"] == end
+        assert params["event_time_end"] == end + timedelta(hours=6)
+
+    @patch("posthog.tasks.usage_report._execute_split_query", return_value={})
+    @patch("posthog.tasks.usage_report.get_property_string_expr")
+    def test_get_all_event_metrics_prefilters_tracked_metrics(
+        self,
+        mock_get_property_string_expr: MagicMock,
+        mock_execute_split_query: MagicMock,
+    ) -> None:
+        mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+
+        get_all_event_metrics_in_period(begin, end)
+
+        query = mock_execute_split_query.call_args.kwargs["query_template"]
+        assert "PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s" in query
+        assert "WHERE" in query
+        assert "event LIKE 'helicone%%'" in query
+        assert "event LIKE 'langfuse%%'" in query
+        assert "event LIKE 'keywords_ai%%'" in query
+        assert "event LIKE 'traceloop%%'" in query
+        assert "OR lib_expr IN (" in query
+        assert "'posthog-node'" in query
+        assert "'posthog-rs'" in query
+        assert "lib_expr = 'posthog-node' AND ai_lib_expr = 'posthog-ai', 'posthog_ai_events'" in query
+        assert "HAVING metric != 'other'" not in query
+        assert mock_execute_split_query.call_args.kwargs["num_splits"] == 12
+
+        combine_results = mock_execute_split_query.call_args.kwargs["combine_results_func"]
+        assert combine_results([[(1, "posthog_ai_events", 2)]])["posthog_ai_events"] == [(1, 2)]
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -4304,9 +4373,17 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         # 3.0 USD * 100 * 1.2 = 360
         self.assertEqual(result, [(self.org_1_team_1.id, 360)])
 
+    @parameterized.expand(
+        [
+            ("slack_app",),
+            ("product_analytics",),
+            ("surveys",),
+            ("subscriptions",),
+        ]
+    )
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_counts_traceless_whitelisted_product(self, mock_region: MagicMock) -> None:
-        """A traceless whitelisted product (e.g. slack_app) bills via the empty-trace fallback."""
+    def test_traceless_whitelisted_product_bills_as_ai_credits(self, ai_product: str, mock_region: MagicMock) -> None:
+        """A traceless whitelisted product (e.g. slack_app, product_analytics) bills via the empty-trace fallback."""
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
         mock_region.return_value = "US"
@@ -4318,18 +4395,18 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # slack_app emits no $ai_trace — billed via the empty-trace fallback, not a paired trace.
+        # These products emit no $ai_trace — billed via the empty-trace fallback, not a paired trace.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
-            distinct_id="user_slack",
+            distinct_id=f"user_{ai_product}",
             timestamp=period_start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_slack",
+                "$ai_trace_id": f"trace_{ai_product}",
                 "$ai_total_cost_usd": 1.0,
                 "$ai_billable": True,
-                "ai_product": "slack_app",
+                "ai_product": ai_product,
                 "$group_1": "https://us.posthog.com",
             },
         )

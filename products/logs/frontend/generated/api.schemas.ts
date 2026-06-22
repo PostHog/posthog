@@ -355,6 +355,7 @@ export interface LogsAlertStateIntervalApi {
 /**
  * * `slack` - slack
  * * `webhook` - webhook
+ * * `teams` - teams
  */
 export type NotificationDestinationTypeEnumApi =
     (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
@@ -362,6 +363,7 @@ export type NotificationDestinationTypeEnumApi =
 export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
+    Teams: 'teams',
 } as const
 
 /**
@@ -625,10 +627,11 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack or webhook.
+    /** Destination type — slack, webhook, or teams.
      *
      * * `slack` - slack
-     * * `webhook` - webhook */
+     * * `webhook` - webhook
+     * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -636,7 +639,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook. */
+    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
     webhook_url?: string
 }
 
@@ -1341,6 +1344,8 @@ export interface _LogAttributeValueApi {
     id: string
     /** Display name — currently identical to `id`. */
     name: string
+    /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+    count?: number
 }
 
 export interface _LogsValuesResponseApi {

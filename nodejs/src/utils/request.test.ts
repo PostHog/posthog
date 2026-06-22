@@ -1,5 +1,7 @@
 import dns from 'dns/promises'
 import { range } from 'lodash'
+import http from 'node:http'
+import { AddressInfo } from 'node:net'
 
 import { parseJSON } from './json-parse'
 import { SecureRequestError, fetch, internalFetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
@@ -10,6 +12,41 @@ jest.mock('dns/promises', () => ({
         return realDnsLookup(hostname, options)
     }),
 }))
+
+// Local HTTP server used in place of flaky external services (httpbin.org, example.com).
+// Serves a few httpbin-compatible routes plus a default 200 response.
+let testServer: http.Server
+let baseUrl: string
+
+beforeAll(async () => {
+    testServer = http.createServer((req, res) => {
+        const url = new URL(req.url ?? '/', `http://${req.headers.host}`)
+        if (url.pathname === '/get') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ url: url.toString() }))
+        } else if (url.pathname === '/status/404') {
+            res.writeHead(404)
+            res.end()
+        } else if (url.pathname === '/stream/50') {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            for (let i = 0; i < 50; i++) {
+                res.write(JSON.stringify({ id: i }) + '\n')
+            }
+            res.end()
+        } else {
+            res.writeHead(200, { 'content-type': 'text/html' })
+            res.end('<html><body>Example</body></html>')
+        }
+    })
+    await new Promise<void>((resolve) => testServer.listen(0, '127.0.0.1', resolve))
+    baseUrl = `http://127.0.0.1:${(testServer.address() as AddressInfo).port}`
+})
+
+afterAll(async () => {
+    // undici keeps connections alive, so force them closed or server.close() never resolves.
+    testServer.closeAllConnections()
+    await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
+})
 
 describe('fetch', () => {
     beforeEach(() => {
@@ -71,9 +108,15 @@ describe('fetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
-            const response = await fetch('http://example.com')
-            expect(response.status).toBe(200)
+            // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const response = await fetch(baseUrl)
+                expect(response.status).toBe(200)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
         })
 
         it.each([
@@ -195,9 +238,15 @@ describe('legacyFetch', () => {
         })
 
         it('should successfully fetch from safe URLs', async () => {
-            // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
-            const response = await legacyFetch('http://example.com')
-            expect(response.ok).toBe(true)
+            // Non-prod so the secure path allows the loopback test server (prod blocks private IPs).
+            const originalNodeEnv = process.env.NODE_ENV
+            process.env.NODE_ENV = 'test'
+            try {
+                const response = await legacyFetch(baseUrl)
+                expect(response.ok).toBe(true)
+            } finally {
+                process.env.NODE_ENV = originalNodeEnv
+            }
         })
     })
 
@@ -262,10 +311,10 @@ describe('legacyFetch', () => {
 })
 
 describe('_fetch response body handling', () => {
-    // Use internalFetch to skip SSRF DNS checks which fail in CI
-
+    // Use internalFetch to skip SSRF DNS checks which fail in CI, hitting the shared
+    // local server (see top of file) to avoid flaky external services.
     it('should return response body via text()', async () => {
-        const response = await internalFetch('http://example.com')
+        const response = await internalFetch(baseUrl)
         const text = await response.text()
         expect(typeof text).toBe('string')
         expect(text.length).toBeGreaterThan(0)
@@ -273,13 +322,13 @@ describe('_fetch response body handling', () => {
     })
 
     it('should parse response via json() when valid JSON', async () => {
-        const response = await internalFetch('https://httpbin.org/get')
+        const response = await internalFetch(`${baseUrl}/get`)
         const json = await response.json()
         expect(json).toHaveProperty('url')
     })
 
     it('should return the same result on multiple text() calls', async () => {
-        const response = await internalFetch('http://example.com')
+        const response = await internalFetch(baseUrl)
         const first = await response.text()
         const second = await response.text()
         expect(first).toBe(second)
@@ -287,30 +336,30 @@ describe('_fetch response body handling', () => {
     })
 
     it('should return the same result for concurrent text() calls', async () => {
-        const response = await internalFetch('http://example.com')
+        const response = await internalFetch(baseUrl)
         const [a, b] = await Promise.all([response.text(), response.text()])
         expect(a).toBe(b)
         expect(a.length).toBeGreaterThan(0)
     })
 
     it('should return empty string after dump() is called', async () => {
-        const response = await internalFetch('http://example.com')
+        const response = await internalFetch(baseUrl)
         await response.dump()
         expect(await response.text()).toBe('')
     })
 
     it('should return correct status code for error responses', async () => {
-        const response = await internalFetch('https://httpbin.org/status/404')
+        const response = await internalFetch(`${baseUrl}/status/404`)
         expect(response.status).toBe(404)
     })
 
     it('should parse headers', async () => {
-        const response = await internalFetch('http://example.com')
+        const response = await internalFetch(baseUrl)
         expect(response.headers['content-type']).toBeDefined()
     })
 
     it('should fully read streamed/chunked response bodies', async () => {
-        const response = await internalFetch('https://httpbin.org/stream/50')
+        const response = await internalFetch(`${baseUrl}/stream/50`)
         const text = await response.text()
         const lines = text.trim().split('\n')
         expect(lines.length).toBe(50)

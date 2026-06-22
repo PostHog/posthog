@@ -37,7 +37,7 @@ pub struct Args {
     #[arg(short, long)]
     pub public_path_prefix: Option<String>,
 
-    /// Whether to delete the source map files after uploading them
+    /// Whether to delete the source map files after uploading them [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
@@ -51,8 +51,8 @@ pub struct Args {
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
 
-    /// DEPRECATED - use top-level `--skip-ssl-verification` instead
-    #[arg(long, default_value = "false")]
+    /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
+    #[arg(long)]
     pub skip_ssl_verification: bool,
 }
 
