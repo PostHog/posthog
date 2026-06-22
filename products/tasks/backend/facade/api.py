@@ -105,6 +105,7 @@ __all__ = [
     "create_sandbox_environment",
     "create_task",
     "create_task_automation",
+    "create_task_without_run",
     "create_task_run_connection_token",
     "claim_and_fail_stale_run",
     "delete_sandbox_environment",
@@ -618,6 +619,31 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+def create_task_without_run(
+    *,
+    team,
+    user_id: int,
+    origin_product: "Task.OriginProduct",
+    title: str = "",
+    description: str = "",
+    repository: str | None = None,
+) -> UUID:
+    """Create a Task row with no initial run, returning its id.
+
+    For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
+    run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
+    """
+    task = Task.create_without_run(
+        team=team,
+        title=title,
+        description=description,
+        origin_product=origin_product,
+        user_id=user_id,
+        repository=repository,
+    )
+    return task.id
 
 
 def create_run(

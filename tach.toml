@@ -821,19 +821,6 @@ from = [
     "products.mcp_analytics",
 ]
 
-# Legacy leaks — ee (sandbox conversation binding in ee/api/conversation.py) and
-# products.posthog_ai (sandbox message routing) build directly on the Task/TaskRun models and the
-# task_visibility_q gate. Shrinks as the sandbox path migrates onto the facade DTOs/functions.
-
-[[interfaces]]
-expose = [
-    "backend\\.models.*",
-    "backend\\.visibility.*",
-]
-from = [
-    "products.tasks",
-]
-
 [[modules]]
 path = "products.legal_documents"
 depends_on = [

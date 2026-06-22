@@ -11,7 +11,7 @@ the generic `runs/{run}/command/` relay, not this module.
 import json
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 
@@ -35,10 +35,15 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.services.system_prompt.service import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
-from products.tasks.backend.facade import warm as warm_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    warm as warm_facade,
+)
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES, InitialPermissionMode
 from products.tasks.backend.facade.temporal import execute_task_processing_workflow, signal_task_followup_message
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -104,11 +109,13 @@ class SandboxSession(BaseSandboxService):
     _INTEGER_ID_TYPES: frozenset[str] = frozenset({"dashboard", "action"})
 
     # Run statuses that accept a follow-up signal without creating a successor Run.
-    _IN_PROGRESS_STATUSES: frozenset[str] = frozenset({TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS})
+    _IN_PROGRESS_STATUSES: frozenset[str] = frozenset(
+        {tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS}
+    )
 
     def __init__(self, conversation: "Conversation", user: User) -> None:
         super().__init__(team=conversation.team, user=user)
-        self.conversation = conversation
+        self.conversation: Conversation = conversation
 
     def open(
         self,
@@ -189,8 +196,8 @@ class SandboxSession(BaseSandboxService):
         """
         # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
         # with a runless Task that the next message can't continue. The facade re-checks both.
-        warm_facade.enforce_warm_quota(Task.OriginProduct.POSTHOG_AI, self.team.pk, self.user.pk)
-        if warm_facade.warm_pool_at_capacity(Task.OriginProduct.POSTHOG_AI, self.team.pk, self.user.pk):
+        warm_facade.enforce_warm_quota(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk)
+        if warm_facade.warm_pool_at_capacity(tasks_facade.TaskOriginProduct.POSTHOG_AI, self.team.pk, self.user.pk):
             logger.info(
                 "sandbox_warm_capacity_reached",
                 conversation_id=str(self.conversation.id),
@@ -201,17 +208,15 @@ class SandboxSession(BaseSandboxService):
         system_prompt = PromptService(self.team, self.user).build()
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
-            task = locked.task
-            if task is None:
-                task = Task.create_without_run(
+            task_id = locked.task_id
+            if task_id is None:
+                task_id = tasks_facade.create_task_without_run(
                     team=self.team,
-                    title="",
-                    description="",
-                    origin_product=Task.OriginProduct.POSTHOG_AI,
                     user_id=self.user.pk,
+                    origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
                     repository=None,
                 )
-                locked.task = task
+                locked.task_id = task_id
                 locked.save(update_fields=["task", "updated_at"])
 
         # Conversation lock released. The facade provisions under its own Task-row lock and
@@ -219,7 +224,7 @@ class SandboxSession(BaseSandboxService):
         # as-is). `systemPrompt` is the one PostHog AI-specific Run-state key the generic warmer can't know.
         try:
             result = warm_facade.warm_task_run(
-                task.id,
+                task_id,
                 self.team.pk,
                 self.user.pk,
                 extra_state={
@@ -238,7 +243,7 @@ class SandboxSession(BaseSandboxService):
             return None
 
         return SandboxRouteResult(
-            task_id=str(task.id),
+            task_id=str(task_id),
             run_id=str(result.run_id),
             trace_id=trace_id,
             run_status=result.run_status,
@@ -267,11 +272,11 @@ class SandboxSession(BaseSandboxService):
 
         system_prompt = PromptService(self.team, self.user).build()
 
-        task = Task.create_and_run(
+        created = tasks_facade.create_and_run_task(
             team=self.team,
             title=content[:80],
             description=content,
-            origin_product=Task.OriginProduct.POSTHOG_AI,
+            origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
             user_id=self.user.pk,
             repository=repository,
             create_pr=False,
@@ -281,8 +286,8 @@ class SandboxSession(BaseSandboxService):
             start_workflow=False,
         )
 
-        task_run = task.latest_run
-        if task_run is None:
+        run_dto = created.latest_run
+        if run_dto is None:
             raise exceptions.ValidationError("Failed to create sandbox task run.")
 
         # Seed the PostHog AI per-Run state keys. `attached_context` keeps the full,
@@ -295,8 +300,7 @@ class SandboxSession(BaseSandboxService):
             initial_permission_mode=initial_permission_mode,
             pending_user_message=wrapped,
         )
-        run_state: dict[str, Any] = dict(task_run.state or {})
-        run_state.update(ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True))
+        state_updates = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
         # Persist the enriched run state and conversation linkage together, under the row lock so a
         # concurrent first message / conversion in another tab can't double-link. Re-check
         # `task_id is None` inside the lock; a half-write would orphan the run (enriched state, but
@@ -305,9 +309,8 @@ class SandboxSession(BaseSandboxService):
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             if locked.task_id is not None:
                 raise Conflict("This conversation was just resumed in another tab. Please try again.")
-            task_run.state = run_state
-            task_run.save(update_fields=["state"])
-            locked.task = task
+            tasks_facade.update_task_run_state(run_dto.id, updates=state_updates)
+            locked.task_id = created.task_id
             update_fields = ["task", "updated_at"]
             if convert_to_acp:
                 locked.agent_runtime = Conversation.AgentRuntime.SANDBOX
@@ -315,7 +318,7 @@ class SandboxSession(BaseSandboxService):
             locked.save(update_fields=update_fields)
 
         # Mirror the committed writes onto the in-memory instance for the response + the rollback below.
-        self.conversation.task = task
+        self.conversation.task_id = created.task_id
         if convert_to_acp:
             self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
 
@@ -327,15 +330,15 @@ class SandboxSession(BaseSandboxService):
         # runtime flip so the user is left on a clean idle LangGraph conversation.
         try:
             execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
+                task_id=str(created.task_id),
+                run_id=str(run_dto.id),
                 team_id=self.team.id,
                 user_id=self.user.pk,
                 create_pr=False,
                 posthog_mcp_scopes="full",
             )
         except Exception:
-            self.conversation.task = None
+            self.conversation.task_id = None
             revert_fields = ["task", "updated_at"]
             if convert_to_acp:
                 self.conversation.agent_runtime = Conversation.AgentRuntime.LANGGRAPH
@@ -344,10 +347,10 @@ class SandboxSession(BaseSandboxService):
             raise
 
         return SandboxRouteResult(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
+            task_id=str(created.task_id),
+            run_id=str(run_dto.id),
             trace_id=trace_id,
-            run_status=task_run.status,
+            run_status=run_dto.status,
             just_created_run=True,
             attached_context_count=len(attached_context),
         )
@@ -355,7 +358,7 @@ class SandboxSession(BaseSandboxService):
     def _handle_in_progress_followup(
         self,
         *,
-        run: TaskRun,
+        run: "TaskRun",
         wrapped: str,
         trace_id: str | None,
         attached_context: list[AttachedContext],
@@ -386,7 +389,7 @@ class SandboxSession(BaseSandboxService):
         # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
         # and the key is simply absent on Runs that were never warm (the remove is then a no-op).
         try:
-            TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+            tasks_facade.update_task_run_state(run.id, remove_keys=["await_user_message"])
         except Exception as e:
             logger.warning("sandbox_followup_activation_flip_failed", run_id=str(run.id), error=str(e))
 
@@ -411,7 +414,7 @@ class SandboxSession(BaseSandboxService):
     def _handle_terminal_resume(
         self,
         *,
-        run: TaskRun,
+        run: "TaskRun",
         wrapped: str,
         trace_id: str | None,
         attached_context: list[AttachedContext],
@@ -481,7 +484,7 @@ class SandboxSession(BaseSandboxService):
             attached_context_count=len(attached_context),
         )
 
-    def _collect_seen_entity_refs(self, run: TaskRun) -> list[tuple[str, str | int]]:
+    def _collect_seen_entity_refs(self, run: "TaskRun") -> list[tuple[str, str | int]]:
         """Collect `(type, id)` pairs for entities already named in the conversation.
 
         Walks the Run's `state.attached_context` (the first message's full list) plus
@@ -527,7 +530,7 @@ class SandboxSession(BaseSandboxService):
 
         return seen
 
-    def _log_user_message(self, run: TaskRun, wrapped: str, attached_context: list[AttachedContext]) -> None:
+    def _log_user_message(self, run: "TaskRun", wrapped: str, attached_context: list[AttachedContext]) -> None:
         """Append a `_posthog/user_message` entry to the Run's ACP log.
 
         Records the wrapped content plus the full undeduped `attached_context` under

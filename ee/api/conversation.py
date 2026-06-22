@@ -60,8 +60,6 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
 from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
-from products.tasks.backend.models import Task
-from products.tasks.backend.visibility import task_visibility_q
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -251,19 +249,18 @@ class SandboxOpenSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_task_id(self, value: uuid.UUID) -> Task:
+    def validate_task_id(self, value: uuid.UUID) -> uuid.UUID:
         """Resolve the Task to bind, scoped to the team and the requesting user's visibility.
 
         Mirrors the tasks API's `task_visibility_q` gate so a team member can't bind a conversation
-        to a teammate's private task by guessing its id. Returns the resolved Task (consumed directly
+        to a teammate's private task by guessing its id. Returns the validated id (consumed directly
         by the view), so an unreadable id surfaces as a 400 here rather than failing deeper in routing.
         """
         team = self.context["team"]
         user = self.context["user"]
-        try:
-            return Task.objects.filter(task_visibility_q(user.id)).get(id=value, team=team, deleted=False)
-        except Task.DoesNotExist:
+        if not tasks_facade.task_visible(value, team.id, user.id):
             raise serializers.ValidationError("Task not found or not accessible.")
+        return value
 
 
 class SandboxMessageResponseSerializer(serializers.Serializer):
@@ -720,7 +717,7 @@ class ConversationViewSet(
         )
 
     def _get_or_create_sandbox_conversation(
-        self, request: Request, *, bind_task: Task | None = None
+        self, request: Request, *, bind_task: uuid.UUID | None = None
     ) -> tuple[Conversation, bool]:
         """Resolve the URL-keyed conversation, creating it on first use (the client mints the id).
 
@@ -751,7 +748,7 @@ class ConversationViewSet(
                 type=Conversation.Type.ASSISTANT,
                 is_internal=is_impersonated_session(request),
                 agent_runtime=Conversation.AgentRuntime.SANDBOX,
-                task=bind_task,
+                task_id=bind_task,
             )
             return conversation, True
         if conversation.user != user or conversation.team != self.team:
