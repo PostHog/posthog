@@ -71,6 +71,7 @@ def _collect_branch_candidates(team_id: int) -> list[_BranchCandidate]:
         TaskRun.objects.filter(team_id=team_id, updated_at__gte=cutoff)
         .exclude(branch__isnull=True)
         .exclude(branch="")
+        .exclude(branch__in=list(_SKIP_BRANCHES))
         .select_related("task")
         .order_by("-updated_at")
     )
@@ -81,7 +82,7 @@ def _collect_branch_candidates(team_id: int) -> list[_BranchCandidate]:
         task = run.task
         repository = task.repository
         branch = run.branch
-        if not repository or not branch or branch in _SKIP_BRANCHES:
+        if not repository or not branch:
             continue
         key = (repository.casefold(), branch)
         if key in seen:
@@ -128,7 +129,10 @@ def discover_branch_prs_for_team(
                 )
             integration = integrations[cache_key]
         except ObjectDoesNotExist:
+            # Permanent failure: cache None so other candidates sharing this (deleted) integration
+            # don't each re-run the failing DB lookup.
             activity.logger.warning("code_workstreams_discover_integration_missing", repository=candidate.repository)
+            integrations[cache_key] = None
             continue
         except (GitHubIntegrationError, requests.RequestException) as e:
             # A token-refresh failure for one candidate must not abort the whole activity.
