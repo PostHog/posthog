@@ -265,6 +265,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             ),
+        task_kind: zod
+            .enum(['coding', 'general'])
+            .describe('\* `coding` - Coding\n\* `general` - General')
+            .optional()
+            .describe(
+                "Task execution kind: 'coding' for code\/PR work or 'general' for non-coding AI coworker work.\n\n\* `coding` - Coding\n\* `general` - General"
+            ),
         repository: zod
             .string()
             .max(tasksCreateBodyRepositoryMax)
@@ -338,6 +345,13 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
             ),
+        task_kind: zod
+            .enum(['coding', 'general'])
+            .describe('\* `coding` - Coding\n\* `general` - General')
+            .optional()
+            .describe(
+                "Task execution kind: 'coding' for code\/PR work or 'general' for non-coding AI coworker work.\n\n\* `coding` - Coding\n\* `general` - General"
+            ),
         repository: zod
             .string()
             .max(tasksUpdateBodyRepositoryMax)
@@ -410,6 +424,13 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        task_kind: zod
+            .enum(['coding', 'general'])
+            .describe('\* `coding` - Coding\n\* `general` - General')
+            .optional()
+            .describe(
+                "Task execution kind: 'coding' for code\/PR work or 'general' for non-coding AI coworker work.\n\n\* `coding` - Coding\n\* `general` - General"
             ),
         repository: zod
             .string()
