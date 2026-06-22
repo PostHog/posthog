@@ -8,6 +8,8 @@ creating an import cycle with the workflow modules.
 from dataclasses import dataclass
 from typing import Any, Literal
 
+PostHogCodeConnectorId = Literal["github_repository", "posthog_mcp", "slack_thread"]
+
 
 @dataclass
 class PostHogSlackInboxOnboardingInputs:
@@ -61,6 +63,21 @@ class PostHogCodeRepoCascadeOutcome:
 
     mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
     repository: str | None
+    reason: str
+
+
+@dataclass
+class PostHogCodeTaskRoutingOutcome:
+    """Connector-level routing decision for a new Slack task.
+
+    The first Phase 1 split is intentionally small: coding tasks require the
+    GitHub repository connector and therefore run the repo cascade; general
+    coworker tasks use built-in Slack thread context plus PostHog MCP and skip
+    GitHub entirely.
+    """
+
+    task_kind: Literal["coding", "general"]
+    required_connectors: list[PostHogCodeConnectorId]
     reason: str
 
 

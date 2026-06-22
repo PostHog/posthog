@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
+from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo, classify_task_routing
 
 
 class TestClassifyTaskNeedsRepo:
@@ -96,3 +96,25 @@ class TestClassifyTaskNeedsRepo:
         ):
             result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
         assert result is False
+
+    @parameterized.expand(
+        [
+            (
+                "general",
+                "summarize this Slack thread and post the takeaways",
+                "general",
+                ["slack_thread", "posthog_mcp"],
+            ),
+            (
+                "coding",
+                "open a PR in posthog/posthog to fix this serializer",
+                "coding",
+                ["slack_thread", "posthog_mcp", "github_repository"],
+            ),
+        ]
+    )
+    def test_task_routing_returns_connector_requirements(self, _name, text, task_kind, required_connectors):
+        result = classify_task_routing(text, [{"user": "Alessandro", "text": text}])
+
+        assert result.task_kind == task_kind
+        assert result.required_connectors == required_connectors

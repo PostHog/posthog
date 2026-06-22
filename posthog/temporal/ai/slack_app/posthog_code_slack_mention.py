@@ -12,6 +12,7 @@ from posthog.temporal.ai.slack_app import (
     block_posthog_code_task_if_no_personal_github_activity,
     cascade_posthog_code_repository_activity,
     classify_posthog_code_task_needs_repo_activity,
+    classify_posthog_code_task_routing_activity,
     classify_untagged_followup_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
@@ -27,6 +28,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+_PATCH_ID_CONNECTOR_ROUTING_ACTIVITY = "slack-connector-routing-activity-v1"
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")
@@ -143,13 +145,24 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
 
-            needs_repo = await _execute_posthog_code_activity(
-                classify_posthog_code_task_needs_repo_activity,
-                event.get("text", ""),
-                thread_messages,
-            )
-            task_kind = "coding" if needs_repo else "general"
-            if not needs_repo:
+            if workflow.patched(_PATCH_ID_CONNECTOR_ROUTING_ACTIVITY):
+                routing = await _execute_posthog_code_activity(
+                    classify_posthog_code_task_routing_activity,
+                    event.get("text", ""),
+                    thread_messages,
+                )
+                task_kind = routing.task_kind
+                needs_repository_connector = "github_repository" in routing.required_connectors
+            else:
+                needs_repo = await _execute_posthog_code_activity(
+                    classify_posthog_code_task_needs_repo_activity,
+                    event.get("text", ""),
+                    thread_messages,
+                )
+                task_kind = "coding" if needs_repo else "general"
+                needs_repository_connector = needs_repo
+
+            if not needs_repository_connector:
                 repository = None
                 await _execute_posthog_code_activity(
                     create_posthog_code_task_for_repo_activity,
@@ -205,8 +218,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 return
             else:
                 # Multiple candidates and no explicit mention. Hand off to the
-                # discovery agent because the upfront classifier already decided
-                # this task requires repository access.
+                # discovery agent because upfront routing already decided this
+                # task requires the GitHub repository connector.
                 outcome = await _execute_posthog_code_agent_activity(
                     discover_posthog_code_repository_via_agent_activity,
                     inputs,
