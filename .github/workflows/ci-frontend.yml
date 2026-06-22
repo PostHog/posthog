@@ -31,8 +31,12 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            # AND the broad filter with `exclude` (below): a PR that touches only
+            # Node-only product workspaces (their own ci-agents.yml suite, no stories,
+            # nothing in the bundle) must not trigger frontend CI. The excluded dirs are
+            # derived from pnpm-workspace.yaml, not hardcoded — see the exclude step.
+            frontend: ${{ (steps.filter.outputs.frontend || 'true') == 'true' && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
+            frontend_code: ${{ (steps.filter.outputs.frontend_code || 'true') == 'true' && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -58,17 +62,9 @@ jobs:
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
                         - 'packages/**'
-                        # Product frontend lives under products/<name>/frontend/ (plus each
-                        # product's root manifest.tsx and MCP UI apps under mcp/apps/). Match
-                        # those precisely rather than a broad products/**/*.ts(x): the broad
-                        # rule also matched Node-only product workspaces (agent_platform
-                        # services/packages) that have their own CI (ci-agents.yml) and aren't
-                        # in the frontend bundle, so a services-only PR ran the whole frontend
-                        # suite for nothing. Verified: every `from 'products/...'` import the
-                        # frontend resolves lives under these dirs.
-                        - 'products/**/frontend/**'
-                        - 'products/**/manifest.tsx'
-                        - 'products/**/mcp/apps/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
                         - 'playwright/**'
                         - 'services/mcp/**'
                         - 'docs/**/*.tsx'
@@ -99,11 +95,9 @@ jobs:
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
                         - 'packages/**'
-                        # See the `frontend` filter above for why product paths are scoped to
-                        # frontend/ + manifest.tsx + mcp/apps, not a broad products/**/*.ts(x).
-                        - 'products/**/frontend/**'
-                        - 'products/**/manifest.tsx'
-                        - 'products/**/mcp/apps/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
                         - 'playwright/**'
                         - 'services/mcp/**'
                         - .github/workflows/ci-frontend.yml
@@ -117,6 +111,32 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+
+            # The broad `products/**/*.ts(x)` rules above correctly match all product
+            # frontend code (which doesn't always live under frontend/ — see
+            # products/games, products/data_warehouse, products/ai_observability/shared),
+            # but they also match product dirs that are their own Node services
+            # (products/agent_platform/services/**) with their own ci-agents.yml suite and
+            # nothing in the bundle. Exclude those so a PR touching only them skips frontend
+            # CI. The excluded dirs are derived from pnpm-workspace.yaml (the product paths
+            # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
+            # services are excluded automatically — see bin/frontend-exclude-filter.
+            #
+            # A separate `every`-quantifier step is required: appending a plain `!...` to the
+            # broad filter wouldn't work because dorny's default `some` quantifier OR-matches
+            # predicates and neutralizes the negation (same gotcha as
+            # ci-migrations-service-separation-check.yml). With `every`, the filter is true
+            # only when some changed file lives OUTSIDE every excluded dir.
+            - name: Derive Node-only product workspace exclusions
+              if: github.event_name != 'push'
+              run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).

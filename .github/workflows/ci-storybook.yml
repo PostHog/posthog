@@ -41,6 +41,7 @@ jobs:
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
+                        && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
                         && !(github.event_name == 'pull_request'
@@ -50,6 +51,11 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
+            # Needed by the "Derive Node-only product workspace exclusions" step below,
+            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
+            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -64,14 +70,8 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        # Match the two product story roots Storybook actually builds (see
-                        # common/storybook/.storybook/main.ts: products/**/frontend and
-                        # products/**/mcp/apps), not a broad products/**/*.{ts,tsx}. The broad
-                        # rule pulled in non-frontend product code — Node-only services
-                        # (products/agent_platform/services/**) and product backend TS — that
-                        # has no stories and isn't in the bundle.
+                        - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
-                        - 'products/**/mcp/apps/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
                         # quill is consumed app-wide via `workspace:*`, so a change here
                         # alters rendering across the main-app stories — run the suite.
@@ -87,6 +87,28 @@ jobs:
                         - 'products/**/frontend/generated/**'
                       snapshots:
                         - 'frontend/snapshots.yml'
+
+            # The broad `products/**/*.{ts,tsx}` rule above matches all product code,
+            # including product dirs that are their own Node services
+            # (products/agent_platform/services/**) — no stories, nothing in the bundle.
+            # Exclude those so a PR touching only them skips the visual-regression suite.
+            # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
+            # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
+            #
+            # A separate `every`-quantifier step is required: a plain `!...` in the broad
+            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
+            # output comment above). With `every`, the filter is true only when some changed
+            # file lives OUTSIDE every excluded dir.
+            - name: Derive Node-only product workspace exclusions
+              if: github.event_name != 'push'
+              run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots
