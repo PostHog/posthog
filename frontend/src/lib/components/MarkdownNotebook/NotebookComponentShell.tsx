@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { KeyboardEvent, ReactNode, memo, useState } from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconTrash } from '@posthog/icons'
+import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
@@ -458,6 +458,9 @@ export function getQueryComponentTitleDisplay(
     }
     if (sourceKind === 'EventsQuery') {
         return { label: 'Events', tone: 'data', icon: <IconList /> }
+    }
+    if (sourceKind === 'ActorsQuery') {
+        return { label: 'People', tone: 'data', icon: <IconPeople /> }
     }
 
     return {
