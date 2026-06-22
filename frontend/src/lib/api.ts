@@ -2466,6 +2466,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            signal,
         }: {
             parent?: string
             path?: string
@@ -2481,6 +2482,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -2500,7 +2502,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                 })
-                .get()
+                .get({ signal })
         },
         async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -2543,12 +2545,17 @@ const api = {
     },
 
     fileSystemLogView: {
-        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+        async list(params?: {
+            type?: string
+            limit?: number
+            signal?: AbortSignal
+        }): Promise<FileSystemViewLogEntry[]> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemLogView()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -2560,12 +2567,14 @@ const api = {
             limit?: number
             offset?: number
             ordering?: string
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemShortcut()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemShortcut().create({ data })

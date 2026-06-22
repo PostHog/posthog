@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import is_dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
@@ -105,6 +106,12 @@ def log_file_system_view(
 def annotate_file_system_with_view_logs(
     *, team_id: int, user_id: int, queryset: Optional[QuerySet] = None
 ) -> QuerySet[FileSystem]:
+    """Left-join each FileSystem row to the user's view log and expose ``last_viewed_at``.
+
+    Only used for the "search within Recents" path, where a text filter already bounds the row set
+    to a small size. The unfiltered Recents widget must NOT use this — ordering the whole tree by
+    the joined column forces a full scan and sort; it goes through `get_recent_file_system_items`.
+    """
     queryset = queryset or FileSystem.objects.all()
     base_qs = queryset.filter(team_id=team_id).alias(
         matching_view_logs=FilteredRelation(
@@ -120,19 +127,82 @@ def annotate_file_system_with_view_logs(
     return base_qs.annotate(last_viewed_at=F("matching_view_logs__viewed_at"))
 
 
-def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[int] = None) -> QuerySet[FileSystem]:
-    queryset = annotate_file_system_with_view_logs(
-        team_id=team_id,
-        user_id=user_id,
-        queryset=FileSystem.objects.filter(Q(shortcut=False) | Q(shortcut__isnull=True)),
-    )
+def recent_view_logs(
+    *,
+    team_id: int,
+    user_id: int,
+    surface: str = DEFAULT_SURFACE,
+    type: Optional[str] = None,
+    exclude_types: Optional[Sequence[str]] = None,
+    limit: Optional[int] = None,
+) -> QuerySet[FileSystemViewLog]:
+    """A user's view-log rows for one surface, newest first.
 
-    queryset = queryset.order_by(models.F("last_viewed_at").desc(nulls_last=True))
-
+    Served end-to-end by the ``(team, user, -viewed_at)`` index: no join to FileSystem and no
+    sort on a computed column. This is the single query behind both Recents and the per-scene
+    "last viewed" markers.
+    """
+    queryset = FileSystemViewLog.objects.filter(surface_q(surface), team_id=team_id, user_id=user_id)
+    if type is not None:
+        queryset = queryset.filter(type=type)
+    if exclude_types:
+        queryset = queryset.exclude(type__in=list(exclude_types))
+    queryset = queryset.order_by("-viewed_at")
     if limit is not None:
         queryset = queryset[:limit]
-
     return queryset
+
+
+def get_recent_file_system_items(
+    *,
+    team_id: int,
+    user_id: int,
+    surface: str = DEFAULT_SURFACE,
+    limit: Optional[int] = None,
+    exclude_types: Optional[Sequence[str]] = ("folder",),
+    file_system_queryset: Optional[QuerySet[FileSystem]] = None,
+) -> list[FileSystem]:
+    """Recently-viewed FileSystem rows for a user, newest first.
+
+    View-log-first: read the recent ``(type, ref)`` keys from the indexed view log, then hydrate
+    the canonical FileSystem rows for exactly those keys. This replaces a left join plus an
+    ``ORDER BY`` on a computed ``last_viewed_at`` column, which forced a full scan and sort of the
+    team's entire tree on every homepage/search load.
+
+    ``file_system_queryset`` lets callers pre-scope the hydration (e.g. apply access control)
+    before the ``(type, ref)`` keys are matched.
+    """
+    log_rows = list(
+        recent_view_logs(
+            team_id=team_id, user_id=user_id, surface=surface, exclude_types=exclude_types, limit=limit
+        ).values_list("type", "ref", "viewed_at")
+    )
+    if not log_rows:
+        return []
+
+    viewed_at_by_key = {(row_type, row_ref): viewed_at for row_type, row_ref, viewed_at in log_rows}
+
+    key_filter = Q()
+    for row_type, row_ref in viewed_at_by_key:
+        key_filter |= Q(type=row_type, ref=row_ref)
+
+    base_queryset = (
+        file_system_queryset
+        if file_system_queryset is not None
+        else FileSystem.objects.filter(surface_q(surface), team_id=team_id)
+    )
+    rows_by_key: dict[tuple[str, Optional[str]], FileSystem] = {
+        (row.type, row.ref): row
+        for row in base_queryset.filter(key_filter).exclude(shortcut=True).select_related("created_by")
+    }
+
+    ordered: list[FileSystem] = []
+    for row_type, row_ref, viewed_at in log_rows:
+        row = rows_by_key.get((row_type, row_ref))
+        if row is not None:
+            row.last_viewed_at = viewed_at  # type: ignore[attr-defined]
+            ordered.append(row)
+    return ordered
 
 
 def resolve_representation(
