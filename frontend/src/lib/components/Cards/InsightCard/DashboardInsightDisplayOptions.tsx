@@ -6,11 +6,7 @@ import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisp
 
 // The insight editor's "Options" menu, surfaced as a submenu in the dashboard card ⋯ menu. Edits
 // persist to the saved insight via the card's `setQuery` wiring (see InsightCard).
-export function DashboardInsightDisplayOptions({
-    showLeadingDivider,
-}: {
-    showLeadingDivider: boolean
-}): JSX.Element | null {
+export function DashboardInsightDisplayOptions(): JSX.Element | null {
     const { items } = useInsightDisplayOptions()
 
     if (items.length === 0) {
@@ -19,7 +15,7 @@ export function DashboardInsightDisplayOptions({
 
     return (
         <>
-            {showLeadingDivider && <LemonDivider />}
+            <LemonDivider />
             <LemonMenu
                 items={items}
                 closeOnClickInside={false}

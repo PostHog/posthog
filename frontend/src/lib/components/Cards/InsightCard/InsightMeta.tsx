@@ -55,7 +55,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { DashboardInsightActions } from './DashboardInsightActions'
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { dashboardWidgetMenusLogic } from './dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
@@ -136,12 +135,7 @@ export function InsightMeta({
         tileFiltersOverride: tileFiltersOverride ?? null,
         setQuery: persistDisplayOptions,
     }
-    const {
-        insightFeedback,
-        canToggleDisplayLabelsForInsight,
-        canToggleLegendForInsight,
-        canToggleAnnotationsForInsight,
-    } = useValues(insightLogic(insightLogicProps))
+    const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -205,9 +199,6 @@ export function InsightMeta({
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
     })
 
-    const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
-    const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
-    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
@@ -470,27 +461,11 @@ export function InsightMeta({
                                 Alerts
                             </LemonButton>
                         ) : null}
-                        <DashboardInsightActions
-                            insight={insight}
-                            insightLogicProps={insightLogicProps}
-                            dashboardId={dashboardId}
-                            canToggleDisplayLabels={canToggleDisplayLabels}
-                            canToggleLegend={canToggleLegend}
-                            canToggleAnnotations={canToggleAnnotations}
-                        />
-                        {showDisplayOptionsMenu && (
-                            <DashboardInsightDisplayOptions
-                                showLeadingDivider={
-                                    !canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations
-                                }
-                            />
-                        )}
+                        {showDisplayOptionsMenu && <DashboardInsightDisplayOptions />}
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -502,9 +477,7 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
-                                    <LemonDivider />
-                                )}
+                                <LemonDivider />
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
