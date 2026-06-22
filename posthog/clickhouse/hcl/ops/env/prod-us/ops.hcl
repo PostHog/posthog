@@ -1,7 +1,7 @@
 # OPS prod-us env layer — events distributed proxies, sharded_tophog (tophog_new zoo_path)
 #
 # Generated/maintained as the declarative source of truth for the OPS ClickHouse cluster.
-# See docs/plans/2026-06-16-ops-cluster-hcl-schema.md. Resolve with: hclexp load -layer <base>,<...>
+# Resolve with: hclexp load -layer <base>,<...>
 
 database "posthog" {
   # prod-us-only experiment: an extra ProfileEvents2 JSON column on the base

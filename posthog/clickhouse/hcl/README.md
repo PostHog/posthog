@@ -6,8 +6,7 @@ migrations. Schemas are written in HCL, layered for multi-environment setups,
 resolved into a flat desired state, and diffed against live clusters (or
 captured dumps) to produce migration DDL.
 
-Currently covers the **OPS** cluster. LOGS is next (see
-`docs/plans/2026-06-16-ops-cluster-hcl-schema.md`).
+Currently covers the **OPS** cluster. LOGS is next.
 
 ## Layout
 

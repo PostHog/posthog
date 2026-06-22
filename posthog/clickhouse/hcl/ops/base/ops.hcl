@@ -1,7 +1,6 @@
 # OPS base layer — query_log_archive data path + ops-owned tables/views (all envs)
 #
 # Declarative source of truth for the OPS ClickHouse cluster.
-# See docs/plans/2026-06-16-ops-cluster-hcl-schema.md.
 
 database "posthog" {
   table "query_log_archive" {

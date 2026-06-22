@@ -1,7 +1,7 @@
 # OPS prod layer — metrics suite, identical across prod-us and prod-eu
 #
 # Generated/maintained as the declarative source of truth for the OPS ClickHouse cluster.
-# See docs/plans/2026-06-16-ops-cluster-hcl-schema.md. Resolve with: hclexp load -layer <base>,<...>
+# Resolve with: hclexp load -layer <base>,<...>
 
 database "posthog" {
   table "metrics_exemplars" {

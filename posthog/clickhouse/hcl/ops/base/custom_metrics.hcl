@@ -1,7 +1,6 @@
 # OPS custom_metrics views — Prometheus-style metric views over system.* (all envs)
 #
 # Declarative source of truth for the OPS ClickHouse cluster.
-# See docs/plans/2026-06-16-ops-cluster-hcl-schema.md.
 
 database "posthog" {
   view "custom_metrics" {
