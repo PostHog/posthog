@@ -55,6 +55,39 @@ pub enum UnhandledError {
     Other(String),
 }
 
+impl UnhandledError {
+    /// Returns true if this error represents a transient, connection-level
+    /// failure rather than a genuine logic or query error. These are recoverable
+    /// infrastructure blips (a Postgres connection closed/reset mid-query, a pool
+    /// timeout, etc.) that the caller is expected to retry, so they should not be
+    /// captured as error-tracking exceptions.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            UnhandledError::SqlxError(e) => is_transient_sqlx_error(e),
+            _ => false,
+        }
+    }
+}
+
+/// Classify a sqlx error as transient (connection-level / recoverable) vs a
+/// genuine query error. Transient errors are things like the Postgres connection
+/// being closed or reset by the server mid-query (pool recycle, PG restart/failover,
+/// network blip), pool acquisition timeouts, or the pool/worker being torn down.
+fn is_transient_sqlx_error(e: &sqlx::Error) -> bool {
+    matches!(
+        e,
+        // A connection closed/reset mid-query surfaces as an IO error, e.g.
+        // "error communicating with database: expected to read N bytes, got 0 bytes at EOF".
+        sqlx::Error::Io(_)
+            // TLS-layer failures while talking to the server are also connection-level.
+            | sqlx::Error::Tls(_)
+            // The pool couldn't hand out a connection in time, or was closed/torn down.
+            | sqlx::Error::PoolTimedOut
+            | sqlx::Error::PoolClosed
+            | sqlx::Error::WorkerCrashed
+    )
+}
+
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
 // which are handled by the store - this is the error type that's handed to the frame to see
 // if it can still make something useful out of it.
@@ -397,6 +430,38 @@ impl From<UnhandledError> for PipelineFailure {
         PipelineFailure {
             index: 0,
             error: Arc::new(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transient_sqlx_errors_are_classified_as_transient() {
+        let eof = std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "got 0 bytes at EOF");
+        let transient = [
+            UnhandledError::SqlxError(sqlx::Error::Io(eof)),
+            UnhandledError::SqlxError(sqlx::Error::PoolTimedOut),
+            UnhandledError::SqlxError(sqlx::Error::PoolClosed),
+            UnhandledError::SqlxError(sqlx::Error::WorkerCrashed),
+        ];
+        for err in transient {
+            assert!(err.is_transient(), "{err} should be transient");
+        }
+    }
+
+    #[test]
+    fn genuine_errors_are_not_transient() {
+        let not_transient = [
+            UnhandledError::SqlxError(sqlx::Error::RowNotFound),
+            UnhandledError::SqlxError(sqlx::Error::Protocol("bad packet".into())),
+            UnhandledError::SqlxError(sqlx::Error::ColumnNotFound("missing".into())),
+            UnhandledError::Other("some logic bug".to_string()),
+        ];
+        for err in not_transient {
+            assert!(!err.is_transient(), "{err} should not be transient");
         }
     }
 }

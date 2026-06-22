@@ -17,7 +17,7 @@ use crate::{
     error::UnhandledError,
     metric_consts::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_SECONDS,
+        PROCESS_REQUEST_DURATION_SECONDS, PROCESS_TRANSIENT_DB_ERRORS,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
@@ -199,14 +199,28 @@ pub async fn process_events(
             )
             .increment(1);
 
-            error!(
-                request_id = %request_id,
-                error = %err,
-                duration_ms,
-                batch_event_count,
-                team_count,
-                "Failed /process request"
-            );
+            // Transient connection-level DB failures (pool recycle, PG failover,
+            // network blip) are recoverable and retried upstream, so we log them
+            // at warn rather than error and avoid the noisier alerting path.
+            if err.is_transient() {
+                warn!(
+                    request_id = %request_id,
+                    error = %err,
+                    duration_ms,
+                    batch_event_count,
+                    team_count,
+                    "Failed /process request (transient DB error)"
+                );
+            } else {
+                error!(
+                    request_id = %request_id,
+                    error = %err,
+                    duration_ms,
+                    batch_event_count,
+                    team_count,
+                    "Failed /process request"
+                );
+            }
         }
     }
 
@@ -214,14 +228,22 @@ pub async fn process_events(
         Ok(batch) => Ok(batch),
         Err(err) => {
             let err = Arc::new(err);
-            common_posthog::capture_exception(
-                err.clone(),
-                [
-                    ("request_id", json!(request_id)),
-                    ("batch_event_count", json!(batch_event_count)),
-                    ("team_count", json!(team_count)),
-                ],
-            );
+            // Transient connection drops are infrastructure blips, not bugs: the
+            // request still fails (and is retried upstream), but capturing them as
+            // error-tracking exceptions just floods our own issues. Downgrade to a
+            // metric instead of a captured exception.
+            if err.is_transient() {
+                metrics::counter!(PROCESS_TRANSIENT_DB_ERRORS).increment(1);
+            } else {
+                common_posthog::capture_exception(
+                    err.clone(),
+                    [
+                        ("request_id", json!(request_id)),
+                        ("batch_event_count", json!(batch_event_count)),
+                        ("team_count", json!(team_count)),
+                    ],
+                );
+            }
             Err(ProcessEventsError::Unhandled(err))
         }
     }
