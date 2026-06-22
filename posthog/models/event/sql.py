@@ -581,54 +581,6 @@ WHERE
 LIMIT 10
 """
 
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM
-    events
-where team_id = %(team_id)s
-{conditions}
-ORDER BY timestamp {order} {limit}
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events
-WHERE
-team_id = %(team_id)s
-{conditions}
-{filters}
-ORDER BY timestamp {order} {limit}
-"""
-
-SELECT_ONE_EVENT_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
-"""
-
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
 SELECT toUInt16(0) AS total, {date_to_truncated} - {interval_func}(number) AS day_start
