@@ -81,6 +81,8 @@ export const BusinessKnowledgeSourcesCreateParams = /* @__PURE__ */ zod.object({
 
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
+export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false
+
 export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -90,6 +92,12 @@ export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             'Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3.'
+        ),
+    always_include: zod
+        .boolean()
+        .default(businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction)."
         ),
 })
 

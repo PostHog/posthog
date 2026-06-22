@@ -138,6 +138,9 @@ const businessKnowledgeSourcesTextCreate = (): ToolBase<
         if (params.text !== undefined) {
             body['text'] = params.text
         }
+        if (params.always_include !== undefined) {
+            body['always_include'] = params.always_include
+        }
         const result = await context.api.request<Schemas.KnowledgeSource>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
