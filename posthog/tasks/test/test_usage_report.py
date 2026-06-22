@@ -4260,77 +4260,48 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertEqual(result, [])
 
-    @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_signals_credits_only_counts_signals_events(self, mock_region: MagicMock) -> None:
-        """The signals query only counts generations tagged ai_product='signals' for the same team."""
-        from posthog.tasks.usage_report import (
-            get_teams_with_ai_credits_used_in_period,
-            get_teams_with_signals_credits_used_in_period,
-        )
+    def test_signals_credits_bills_reports_with_implementation_pr(self) -> None:
+        """Signals credits are a flat charge per report whose implementation shipped a PR (Postgres path)."""
+        from django.apps import apps
 
-        mock_region.return_value = "US"
+        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
+
+        from products.signals.backend.models import SignalReport, SignalReportTask
+
+        # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+
         self._setup_teams()
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-        self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
 
-        # Signals event — should appear only in signals credits
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_signals",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_signals",
-                "$ai_total_cost_usd": 2.0,
-                "$ai_billable": True,
-                "ai_product": "signals",
-                "$group_1": "https://us.posthog.com",
-            },
+        team = self.org_1_team_1
+
+        # A report whose implementation task opened a PR within the period — billed flat ($15 = 1500).
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0
+        )
+        task = Task.objects.create(
+            team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(
+            team=team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        )
+        TaskRun.objects.create(
+            team=team,
+            task=task,
+            output={"pr_url": "https://github.com/x/y/pull/1"},
+            created_at=period_start + relativedelta(hours=1),
         )
 
-        # Max AI event — should appear only in ai credits. Max AI is billed via its paired
-        # $ai_trace (unlike signals, which never emits one), so create a matching billable trace.
-        _create_event(
-            event="$ai_trace",
-            team=analytics_team,
-            distinct_id="user_max",
-            timestamp=period_start + relativedelta(hours=2),
-            properties={
-                "$ai_trace_id": "trace_max",
-                "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
-                "$group_1": "https://us.posthog.com",
-            },
-        )
+        # A report with no implementation PR contributes nothing.
+        SignalReport.objects.create(team=team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0)
 
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_max",
-            timestamp=period_start + relativedelta(hours=2),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_max",
-                "$ai_total_cost_usd": 1.0,
-                "$ai_billable": True,
-                "ai_product": "posthog_ai",
-                "$group_1": "https://us.posthog.com",
-            },
-        )
+        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
 
-        flush_persons_and_events()
-
-        signals_result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
-        ai_result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
-
-        # signals: 2.0 USD * 100 * 1.2 = 240
-        self.assertEqual(signals_result, [(self.org_1_team_1.id, 240)])
-        # ai (posthog_ai only): 1.0 USD * 100 * 1.2 = 120
-        self.assertEqual(ai_result, [(self.org_1_team_1.id, 120)])
+        self.assertEqual(result, [(team.id, 1500)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
@@ -4417,81 +4388,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # 1.0 USD * 100 * 1.2 = 120
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
-
-    @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_signals_credits_counts_traceless_generation(self, mock_region: MagicMock) -> None:
-        """A billable signals generation with no $ai_trace IS billed via the empty-trace fallback.
-
-        Signals never emits $ai_trace events, so the LEFT JOIN never matches; the fallback is
-        what makes signals billable at all.
-        """
-        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
-
-        mock_region.return_value = "US"
-        self._setup_teams()
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-        self._setup_instance_group_mapping(analytics_team)
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_signals",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_signals",
-                "$ai_total_cost_usd": 4.0,
-                "$ai_billable": True,
-                "ai_product": "signals",
-                "$group_1": "https://us.posthog.com",
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
-
-        # 4.0 USD * 100 * 1.2 = 480
-        self.assertEqual(result, [(self.org_1_team_1.id, 480)])
-
-    @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_signals_credits_excludes_non_billable_generation(self, mock_region: MagicMock) -> None:
-        """A signals generation tagged $ai_billable=false is not counted, even for signals."""
-        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
-
-        mock_region.return_value = "US"
-        self._setup_teams()
-        analytics_org = Organization.objects.create(name="PostHog Analytics")
-        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
-        self._setup_instance_group_mapping(analytics_team)
-
-        period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-
-        _create_event(
-            event="$ai_generation",
-            team=analytics_team,
-            distinct_id="user_signals",
-            timestamp=period_start + relativedelta(hours=1),
-            properties={
-                "team_id": self.org_1_team_1.id,
-                "$ai_trace_id": "trace_signals",
-                "$ai_total_cost_usd": 4.0,
-                "$ai_billable": False,
-                "ai_product": "signals",
-                "$group_1": "https://us.posthog.com",
-            },
-        )
-
-        flush_persons_and_events()
-
-        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
-
-        self.assertEqual(result, [])
 
     def test_has_non_zero_usage_counts_signals_credits(self) -> None:
         """A signals-only org must survive has_non_zero_usage so its report still reaches billing."""
