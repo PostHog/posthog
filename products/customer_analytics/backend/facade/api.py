@@ -406,6 +406,7 @@ def _set_tags(tags: list[str] | None, obj) -> None:
     for tag in deduped_tags:
         tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
         tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        tagged_item_instance.tag = tag_instance
         tagged_item_objects.append(tagged_item_instance)
     for tagged_item in obj.tagged_items.exclude(tag__name__in=deduped_tags):
         tagged_item.delete()
@@ -441,7 +442,7 @@ def _log_activity_swallowing(
             activity=activity,
             detail=Detail(**detail_kwargs),
         )
-    except:
+    except Exception:
         pass
 
 
@@ -596,7 +597,7 @@ def _to_customer_journey_view(journey: CustomerJourney) -> contracts.CustomerJou
     )
 
 
-def _customer_journeys_queryset(team_id: int, user_access_control: "UserAccessControl"):
+def _customer_journeys_queryset(team_id: int):
     """Team-scoped customer journeys, ordered by creation. Object-level access filtering is
     applied by the caller (list applies it; detail relies on the per-object check)."""
     return CustomerJourney.objects.order_by("created_at").filter(team_id=team_id)
@@ -613,9 +614,7 @@ def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
 def list_customer_journeys(
     team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl"
 ) -> tuple[list[contracts.CustomerJourneyView], int]:
-    queryset = user_access_control.filter_queryset_by_access_level(
-        _customer_journeys_queryset(team_id, user_access_control)
-    )
+    queryset = user_access_control.filter_queryset_by_access_level(_customer_journeys_queryset(team_id))
     total_count = queryset.count()
     page = queryset[offset : offset + limit]
     return [_to_customer_journey_view(j) for j in page], total_count
@@ -627,9 +626,7 @@ def get_customer_journey(
     """Fetch one team-scoped journey, enforcing object-level access. Raises
     ``CustomerJourney.DoesNotExist`` (→ 404) when absent and ``ResourceForbiddenError``
     (→ 403) when the caller lacks object access — mirroring the old viewset."""
-    journey = _get_object_or_raise(
-        _customer_journeys_queryset(team_id, user_access_control), journey_id, CustomerJourney
-    )
+    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
     _enforce_object_access(journey, user_access_control, required_level)
     return _to_customer_journey_view(journey)
 
@@ -674,9 +671,7 @@ def update_customer_journey(
     user: "User",
     was_impersonated: bool,
 ) -> contracts.CustomerJourneyView:
-    journey = _get_object_or_raise(
-        _customer_journeys_queryset(team_id, user_access_control), journey_id, CustomerJourney
-    )
+    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
     _enforce_object_access(journey, user_access_control, required_level)
     previous = CustomerJourney.objects.get(pk=journey.pk)
     for attr, value in fields.items():
@@ -706,9 +701,7 @@ def delete_customer_journey(
     user: "User",
     was_impersonated: bool,
 ) -> None:
-    journey = _get_object_or_raise(
-        _customer_journeys_queryset(team_id, user_access_control), journey_id, CustomerJourney
-    )
+    journey = _get_object_or_raise(_customer_journeys_queryset(team_id), journey_id, CustomerJourney)
     _enforce_object_access(journey, user_access_control, required_level)
     _log_activity_swallowing(
         instance=journey,
