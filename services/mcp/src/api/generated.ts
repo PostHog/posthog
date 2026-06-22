@@ -45760,7 +45760,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
+         * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
          * @minimum 10
          * @maximum 43200
          */

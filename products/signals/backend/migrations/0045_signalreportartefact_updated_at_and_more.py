@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1218_team_ingested_production_event_last_checked_at"),
-        ("signals", "0042_signalreport_status_before_suppression"),
+        ("signals", "0044_alter_signalscoutconfig_run_interval_minutes"),
         ("tasks", "0037_codeworkflowconfig_codeprsnapshot_codeworkstream"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

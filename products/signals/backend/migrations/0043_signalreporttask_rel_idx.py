@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("signals", "0044_signalreportartefact_latest_index"),
+        ("signals", "0042_signalreport_status_before_suppression"),
     ]
 
     operations = [
