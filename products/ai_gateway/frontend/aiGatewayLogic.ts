@@ -3,12 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { aiGatewayLogicType } from './aiGatewayLogicType'
 import {
     buildSpendChartData,
     fetchGatewaySpendByDay,
-    fetchGatewayUsage,
     fetchGatewayUsageByModel,
     GatewayModelUsage,
     GatewaySpendPoint,
@@ -35,12 +35,6 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
         topUpAmountUsd: [25, { setTopUpAmount: (_, { amountUsd }) => amountUsd }],
     }),
     loaders(() => ({
-        usage: [
-            null as GatewayUsage | null,
-            {
-                loadUsage: async () => await fetchGatewayUsage(),
-            },
-        ],
         spendSeries: [
             [] as GatewaySpendPoint[],
             {
@@ -55,23 +49,34 @@ export const aiGatewayLogic = kea<aiGatewayLogicType>([
         ],
     })),
     selectors({
+        usage: [
+            (s) => [s.modelUsage],
+            (modelUsage): GatewayUsage =>
+                modelUsage.reduce(
+                    (acc, model) => ({
+                        requests: acc.requests + model.requests,
+                        inputTokens: acc.inputTokens + model.inputTokens,
+                        outputTokens: acc.outputTokens + model.outputTokens,
+                        costUsd: acc.costUsd + model.costUsd,
+                    }),
+                    { requests: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
+                ),
+        ],
         spendChart: [
-            (s) => [s.spendSeries],
-            (spendSeries): { data: number[]; labels: string[] } => buildSpendChartData(spendSeries),
+            (s) => [s.spendSeries, teamLogic.selectors.timezone],
+            (spendSeries, timezone): { data: number[]; labels: string[] } => buildSpendChartData(spendSeries, timezone),
         ],
-        hasUsage: [
-            (s) => [s.usage, s.modelUsage],
-            (usage, modelUsage): boolean => (usage?.requests ?? 0) > 0 || modelUsage.length > 0,
-        ],
+        hasUsage: [(s) => [s.modelUsage], (modelUsage): boolean => modelUsage.length > 0],
     }),
     listeners(({ values, actions }) => ({
         confirmTopUp: () => {
             lemonToast.info(`Top up of ${humanFriendlyCurrency(values.topUpAmountUsd)} is mocked for now.`)
             actions.closeTopUpModal()
         },
+        loadSpendSeriesFailure: ({ error }) => lemonToast.error(`Couldn't load gateway spend: ${error}`),
+        loadModelUsageFailure: ({ error }) => lemonToast.error(`Couldn't load gateway usage: ${error}`),
     })),
     afterMount(({ actions }) => {
-        actions.loadUsage()
         actions.loadSpendSeries()
         actions.loadModelUsage()
     }),

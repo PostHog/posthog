@@ -2,7 +2,7 @@ import { LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sparkline } from 'lib/components/Sparkline'
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -29,31 +29,9 @@ export interface GatewaySpendPoint {
 export interface GatewayModelUsage {
     model: string
     requests: number
-    tokens: number
+    inputTokens: number
+    outputTokens: number
     costUsd: number
-}
-
-export async function fetchGatewayUsage(): Promise<GatewayUsage> {
-    const query: HogQLQuery = {
-        kind: NodeKind.HogQLQuery,
-        query: `
-            SELECT
-                count() AS requests,
-                sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
-                sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
-                round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
-            FROM events
-            WHERE ${GATEWAY_EVENTS_WHERE}
-        `,
-    }
-    const response = await api.query(query)
-    const row = response.results?.[0] ?? []
-    return {
-        requests: Number(row[0]) || 0,
-        inputTokens: Number(row[1]) || 0,
-        outputTokens: Number(row[2]) || 0,
-        costUsd: Number(row[3]) || 0,
-    }
 }
 
 export async function fetchGatewaySpendByDay(): Promise<GatewaySpendPoint[]> {
@@ -83,27 +61,33 @@ export async function fetchGatewayUsageByModel(): Promise<GatewayModelUsage[]> {
             SELECT
                 properties.$ai_model AS model,
                 count() AS requests,
-                sum(toFloat(properties.$ai_input_tokens) + toFloat(properties.$ai_output_tokens)) AS tokens,
+                sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
+                sum(toFloat(properties.$ai_output_tokens)) AS output_tokens,
                 round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
             FROM events
             WHERE ${GATEWAY_EVENTS_WHERE}
             GROUP BY model
             ORDER BY cost_usd DESC
+            LIMIT 100
         `,
     }
     const response = await api.query(query)
     return (response.results ?? []).map((row: unknown[]) => ({
         model: row[0] ? String(row[0]) : 'unknown',
         requests: Number(row[1]) || 0,
-        tokens: Number(row[2]) || 0,
-        costUsd: Number(row[3]) || 0,
+        inputTokens: Number(row[2]) || 0,
+        outputTokens: Number(row[3]) || 0,
+        costUsd: Number(row[4]) || 0,
     }))
 }
 
 // Pad the raw per-day spend into a contiguous 30-day series so the chart has no gaps for idle days.
-export function buildSpendChartData(points: GatewaySpendPoint[]): { data: number[]; labels: string[] } {
+export function buildSpendChartData(
+    points: GatewaySpendPoint[],
+    timezone: string
+): { data: number[]; labels: string[] } {
     const byDay = new Map(points.map((point) => [dayjs(point.day).format('YYYY-MM-DD'), point.costUsd]))
-    const start = dayjs()
+    const start = dayjsNowInTimezone(timezone)
         .startOf('day')
         .subtract(USAGE_WINDOW_DAYS - 1, 'day')
     const data: number[] = []
@@ -195,9 +179,8 @@ export function ModelBreakdownTable({ rows, loading }: { rows: GatewayModelUsage
                 },
                 {
                     title: 'Tokens',
-                    dataIndex: 'tokens',
-                    render: (_, row) => humanFriendlyNumber(row.tokens),
-                    sorter: (a, b) => a.tokens - b.tokens,
+                    render: (_, row) => humanFriendlyNumber(row.inputTokens + row.outputTokens),
+                    sorter: (a, b) => a.inputTokens + a.outputTokens - (b.inputTokens + b.outputTokens),
                 },
                 {
                     title: 'Spend',

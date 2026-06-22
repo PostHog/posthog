@@ -38,16 +38,15 @@ export const scene: SceneExport = {
 
 export function AIGatewayScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { usage, usageLoading, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading, hasUsage } =
-        useValues(aiGatewayLogic)
+    const { usage, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading, hasUsage } = useValues(aiGatewayLogic)
 
     if (!featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
         return <NotFound object="page" />
     }
 
-    // Until both usage queries resolve we can't tell a brand-new team from an active one, so keep showing
+    // Until the model breakdown resolves we can't tell a brand-new team from an active one, so keep showing
     // the dashboard (with skeletons) and only fall back to the intro once we know there's genuinely no usage.
-    const isEmpty = !usageLoading && !modelUsageLoading && !hasUsage
+    const isEmpty = !modelUsageLoading && !hasUsage
 
     return (
         <SceneContent>
@@ -62,7 +61,7 @@ export function AIGatewayScene(): JSX.Element {
                 <>
                     <SceneSection title="Usage" description="Last 30 days" titleSize="sm">
                         <div className="flex gap-2 flex-wrap">
-                            <UsageMetrics usage={usage} loading={usageLoading} />
+                            <UsageMetrics usage={usage} loading={modelUsageLoading} />
                             <GatewayBalanceCard />
                         </div>
                         <SpendChart data={spendChart.data} labels={spendChart.labels} loading={spendSeriesLoading} />

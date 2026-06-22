@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-// The scene fires three HogQL queries (headline totals, spend-by-day, by-model) at the same
+// The scene fires two HogQL queries (by-model breakdown, spend-by-day) at the same
 // endpoint, so branch the mock on the query body to return the right shape for each.
 const queryDecorator = (hasData: boolean): ReturnType<typeof mswDecorator> =>
     mswDecorator({
@@ -20,33 +20,24 @@ const queryDecorator = (hasData: boolean): ReturnType<typeof mswDecorator> =>
                         {
                             results: hasData
                                 ? [
-                                      ['gpt-5-mini', 96, 101000, 9.1],
-                                      ['claude-sonnet-4.6', 32, 34000, 3.24],
+                                      ['gpt-5-mini', 96, 60000, 41000, 9.1],
+                                      ['claude-sonnet-4.6', 32, 20000, 14000, 3.24],
                                   ]
                                 : [],
-                            columns: ['model', 'requests', 'tokens', 'cost_usd'],
-                        },
-                    ]
-                }
-                if (hogql.includes('GROUP BY day')) {
-                    return [
-                        200,
-                        {
-                            results: hasData
-                                ? [
-                                      ['2024-07-01 00:00:00', 4.2],
-                                      ['2024-07-05 00:00:00', 8.14],
-                                  ]
-                                : [],
-                            columns: ['day', 'cost_usd'],
+                            columns: ['model', 'requests', 'input_tokens', 'output_tokens', 'cost_usd'],
                         },
                     ]
                 }
                 return [
                     200,
                     {
-                        results: [hasData ? [128, 45000, 90000, 12.34] : [0, 0, 0, 0]],
-                        columns: ['requests', 'input_tokens', 'output_tokens', 'cost_usd'],
+                        results: hasData
+                            ? [
+                                  ['2024-07-01 00:00:00', 4.2],
+                                  ['2024-07-05 00:00:00', 8.14],
+                              ]
+                            : [],
+                        columns: ['day', 'cost_usd'],
                     },
                 ]
             },
