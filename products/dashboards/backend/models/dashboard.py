@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
@@ -19,11 +18,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
-
-# Debounce read-path writes of `last_accessed_at`. The timestamp only feeds
-# day-granularity staleness checks (cache warming, recent-dashboard ordering),
-# so a write on every read is wasteful — once per interval is plenty fresh.
-LAST_ACCESSED_WRITE_INTERVAL = timedelta(minutes=10)
 
 
 class DashboardManager(RootTeamManager):
@@ -126,14 +120,10 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     def touch_last_accessed_at(self) -> None:
         """Best-effort update of `last_accessed_at` for read paths (including public shared reads).
 
-        Debounced so repeated reads don't issue a write each time, and tolerant of database
-        errors so a transient failure — e.g. a saturated connection pool timing out — never
-        fails the read it's piggybacking on.
+        Tolerant of database errors so a transient failure — e.g. a saturated connection pool
+        timing out — never fails the read it's piggybacking on.
         """
-        current = now()
-        if self.last_accessed_at and current - self.last_accessed_at < LAST_ACCESSED_WRITE_INTERVAL:
-            return
-        self.last_accessed_at = current
+        self.last_accessed_at = now()
         try:
             self.save(update_fields=["last_accessed_at"])
         except DatabaseError:

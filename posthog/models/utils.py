@@ -538,14 +538,10 @@ class RootTeamMixin(models.Model):
         update_fields = kwargs.get("update_fields")
         writes_team = update_fields is None or "team" in update_fields or "team_id" in update_fields
 
-        if (
-            writes_team
-            and hasattr(self, "team")
-            and self.team  # type: ignore
-            and hasattr(self.team, "parent_team")
-            and self.team.parent_team  # type: ignore
-        ):
-            self.team = self.team.parent_team  # type: ignore
+        if writes_team and hasattr(self, "team"):
+            team = self.team  # type: ignore
+            if team and getattr(team, "parent_team", None):
+                self.team = team.parent_team
         super().save(*args, **kwargs)
 
     def _save_in_persons_db(self, *args, **kwargs) -> None:

@@ -573,6 +573,7 @@
     'tagged_items',
     'team_id',
     'tiles',
+    'touch_last_accessed_at',
     'url',
     'userscenepersonalisation_set',
   ])

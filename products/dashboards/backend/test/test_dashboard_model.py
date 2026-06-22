@@ -20,24 +20,6 @@ class TestDashboardModel(BaseTest):
         dashboard.refresh_from_db()
         assert dashboard.last_accessed_at == datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
-    def test_touch_last_accessed_at_is_debounced(self):
-        with freeze_time("2022-01-01T12:00:00Z") as frozen:
-            dashboard = Dashboard.objects.create(team=self.team, name="example")
-            dashboard.touch_last_accessed_at()
-
-            # A read shortly after does not issue another write.
-            frozen.tick(datetime.timedelta(minutes=5))
-            with patch.object(Dashboard, "save") as mock_save:
-                dashboard.touch_last_accessed_at()
-            mock_save.assert_not_called()
-
-            # Once the debounce interval has passed, the write happens again.
-            frozen.tick(datetime.timedelta(minutes=10))
-            dashboard.touch_last_accessed_at()
-
-        dashboard.refresh_from_db()
-        assert dashboard.last_accessed_at == datetime.datetime(2022, 1, 1, 12, 15, 0, tzinfo=datetime.UTC)
-
     def test_touch_last_accessed_at_swallows_database_errors(self):
         dashboard = Dashboard.objects.create(team=self.team, name="example")
 
