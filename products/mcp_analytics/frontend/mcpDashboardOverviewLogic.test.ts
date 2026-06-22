@@ -104,6 +104,8 @@ describe('mcpDashboardOverviewLogic', () => {
             'Replit',
             'Windsurf',
             'opencode',
+            'Lovable',
+            'Manus',
         ])('resolves a logo for the %s category', (category) => {
             expect(harnessLogo(category)?.src).toBeTruthy()
         })

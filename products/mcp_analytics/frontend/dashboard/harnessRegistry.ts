@@ -4,6 +4,8 @@ import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
 import linearLogo from '../harness-logos/linear.svg'
+import lovableLogo from '../harness-logos/lovable.png'
+import manusLogo from '../harness-logos/manus.svg'
 import notionLogo from '../harness-logos/notion.svg'
 import openaiLogo from '../harness-logos/openai.svg'
 import opencodeLogo from '../harness-logos/opencode.svg'
@@ -123,8 +125,8 @@ const HARNESS_REGISTRY: HarnessDescriptor[] = [
     },
     { category: 'Windsurf', match: (n) => n === 'windsurf', logo: { src: windsurfLogo, alt: 'Windsurf logo' } },
     { category: 'Replit', match: (n) => n.startsWith('replit'), logo: { src: replitLogo, alt: 'Replit logo' } },
-    { category: 'Lovable', match: (n) => n.startsWith('lovable') },
-    { category: 'Manus', match: (n) => n === 'manus' },
+    { category: 'Lovable', match: (n) => n.startsWith('lovable'), logo: { src: lovableLogo, alt: 'Lovable logo' } },
+    { category: 'Manus', match: (n) => n === 'manus', logo: { src: manusLogo, alt: 'Manus logo' } },
     { category: 'CodeRabbit', match: (n) => n === 'coderabbit', logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' } },
     { category: 'Notion', match: (n) => n.startsWith('notion'), logo: { src: notionLogo, alt: 'Notion logo' } },
     { category: 'Linear', match: (n) => n.startsWith('linear'), logo: { src: linearLogo, alt: 'Linear logo' } },
