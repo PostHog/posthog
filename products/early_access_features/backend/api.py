@@ -17,6 +17,8 @@ from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson,
 from posthog.exceptions import generate_exception_response
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
 
@@ -66,7 +68,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         return obj.payload if obj.payload else {}
 
 
-class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
+class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     name = serializers.CharField(
         max_length=200,
@@ -100,6 +102,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentation_url",
             "payload",
             "created_at",
+            "user_access_level",
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
@@ -236,6 +239,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "feature_flag_id",
             "feature_flag",
             "_create_in_folder",
+            "user_access_level",
         ]
         read_only_fields = ["id", "feature_flag", "created_at"]
 
@@ -333,7 +337,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
-class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
 

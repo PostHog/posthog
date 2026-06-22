@@ -13,9 +13,12 @@ from rest_framework import status
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.user import User
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -655,6 +658,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     "name": "Click counter",
                     "payload": {},
                     "stage": "beta",
+                    "user_access_level": "editor",
                 },
             ],
         }
@@ -1413,3 +1417,78 @@ class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTes
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
+    """Resource- and object-level access control for early access features."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "eaf-member@posthog.com", "password")
+        self.client.force_login(self.member)
+
+    def _set_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="early_access_feature", team=self.team, access_level=access_level)
+
+    def _create_feature(self) -> EarlyAccessFeature:
+        return EarlyAccessFeature.objects.create(team=self.team, name="Example feature", stage="concept")
+
+    @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
+    def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_create_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": f"Feature {access_level}", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_204_NO_CONTENT)])
+    def test_delete_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_user_access_level_reflects_resource_level(self) -> None:
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # No creator concept on this model, so the effective level is the resource-level floor.
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_access_controls_endpoint_route_exists(self) -> None:
+        feature = self._create_feature()
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_manager_member_cannot_modify_object_access_controls(self) -> None:
+        # Editor resource access passes write checks but does not grant manager on the object.
+        feature = self._create_feature()
+        self._set_resource_level("editor")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
