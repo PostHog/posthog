@@ -1,10 +1,20 @@
 import { getSeriesColor } from 'lib/colors'
 
+import { ChartDisplayType } from '~/types'
+
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { buildPieSlices, formatPieSliceCount } from './PieChart'
+import { LineGraphProps } from './LineGraph'
+import { buildPieSeries, buildPieSlices, canRenderSqlPieGraph, formatPieSliceCount } from './sqlPieGraphAdapter'
 
-describe('PieChart', () => {
+const baseProps = (visualizationType: ChartDisplayType): LineGraphProps => ({
+    xData: null,
+    yData: [],
+    visualizationType,
+    chartSettings: {},
+})
+
+describe('sqlPieGraphAdapter', () => {
     describe('formatPieSliceCount', () => {
         it.each([
             ['appends share of total', 25, 100, undefined, '25 (25%)'],
@@ -129,6 +139,36 @@ describe('PieChart', () => {
                 { label: 'apples', value: 3, color: getSeriesColor(0) },
                 { label: 'oranges', value: 7, color: getSeriesColor(1) },
             ])
+        })
+    })
+
+    describe('buildPieSeries', () => {
+        it('maps each slice to a single-value quill series, pinning the slice color', () => {
+            expect(
+                buildPieSeries([
+                    { label: 'alpha', value: 7, color: '#111111' },
+                    { label: 'beta', value: 3, color: '#222222' },
+                ])
+            ).toEqual([
+                { key: 'alpha-0', label: 'alpha', color: '#111111', data: [7] },
+                { key: 'beta-1', label: 'beta', color: '#222222', data: [3] },
+            ])
+        })
+
+        it('returns an empty array when there are no slices', () => {
+            expect(buildPieSeries([])).toEqual([])
+        })
+    })
+
+    describe('canRenderSqlPieGraph', () => {
+        it.each([
+            [ChartDisplayType.ActionsPie, true],
+            [ChartDisplayType.ActionsLineGraph, false],
+            [ChartDisplayType.ActionsBar, false],
+            [ChartDisplayType.ActionsStackedBar, false],
+            [ChartDisplayType.ActionsAreaGraph, false],
+        ])('returns %s -> %s', (visualizationType, expected) => {
+            expect(canRenderSqlPieGraph(baseProps(visualizationType))).toBe(expected)
         })
     })
 })
