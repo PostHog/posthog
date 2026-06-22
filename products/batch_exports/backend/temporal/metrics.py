@@ -20,6 +20,27 @@ from temporalio.worker import (
 
 from posthog.temporal.common.logger import get_write_only_logger
 
+BATCH_EXPORT_ACTIVITY_TYPES = {
+    "copy_into_redshift_activity_from_stage",
+    "export_to_file_download_bucket_with_temporary_credentials",
+    "insert_into_bigquery_activity_from_stage",
+    "insert_into_databricks_activity_from_stage",
+    "insert_into_internal_stage_activity",
+    "insert_into_postgres_activity_from_stage",
+    "insert_into_redshift_activity",
+    "insert_into_redshift_activity_from_stage",
+    "insert_into_s3_activity_from_stage",
+    "insert_into_snowflake_activity_from_stage",
+}
+BATCH_EXPORT_WORKFLOW_TYPES = {
+    "s3-export",
+    "bigquery-export",
+    "snowflake-export",
+    "redshift-export",
+    "postgres-export",
+    "databricks-export",
+}
+
 LOGGER = get_write_only_logger(__name__)
 
 
@@ -57,28 +78,32 @@ def get_export_finished_metric(status: str, model: str) -> MetricCounter:
     )
 
 
-BATCH_EXPORT_ACTIVITY_TYPES = {
-    "copy_into_redshift_activity_from_stage",
-    "export_to_file_download_bucket_with_temporary_credentials",
-    "insert_into_bigquery_activity_from_stage",
-    "insert_into_databricks_activity_from_stage",
-    "insert_into_internal_stage_activity",
-    "insert_into_postgres_activity_from_stage",
-    "insert_into_redshift_activity",
-    "insert_into_redshift_activity_from_stage",
-    "insert_into_s3_activity_from_stage",
-    "insert_into_snowflake_activity_from_stage",
-}
-BATCH_EXPORT_WORKFLOW_TYPES = {
-    "s3-export",
-    "bigquery-export",
-    "snowflake-export",
-    "redshift-export",
-    "postgres-export",
-    "databricks-export",
-}
-
 Attributes = dict[str, str | int | float | bool]
+
+
+def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
+    """Return a meter depending on in which context we are."""
+    basic_attributes = {}
+
+    if activity.in_activity():
+        meter = activity.metric_meter()
+
+        activity_info = activity.info()
+        if (workflow_type := activity_info.workflow_type) is not None:
+            basic_attributes["workflow_type"] = workflow_type
+        basic_attributes["activity_type"] = activity_info.activity_type
+
+    elif workflow.in_workflow():
+        meter = workflow.metric_meter()
+        basic_attributes["workflow_type"] = workflow.info().workflow_type
+
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+    if additional_attributes:
+        meter = meter.with_additional_attributes(additional_attributes)
+
+    return meter
 
 
 class BatchExportsMetricsInterceptor(Interceptor):
@@ -281,31 +306,6 @@ class ExecutionTimeRecorder:
         """Reset counter and bytes processed."""
         self._start_counter = None
         self.bytes_processed = None
-
-
-def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
-    """Return a meter depending on in which context we are."""
-    basic_attributes = {}
-
-    if activity.in_activity():
-        meter = activity.metric_meter()
-
-        activity_info = activity.info()
-        if (workflow_type := activity_info.workflow_type) is not None:
-            basic_attributes["workflow_type"] = workflow_type
-        basic_attributes["activity_type"] = activity_info.activity_type
-
-    elif workflow.in_workflow():
-        meter = workflow.metric_meter()
-        basic_attributes["workflow_type"] = workflow.info().workflow_type
-
-    else:
-        raise RuntimeError("Not within workflow or activity context")
-
-    if additional_attributes:
-        meter = meter.with_additional_attributes(additional_attributes)
-
-    return meter
 
 
 def log_execution_time(
