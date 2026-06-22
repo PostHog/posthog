@@ -773,7 +773,7 @@ class HogQLQueryExecutor:
                             # fetchall() on them raises ProgrammingError. Treat them as a
                             # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
-                            results = cursor.fetchall() if cursor.description is not None else []
+                            results = cursor.fetchall() if description else []
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if self.debug:
