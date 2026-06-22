@@ -37,7 +37,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 
@@ -364,7 +364,7 @@ def _resolve_task_id(run: SignalScoutRun) -> str | None:
         return None
     # Team-scope the lookup: the bridge run is already team-owned, but scoping the TaskRun query keeps
     # the resolution fail-closed against cross-team ids.
-    task_id = TaskRun.objects.filter(id=run.task_run_id, team_id=run.team_id).values_list("task_id", flat=True).first()
+    task_id = tasks_facade.get_task_id_for_run(run.task_run_id, run.team_id)
     return str(task_id) if task_id else None
 
 

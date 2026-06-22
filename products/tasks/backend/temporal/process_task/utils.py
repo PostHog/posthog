@@ -677,7 +677,7 @@ def build_sandbox_environment_variables(
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
     """
-    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 
     env_vars: dict[str, str] = {}
 
