@@ -1491,9 +1491,11 @@ class TestOffsetChunkingRecoveryConflictTimeout:
 
         message = str(exc_info.value)
         assert "max_standby_streaming_delay" in message
-        # QueryTimeoutException is classified non-retryable by the source, unlike a raw QueryCanceled.
+        # Unlike a raw QueryCanceled, QueryTimeoutException is classified non-retryable. It's matched
+        # by class name in the Temporal-wrapped error string (see external_data_job.py), so the
+        # non-retryable signal here is the type name, not the message text.
         non_retryable = PostgresSource().get_non_retryable_errors()
-        assert any(pattern in "QueryTimeoutException" for pattern in non_retryable.keys())
+        assert type(exc_info.value).__name__ in non_retryable
 
 
 class TestSafeCloseConnection:
