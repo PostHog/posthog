@@ -32,8 +32,8 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
     GenerateSeriesTable,
     OpaqueFunctionCallTable,
@@ -47,7 +47,8 @@ from posthog.hogql.direct_connection import (
     validate_direct_postgres_source_config,
     validate_direct_snowflake_source_config,
 )
-from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
+from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -79,8 +80,15 @@ DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_SNOWFLAKE_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+# Hard backstop against loading an unbounded result set into memory. Snowflake has no
+# read-only transaction mode, so this guards a raw passthrough `SELECT * FROM huge_table`
+# with no LIMIT. HogQL-authored queries already carry a LIMIT from the printer.
+DIRECT_SNOWFLAKE_MAX_ROWS = 1_000_000
 RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
 RAW_SNOWFLAKE_READ_ONLY_ERROR = "Raw Snowflake queries must be read-only SELECT statements."
+DIRECT_SNOWFLAKE_ROW_CAP_ERROR = (
+    f"Snowflake query returned more than {DIRECT_SNOWFLAKE_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
@@ -442,6 +450,7 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
+    bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -450,13 +459,16 @@ class HogQLQueryExecutor:
     class _PreparedExecution:
         sql: str
         context: HogQLContext
-        engine: Literal["clickhouse", "direct_postgres", "direct_mysql"]
+        engine: Literal["clickhouse", "direct_sql"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
             self.context = HogQLContext(
-                team_id=self.team.pk, user=self.user, user_access_control=self.user_access_control
+                team_id=self.team.pk,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             )
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
@@ -515,6 +527,7 @@ class HogQLQueryExecutor:
                         user_access_control=self.context.user_access_control,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
+                        bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -578,6 +591,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
+                bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
             )
 
         # Reset between executions: the resolver appends per query, and dataclasses.replace below
@@ -675,7 +689,7 @@ class HogQLQueryExecutor:
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
-            if isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable, DirectSnowflakeTable))
+            if isinstance(table_type.table, DirectSQLTable)
         }
 
         direct_source_id: str | None = None
@@ -692,10 +706,7 @@ class HogQLQueryExecutor:
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct queries can only reference a single source.")
 
-        has_non_direct_tables = any(
-            not isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable, DirectSnowflakeTable))
-            for table_type in base_table_types
-        )
+        has_non_direct_tables = any(not isinstance(table_type.table, DirectSQLTable) for table_type in base_table_types)
         if has_non_direct_tables:
             if self.connection_id is None:
                 return None
@@ -717,16 +728,12 @@ class HogQLQueryExecutor:
         )
 
         dialect: Literal["postgres", "mysql", "snowflake"]
-        engine: Literal["direct_postgres", "direct_mysql", "direct_snowflake"]
         if has_direct_mysql_table or (source is not None and source.is_direct_mysql):
             dialect = "mysql"
-            engine = "direct_mysql"
         elif has_direct_snowflake_table or (source is not None and source.is_direct_snowflake):
             dialect = "snowflake"
-            engine = "direct_snowflake"
         else:
             dialect = "postgres"
-            engine = "direct_postgres"
 
         direct_context = dataclasses.replace(
             self.context,
@@ -745,11 +752,13 @@ class HogQLQueryExecutor:
             dialect=dialect,
         )
 
-        self.direct_sql = print_prepared_ast(
-            node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
-            context=direct_context,
-            dialect=dialect,
-            pretty=self.pretty if self.pretty is not None else True,
+        self.direct_sql = ensure_single_direct_statement(
+            print_prepared_ast(
+                node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
+                context=direct_context,
+                dialect=dialect,
+                pretty=self.pretty if self.pretty is not None else True,
+            )
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
@@ -759,7 +768,7 @@ class HogQLQueryExecutor:
         return self._PreparedExecution(
             sql=self.direct_sql,
             context=direct_context,
-            engine=engine,
+            engine="direct_sql",
         )
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
@@ -800,7 +809,7 @@ class HogQLQueryExecutor:
         span.set_attribute("source_id", self.direct_source_id)
 
         try:
-            with self.timings.measure("postgres_execute"):
+            with self.timings.measure("postgres_execute"), observe_direct_query("postgres"):
                 with postgres_source.with_ssh_tunnel(source_config) as (host, port):
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
@@ -882,7 +891,7 @@ class HogQLQueryExecutor:
         span.set_attribute("source_id", self.direct_source_id)
 
         try:
-            with self.timings.measure("mysql_execute"):
+            with self.timings.measure("mysql_execute"), observe_direct_query("mysql"):
                 with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
                     with connection.cursor() as cursor:
                         try:
@@ -912,6 +921,15 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogqlQueryExecutor._execute_direct_snowflake_query")
     def _execute_direct_snowflake_query(self) -> None:
+        """Execute a single read-only statement against the source's Snowflake account.
+
+        Write safety has two layers. The statement is parsed and rejected unless it is a
+        single SELECT (`ensure_read_only_raw_snowflake_statement`), and HogQL-authored
+        queries only ever emit SELECT. Snowflake has no read-only transaction mode (the
+        backstop the Postgres/MySQL paths use), so the configured connection role MUST be
+        granted SELECT-only on the queried objects — that least-privilege role is the
+        authoritative guard if the parser is ever bypassed.
+        """
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
@@ -931,12 +949,12 @@ class HogQLQueryExecutor:
         span.set_attribute("source_id", self.direct_source_id)
 
         try:
-            with self.timings.measure("snowflake_execute"):
+            with self.timings.measure("snowflake_execute"), observe_direct_query("snowflake"):
                 with snowflake_implementation.connect(source_config) as connection:
                     with connection.cursor() as cursor:
                         cursor.execute(f"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {statement_timeout_seconds}")
                         cursor.execute(self.direct_sql, self.direct_values or None)
-                        results = cursor.fetchall()
+                        results = self._fetch_capped_snowflake_rows(cursor)
                         description = cursor.description or []
         except (snowflake.connector.errors.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
@@ -948,13 +966,26 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError(snowflake_error_to_message(error)) from error
 
         span.set_attribute("row_count", len(results))
-        self.results = list(results)
+        self.results = results
         self.types = [
             (column[0], snowflake_field_type_to_clickhouse_type(column[1], column[5] if len(column) > 5 else None))
             for column in description
         ]
         if not self.print_columns:
             self.print_columns = [column[0] for column in description]
+
+    @staticmethod
+    def _fetch_capped_snowflake_rows(cursor: snowflake.connector.cursor.SnowflakeCursor) -> list:
+        """Fetch up to the row cap, raising if the result would exceed it.
+
+        Reads one row past the cap so the limit can be enforced without materializing the
+        entire result set first.
+        """
+        rows = cursor.fetchmany(DIRECT_SNOWFLAKE_MAX_ROWS + 1)
+        if len(rows) > DIRECT_SNOWFLAKE_MAX_ROWS:
+            DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="snowflake").inc()
+            raise ExposedHogQLError(DIRECT_SNOWFLAKE_ROW_CAP_ERROR)
+        return list(rows)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
@@ -1196,12 +1227,15 @@ class HogQLQueryExecutor:
             else:
                 prepared_execution = self._prepare_execution()
 
-                if prepared_execution.engine == "direct_postgres":
-                    self._execute_direct_postgres_query()
-                elif prepared_execution.engine == "direct_mysql":
-                    self._execute_direct_mysql_query()
-                elif prepared_execution.engine == "direct_snowflake":
-                    self._execute_direct_snowflake_query()
+                if prepared_execution.engine == "direct_sql":
+                    if self.direct_dialect == "mysql":
+                        self._execute_direct_mysql_query()
+                    elif self.direct_dialect == "postgres":
+                        self._execute_direct_postgres_query()
+                    elif self.direct_dialect == "snowflake":
+                        self._execute_direct_snowflake_query()
+                    else:
+                        raise InternalHogQLError(f"Unsupported direct SQL dialect: {self.direct_dialect}")
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional, cast
 from uuid import UUID
@@ -28,6 +29,21 @@ INVALID_CONNECTION_ID_ERROR = (
     "Invalid connectionId: not a direct external data source (access_method='direct') in this team. "
     "Warehouse import sources are not valid here."
 )
+
+# A Snowflake account identifier is either the org-account form (`orgname-account_name`)
+# or the legacy dotted form (`account.region.cloud`). Both are restricted to letters,
+# digits, hyphens, underscores, and dots. Rejecting anything else keeps a crafted value
+# from steering the connector at an arbitrary host (the connector interpolates the
+# account into the host it dials), closing the SSRF gap that host validation covers for
+# the Postgres and MySQL direct paths.
+_SNOWFLAKE_ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def validate_snowflake_account_id(account_id: str | None) -> str:
+    candidate = (account_id or "").strip()
+    if not candidate or not _SNOWFLAKE_ACCOUNT_ID_RE.fullmatch(candidate):
+        raise ExposedHogQLError("Invalid Snowflake account identifier.")
+    return candidate
 
 
 def get_direct_connection_source(
@@ -161,5 +177,10 @@ def validate_direct_snowflake_source_config(
 
     snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
     config = snowflake_source.parse_config(source.job_inputs or {})
+
+    # Snowflake has no host/SSH-tunnel config to validate (the Postgres/MySQL SSRF check),
+    # but the account identifier flows into the host the connector dials, so it gets the
+    # same scrutiny.
+    validate_snowflake_account_id(config.account_id)
 
     return snowflake_source.get_implementation, config
