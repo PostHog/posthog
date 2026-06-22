@@ -296,6 +296,7 @@ doesn't conflict with concurrent PRs.
 - chameleon
 - chargedesk
 - chargify
+- chatwoot
 - chift
 - chorus
 - churnkey

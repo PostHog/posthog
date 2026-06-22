@@ -40,6 +40,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 
 from products.signals.backend.models import (
@@ -49,8 +50,16 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
-from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
+from products.signals.backend.scout_harness.config_registry import (
+    enabled_scout_count,
+    ensure_scout_category,
+    register_missing_configs,
+)
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
@@ -393,7 +402,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def emit_signal(self, request: Request, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
-        from products.tasks.backend.models import TaskRun
+        from products.tasks.backend.facade import api as tasks_facade
 
         run = (
             SignalScoutRun.objects.select_related("scout_config", "task_run")
@@ -402,7 +411,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if run is None:
             raise exceptions.NotFound()
-        if run.task_run.status != TaskRun.Status.IN_PROGRESS:
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise exceptions.ValidationError(
                 {"status": f"Findings can only be emitted on in-progress runs (current: {run.task_run.status})."}
             )
@@ -530,16 +539,17 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
         run_id = data.get("run_id") or None
-        # Verify the run is on this project before accepting cross-team lineage:
-        # the agent's MCP token already pins us to a team, but `run_id` is a free
-        # field on the request body and a foreign-team UUID would otherwise create
-        # a cross-team `created_by_run_id` reference on this team's memory row.
+        # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
+        # never be lost over it. So an unverifiable `run_id` is dropped (lineage left null),
+        # not rejected. We still won't stamp a `run_id` that isn't a run on this project: the
+        # agent's MCP token pins us to a team, but `run_id` is a free field on the body and a
+        # foreign-team UUID would otherwise create a cross-team `created_by_run_id` reference.
         # Bad UUIDs are blocked by `UUIDField` in the serializer.
         if (
             run_id is not None
             and not SignalScoutRun.objects.filter(id=run_id, team_id=_canonical_team_id(self)).exists()
         ):
-            raise exceptions.ValidationError({"run_id": "run_id does not reference a run on this project"})
+            run_id = None
         try:
             entry = remember(
                 team_id=_canonical_team_id(self),
@@ -887,3 +897,42 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutConfigSerializer(many=True),
+                description="The team's full scout fleet after the sync, ordered by skill name.",
+            ),
+        },
+        summary="Sync scout configs",
+        description=(
+            "Materialize the scout fleet for this project on demand (idempotent): seed the "
+            "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
+            "lacking one, and return all scout configs. Normally the Temporal coordinator does "
+            "this on its next tick; this action exists so setup flows (e.g. the wizard's "
+            "self-driving program) can hand the user a tunable fleet immediately."
+        ),
+        operation_id="signals_scout_config_sync",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="sync",
+        # Custom actions need explicit scopes — see the `current` action's note on the
+        # "no scopes declared" rejection branch in `posthog/permissions.py`. Write scope:
+        # the sync materializes configs, and fresh configs are enabled (they drive spend).
+        required_scopes=["signal_scout:write"],
+        pagination_class=None,
+    )
+    def sync(self, request: Request, *args, **kwargs) -> Response:
+        # Scout rows persist under the canonical parent team (see `_canonical_team_id`);
+        # seed and register against that team so child-environment requests don't fork
+        # a second fleet.
+        team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
+        sync_canonical_skills(team)
+        register_missing_configs(team.id)
+        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team.id).order_by("skill_name")
+        skill_info = _skill_info_for(team.id, [c.skill_name for c in configs])
+        return Response(SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info}).data)

@@ -591,6 +591,11 @@ class ChartMogulSourceConfig(config.Config):
 
 
 @config.config
+class ChatwootSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CheckoutComSourceConfig(config.Config):
     client_id: str
     client_secret: str
@@ -3559,6 +3564,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARGEDESK: ChargedeskSourceConfig,
         ExternalDataSourceType.CHARGIFY: ChargifySourceConfig,
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
+        ExternalDataSourceType.CHATWOOT: ChatwootSourceConfig,
         ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
         ExternalDataSourceType.CHIFT: ChiftSourceConfig,
         ExternalDataSourceType.CHORUS: ChorusSourceConfig,
