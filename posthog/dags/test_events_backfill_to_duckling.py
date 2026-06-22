@@ -54,14 +54,58 @@ from posthog.dags.events_backfill_to_duckling import (
 
 
 class TestResolveDucklingTarget:
-    @patch("posthog.dags.events_backfill_to_duckling.derive_duckling_bucket", return_value=("bkt", "us-west-2"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_builds_target_from_org_and_derived_bucket(self, mock_org: MagicMock, mock_derive: MagicMock):
-        target = _resolve_duckling_target(7)
+    def test_builds_target_from_stored_server_bucket(
+        self, mock_org: MagicMock, _mock_catalog: MagicMock
+    ):
+        # The authoritative bucket lives on the org's DuckgresServer row.
+        server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
+        with patch(
+            "posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization",
+            return_value=server,
+        ):
+            target = _resolve_duckling_target(7)
 
-        assert target == DucklingTarget(team_id=7, organization_id="org-1", bucket="bkt", bucket_region="us-west-2")
+        assert target == DucklingTarget(
+            team_id=7,
+            organization_id="org-1",
+            bucket="posthog-duckling-org-1-mw-prod-us",
+            bucket_region="us-east-1",
+        )
         mock_org.assert_called_once_with(7)
-        mock_derive.assert_called_once_with("org-1")
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_resolves_bucket_from_control_plane_when_no_stored_row(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+    ):
+        # No stored bucket → fall through to the control plane's warehouse status.
+        from rest_framework.response import Response
+
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.status_for",
+            return_value=Response({"bucket": "posthog-duckling-org-1-mw-prod-us"}, status=200),
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_raises_when_control_plane_has_no_bucket(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+    ):
+        from rest_framework.response import Response
+
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.status_for",
+            return_value=Response({"state": "ready"}, status=200),
+        ):
+            with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+                _resolve_duckling_target(7)
 
 
 class TestParsePartitionKey:

@@ -212,33 +212,19 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     the row can be reconciled later from the warehouse status.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import derive_duckling_bucket, upsert_duckgres_server_for_org  # noqa: PLC0415
+    from posthog.ducklake.common import upsert_duckgres_server_for_org  # noqa: PLC0415
 
-    bucket: str | None
-    bucket_region: str | None
-
-    # Prefer the authoritative bucket name the control plane provisioned and
-    # returned in the provision response. The CP owns the naming rule (it writes
-    # the same name onto the Duckling CR's spec.dataStore.bucketName), so taking
-    # it verbatim is the only way to avoid re-deriving — the derivation has
-    # already drifted from the Crossplane composition's naming once (UUID
-    # hyphen-compaction + the mw- env suffix) and silently produced buckets that
-    # don't exist. derive_duckling_bucket stays only as a fallback for control
-    # planes that don't yet return `bucket` (older duckgres) or regions without a
-    # bucket convention (EU, where it raises NotImplementedError).
-    returned_bucket = body.get("bucket")
-    if returned_bucket:
-        # Take the region from the response too when present, so a future CP that
-        # provisions outside us-east-1 isn't silently mis-recorded; us-east-1 is
-        # the fallback for today's responses, which omit it.
-        bucket, bucket_region = returned_bucket, body.get("bucket_region") or "us-east-1"
-    else:
-        try:
-            bucket, bucket_region = derive_duckling_bucket(str(organization_id))
-        except NotImplementedError:
-            # upsert treats None as "leave unset"; the backfill resolver falls
-            # back to derivation if it ever needs one.
-            bucket, bucket_region = None, None
+    # The control plane is the single owner of the bucket name — it provisions
+    # the bucket, pins the name on the Duckling CR's spec.dataStore.bucketName,
+    # and returns it here. Persist it verbatim; never re-derive (the old local
+    # derivation drifted from the Crossplane composition and named buckets that
+    # don't exist). A response without a bucket (external data store, or a CP too
+    # old to return it) leaves the column unset — upsert treats None as "leave
+    # unset" — and status_for()'s self-heal fills it in on the next status read.
+    bucket: str | None = body.get("bucket")
+    # Region from the response too when present, so a future CP outside us-east-1
+    # isn't silently mis-recorded; None when there's no bucket to region.
+    bucket_region: str | None = (body.get("bucket_region") or "us-east-1") if bucket else None
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})

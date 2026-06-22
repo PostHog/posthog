@@ -69,8 +69,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import (
+    DUCKGRES_BUCKET_REGION,
     _get_org_id_for_team,
-    derive_duckling_bucket,
     get_duckgres_server_for_organization,
     get_ducklake_catalog_for_organization,
 )
@@ -196,8 +196,11 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     The organization id (team → org) drives both the connection (make_duckgres_conninfo
     resolves the duckgres server itself) and the S3 bucket. The bucket name is read from a
     stored source of truth — the org's DuckLakeCatalog (hand-entered, older orgs) or its
-    DuckgresServer (written at provision time, newer orgs) — and only falls back to the
-    deterministic derivation when neither carries one (e.g. dev mode).
+    DuckgresServer (written at provision time, newer orgs). When neither carries one, the
+    duckgres control plane is the authoritative source: ask it via the warehouse status
+    endpoint (which also self-heals the DuckgresServer row for next time). The bucket name
+    is never re-derived locally — that derivation drifted from the Crossplane composition
+    and produced buckets that don't exist.
     """
     org_id = _get_org_id_for_team(team_id)
 
@@ -211,17 +214,31 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         bucket, bucket_region = server.bucket, server.bucket_region
         return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
-    # No stored bucket anywhere (dev mode, or a pre-existing row from before the bucket was
-    # persisted): the derived name is an unverified guess at the provisioned bucket. Log it
-    # so the "bucket does not exist" failure mode is observable rather than silent.
-    bucket, bucket_region = derive_duckling_bucket(org_id)
-    logger.warning(
-        "duckling_bucket_derived_no_stored_source",
+    # No stored bucket on the catalog/server row. Resolve from the control plane — the
+    # single owner of the name — via the warehouse status endpoint. status_for() also
+    # self-heals the DuckgresServer row, so the next run is served locally. Fail loudly
+    # if even the CP can't name it, rather than exporting to a guessed bucket that may
+    # not exist. (There is no local-dev branch: this is a prod DAG for customer ducklings
+    # and there is no control plane to ask in local dev; a local run surfaces the error.)
+    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+
+    resp = managed_warehouse.status_for(org_id)
+    cp_bucket = resp.data.get("bucket") if (resp.status_code == 200 and isinstance(resp.data, dict)) else None
+    if not cp_bucket:
+        raise ValueError(
+            f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog and "
+            f"DuckgresServer, and the control plane warehouse status returned none "
+            f"(HTTP {resp.status_code})."
+        )
+    logger.info(
+        "duckling_bucket_resolved_from_control_plane",
         team_id=team_id,
         organization_id=org_id,
-        bucket=bucket,
+        bucket=cp_bucket,
     )
-    return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
+    return DucklingTarget(
+        team_id=team_id, organization_id=org_id, bucket=cp_bucket, bucket_region=DUCKGRES_BUCKET_REGION
+    )
 
 
 @retry(

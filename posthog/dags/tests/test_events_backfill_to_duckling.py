@@ -14,7 +14,10 @@ class _FakeRow:
 
 
 class TestResolveDucklingTarget:
-    def _resolve(self, catalog: "_FakeRow | None", server: "_FakeRow | None"):
+    def _resolve(self, catalog: "_FakeRow | None", server: "_FakeRow | None", cp_status: dict | None = None):
+        from rest_framework.response import Response
+
+        status_resp = Response(cp_status or {"state": "ready"}, status=200)
         with (
             patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1"),
             patch(
@@ -22,12 +25,12 @@ class TestResolveDucklingTarget:
             ),
             patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=server),
             patch(
-                "posthog.dags.events_backfill_to_duckling.derive_duckling_bucket",
-                return_value=("derived-bucket", "us-east-1"),
-            ) as mock_derive,
+                "products.data_warehouse.backend.api.managed_warehouse.status_for",
+                return_value=status_resp,
+            ) as mock_status,
         ):
             target = _resolve_duckling_target(team_id=123)
-        return target, mock_derive
+        return target, mock_status
 
     @parameterized.expand(
         [
@@ -57,12 +60,13 @@ class TestResolveDucklingTarget:
         expected_bucket: str,
         expected_region: str,
     ) -> None:
-        target, mock_derive = self._resolve(catalog, server)
+        target, mock_status = self._resolve(catalog, server)
 
         assert target.bucket == expected_bucket
         assert target.bucket_region == expected_region
         assert target.organization_id == "org-1"
-        mock_derive.assert_not_called()
+        # Stored bucket wins — the control plane is never consulted.
+        mock_status.assert_not_called()
 
     @parameterized.expand(
         [
@@ -71,11 +75,25 @@ class TestResolveDucklingTarget:
             ("both_blank", _FakeRow("", "us-east-1"), _FakeRow(None, "us-east-1")),
         ]
     )
-    def test_falls_back_to_derived_when_no_stored_bucket(
+    def test_resolves_from_control_plane_when_no_stored_bucket(
         self, _name: str, catalog: "_FakeRow | None", server: "_FakeRow | None"
     ) -> None:
-        target, mock_derive = self._resolve(catalog, server)
+        target, mock_status = self._resolve(catalog, server, cp_status={"bucket": "cp-bucket"})
 
-        mock_derive.assert_called_once_with("org-1")
-        assert target.bucket == "derived-bucket"
+        mock_status.assert_called_once_with("org-1")
+        assert target.bucket == "cp-bucket"
         assert target.bucket_region == "us-east-1"
+
+    @parameterized.expand(
+        [
+            ("no_rows", None, None),
+            ("server_with_null_bucket", None, _FakeRow(None, "us-east-1")),
+        ]
+    )
+    def test_raises_when_no_stored_bucket_and_control_plane_has_none(
+        self, _name: str, catalog: "_FakeRow | None", server: "_FakeRow | None"
+    ) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+            self._resolve(catalog, server, cp_status={"state": "ready"})
