@@ -32,7 +32,7 @@ class TestDirectSQLRegistry(SimpleTestCase):
             dialect = None
 
         try:
-            register_adapter(FakeAdapter())
+            register_adapter(FakeAdapter())  # type: ignore[arg-type]
             self.assertIs(type(get_adapter("fake")), FakeAdapter)
         finally:
             registry_module._ADAPTERS.pop("fake", None)

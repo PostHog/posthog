@@ -438,7 +438,7 @@ class HogQLQueryExecutor:
                 settings=self._effective_direct_settings(),
                 timings=self.timings,
                 query_type=self.query_type,
-                debug=self.debug,
+                debug=bool(self.debug),
             )
         )
 
