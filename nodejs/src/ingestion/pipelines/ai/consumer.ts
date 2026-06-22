@@ -1,3 +1,4 @@
+import { CommonConfig } from '~/common/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
@@ -53,7 +54,8 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
-    >
+    > &
+    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
 
 /** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
  * monitoring (app_metrics + log_entries), wired up server-side. */
@@ -206,6 +208,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowRedirectService: container.overflowRedirectService,
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            cdpHogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
         })
     )
 }

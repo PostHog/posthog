@@ -38,6 +38,7 @@ import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-pr
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
+import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import {
@@ -76,6 +77,7 @@ export interface AiIngestionPipelineConfig {
     overflowRedirectService: OverflowRedirectService
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
+    cdpHogWatcherSampleRate: number
 }
 
 interface AiIngestionPipelineInput {
@@ -120,6 +122,7 @@ export function createAiIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         concurrentBatches,
+        cdpHogWatcherSampleRate,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
@@ -197,6 +200,11 @@ export function createAiIngestionPipeline<
                                         .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                         // Read-only batch person fetch (no person writes).
                                         .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        // Prefetch hog functions for the batch's teams so the transformer
+                                        // honors Hog watcher's disabled-function state (mirrors analytics).
+                                        .pipeBatch(
+                                            createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate)
+                                        )
                                         .sequentially((b) =>
                                             b
                                                 .pipe(createNormalizeProcessPersonFlagStep())
