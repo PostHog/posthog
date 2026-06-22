@@ -241,10 +241,10 @@ class Consumer:
 
         start_monotonic = self._start_monotonic if self._start_monotonic is not None else time.monotonic()
         elapsed = time.monotonic() - start_monotonic
-        rows_per_second = self.total_records_count / elapsed if elapsed > 0 else 0.0
+        rows_per_second = records / elapsed if elapsed > 0 else 0.0
         self.logger.info(
             f"Exported ~{int(pct)}% to destination "
-            f"({self.total_records_count:,} of ~{self.records_total:,} records), ~{rows_per_second:,.0f} rows/s"
+            f"({records:,} of ~{self.records_total:,} records), ~{rows_per_second:,.0f} rows/s"
         )
         self._next_progress_pct = (int(pct // PROGRESS_LOG_STEP_PCT) + 1) * PROGRESS_LOG_STEP_PCT
 

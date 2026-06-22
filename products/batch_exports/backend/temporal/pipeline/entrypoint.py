@@ -43,6 +43,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
     on_demand: bool = False
+    records_total: int | None = None
 
 
 class _ComposedBatchExportInputsProtocol(typing.Protocol):
