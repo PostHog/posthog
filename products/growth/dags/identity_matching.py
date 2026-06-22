@@ -403,8 +403,16 @@ def _write_rows_to_s3(
         return
     with ThreadPoolExecutor(max_workers=_S3_WRITE_CONCURRENCY) as executor:
         futures = [executor.submit(_write_part, part, batch) for part, batch in enumerate(batches[1:], start=1)]
-        for future in as_completed(futures):
-            future.result()  # surface the first failure; a retry overwrites parts idempotently
+        try:
+            for future in as_completed(futures):
+                future.result()  # surface the first failure; a retry overwrites parts idempotently
+        except Exception:
+            # Cancel queued (not-yet-started) batches so the op fails fast instead of waiting for
+            # every remaining write — the `with` block's shutdown(wait=True) would otherwise let
+            # all submitted futures run before the exception surfaces.
+            for pending in futures:
+                pending.cancel()
+            raise
 
 
 def _prop(name: str) -> str:
