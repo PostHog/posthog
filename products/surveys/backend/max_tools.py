@@ -158,16 +158,26 @@ def _resolve_edited_questions(
 
     A supplied id resolves against both the 1-indexed positional label shown in read_data and the
     question's real UUID, so passing either form keeps the question's identity (and its historical
-    responses).
+    responses). Each resolved id is kept unique: if two inputs resolve to the same existing question,
+    only the first keeps that id and the rest get a fresh one on save.
     """
     by_label = {str(i + 1): eq for i, eq in enumerate(existing_questions)}
     by_uuid = {eq["id"]: eq for eq in existing_questions if eq.get("id")}
 
-    def resolve(simple_q: SimpleSurveyQuestion) -> dict[str, Any]:
+    resolved: list[dict[str, Any]] = []
+    used_ids: set[str] = set()
+    for simple_q in questions:
         existing = (by_uuid.get(simple_q.id) or by_label.get(simple_q.id)) if simple_q.id else None
-        return _resolve_edited_question(simple_q, existing)
-
-    return [resolve(simple_q) for simple_q in questions]
+        question = _resolve_edited_question(simple_q, existing)
+        question_id = question.get("id")
+        if question_id and question_id in used_ids:
+            # Another question already claimed this id (e.g. two inputs reference the same existing
+            # question). Drop it so this one gets a fresh, unique id on save instead of colliding.
+            question.pop("id", None)
+        elif question_id:
+            used_ids.add(question_id)
+        resolved.append(question)
+    return resolved
 
 
 def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:

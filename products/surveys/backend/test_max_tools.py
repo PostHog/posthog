@@ -1216,3 +1216,35 @@ class TestEditSurveyTool(BaseTest):
         assert updated_survey.questions[0]["type"] == "open"
         assert "scale" not in updated_survey.questions[0]
         assert "lowerBoundLabel" not in updated_survey.questions[0]
+
+    @parameterized.expand(
+        [
+            ("two_positional_labels", "1", "1"),
+            ("label_and_real_uuid", "1", "uuid-first"),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_keep_ids_unique(self, _name, first_ref, second_ref):
+        # Two inputs referencing the same existing question must not both claim its id.
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id=first_ref, type="open", question="Keeps the id?"),
+                SimpleSurveyQuestion(id=second_ref, type="open", question="Duplicate reference?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        ids = [q["id"] for q in updated_survey.questions]
+        assert ids[0] == "uuid-first"
+        assert ids[1] and ids[1] != "uuid-first"
+        assert len(set(ids)) == len(ids)
