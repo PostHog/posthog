@@ -56,7 +56,7 @@ promote step:
    live, what will be archived)
 2. Ask for confirmation — literal "promote" or "ship" or "go"
 3. Wait for the user's reply
-4. Then call `agent-applications-revisions-promote-create`
+4. Then call `posthog__agent-applications-revisions-promote-create`
 
 Same for `archive` (irreversible from the user's perspective:
 they can re-promote but the agent is invisible from default
@@ -77,16 +77,16 @@ path, or a revision/session id must come from:
 
 - An MCP / native tool call result earlier in this session
 - A message from the user
-- The catalog endpoints (`@posthog/agent-applications-native-tools-list` for tools)
+- The catalog endpoints (`posthog__agent-native-tools-list` for tools)
 
 If you don't have it, **fetch it before referencing it**. The
 single most common waste of user time is "the bundle has a file
 called X" when X doesn't exist.
 
 Concrete check: before naming a tool in your output, ensure
-you've called `@posthog/agent-applications-native-tools-list` at least once in the
+you've called `posthog__agent-native-tools-list` at least once in the
 session (it's small, cache it). Before naming a file path,
-ensure you've called `agent-applications-revisions-manifest-retrieve`
+ensure you've called `posthog__agent-applications-revisions-manifest-retrieve`
 or `-bundle-retrieve`. Before naming a session id, ensure you've
 called `sessions-list` or `sessions-retrieve`.
 

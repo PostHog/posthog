@@ -58,7 +58,7 @@ report and audit everything fresh.
 
 ### 2. Enumerate the fleet
 
-`agent-applications-list`. Drop archived agents. For each remaining
+`posthog__agent-applications-list`. Drop archived agents. For each remaining
 agent you have a slug + id + `live_revision`. That's your worklist.
 
 ### 3. Per-agent triage (breadth-first)
@@ -66,7 +66,7 @@ agent you have a slug + id + `live_revision`. That's your worklist.
 For **each** agent, cheapest signal first — only go deep when a
 cheap signal is bad:
 
-1. `agent-applications-sessions-list` for the agent, last ~24–48h.
+1. `posthog__agent-applications-sessions-list` for the agent, last ~24–48h.
    Bucket by `state`. The cheap red flags:
    - any `failed` sessions
    - `completed` sessions pinned at the turn / tool-call cap (ran to
@@ -77,7 +77,7 @@ cheap signal is bad:
 2. If the buckets are clean, write one line ("healthy, N sessions,
    no failures") and move on. **Most agents should be one line.**
 3. If a bucket is dirty, open the worst 1–3 sessions with
-   `agent-applications-sessions-retrieve` + `agent-applications-session-logs`
+   `posthog__agent-applications-sessions-retrieve` + `posthog__agent-applications-session-logs`
    and run the `debugging-sessions` taxonomy. You're after the
    **root cause**, not a restatement of the symptom — "hit
    max_tool_calls because it re-ran the same `@posthog/query` 40×

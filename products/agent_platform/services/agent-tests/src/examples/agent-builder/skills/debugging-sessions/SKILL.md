@@ -27,12 +27,12 @@ Then pick the matching branch below.
    `{ kind: 'session', session_id: <id> }`.
 
 2. **Retrieve the session**.
-   `@posthog/agent-applications-sessions-retrieve` returns the conversation,
+   `posthog__agent-applications-sessions-retrieve` returns the conversation,
    the principal, the state, started_at, ended_at, usage_total,
    trigger metadata.
 
 3. **Retrieve the logs**.
-   `@posthog/agent-applications-session-logs` returns the structured event
+   `posthog__agent-applications-session-logs` returns the structured event
    stream. The event kinds (`SessionEventKind`) are:
    `session_started | turn_started | user_message | assistant_text |
 tool_call | tool_result | client_tool_call | client_tool_result |
@@ -136,7 +136,7 @@ when `ok: false`, an `error` string. Classify the source:
   the MCP failed to open at session start (surfaced to the model in
   the system prompt as an unavailable capability). Check whether the
   MCP endpoint in `spec.mcps[]` is up (the runner doesn't health-
-  check it; you may need to `@posthog/agent-applications-sessions-list`
+  check it; you may need to `posthog__agent-applications-sessions-list`
   for other agents using the same MCP to confirm cross-impact).
 - **Custom tool error** — the sandboxed code threw or the sandbox
   killed it. Pull the tool source from the bundle to read what it
@@ -174,7 +174,7 @@ error events. The agent did something other than what was wanted.
 
 **Evidence:** read the system prompt
 (`revisions-system-prompt`) + the conversation
-(`@posthog/agent-applications-sessions-retrieve` → `conversation` field). Compare the
+(`posthog__agent-applications-sessions-retrieve` → `conversation` field). Compare the
 agent's tool-call choices to what the prompt asks for.
 
 Common subcategories:
@@ -246,7 +246,7 @@ in #agents-platform-help" if confirmed.
 ### G. Trigger / auth failure (session never opened)
 
 **Recognize:** the user says "the agent isn't responding" but
-`@posthog/agent-applications-sessions-list` shows no recent session for
+`posthog__agent-applications-sessions-list` shows no recent session for
 the trigger they expected.
 
 **Evidence:** the trigger / auth path failed before a session
