@@ -260,7 +260,7 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -6352,6 +6352,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },
