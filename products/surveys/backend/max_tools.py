@@ -52,14 +52,24 @@ class SimpleSurveyQuestion(BaseModel):
 
     id: str | None = Field(
         default=None,
-        description="Question number from the survey context (e.g. '1', '2', '3'). "
-        "Reuse to preserve question identity and historical response data. Omit for new questions.",
+        description="Existing question identifier. Accepts either the question number from the survey "
+        "context (e.g. '1', '2', '3') or the question's real UUID. Reuse to preserve question identity "
+        "and historical response data. Omit for new questions.",
     )
     type: SEMANTIC_QUESTION_TYPE
     question: str
     description: str | None = None
     optional: bool | None = None
     choices: list[str] | None = None
+    scale: int | None = Field(
+        default=None,
+        description="Rating scale (3, 5, 7, or 10). Only set to change an existing rating's scale; "
+        "omit to preserve it.",
+    )
+    display: Literal["number", "emoji"] | None = Field(
+        default=None,
+        description="Rating display format. Only set to change it; omit to preserve the existing one.",
+    )
     lower_bound_label: str | None = None
     upper_bound_label: str | None = None
     link: str | None = None
@@ -87,6 +97,11 @@ def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
         result["optional"] = q.optional
     if q.choices is not None:
         result["choices"] = q.choices
+    if result.get("type") == "rating":
+        if q.scale is not None:
+            result["scale"] = q.scale
+        if q.display is not None:
+            result["display"] = q.display
     if q.lower_bound_label is not None:
         result["lowerBoundLabel"] = q.lower_bound_label
     if q.upper_bound_label is not None:
@@ -96,6 +111,40 @@ def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     if q.button_text is not None:
         result["buttonText"] = q.button_text
     return result
+
+
+def _merge_question(existing: dict[str, Any], q: SimpleSurveyQuestion) -> dict[str, Any]:
+    """Overlay only the explicitly-provided fields onto an existing question.
+
+    Used on edit when the underlying type is unchanged. The semantic SimpleSurveyQuestion can't
+    represent everything a stored question holds (rating scale, display, branching), so rebuilding
+    from QUESTION_TYPE_MAP on a reorder or text tweak would silently discard that config. Merging
+    keeps the existing question's id and untouched fields intact.
+    """
+    if q.type in ("single_choice", "multiple_choice") and not (q.choices or existing.get("choices")):
+        raise serializers.ValidationError(f"Question of type '{q.type}' must include a non-empty 'choices' list")
+    merged = dict(existing)
+    merged["question"] = q.question
+    if q.description is not None:
+        merged["description"] = q.description
+    if q.optional is not None:
+        merged["optional"] = q.optional
+    if q.choices is not None:
+        merged["choices"] = q.choices
+    if merged.get("type") == "rating":
+        if q.scale is not None:
+            merged["scale"] = q.scale
+        if q.display is not None:
+            merged["display"] = q.display
+    if q.lower_bound_label is not None:
+        merged["lowerBoundLabel"] = q.lower_bound_label
+    if q.upper_bound_label is not None:
+        merged["upperBoundLabel"] = q.upper_bound_label
+    if q.link is not None:
+        merged["link"] = q.link
+    if q.button_text is not None:
+        merged["buttonText"] = q.button_text
+    return merged
 
 
 def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -333,8 +382,9 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
 
     # Question identity
     - When updating questions, use read_data(kind="survey") first to see the current questions
-    - Each question is shown with a number (1, 2, 3, ...) — pass that number as the question's `id` to preserve its identity and historical response data
+    - Each question is shown with a number (1, 2, 3, ...) — pass that number (or the question's real UUID) as the question's `id` to preserve its identity and historical response data
     - Omit `id` for entirely new questions; they will be assigned a fresh ID automatically
+    - For an existing question, only fields you set are changed; everything else (including a rating's scale, display, and labels) is preserved. To change a rating's scale, set `scale` explicitly.
 
     # Important
     - Only include fields you want to change
@@ -480,16 +530,29 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                new_questions = [_build_question(q) for q in questions]
                 existing_questions = survey.questions or []
 
-                # Build numeric label -> real UUID mapping (1-indexed, matching read_data output)
-                id_map = {str(i + 1): eq["id"] for i, eq in enumerate(existing_questions) if "id" in eq}
+                # Resolve a supplied id to an existing question by either the 1-indexed positional
+                # label shown in read_data ("1", "2", ...) or the question's real UUID. Accepting
+                # both means passing a real UUID preserves identity instead of minting a fresh one.
+                by_label = {str(i + 1): eq for i, eq in enumerate(existing_questions)}
+                by_uuid = {eq["id"]: eq for eq in existing_questions if eq.get("id")}
 
-                # Resolve numeric labels back to real UUIDs; unknown/missing id -> new question
-                for new_q, simple_q in zip(new_questions, questions):
-                    if simple_q.id and simple_q.id in id_map:
-                        new_q["id"] = id_map[simple_q.id]
+                new_questions = []
+                for simple_q in questions:
+                    existing = None
+                    if simple_q.id:
+                        existing = by_uuid.get(simple_q.id) or by_label.get(simple_q.id)
+
+                    if existing is not None and QUESTION_TYPE_MAP[simple_q.type]["type"] == existing.get("type"):
+                        # Same underlying type: overlay only changed fields so stored config the
+                        # semantic type can't express (rating scale/display/labels, branching) survives.
+                        new_questions.append(_merge_question(existing, simple_q))
+                    else:
+                        built = _build_question(simple_q)
+                        if existing is not None and existing.get("id"):
+                            built["id"] = existing["id"]  # preserve identity even when the type changes
+                        new_questions.append(built)
 
                 update_data["questions"] = _validate_and_sanitize_questions(new_questions)
             if linked_flag_id is not None:
