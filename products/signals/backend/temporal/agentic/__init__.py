@@ -14,6 +14,15 @@ SIGNALS_REPO_DISCOVERY_ENV_NAME = "SIGNALS_REPO_DISCOVERY"
 SIGNALS_REPORT_RESEARCH_ENV_NAME = "SIGNALS_REPORT_RESEARCH"
 
 
+class MissingGitHubIntegrationError(RuntimeError):
+    """Raised by :func:`resolve_user_id_for_team` when the team has no GitHub integration.
+
+    Callers must short-circuit on this (e.g. route the report to human input) rather than
+    let it propagate. Subclasses ``RuntimeError`` to preserve existing ``except RuntimeError``
+    handling and assertions.
+    """
+
+
 def get_or_create_signals_sandbox_env(
     team_id: int,
     name: str,
@@ -47,7 +56,9 @@ def resolve_user_id_for_team(team_id: int, github: GitHubIntegrationBase | None 
     if github is None:
         github = resolve_team_github_integration(team_id, team=team)
     if github is None:
-        raise RuntimeError(f"No GitHub integration for team {team_id}; caller must short-circuit before calling this")
+        raise MissingGitHubIntegrationError(
+            f"No GitHub integration for team {team_id}; caller must short-circuit before calling this"
+        )
     # Pick the user who created the integration
     if isinstance(github, UserGitHubIntegration):
         return github.integration.user_id

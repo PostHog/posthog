@@ -30,6 +30,7 @@ from products.signals.backend.report_generation.resolve_reviewers import resolve
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    MissingGitHubIntegrationError,
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
@@ -293,8 +294,33 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         repository = input.repo_selection.repository
 
         async with Heartbeater():
-            # 1. Get context for the sandbox
-            user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            # 1. Get context for the sandbox.
+            # The integration is resolved at repo-selection time but re-resolved here, up to
+            # 4h later (the activity timeout). If it was disconnected in between — or the repo
+            # came from the reuse fast-path that didn't re-check it — there is no integration
+            # to act on. Route to human input instead of crashing, mirroring summary.py's
+            # `repository is None` branch.
+            try:
+                user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
+            except MissingGitHubIntegrationError:
+                logger.warning(
+                    "signals agentic report: GitHub integration missing at research time, requires human input",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                    repository=repository,
+                )
+                return RunAgenticReportOutput(
+                    title="Repository selection required",
+                    summary="The GitHub integration was disconnected before automated research could run.",
+                    choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                    priority=None,
+                    explanation=(
+                        "The GitHub integration for this team is no longer connected. "
+                        "Reconnect it to resume automated report generation."
+                    ),
+                    already_addressed=False,
+                    repository=repository,
+                )
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )

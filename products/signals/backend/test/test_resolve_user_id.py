@@ -5,7 +5,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.temporal.agentic import resolve_user_id_for_team
+from products.signals.backend.temporal.agentic import MissingGitHubIntegrationError, resolve_user_id_for_team
 
 
 @pytest.fixture
@@ -129,5 +129,5 @@ def test_raises_when_team_has_no_github_source_at_all(organization, team):
     # credentials would just paper over the bug; the caller has to short-circuit instead.
     _create_user("first@example.com", organization)
 
-    with pytest.raises(RuntimeError, match="No GitHub integration"):
+    with pytest.raises(MissingGitHubIntegrationError, match="No GitHub integration"):
         resolve_user_id_for_team(team.id)

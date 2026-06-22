@@ -119,6 +119,30 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 input.report_id
             )
             if previous is not None and previous.repository is not None:
+                # Re-validate the integration still exists before reusing the cached repo. It may
+                # have been disconnected since the previous run; returning a stale repo here would
+                # let the downstream agentic activity crash when it re-resolves the integration.
+                github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(
+                    input.team_id
+                )
+                if github is None:
+                    logger.info(
+                        "signals repo selection: previous repo found but GitHub integration is gone, treating as no repo",
+                        report_id=input.report_id,
+                        team_id=input.team_id,
+                        repository=previous.repository,
+                    )
+                    _capture_repo_research_event(
+                        "signals_repo_research_completed",
+                        team,
+                        team.organization,
+                        input.report_id,
+                        result="no_repo",
+                    )
+                    return RepoSelectionResult(
+                        repository=None,
+                        reason="GitHub integration was disconnected since the previous repository selection.",
+                    )
                 logger.info(
                     "signals repo selection reused from previous run",
                     report_id=input.report_id,
