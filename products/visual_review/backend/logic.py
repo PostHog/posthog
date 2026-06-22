@@ -1582,7 +1582,13 @@ def _post_commit_status(
     from .github import github_request
 
     context = f"PostHog Visual Review / {run.run_type}"
-    if run.is_partial:
+    # Tracking-only (observe) and partial runs must never satisfy the gating context that
+    # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
+    # observe run posted to the gating context could green a PR head SHA's required check
+    # without review. Route them to a distinct, non-gating context instead.
+    if run.purpose == RunPurpose.OBSERVE:
+        context = f"{context} (tracking)"
+    elif run.is_partial:
         context = f"{context} (partial)"
         description = f"{description} (partial run)"
 

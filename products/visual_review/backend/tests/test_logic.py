@@ -1189,7 +1189,11 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert statuses[-1]["description"] == "Tracking only: 1 changed, 1 new recorded"
-        assert statuses[-1]["context"] == "PostHog Visual Review / storybook"
+        # Observe runs post to a separate, non-gating context. purpose is client-supplied,
+        # so greening the gating context would let an observe run bypass branch protection
+        # on a PR head SHA — the gating context must never be touched by an observe run.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
+        assert all(s["context"] != "PostHog Visual Review / storybook" for s in statuses)
         assert len(mock_github_api.issue_comments) == 0
 
     def test_observe_run_without_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
@@ -1214,6 +1218,7 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert statuses[-1]["description"] == "Tracking only: no visual changes"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
