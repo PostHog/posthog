@@ -127,6 +127,30 @@ class TestSignalsBilling(BaseTest):
         )
         self.assertEqual(self._credits(), {})
 
+    def test_report_team_mismatch_not_billed(self) -> None:
+        # A bridge/task/run all agree but the report belongs to another team — fail closed.
+        # Isolates the report__team_id check (the other mismatch tests also break the task check).
+        Task, TaskRun = _task_model(), _task_run_model()
+        other = Team.objects.create(organization=self.organization, name="other")
+        report = self._report(team=other)
+        task = Task.objects.create(
+            team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        )
+        TaskRun.objects.create(
+            team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
+        )
+        self.assertEqual(self._credits(), {})
+
+    @parameterized.expand([("at_period_start", PERIOD_START, True), ("at_period_end", PERIOD_END, False)])
+    def test_period_window_is_half_open(self, _name: str, created_at: datetime, billed: bool) -> None:
+        # begin is inclusive, end is exclusive — a PR exactly at end belongs to the next period.
+        report = self._report()
+        self._pr_run(report, created_at=created_at)
+        self.assertEqual(self._credits(), {self.team.id: 1500} if billed else {})
+
     def test_pr_before_period_not_billed(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=datetime(2026, 5, 28, tzinfo=UTC))
@@ -143,6 +167,17 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=datetime(2026, 5, 28, tzinfo=UTC))
         self._pr_run(report, created_at=_at(20))
         self.assertEqual(self._credits(), {})
+
+    def test_billed_once_across_consecutive_periods(self) -> None:
+        # The production loop runs period after period. A report's first PR is billed in its period;
+        # a later PR in the next period must charge zero. Asserts both halves, not just the second.
+        july_start = PERIOD_END
+        august_start = datetime(2026, 8, 1, tzinfo=UTC)
+        report = self._report()
+        self._pr_run(report, created_at=_at(10))
+        self._pr_run(report, created_at=datetime(2026, 7, 15, tzinfo=UTC))
+        self.assertEqual(dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)), {self.team.id: 1500})
+        self.assertEqual(get_signals_billing_credits_by_team(july_start, august_start), [])
 
     def test_multiple_prs_in_period_billed_once(self) -> None:
         report = self._report()
