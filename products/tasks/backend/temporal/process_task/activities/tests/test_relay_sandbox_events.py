@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
     TaskRunRedisStream,
+    _is_active_agent_update,
     _is_end_of_turn,
     _is_keepalive_event,
     _is_session_update,
@@ -112,6 +113,34 @@ class TestIsSessionUpdate:
     )
     def test_is_session_update(self, _name: str, event_data: dict, expected: bool):
         assert _is_session_update(event_data) == expected
+
+
+class TestIsActiveAgentUpdate:
+    @staticmethod
+    def _su(sub_type: str) -> dict:
+        return {
+            "type": "notification",
+            "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": sub_type}}},
+        }
+
+    @parameterized.expand(
+        [
+            # Generation updates -> active; lifecycle updates -> not active.
+            ("agent_message_chunk", "agent_message_chunk", True),
+            ("agent_thought_chunk", "agent_thought_chunk", True),
+            ("tool_call", "tool_call", True),
+            ("plan", "plan", True),
+            ("available_commands_update", "available_commands_update", False),
+            ("current_mode_update", "current_mode_update", False),
+        ],
+    )
+    def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
+        assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    def test_non_session_update_is_not_active(self) -> None:
+        assert (
+            _is_active_agent_update({"type": "notification", "notification": {"method": "_posthog/console"}}) is False
+        )
 
 
 class TestIsKeepaliveEvent:

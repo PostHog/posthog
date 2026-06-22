@@ -259,7 +259,10 @@ async def _relay_loop(
     # The background heartbeat reads this to decide whether the agent is active.
     last_event_time: list[float] = [0.0]  # list used as mutable container
     last_workflow_signal: list[float] = [0.0]  # shared with background heartbeat
-    agent_active: list[bool] = [True]  # agent is working; False after end_turn
+    # Whether the agent is mid-turn. Starts False (idle until a generating
+    # session_update) and resets to False on reconnect so a dropped end_of_turn
+    # can't leave it stuck True and emit phantom heartbeats.
+    agent_active: list[bool] = [False]
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
 
     stop_heartbeat = asyncio.Event()
@@ -326,7 +329,7 @@ async def _relay_loop(
                                     # does sync Redis (cache.add) and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
-                            elif not agent_active[0] and _is_session_update(event_data):
+                            elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
 
                             now = time.monotonic()
@@ -354,6 +357,8 @@ async def _relay_loop(
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
+                # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
+                agent_active[0] = False
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -374,6 +379,7 @@ async def _relay_loop(
                     return
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -385,6 +391,7 @@ async def _relay_loop(
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -407,11 +414,24 @@ async def _relay_loop(
 
 
 def _is_session_update(event_data: dict) -> bool:
-    """Check if an event is a session/update notification (active agent processing)."""
+    """Check if an event is a session/update notification."""
     if event_data.get("type") != "notification":
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
+
+
+# Lifecycle session/update sub-types that fire while a session is idle (not
+# generating). They must not mark the agent active, or idle runs heartbeat forever.
+_LIFECYCLE_SESSION_UPDATE_SUBTYPES = frozenset({"available_commands_update", "current_mode_update"})
+
+
+def _is_active_agent_update(event_data: dict) -> bool:
+    """True only for session/update events where the agent is actively generating."""
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return update.get("sessionUpdate") not in _LIFECYCLE_SESSION_UPDATE_SUBTYPES
 
 
 def _is_keepalive_event(event_data: dict) -> bool:
