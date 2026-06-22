@@ -1136,6 +1136,7 @@ class TestEditSurveyTool(BaseTest):
         )
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
         assert [q["id"] for q in updated_survey.questions] == [
             "026fdedd-f37c-4bf6-880b-c3aaa76778e8",
             "84fb53eb-933c-498f-b567-1644fe75e549",
@@ -1172,6 +1173,7 @@ class TestEditSurveyTool(BaseTest):
         )
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
         exp = next(q for q in updated_survey.questions if q["id"] == "exp-uuid")
         assert exp["type"] == "rating"
         assert exp["scale"] == 10
@@ -1193,6 +1195,7 @@ class TestEditSurveyTool(BaseTest):
         )
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
         assert updated_survey.questions[0]["id"] == "r1"
         assert updated_survey.questions[0]["scale"] == 10
 
@@ -1212,6 +1215,7 @@ class TestEditSurveyTool(BaseTest):
         )
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
         assert updated_survey.questions[0]["id"] == "q-keep"
         assert updated_survey.questions[0]["type"] == "open"
         assert "scale" not in updated_survey.questions[0]
@@ -1244,6 +1248,7 @@ class TestEditSurveyTool(BaseTest):
         )
 
         updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
         ids = [q["id"] for q in updated_survey.questions]
         assert ids[0] == "uuid-first"
         assert ids[1] and ids[1] != "uuid-first"
