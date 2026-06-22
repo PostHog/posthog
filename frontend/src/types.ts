@@ -4260,6 +4260,24 @@ export interface OrganizationFeatureFlag {
     evaluations_7d?: number | null
 }
 
+export interface OrganizationFeatureFlagRow {
+    id: number
+    team_id: number
+    key: string
+    name: string
+    active: boolean
+    filters: FeatureFlagFilters
+    created_at: string
+    created_by: UserBasicType | null
+}
+
+export interface OrganizationFeatureFlagKeysResponse {
+    count: number
+    next: string | null
+    previous: string | null
+    results: OrganizationFeatureFlagRow[]
+}
+
 export interface OrganizationFeatureFlagsCopyBody {
     feature_flag_key: FeatureFlagType['key']
     from_project: TeamType['id']

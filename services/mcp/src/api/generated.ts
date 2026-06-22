@@ -28944,6 +28944,42 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    export interface OrganizationFeatureFlagRow {
+      /** ID of the representative feature flag for this key */
+      id: number;
+      /** Team ID the representative feature flag belongs to */
+      team_id: number;
+      /** Feature flag key, unique within the compared projects */
+      key: string;
+      /** Human-readable name of the representative feature flag */
+      name: string;
+      /** Whether the representative feature flag is enabled */
+      active: boolean;
+      /** Release condition filters of the representative feature flag */
+      filters: unknown;
+      /** Creation timestamp of the representative feature flag */
+      created_at: string;
+      /** User who created the representative feature flag */
+      created_by: UserBasic | null;
+    }
+
+    export interface OrganizationFeatureFlagKeysResponse {
+      /** Total number of distinct flag keys across the compared projects */
+      count: number;
+      /**
+         * URL for the next page of results, or null if none
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page of results, or null if none
+         * @nullable
+         */
+      previous: string | null;
+      /** One representative flag per distinct key across the compared projects */
+      results: OrganizationFeatureFlagRow[];
+    }
+
     /**
      * * `vercel` - Vercel
      */
@@ -55515,6 +55551,25 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Filter by key or name
+     */
+    search?: string;
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[];
     };
 
     export type OrgOrganizationsIntegrationsListParams = {

@@ -173,6 +173,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -478,6 +479,10 @@ export class ApiRequest {
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
             .addPathComponent('copy_flags')
+    }
+
+    public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations().addPathComponent(orgId).addPathComponent('feature_flags').addPathComponent('keys')
     }
 
     // # Projects
@@ -2619,6 +2624,15 @@ const api = {
             data: OrganizationFeatureFlagsCopyBody
         ): Promise<{ success: FeatureFlagType[]; failed: any }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
+        },
+        async keys(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            params: { team_ids: number[]; search?: string; limit?: number; offset?: number }
+        ): Promise<OrganizationFeatureFlagKeysResponse> {
+            return await new ApiRequest()
+                .organizationFeatureFlagKeys(orgId)
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 

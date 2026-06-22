@@ -50,23 +50,6 @@ export interface CopyFlagsResponseApi {
     failed: CopyFlagsResultApi[]
 }
 
-export interface EvaluationContextSuggestionRequestApi {
-    /**
-     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
-     * @maxLength 255
-     */
-    context_name: string
-}
-
-export interface EvaluationContextSuggestionResponseApi {
-    /** Whether the suggestion visibility change was applied. */
-    success: boolean
-    /** Normalized name of the affected evaluation context. */
-    name: string
-    /** Whether the context is now hidden from the flag editor's suggestion list. */
-    hidden_from_suggestions: boolean
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -120,6 +103,59 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface OrganizationFeatureFlagRowApi {
+    /** ID of the representative feature flag for this key */
+    id: number
+    /** Team ID the representative feature flag belongs to */
+    team_id: number
+    /** Feature flag key, unique within the compared projects */
+    key: string
+    /** Human-readable name of the representative feature flag */
+    name: string
+    /** Whether the representative feature flag is enabled */
+    active: boolean
+    /** Release condition filters of the representative feature flag */
+    filters: unknown
+    /** Creation timestamp of the representative feature flag */
+    created_at: string
+    /** User who created the representative feature flag */
+    created_by: UserBasicApi | null
+}
+
+export interface OrganizationFeatureFlagKeysResponseApi {
+    /** Total number of distinct flag keys across the compared projects */
+    count: number
+    /**
+     * URL for the next page of results, or null if none
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, or null if none
+     * @nullable
+     */
+    previous: string | null
+    /** One representative flag per distinct key across the compared projects */
+    results: OrganizationFeatureFlagRowApi[]
+}
+
+export interface EvaluationContextSuggestionRequestApi {
+    /**
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @maxLength 255
+     */
+    context_name: string
+}
+
+export interface EvaluationContextSuggestionResponseApi {
+    /** Whether the suggestion visibility change was applied. */
+    success: boolean
+    /** Normalized name of the affected evaluation context. */
+    name: string
+    /** Whether the context is now hidden from the flag editor's suggestion list. */
+    hidden_from_suggestions: boolean
 }
 
 export interface FeatureFlagExperimentSetMetadataApi {
@@ -1386,6 +1422,25 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+}
+
+export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * Filter by key or name
+     */
+    search?: string
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[]
 }
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {

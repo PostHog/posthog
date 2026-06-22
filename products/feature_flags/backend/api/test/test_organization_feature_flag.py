@@ -133,6 +133,102 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data[0]["team_id"], self.team_1.id)
 
 
+class TestOrganizationFeatureFlagKeys(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        # Shared key exists in both projects; each project also has a unique key.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="only-in-1")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="only-in-2")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="deleted", deleted=True)
+
+        super().setUp()
+
+    def _keys_url(self, **params: Any) -> str:
+        url = f"/api/organizations/{self.organization.id}/feature_flags/keys/"
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return f"{url}?{query}" if query else url
+
+    def test_keys_returns_union_across_compared_projects(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(sorted(row["key"] for row in data["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_excludes_deleted_flags(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("deleted", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-2"])
+
+    def test_keys_representative_prefers_earlier_team_in_order(self):
+        # team_2 listed first -> the shared row should be represented by team_2's flag.
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id) + f"&team_ids={self.team_1.id}")
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_2.id)
+
+    def test_keys_search_filters_by_key(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only")
+
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["only-in-1", "only-in-2"])
+
+    def test_keys_paginates_distinct_keys(self):
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=0"
+        )
+        self.assertEqual(first.json()["count"], 3)
+        self.assertEqual(len(first.json()["results"]), 2)
+        self.assertIsNotNone(first.json()["next"])
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=2"
+        )
+        self.assertEqual(len(second.json()["results"]), 1)
+        self.assertIsNone(second.json()["next"])
+
+    def test_keys_accepts_comma_separated_team_ids(self):
+        response = self.client.get(self._keys_url(team_ids=f"{self.team_1.id},{self.team_2.id}"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(row["key"] for row in response.json()["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_defaults_to_all_accessible_teams_when_unspecified(self):
+        response = self.client.get(self._keys_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
+
+    def test_keys_ignores_teams_outside_the_organization(self):
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        response = self.client.get(self._keys_url(team_ids=other_team.id))
+
+        # The team is not in this org, so it falls back to all accessible teams in the org.
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("other-org-flag", keys)
+
+    def test_keys_unauthorized(self):
+        self.client.logout()
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_keys_invalid_param_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=abc")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def setUp(self):
         self.team_1 = self.team

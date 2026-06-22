@@ -1,11 +1,14 @@
 import copy
 from typing import cast
 
+from django.db.models import Q
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -63,6 +66,26 @@ class CopyFlagsResponseSerializer(serializers.Serializer):
     failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
 
 
+class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the representative feature flag for this key")
+    team_id = serializers.IntegerField(help_text="Team ID the representative feature flag belongs to")
+    key = serializers.CharField(help_text="Feature flag key, unique within the compared projects")
+    name = serializers.CharField(allow_blank=True, help_text="Human-readable name of the representative feature flag")
+    active = serializers.BooleanField(help_text="Whether the representative feature flag is enabled")
+    filters = serializers.JSONField(help_text="Release condition filters of the representative feature flag")
+    created_at = serializers.DateTimeField(help_text="Creation timestamp of the representative feature flag")
+    created_by = UserBasicSerializer(allow_null=True, help_text="User who created the representative feature flag")
+
+
+class OrganizationFeatureFlagKeysResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total number of distinct flag keys across the compared projects")
+    next = serializers.CharField(allow_null=True, help_text="URL for the next page of results, or null if none")
+    previous = serializers.CharField(allow_null=True, help_text="URL for the previous page of results, or null if none")
+    results = OrganizationFeatureFlagRowSerializer(
+        many=True, help_text="One representative flag per distinct key across the compared projects"
+    )
+
+
 logger = structlog.get_logger(__name__)
 
 
@@ -117,6 +140,94 @@ class OrganizationFeatureFlagView(
         ]
 
         return Response(flags_data)
+
+    @extend_schema(
+        operation_id="org_feature_flags_keys",
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Filter by key or name"),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Page size (max 100)"),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Pagination offset"),
+            OpenApiParameter(
+                "team_ids",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                many=True,
+                description="Teams to compare, in priority order. Defaults to all accessible teams in the org.",
+            ),
+        ],
+        responses={200: OrganizationFeatureFlagKeysResponseSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="keys")
+    def keys(self, request, *args, **kwargs):
+        """Paginated, de-duplicated list of feature flag keys across the org's compared projects.
+
+        Unlike the project-scoped flag list, this enumerates the union of flag keys across every
+        compared project, so flags that exist only in another project still appear as rows.
+        """
+        # Restrict to teams in this org that the user can access.
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+        org_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        allowed_team_ids = org_team_ids & accessible_team_ids
+
+        # Accept team_ids as repeated params (?team_ids=1&team_ids=2) or comma-separated (?team_ids=1,2).
+        try:
+            requested_team_ids = [
+                int(part) for value in request.query_params.getlist("team_ids") for part in value.split(",") if part
+            ]
+            limit = min(int(request.query_params.get("limit") or 25), 100)
+            offset = max(int(request.query_params.get("offset") or 0), 0)
+        except ValueError:
+            return Response({"error": "Invalid query parameter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Preserve the caller's team ordering (used to pick the representative flag per key).
+        ordered_team_ids = [t for t in requested_team_ids if t in allowed_team_ids] or sorted(allowed_team_ids)
+        if not ordered_team_ids:
+            return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+        search = (request.query_params.get("search") or "").strip()
+        flags_qs = FeatureFlag.objects.filter(team_id__in=ordered_team_ids, deleted=False)
+        if search:
+            flags_qs = flags_qs.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        distinct_keys_qs = flags_qs.order_by("key").values_list("key", flat=True).distinct()
+        count = distinct_keys_qs.count()
+        page_keys = list(distinct_keys_qs[offset : offset + limit])
+
+        # Choose one representative flag per key, preferring earlier teams in the requested order.
+        team_rank = {team_id: rank for rank, team_id in enumerate(ordered_team_ids)}
+        representative_by_key: dict[str, FeatureFlag] = {}
+        for flag in FeatureFlag.objects.filter(
+            key__in=page_keys, team_id__in=ordered_team_ids, deleted=False
+        ).select_related("created_by"):
+            current = representative_by_key.get(flag.key)
+            if current is None or team_rank[flag.team_id] < team_rank[current.team_id]:
+                representative_by_key[flag.key] = flag
+
+        results = [
+            {
+                "id": flag.id,
+                "team_id": flag.team_id,
+                "key": flag.key,
+                "name": flag.name,
+                "active": flag.active,
+                "filters": flag.get_filters(),
+                "created_at": flag.created_at,
+                "created_by": UserBasicSerializer(flag.created_by).data if flag.created_by else None,
+            }
+            for flag in (representative_by_key[key] for key in page_keys)
+        ]
+
+        next_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", offset + limit)
+            if offset + limit < count
+            else None
+        )
+        previous_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", max(offset - limit, 0)) if offset > 0 else None
+        )
+
+        return Response({"count": count, "next": next_url, "previous": previous_url, "results": results})
 
     @extend_schema(
         request=CopyFlagsRequestSerializer,
