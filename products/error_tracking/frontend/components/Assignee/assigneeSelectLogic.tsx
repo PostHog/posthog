@@ -38,7 +38,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
             rolesLogic,
             ['roles', 'rolesLoading'],
         ],
-        actions: [membersLogic, ['setSearch as setMembersSearch', 'ensureAllMembersLoaded']],
+        actions: [membersLogic, ['setSearch as setMembersSearch', 'ensureAllMembersLoaded'], rolesLogic, ['loadRoles']],
     })),
 
     actions({
@@ -56,6 +56,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         },
         ensureAssigneeTypesLoaded: () => {
             actions.ensureAllMembersLoaded()
+            actions.loadRoles()
         },
     })),
 

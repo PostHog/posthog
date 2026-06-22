@@ -1,5 +1,5 @@
 import { BindLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useDeferredValue, useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -19,7 +19,6 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
-import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -34,12 +33,14 @@ import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/iss
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
+const EMPTY_SPIKE_EVENTS: never[] = []
+
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
     const sparklineKey = record.id ?? 'issue-unknown'
     const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)
-    const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
+    const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? EMPTY_SPIKE_EVENTS) : EMPTY_SPIKE_EVENTS
     const data = useMemo(() => applyVolumeSpikeHighlights(baseData, spikeEvents), [baseData, spikeEvents])
 
     const { hoveredDatum, isBarHighlighted } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
@@ -131,46 +132,53 @@ const defaultColumns: Record<string, QueryContextColumn> = {
 }
 
 export const useIssueQueryContext = (): QueryContext => {
-    return {
-        columns: defaultColumns,
-        showOpenEditorButton: false,
-        insightProps: insightProps,
-        emptyStateHeading: 'No issues found',
-        emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
-    }
+    return useMemo(
+        () => ({
+            columns: defaultColumns,
+            showOpenEditorButton: false,
+            insightProps: insightProps,
+            emptyStateHeading: 'No issues found',
+            emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
+        }),
+        []
+    )
 }
 
-const insightProps: InsightLogicProps = {
+export const insightProps: InsightLogicProps = {
     dashboardItemId: 'new-ErrorTrackingQuery',
 }
 
 export function IssuesList(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
+    const deferredQuery = useDeferredValue(query)
     const context = useIssueQueryContext()
+    const dataNodeProps = useMemo(
+        () => ({ key: insightVizDataNodeKey(insightProps), query: deferredQuery.source }),
+        [deferredQuery.source]
+    )
 
     return (
-        <BindLogic
-            logic={issuesDataNodeLogic}
-            props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
-        >
-            <SceneStickyBar showBorderBottom={false}>
-                <ListOptions />
-            </SceneStickyBar>
+        <BindLogic logic={issuesDataNodeLogic} props={dataNodeProps}>
+            <ListOptions />
 
             <div data-attr="error-tracking-issue-row">
-                <Query query={query} context={context} />
+                <Query query={deferredQuery} context={context} />
             </div>
         </BindLogic>
     )
 }
 
-export const ListOptions = (): JSX.Element => {
+export const ListOptions = (): JSX.Element | null => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
 
     if (selectedIssueIds.length > 0) {
-        return <IssueActions issues={results} selectedIds={selectedIssueIds} />
+        return (
+            <SceneStickyBar showBorderBottom={false}>
+                <IssueActions issues={results} selectedIds={selectedIssueIds} />
+            </SceneStickyBar>
+        )
     }
 
-    return <IssueQueryOptions />
+    return null
 }

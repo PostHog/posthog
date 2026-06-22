@@ -79,7 +79,7 @@ export function ErrorTrackingScene(): JSX.Element {
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
                     {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
-                    <div className="border rounded bg-surface-primary p-2">
+                    <div className="pb-3">
                         <IssuesFilters />
                     </div>
                     <IssuesList />

@@ -14,6 +14,7 @@ export type ErrorTrackingQueryOrderBy = ErrorTrackingQuery['orderBy']
 export type ErrorTrackingQueryOrderDirection = ErrorTrackingQuery['orderDirection']
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
+export type ErrorTrackingStatusFilter = Exclude<ErrorTrackingQuery['status'], 'all'> | null
 
 export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     last_seen: 'Last seen',
@@ -25,7 +26,13 @@ export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
 const DEFAULT_ORDER_BY: ErrorTrackingQueryOrderBy = 'last_seen'
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
-const DEFAULT_STATUS = 'active'
+const DEFAULT_STATUS: ErrorTrackingStatusFilter = null
+
+export function normalizeStatusFilter(
+    status: ErrorTrackingQuery['status'] | null | undefined
+): ErrorTrackingStatusFilter {
+    return status === 'all' ? null : ((status ?? null) as ErrorTrackingStatusFilter)
+}
 
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
@@ -40,7 +47,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
-        setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
+        setStatus: (status: ErrorTrackingStatusFilter) => ({ status: normalizeStatusFilter(status) }),
     }),
 
     reducers({
@@ -66,7 +73,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             },
         ],
         status: [
-            DEFAULT_STATUS as ErrorTrackingQueryStatus,
+            DEFAULT_STATUS,
             { persist: true },
             {
                 setStatus: (_, { status }) => status,
@@ -122,8 +129,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                     actions.setOrderBy(params.orderBy)
                 }
             }
-            if (params.status && !equal(params.status, values.status)) {
-                actions.setStatus(params.status)
+            const status = normalizeStatusFilter(params.status)
+            if (!equal(status, values.status)) {
+                actions.setStatus(status)
             }
             if (params.assignee && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
