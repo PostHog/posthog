@@ -16,7 +16,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
-from posthog.queries.util import get_earliest_timestamp
+from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered
 from posthog.models import Team, Organization
 from products.cohorts.backend.models.cohort import Cohort
 from products.actions.backend.models.action import Action
@@ -512,7 +512,7 @@ class QuerySuite:
 
     @benchmark_clickhouse
     def track_earliest_timestamp(self):
-        get_earliest_timestamp(2)
+        get_earliest_timestamp_unfiltered(self.team)
 
     @benchmark_clickhouse
     def track_event_property_values(self):
