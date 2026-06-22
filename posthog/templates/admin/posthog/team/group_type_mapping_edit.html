@@ -30,11 +30,6 @@
         <input type="text" id="name_plural" name="name_plural" value="{{ mapping.name_plural|default:'' }}" style="width: 400px; padding: 8px;" />
     </div>
     <div style="margin: 20px 0;">
-        <label for="detail_dashboard_id" style="display: block; margin-bottom: 5px; font-weight: bold;">Detail dashboard ID:</label>
-        <input type="number" id="detail_dashboard_id" name="detail_dashboard_id" value="{{ mapping.detail_dashboard_id|default:'' }}" style="width: 200px; padding: 8px;" />
-        <p style="margin-top: 4px; color: #666; font-size: 12px;">Leave blank to clear.</p>
-    </div>
-    <div style="margin: 20px 0;">
         <label for="default_columns" style="display: block; margin-bottom: 5px; font-weight: bold;">Default columns (JSON array):</label>
         <input type="text" id="default_columns" name="default_columns" value="{{ default_columns_json }}" style="width: 400px; padding: 8px;" />
         <p style="margin-top: 4px; color: #666; font-size: 12px;">JSON array of column names, e.g. <code>["name", "email"]</code>. Leave blank to clear.</p>

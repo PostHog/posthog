@@ -37,14 +37,16 @@ from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.group_type_mapping import (
-    get_group_type_mapping_instance,
-    get_group_types_for_team,
-    invalidate_group_types_cache,
-    update_group_type_mapping_fields,
-)
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.personhog_client.client import get_personhog_client
+from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+from posthog.personhog_client.proto import (
+    GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByTeamIdRequest,
+    UpdateGroupTypeMappingRequest,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.temporal.common.client import sync_connect
@@ -318,7 +320,22 @@ class TeamAdmin(admin.ModelAdmin):
     def group_type_mappings_display(self, team: Team):
         if not team.pk:
             return "-"
-        mappings_raw = get_group_types_for_team(team.id, caller_tag="admin/group-type-mappings")
+        client = get_personhog_client()
+        if client is None:
+            return format_html("<em>personhog client not configured</em>")
+        try:
+            resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
+            mappings_raw = sorted(
+                [proto_group_type_mapping_to_dict(m) for m in resp.mappings],
+                key=lambda d: d["group_type_index"],
+            )
+        except Exception as exc:
+            logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
+            return format_html(
+                '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
+                'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
+                "Failed to fetch group type mappings from personhog</p>",
+            )
         mappings = []
         for m in mappings_raw:
             detail_dashboard_id = m.get("detail_dashboard") or m.get("detail_dashboard_id")
@@ -348,30 +365,59 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    def _get_personhog_client_or_error(self, request, redirect_url):
+        """Return (client, None) or (None, redirect_response) if personhog is unavailable."""
+        client = get_personhog_client()
+        if client is None:
+            messages.error(request, "personhog client is not configured — cannot manage group type mappings.")
+            return None, redirect(redirect_url)
+        return client, None
+
+    def _fetch_group_type_mapping_via_personhog(self, client, project_id, group_type_index):
+        """Fetch a single mapping from personhog by project_id + group_type_index. Returns dict or None."""
+        resp = client.get_group_type_mappings_by_project_id(
+            GetGroupTypeMappingsByProjectIdRequest(project_id=project_id)
+        )
+        for m in resp.mappings:
+            d = proto_group_type_mapping_to_dict(m)
+            if d["group_type_index"] == group_type_index:
+                return d
+        return None
+
     def edit_group_type_mapping_view(self, request, object_id, group_type_index):
         team = Team.objects.select_related("project").get(pk=object_id)
         if not self.has_change_permission(request, team):
             raise PermissionDenied
         group_type_index = int(group_type_index)
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+
+        client, err_response = self._get_personhog_client_or_error(request, team_url)
+        if err_response is not None:
+            return err_response
 
         try:
-            mapping = get_group_type_mapping_instance(
-                team.project_id,
-                group_type_index,
-                team=team,
-                consistency="strong",
-                caller_tag="admin/edit-group-type-mapping",
+            mapping_dict = self._fetch_group_type_mapping_via_personhog(client, team.project_id, group_type_index)
+        except Exception as exc:
+            logger.warning(
+                "admin_group_type_mapping_fetch_failed",
+                team_id=team.id,
+                group_type_index=group_type_index,
+                error=str(exc),
             )
-        except Exception:
+            messages.warning(request, "Failed to fetch group type mappings from personhog")
+            return redirect(team_url)
+
+        if mapping_dict is None:
             messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
-            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+            return redirect(team_url)
 
         if request.method == "GET":
-            default_columns_json = json.dumps(mapping.default_columns) if mapping.default_columns else ""
+            default_columns = mapping_dict.get("default_columns")
+            default_columns_json = json.dumps(default_columns) if default_columns else ""
             context = {
                 **self.admin_site.each_context(request),
                 "team": team,
-                "mapping": mapping,
+                "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
@@ -379,42 +425,35 @@ class TeamAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseNotAllowed(["GET", "POST"])
 
-        fields: dict[str, Any] = {}
-
         name_singular = request.POST.get("name_singular", "").strip()
         name_plural = request.POST.get("name_plural", "").strip()
-        fields["name_singular"] = name_singular or None
-        fields["name_plural"] = name_plural or None
-
-        detail_dashboard_raw = request.POST.get("detail_dashboard_id", "").strip()
-        if detail_dashboard_raw:
-            try:
-                fields["detail_dashboard_id"] = int(detail_dashboard_raw)
-            except ValueError:
-                messages.error(request, "Detail dashboard ID must be an integer.")
-                return redirect(
-                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
-                )
-        else:
-            fields["detail_dashboard_id"] = None
 
         default_columns_raw = request.POST.get("default_columns", "").strip()
+        default_columns: list[str] | None = None
         if default_columns_raw:
             try:
                 parsed = json.loads(default_columns_raw)
                 if not isinstance(parsed, list):
                     raise ValueError
-                fields["default_columns"] = parsed
+                default_columns = parsed
             except (json.JSONDecodeError, ValueError):
                 messages.error(request, "Default columns must be a valid JSON array.")
                 return redirect(
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
-        else:
-            fields["default_columns"] = None
+
+        update_kwargs: dict[str, Any] = {
+            "project_id": team.project_id,
+            "group_type_index": group_type_index,
+            "update_mask": ["name_singular", "name_plural", "default_columns"],
+            "name_singular": name_singular,
+            "name_plural": name_plural,
+        }
+        if default_columns is not None:
+            update_kwargs["default_columns"] = json.dumps(default_columns).encode()
 
         try:
-            update_group_type_mapping_fields(mapping, fields=fields, caller_tag="admin/edit-group-type-mapping")
+            client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**update_kwargs))
         except Exception as exc:
             logger.exception(
                 "admin_edit_group_type_mapping_failed",
@@ -422,7 +461,7 @@ class TeamAdmin(admin.ModelAdmin):
                 group_type_index=group_type_index,
                 error=str(exc),
             )
-            messages.error(request, f"Failed to update group type mapping: {exc}")
+            messages.error(request, f"Failed to update via personhog: {exc}")
             return redirect(reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index]))
 
         if team.project_id:
@@ -432,7 +471,7 @@ class TeamAdmin(admin.ModelAdmin):
             "admin_edit_group_type_mapping",
             team_id=team.id,
             group_type_index=group_type_index,
-            fields=list(fields.keys()),
+            fields=update_kwargs["update_mask"],
             triggered_by=request.user.email,
         )
         messages.success(
