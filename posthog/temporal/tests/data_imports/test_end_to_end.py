@@ -4205,6 +4205,7 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
 
     # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
     assert schema.xmin_last_value > first_ceiling
 
     # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
@@ -4257,7 +4258,7 @@ async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres
             sync_type_config={},
         )
 
-    mock_capture.assert_called()
+    mock_capture.assert_called_once()
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
