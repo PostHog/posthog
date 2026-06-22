@@ -1,13 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import {
-    IconBolt,
-    IconCheckCircle,
-    IconChevronRight,
-    IconCompass,
-    IconGithub,
-    IconServer,
-} from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { mcpStoreLogic } from '@posthog/products-mcp-store/frontend/mcpStoreLogic'
 import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
