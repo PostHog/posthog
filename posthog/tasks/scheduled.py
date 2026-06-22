@@ -223,12 +223,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="llm-gateway policy cache sync",
     )
 
-    # Remote config (array/config.json) cache sync - hourly at :10 to stagger from
-    # team_metadata (:00) and llm-gateway (:05). Without this, teams whose RemoteConfig
-    # hasn't changed in 30 days see their dedicated-Redis key expire and reads fall
-    # through to S3. Fixes #65026.
+    # Remote config (array/config.json) cache sync - hourly at :25 to stagger from
+    # team_metadata (:00), llm-gateway (:05), gateway-credential / flag-definitions
+    # verification (both at :10), flags refresh (:15), and team_metadata verify
+    # (:20). Without this task, teams whose RemoteConfig hasn't changed in 30 days
+    # see their dedicated-Redis key expire and reads fall through to S3. Fixes #65026.
     sender.add_periodic_task(
-        crontab(hour="*", minute="10"),
+        crontab(hour="*", minute="25"),
         refresh_expiring_remote_config_cache_entries.s(),
         name="remote config cache sync",
     )

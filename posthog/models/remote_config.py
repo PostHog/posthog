@@ -604,14 +604,13 @@ def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
-def _update_remote_config_cache_for_management(team: Team) -> bool:
-    """Adapter so `HyperCacheManagementConfig.update_fn` matches the (team) -> bool signature."""
-    return RemoteConfig.update_team_remote_config_cache(team)
-
-
 REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=RemoteConfig.get_hypercache(),
-    update_fn=_update_remote_config_cache_for_management,
+    # Pass the bound classmethod directly — it already matches the `UpdateFn`
+    # protocol (`(team, ttl=None) -> bool`). An adapter that dropped `ttl`
+    # would silently break `hypercache_manager.warm_caches`, which calls
+    # `config.update_fn(team, ttl=ttl_seconds)` for initial cache population.
+    update_fn=RemoteConfig.update_team_remote_config_cache,
     cache_name="remote_config",
 )
 
