@@ -55,6 +55,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
     AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
@@ -170,6 +171,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/ai-gateway': ['AIGateway', 'aiGateway'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
     '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
@@ -471,6 +473,13 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AIGateway: {
+        projectBased: true,
+        name: 'AI gateway',
+        description: 'Every major LLM through one endpoint, billed at cost \u2014 usage tracked per project.',
+        layout: 'app-container',
+        iconType: 'ai_gateway',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -849,6 +858,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    aiGateway: (): string => '/ai-gateway',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
     aiObservabilityReviews: (): string => '/ai-observability/reviews',
@@ -1574,6 +1584,22 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'AI gateway',
+        intents: [ProductKey.AI_GATEWAY],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'ai_gateway',
+        iconType: 'ai_gateway' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-ai-gateway-light)',
+            'var(--color-product-ai-gateway-dark)',
+        ] as FileSystemIconColor,
+        href: urls.aiGateway(),
+        flag: FEATURE_FLAGS.AI_GATEWAY,
+        tags: ['alpha'],
+        sceneKey: 'AIGateway',
+        sceneKeys: ['AIGateway'],
+    },
     {
         path: 'Business knowledge',
         intents: [ProductKey.CONVERSATIONS],
