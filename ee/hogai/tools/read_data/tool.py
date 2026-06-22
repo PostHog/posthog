@@ -515,7 +515,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
     def _fetch_warehouse_table_semantics(self, table_names: set[str]) -> dict[str, dict]:
         team_id = self._team.pk
-        tables = list(DataWarehouseTable.objects.filter(team_id=team_id, name__in=table_names, deleted=False))
+        # Mirror the API's object-level filtering: a user denied a specific warehouse table must not
+        # receive its description, column annotations, or foreign-key graph through read_data.
+        accessible_tables = self.user_access_control.filter_queryset_by_access_level(
+            DataWarehouseTable.objects.filter(team_id=team_id, name__in=table_names, deleted=False)
+        )
+        tables = list(accessible_tables)
         if not tables:
             return {}
 

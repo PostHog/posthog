@@ -254,6 +254,7 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |WarehouseColumnAnnotation
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -510,6 +511,7 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |WarehouseColumnAnnotation
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction

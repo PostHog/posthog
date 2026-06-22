@@ -113,6 +113,11 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        # A PATCH/PUT can re-point the annotation at a different (same-team) table the user is denied,
+        # so re-check editor access on the resolved target table — falling back to the current one.
+        table = serializer.validated_data.get("table") or serializer.instance.table
+        if not self.user_access_control.check_access_level_for_object(table, required_level="editor"):
+            raise PermissionDenied("You do not have permission to annotate this warehouse table.")
         serializer.save(
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             is_user_edited=True,
