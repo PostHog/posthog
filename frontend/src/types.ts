@@ -289,12 +289,14 @@ export enum AccessControlResourceType {
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -427,6 +429,33 @@ export interface NotificationSettings {
     pipeline_notifications_disabled?: Record<string, boolean>
 }
 
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -443,6 +472,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
@@ -708,9 +738,18 @@ export interface ConversationsSettings {
     teams_team_name?: string | null
     teams_channel_id?: string | null
     teams_channel_name?: string | null
+    teams_channels?:
+        | {
+              team_id: string
+              team_name?: string | null
+              channel_id: string
+              channel_name?: string | null
+          }[]
+        | null
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -1851,7 +1890,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2499,6 +2538,8 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
+    /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
+    folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -2518,7 +2559,7 @@ export interface DashboardTemplateListParams {
     is_featured?: boolean
 }
 
-export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
@@ -2583,6 +2624,13 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
 
+/** Project-specific references embedded in a template's tiles that may not resolve in another project. */
+export interface NonPortableReferences {
+    actions: number
+    cohorts: number
+    warehouse_tables: string[]
+}
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -2601,6 +2649,8 @@ export interface DashboardTemplateType {
     is_featured?: boolean
     /** Soft delete; API allows PATCH for staff undo (restore). */
     deleted?: boolean
+    /** Read-only. Project-specific references in tiles (actions, cohorts, warehouse tables) that may not resolve in another project. */
+    non_portable_references?: NonPortableReferences
 }
 
 export interface MonacoMarker {
@@ -2835,6 +2885,7 @@ export enum ChartDisplayType {
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
+    Metric = 'Metric',
     ActionsPie = 'ActionsPie',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
@@ -2842,6 +2893,7 @@ export enum ChartDisplayType {
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
+    SlopeGraph = 'SlopeGraph',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -3285,6 +3337,9 @@ export interface TrendResult {
      * formula index for formula results (uniform across a formula's breakdown rows).
      * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
     order?: number
+    /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
+     * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
+    incomplete_end?: boolean
 }
 
 interface Person {
@@ -3309,6 +3364,9 @@ export interface FunnelStep {
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
+
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
 
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
@@ -3903,6 +3961,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3978,6 +4038,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4392,9 +4454,12 @@ export interface PreflightStatus {
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
+    ai_gateway_url?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -4640,6 +4705,20 @@ export enum ExperimentStatsMethod {
     Frequentist = 'frequentist',
 }
 
+export interface ExperimentExposureEstimateConfig {
+    conversionRateInputType: ConversionRateInputType
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    manualBaselineValue?: number
+    manualExposureRate?: number
+}
+
+export interface ExperimentRunningTimeCalculationConfig {
+    minimum_detectable_effect?: number
+    recommended_running_time?: number
+    recommended_sample_size?: number
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -4660,15 +4739,6 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        exposure_estimate_config?: {
-            conversionRateInputType: ConversionRateInputType
-            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-            manualBaselineValue?: number
-            manualExposureRate?: number
-        } | null
-        minimum_detectable_effect?: number
-        recommended_running_time?: number
-        recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
@@ -4682,9 +4752,12 @@ export interface Experiment {
             versions: number[]
         }
     }
+    running_time_calculation?: ExperimentRunningTimeCalculationConfig
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
+    /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
+    is_legacy?: boolean
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5205,6 +5278,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5230,6 +5304,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5269,6 +5344,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5414,6 +5490,7 @@ export interface ExportedAssetType {
     created_at: string
     expires_after?: string
     exception?: string
+    user_access_level?: AccessControlLevel
 }
 
 export enum FeatureFlagReleaseType {
@@ -5453,10 +5530,13 @@ export type APIScopeObject =
     | 'access_control'
     | 'account'
     | 'activity_log'
+    | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
     | 'approvals'
     | 'batch_export'
+    | 'business_knowledge'
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
@@ -5470,6 +5550,7 @@ export type APIScopeObject =
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
+    | 'engineering_analytics'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -5497,6 +5578,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
@@ -5518,11 +5600,13 @@ export type APIScopeObject =
     | 'signal_scout'
     | 'subscription'
     | 'survey'
+    | 'tagger'
     | 'task'
     | 'ticket'
     | 'uploaded_media'
     | 'usage_metric'
     | 'user'
+    | 'user_interview'
     | 'visual_review'
     | 'warehouse_objects'
     | 'warehouse_table'
@@ -5675,6 +5759,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
@@ -5703,6 +5788,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
@@ -5918,7 +6004,7 @@ export interface ExternalDataSourceCreatePayload {
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     function_source?: string | null
     available_functions?: string[]
 }
@@ -5926,7 +6012,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
 }
 
 export interface ExternalDataSource {
@@ -5939,7 +6025,7 @@ export interface ExternalDataSource {
     description: string | null
     access_method?: 'warehouse' | 'direct'
     created_via: 'web' | 'api' | 'mcp' | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -6000,7 +6086,7 @@ export interface SimpleExternalDataSourceSchema {
     label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
-    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
 export interface AvailableColumn {
@@ -6008,6 +6094,16 @@ export interface AvailableColumn {
     field: string
     type: string
     nullable: boolean
+}
+
+/** The comparison operators a row filter may use. Mirrors the backend allowlist. */
+export type RowFilterOperator = '>' | '>=' | '<' | '<=' | '=' | '!=' | 'IN' | 'NOT IN'
+
+/** A `{column, operator, value}` predicate ANDed onto a schema's source query. For `IN` / `NOT IN`, `value` is a comma-separated string. */
+export interface RowFilter {
+    column: string
+    operator: RowFilterOperator
+    value: string | number | boolean
 }
 
 export type SchemaIncrementalFieldsResponse = {
@@ -6019,6 +6115,7 @@ export type SchemaIncrementalFieldsResponse = {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     cdc_available?: boolean
+    xmin_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6041,11 +6138,15 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     cdc_available?: boolean
+    xmin_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks
@@ -6073,17 +6174,25 @@ export interface ExternalDataSourceSyncSchema {
      * PK columns and the active incremental field are always retained server-side.
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null`/undefined/empty = sync all rows.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
@@ -6095,6 +6204,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null` means "sync all rows". Applied on the next sync — not retroactive.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6146,6 +6260,8 @@ export interface ExternalDataJob {
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices`). */
+    hogql_name?: string
     columns: DatabaseSchemaField[]
     row_count: number
 }
@@ -6208,11 +6324,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string
@@ -7319,28 +7436,6 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
-}
-
-export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
-
-export interface DataWarehouseProvisioningConnection {
-    host: string
-    port: number
-    database: string
-    username: string
-}
-
-export interface DataWarehouseProvisioningStatus {
-    org_id: string
-    state: DataWarehouseProvisioningState
-    status_message: string
-    s3_state: DataWarehouseProvisioningState
-    metadata_store_state: DataWarehouseProvisioningState
-    identity_state: DataWarehouseProvisioningState
-    secrets_state: DataWarehouseProvisioningState
-    ready_at: string | null
-    failed_at: string | null
-    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

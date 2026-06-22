@@ -8958,6 +8958,34 @@ export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Publish a new version of a freeform canvas's React source.
+ *
+ * Merges into the dashboard row's `meta` (never replaces it), so existing
+ * keys like `channelId`/`templateId` survive. Appends a full-file version
+ * snapshot and points `currentVersionId` at it — the server-side mirror of
+ * the app's dashboardsService.saveFreeform.
+ */
+export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        code: zod.string().optional(),
+        prompt: zod.string().optional(),
+        name: zod.string().optional(),
+    })
+    .describe("Payload for publishing a freeform canvas's React source via the agent.")
+
+/**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const DesktopFileSystemContextGenerationUpdateBody = /* @__PURE__ */ zod.object({
+    task_id: zod
+        .uuid()
+        .nullable()
+        .describe(
+            "ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association."
+        ),
+})
+
+/**
  * Get count of all files in a folder.
  */
 export const desktopFileSystemCountCreateBodyTypeMax = 100

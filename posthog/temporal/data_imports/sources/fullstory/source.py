@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class FullStorySource(ResumableSource[FullStorySourceConfig, FullStoryResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FULL_STORY,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Fullstory",
             caption="""Enter your Fullstory API key to pull your Fullstory user data into the PostHog Data warehouse.
 

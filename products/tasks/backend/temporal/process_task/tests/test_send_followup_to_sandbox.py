@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
-from products.tasks.backend.services.agent_command import CommandResult
+from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
     SendFollowupToSandboxInput,

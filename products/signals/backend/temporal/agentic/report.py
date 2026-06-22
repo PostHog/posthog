@@ -35,8 +35,8 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.models import SandboxEnvironment
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 logger = structlog.get_logger(__name__)
 
@@ -321,7 +321,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             # 1. Get context for the sandbox
             user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(input.team_id)
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, SandboxEnvironment.NetworkAccessLevel.TRUSTED
+                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
             )
             context = CustomPromptSandboxContext(
                 team_id=input.team_id,

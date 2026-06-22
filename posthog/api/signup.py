@@ -186,7 +186,10 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def is_email_auto_verified(self):
-        return self.is_social_signup
+        if self.is_social_signup:
+            return True
+        domain = self.validated_data.get("email", "").split("@")[-1].lower()
+        return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:

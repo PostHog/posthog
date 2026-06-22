@@ -76,7 +76,7 @@ class TestGitHubPRWebhook(TestCase):
             headers={"x-hub-signature-256": signature, "x-github-event": event_type},
         )
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_merged_webhook(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -101,7 +101,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -122,7 +122,7 @@ class TestGitHubPRWebhook(TestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_closed")
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_webhook(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -143,7 +143,92 @@ class TestGitHubPRWebhook(TestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_created")
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_backfills_pr_url_on_branch_match(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/needs-pr-url",
+            output={},
+        )
+        pr_url = "https://github.com/posthog/posthog/pull/777"
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "feature/needs-pr-url", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        assert run.output is not None
+        self.assertEqual(run.output["pr_url"], pr_url)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_from_fork_does_not_backfill_pr_url(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/needs-pr-url",
+            output={},
+        )
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": "https://github.com/attacker/posthog/pull/1",
+                "merged": False,
+                "head": {"ref": "feature/needs-pr-url", "repo": {"full_name": "attacker/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {})
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_does_not_overwrite_existing_pr_url(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        existing = "https://github.com/posthog/posthog/pull/900"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/has-pr",
+            output={"pr_url": existing},
+        )
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/901",
+                "merged": False,
+                "head": {"ref": "feature/has-pr", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        assert run.output is not None
+        self.assertEqual(run.output["pr_url"], existing)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
         """Test that requests with invalid signatures are rejected."""
         mock_get_secret.return_value = self.webhook_secret
@@ -160,7 +245,7 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_missing_signature_rejected(self, mock_get_secret):
         """Test that requests without signatures are rejected."""
         mock_get_secret.return_value = self.webhook_secret
@@ -176,7 +261,7 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_unmatched_pr_without_installation_not_captured(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -194,7 +279,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_non_pr_non_issue_event_ignored(self, mock_get_secret):
         """Test that events other than pull_request/issues/issue_comment are acknowledged but ignored."""
         mock_get_secret.return_value = self.webhook_secret
@@ -205,7 +290,7 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_ignored_pr_actions(self, mock_get_secret):
         """Test that PR actions other than opened/closed are acknowledged but ignored."""
         mock_get_secret.return_value = self.webhook_secret
@@ -224,7 +309,7 @@ class TestGitHubPRWebhook(TestCase):
 
     def test_webhook_secret_not_configured(self):
         """Test that webhook returns 500 if secret is not configured."""
-        with patch("products.tasks.backend.webhooks.get_github_webhook_secret", return_value=None):
+        with patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret", return_value=None):
             payload = {"action": "closed", "pull_request": {"html_url": "https://github.com/org/repo/pull/1"}}
 
             response = self.client.post(
@@ -241,7 +326,7 @@ class TestGitHubPRWebhook(TestCase):
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture, mock_get_secret):
         # Regression: a PR opened on a repo that has no matching TaskRun must
@@ -358,7 +443,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             ),
         ]
     )
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_event_transitions_linked_report(
         self, _name, action, merged, initial_status, expected_status, _mock_capture, mock_get_secret
@@ -374,7 +459,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -444,7 +529,7 @@ class TestExternalPRWebhook(TestCase):
             ("merged", "closed", True, "pr_merged"),
         ]
     )
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_event_attributes_to_installation_team(
         self, _name, action, merged, expected_event, mock_capture, mock_get_secret
@@ -470,7 +555,7 @@ class TestExternalPRWebhook(TestCase):
         self.assertIsNone(props["origin_product"])
         self.assertIsNone(props["title"])
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_event_is_deduplicated_per_action(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -484,7 +569,7 @@ class TestExternalPRWebhook(TestCase):
         second_uuid = mock_capture.call_args_list[1][1]["uuid"]
         self.assertEqual(first_uuid, second_uuid)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_without_resolvable_installation_is_dropped(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -497,7 +582,7 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -513,7 +598,7 @@ class TestExternalPRWebhook(TestCase):
         distinct_ids = {call[1]["distinct_id"] for call in mock_capture.call_args_list}
         self.assertEqual(distinct_ids, {str(expected_team.uuid)})
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_external_pr_without_installation_block_is_dropped(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
@@ -719,7 +804,7 @@ class TestGitHubWebhookFanout(TestCase):
         ]
     )
     @patch("products.conversations.backend.api.github_events.process_github_event")
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_issues_event_dispatched_to_conversations(self, _name, url, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
         mock_task.delay = MagicMock()
@@ -742,7 +827,7 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(call_kwargs["repo"], "myorg/myrepo")
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_issue_comment_event_dispatched_to_conversations(self, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
         mock_task.delay = MagicMock()
@@ -763,7 +848,7 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(mock_task.delay.call_args[1]["event_type"], "issue_comment")
 
     @patch("products.conversations.backend.api.github_events.process_github_event")
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_issues_event_without_matching_team_returns_200(self, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
         mock_task.delay = MagicMock()
@@ -787,7 +872,7 @@ class TestGitHubWebhookFanout(TestCase):
             ("unified_url", "/webhooks/github/"),
         ]
     )
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pull_request_routed(self, _name, url, mock_capture, mock_secret):
         mock_secret.return_value = self.webhook_secret
@@ -806,7 +891,7 @@ class TestGitHubWebhookFanout(TestCase):
         mock_capture.assert_called_once()
         self.assertEqual(mock_capture.call_args[1]["event"], "pr_merged")
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_unified_url_unknown_event_returns_200(self, mock_secret):
         mock_secret.return_value = self.webhook_secret
 
@@ -815,7 +900,7 @@ class TestGitHubWebhookFanout(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):
         mock_secret.return_value = self.webhook_secret
 

@@ -48,6 +48,10 @@ products/
       hooks/
       logics/
       generated/            # OpenAPI-generated TypeScript types
+    mcp/                    # MCP tool definitions (tools.yaml) and UI apps — most products
+    skills/                 # agent skills for the product — many products
+    services/               # optional: a service this product deploys
+    packages/               # optional: a library/CLI this product owns
 ```
 
 Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this structure.
@@ -100,6 +104,25 @@ This avoids circular imports and keeps migrations/app labels stable.
 
 If backend and frontend need shared schemas, validators, or constants, put them in a `shared/` directory under the product.
 Keep shared code minimal to avoid tight coupling.
+
+## What a product can own
+
+`backend/` and `frontend/` are the core, but a product owns more than that.
+
+Beyond `backend/` + `frontend/` + `manifest.tsx` + `package.json`, most products also carry:
+
+- `mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (the majority of products expose these)
+- `skills/` — agent skills for the product (many products)
+
+And anything else attributable to a single product — nest it here rather than in a top-level dir:
+
+- `services/<svc>/` — a service or worker the product deploys
+- `packages/<lib>/` — a library or CLI the product owns
+- dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators
+
+Co-locating keeps tooling boundaries (CODEOWNERS, CI filters, lint) on the `products/<product>/**` path instead of hand-synced `<product>-*` prefixes.
+Reserve top-level `tools/`, `services/`, `packages/`, and `cli/` for things no single product owns.
+See [monorepo-layout.md](/docs/internal/monorepo-layout.md) → "What a product can own" for the full rationale and the nest-then-promote rule for shared packages.
 
 ## Product requirements
 
@@ -246,6 +269,17 @@ This aligns with the facade pattern: if your product needs data from Team or Use
 - No `select_related`/`prefetch_related` across databases — use the facade or manual batch fetching
 - No `ON DELETE CASCADE` from the main DB — handle cleanup in application code or via background tasks
 - No `transaction.atomic()` spanning both databases — design for eventual consistency across boundaries
+
+### Resilience: the circuit breaker
+
+Separate databases only isolate failures if your product's outage can't drag the rest of the app down with it. Two layers provide that:
+
+1. **`connect_timeout=3`** on every product alias — a connection to an unreachable host fails in 3s instead of blocking on the OS TCP default (60-120s).
+2. **A fail-fast circuit breaker** (`posthog/db_circuit_breaker.py`) on a custom database backend (`posthog.db_backends.failopen`). When a product DB is unreachable, the breaker opens after a few connection failures and then raises immediately on connect — in microseconds, instead of waiting on the timeout. This frees the worker to serve other requests, so one product database going down can't exhaust the shared worker pool and take the whole app offline.
+
+Breaker state lives in Redis, so one worker tripping the breaker is seen by all pods at once. The breaker is **per product alias**: while it's open, only that product's endpoints fail (fast, with an `OperationalError`); everything else is unaffected. After a cooldown, a single probe request tests recovery and closes the breaker on success. If Redis itself is unavailable the breaker fails safe (stays closed) so it can never be what takes a healthy database offline.
+
+There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is _fast, contained failure_, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
 
 ## Running tests with Turbo
 

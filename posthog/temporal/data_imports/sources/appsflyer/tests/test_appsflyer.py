@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
+    AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
@@ -86,25 +87,44 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_succeeds_on_200(self, mock_session):
+        mock_session.return_value.get.return_value = _response("", status=200)
+
+        assert validate_credentials("token", "id123") is True
+
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_substring",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (404, False),
+            # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
+            (401, "API token"),
+            (403, "denied access"),
+            (404, "app id"),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_distinguishes_token_from_app_id(self, mock_session, status_code, expected_substring):
         mock_session.return_value.get.return_value = _response("", status=status_code)
 
-        assert validate_credentials("token", "id123") is expected
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "id123")
+        assert expected_substring in str(exc.value)
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_rejects_bad_app_id_without_request(self, mock_session):
-        assert validate_credentials("token", "bad app!") is False
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "bad app!")
+        assert "app id" in str(exc.value)
         mock_session.return_value.get.assert_not_called()
+
+    @pytest.mark.parametrize("status_code", [400, 418, 451])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_raises_with_status_on_unexpected_code(self, mock_session, status_code):
+        mock_session.return_value.get.return_value = _response("", status=status_code)
+
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "id123")
+        assert str(status_code) in str(exc.value)
 
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     @mock.patch(f"{_MODULE}.make_tracked_session")
@@ -129,7 +149,24 @@ class TestGetRows:
         query = parse_qs(urlparse(url).query)
         window = date.fromisoformat(query["to"][0]) - date.fromisoformat(query["from"][0])
         assert window.days == MAX_WINDOW_DAYS
-        assert urlparse(url).path == "/api/agg-data/export/app/id123/dailyreport/v5"
+        assert urlparse(url).path == "/api/agg-data/export/app/id123/daily_report/v5"
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("daily_report", "/api/agg-data/export/app/id123/daily_report/v5"),
+            ("geo_report", "/api/agg-data/export/app/id123/geo_by_date_report/v5"),
+            ("partners_report", "/api/agg-data/export/app/id123/partners_by_date_report/v5"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_report_slug_matches_appsflyer_api(self, mock_session, endpoint, expected_path):
+        mock_session.return_value.get.return_value = _response(_CSV)
+
+        list(get_rows("token", "id123", endpoint, mock.MagicMock()))
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(url).path == expected_path
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_starts_at_watermark_minus_lookback(self, mock_session):
@@ -161,6 +198,15 @@ class TestGetRows:
         batches = list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
 
         assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_requests_csv_explicitly(self, mock_session):
+        mock_session.return_value.get.return_value = _response(_CSV)
+
+        list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
+
+        headers = mock_session.call_args.kwargs["headers"]
+        assert headers["Accept"] == "text/csv"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_report_yields_nothing(self, mock_session):

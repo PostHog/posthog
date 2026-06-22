@@ -26,6 +26,15 @@ const GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER: &str =
     "global_rate_limiter_tier_transitions_total";
 const GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM: &str = "global_rate_limiter_estimate_drift";
 const GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM: &str = "global_rate_limiter_sync_staleness_ms";
+const GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE: &str = "global_rate_limiter_cache_size";
+const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction_total";
+
+/// Full-cache scan cadence (ticks) for the per-tier distribution gauges. The
+/// distribution moves slowly and prod metrics dedup to 60s, so a periodic scan
+/// keeps these gauges fresh enough without scanning the cache every tick.
+const TIER_SCAN_INTERVAL_TICKS: u64 = 30;
+/// Tier label order, indexed by `PressureTier::index()`.
+const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 
 /// Pressure tiers for adaptive sync scheduling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +68,16 @@ impl PressureTier {
             Self::Low => "low",
             Self::Normal => "normal",
             Self::Hot => "hot",
+        }
+    }
+
+    /// Index into the per-tier scan tally array (see `TIER_LABELS`).
+    pub fn index(&self) -> usize {
+        match self {
+            Self::Idle => 0,
+            Self::Low => 1,
+            Self::Normal => 2,
+            Self::Hot => 3,
         }
     }
 }
@@ -379,15 +398,28 @@ impl GlobalRateLimiterImpl {
             ));
         }
 
+        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
+
         let cache = Cache::builder()
             .max_capacity(config.local_cache_max_entries)
             .time_to_live(config.local_cache_ttl)
             .time_to_idle(config.local_cache_idle_timeout)
+            .eviction_listener(move |_key, _entry: CacheEntry, cause| {
+                // MUST stay panic-free: moka permanently disables a listener that
+                // panics. Replaced is an in-place update, not a removal.
+                if cause != moka::notification::RemovalCause::Replaced {
+                    metrics::counter!(
+                        GLOBAL_RATE_LIMITER_EVICTION_COUNTER,
+                        "scope" => scope,
+                        "cause" => removal_cause_str(cause),
+                    )
+                    .increment(1);
+                }
+            })
             .build();
 
         let (update_tx, update_rx) = mpsc::channel(config.channel_capacity);
         let pending_sync = Arc::new(DashSet::new());
-        let scope: &'static str = Box::leak(config.metrics_scope.clone().into_boxed_str());
 
         let limiter = Self {
             config: config.clone(),
@@ -559,6 +591,7 @@ impl GlobalRateLimiterImpl {
             let mut tick = tokio::time::interval(config.tick_interval);
             // Pre-aggregate writes by (key, epoch)
             let mut write_batch: HashMap<(String, i64), u64> = HashMap::new();
+            let mut tick_n: u64 = 0;
 
             loop {
                 tokio::select! {
@@ -573,7 +606,7 @@ impl GlobalRateLimiterImpl {
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
-                                        &pending_sync, &mut write_batch, scope,
+                                        &pending_sync, &mut write_batch, scope, tick_n,
                                     ).await;
                                 }
                                 break;
@@ -581,9 +614,10 @@ impl GlobalRateLimiterImpl {
                         }
                     }
                     _ = tick.tick() => {
+                        tick_n = tick_n.wrapping_add(1);
                         Self::tick(
                             &config, &redis_instances, &cache,
-                            &pending_sync, &mut write_batch, scope,
+                            &pending_sync, &mut write_batch, scope, tick_n,
                         ).await;
                     }
                 }
@@ -602,8 +636,13 @@ impl GlobalRateLimiterImpl {
         pending_sync: &Arc<DashSet<String>>,
         write_batch: &mut HashMap<(String, i64), u64>,
         scope: &'static str,
+        tick_n: u64,
     ) {
         let tick_start = Instant::now();
+
+        // Cache-size gauge every tick (O(1)); per-tier distribution via a
+        // throttled full scan (slow-moving, see TIER_SCAN_INTERVAL_TICKS).
+        Self::emit_cache_gauges(cache, scope, tick_n);
 
         // Drain pending sync set (lock-free: iterate then clear)
         let sync_keys: Vec<String> = pending_sync.iter().map(|r| r.key().clone()).collect();
@@ -649,6 +688,7 @@ impl GlobalRateLimiterImpl {
     }
 
     /// Execute a tick against a single Redis instance (the common case).
+    #[allow(clippy::too_many_arguments)]
     async fn tick_single_instance(
         config: &GlobalRateLimiterConfig,
         redis: &Arc<dyn Client + Send + Sync>,
@@ -871,20 +911,18 @@ impl GlobalRateLimiterImpl {
                 .copied()
                 .unwrap_or(config.global_threshold);
 
-            // Compute drift before updating (for observability)
+            let pressure = estimated / threshold as f64;
+            let new_tier = PressureTier::from_pressure(pressure);
+
+            // Single lookup: emit estimate drift + tier transition for the prior entry.
             if let Some(old_entry) = cache.get(key) {
                 let leak_rate = config.leak_rate_for(threshold);
                 let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
                 let drift = (local_estimate - estimated).abs() / threshold as f64;
                 metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM, "scope" => scope)
                     .record(drift);
-            }
-            let pressure = estimated / threshold as f64;
 
-            // Track tier transitions
-            if let Some(old_entry) = cache.get(key) {
                 let old_tier = PressureTier::from_pressure(old_entry.pressure);
-                let new_tier = PressureTier::from_pressure(pressure);
                 if old_tier != new_tier {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
@@ -910,26 +948,47 @@ impl GlobalRateLimiterImpl {
                 },
             );
         }
+    }
 
-        // Update tier gauge counts
-        let mut tier_counts = [0u64; 4];
-        for (_, entry) in cache.iter() {
-            let tier = PressureTier::from_pressure(entry.pressure);
-            match tier {
-                PressureTier::Idle => tier_counts[0] += 1,
-                PressureTier::Low => tier_counts[1] += 1,
-                PressureTier::Normal => tier_counts[2] += 1,
-                PressureTier::Hot => tier_counts[3] += 1,
+    /// Emit cache observability gauges from the background task (off the hot path).
+    ///
+    /// `cache_size` is cheap (`entry_count`) so it emits every tick. The per-tier
+    /// distribution needs a full `cache.iter()` scan, so it runs only every
+    /// `TIER_SCAN_INTERVAL_TICKS`: the distribution moves slowly and prod metrics
+    /// dedup to 60s, so scanning every tick would be wasted work under load.
+    fn emit_cache_gauges(cache: &Cache<String, CacheEntry>, scope: &'static str, tick_n: u64) {
+        metrics::gauge!(GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE, "scope" => scope)
+            .set(cache.entry_count() as f64);
+
+        if tick_n.is_multiple_of(TIER_SCAN_INTERVAL_TICKS) {
+            let tier_counts = Self::scan_tier_counts(cache);
+            for i in 0..4 {
+                metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => TIER_LABELS[i])
+                    .set(tier_counts[i] as f64);
             }
         }
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "idle")
-            .set(tier_counts[0] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "low")
-            .set(tier_counts[1] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "normal")
-            .set(tier_counts[2] as f64);
-        metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_TIER_GAUGE, "scope" => scope, "tier" => "hot")
-            .set(tier_counts[3] as f64);
+    }
+
+    /// Full O(n) scan tallying live entries per pressure tier (indexed by
+    /// `PressureTier::index()`). Off the hot path; see `TIER_SCAN_INTERVAL_TICKS`.
+    fn scan_tier_counts(cache: &Cache<String, CacheEntry>) -> [u64; 4] {
+        let mut tier_counts = [0u64; 4];
+        for (_, entry) in cache.iter() {
+            tier_counts[PressureTier::from_pressure(entry.pressure).index()] += 1;
+        }
+        tier_counts
+    }
+}
+
+/// Map a Moka removal cause to a stable metric label (Replaced is filtered out
+/// before this is called).
+fn removal_cause_str(cause: moka::notification::RemovalCause) -> &'static str {
+    use moka::notification::RemovalCause;
+    match cause {
+        RemovalCause::Expired => "expired",
+        RemovalCause::Explicit => "explicit",
+        RemovalCause::Size => "size",
+        RemovalCause::Replaced => "replaced",
     }
 }
 
@@ -1720,6 +1779,63 @@ mod tests {
                 "local_pending should be 0 after sync regardless of prior value ({prior_pending})"
             );
         }
+    }
+
+    // --- Tier distribution scan tests ---
+
+    fn seed_entry(pressure: f64) -> CacheEntry {
+        CacheEntry {
+            estimated_count: 0.0,
+            synced_at: Instant::now() - Duration::from_secs(30),
+            local_pending: 0,
+            pressure,
+        }
+    }
+
+    #[test]
+    fn test_scan_tier_counts_tallies_distribution() {
+        let cache = Cache::builder().max_capacity(100).build();
+        cache.insert("a".to_string(), seed_entry(0.0)); // idle
+        cache.insert("b".to_string(), seed_entry(0.05)); // idle
+        cache.insert("c".to_string(), seed_entry(0.3)); // low
+        cache.insert("d".to_string(), seed_entry(0.6)); // normal
+        cache.insert("e".to_string(), seed_entry(0.9)); // hot
+        cache.insert("f".to_string(), seed_entry(0.95)); // hot
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts[PressureTier::Idle.index()], 2);
+        assert_eq!(counts[PressureTier::Low.index()], 1);
+        assert_eq!(counts[PressureTier::Normal.index()], 1);
+        assert_eq!(counts[PressureTier::Hot.index()], 2);
+        assert_eq!(counts.iter().sum::<u64>(), cache.entry_count());
+    }
+
+    #[test]
+    fn test_scan_tier_counts_excludes_evicted_entries() {
+        // Size-based eviction: only the surviving entries should be tallied,
+        // and the total must match entry_count after maintenance.
+        let cache = Cache::builder().max_capacity(3).build();
+        for i in 0..10 {
+            cache.insert(format!("k{i}"), seed_entry(0.9)); // all hot
+        }
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts.iter().sum::<u64>(), cache.entry_count());
+        assert!(cache.entry_count() <= 3);
+    }
+
+    #[test]
+    fn test_scan_tier_counts_empty_cache() {
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        cache.run_pending_tasks();
+
+        let counts = GlobalRateLimiterImpl::scan_tier_counts(&cache);
+
+        assert_eq!(counts, [0, 0, 0, 0]);
     }
 
     #[test]

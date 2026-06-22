@@ -4,6 +4,9 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
+// InsightViz renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
+// Import it here so the viz is sized correctly wherever it renders, not only inside an InsightCard.
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

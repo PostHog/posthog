@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
@@ -96,6 +97,92 @@ class TestSetupResourcesPreflight:
         assert mock_drop.call_args.args[1:] == ("s", "p")
 
 
+class TestRecreateSlot:
+    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_slot", return_value="0/AA")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_drops_and_recreates_slot_against_existing_publication(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
+
+        assert fields == {"cdc_consistent_point": "0/AA"}
+        mock_drop.assert_called_once()
+        assert mock_drop.call_args.args[1] == "posthog_slot"
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[1] == "posthog_slot"
+        mock_create_slot_and_pub.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "tables,expected_pairs",
+        [
+            # Bare names fall back to the source's default schema.
+            (["users"], [("public", "users")]),
+            # A schema-qualified name keeps its own schema; a bare name still uses the default.
+            # Regression: previously every table was forced under the source default schema,
+            # so `tll.students` became `public."tll.students"` and CREATE PUBLICATION failed.
+            (["tll.students", "orders"], [("tll", "students"), ("public", "orders")]),
+        ],
+    )
+    @patch(f"{_ADAPTER}.create_slot_and_publication", return_value="0/BB")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_recreates_publication_qualifying_each_table_by_its_own_schema(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub, tables, expected_pairs
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
+
+        assert fields == {"cdc_consistent_point": "0/BB"}
+        mock_create_slot_and_pub.assert_called_once()
+        assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
+        assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
+        mock_create.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_raises_when_self_managed_publication_missing(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="self_managed",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="customer_pub",
+        )
+
+        with pytest.raises(RuntimeError, match="does not exist"):
+            PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        mock_create.assert_not_called()
+        mock_create_slot_and_pub.assert_not_called()
+
+    def test_raises_without_slot_name(self) -> None:
+        source = _source(cdc_enabled=True)
+        with pytest.raises(RuntimeError, match="no slot name"):
+            PostgresCDCAdapter().recreate_slot(source, tables=[])
+
+
 class TestAlterPublicationMembership:
     @patch(f"{_ADAPTER}.add_table_to_publication")
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
@@ -126,3 +213,33 @@ class TestAlterPublicationMembership:
         source = _source(cdc_enabled=True, cdc_management_mode="posthog")
         PostgresCDCAdapter().add_table(source, "public", "orders")
         mock_add.assert_not_called()
+
+
+class TestGetStatus:
+    @patch(f"{_ADAPTER}.get_publication_tables", return_value=["public.orders", "public.users"])
+    @patch(f"{_ADAPTER}.get_slot_lag_bytes", return_value=42)
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=True)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_includes_published_tables(self, _conn, _slot, _pub, _lag, mock_tables) -> None:
+        source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
+        status = PostgresCDCAdapter().get_status(source)
+        assert status == {
+            "slot_exists": True,
+            "publication_exists": True,
+            "lag_bytes": 42,
+            "published_tables": ["public.orders", "public.users"],
+        }
+        mock_tables.assert_called_once()
+        assert mock_tables.call_args.args[1] == "pub"
+
+    @patch(f"{_ADAPTER}.get_publication_tables")
+    @patch(f"{_ADAPTER}.get_slot_lag_bytes", return_value=None)
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=False)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_skips_table_lookup_when_publication_missing(self, _conn, _slot, _pub, _lag, mock_tables) -> None:
+        source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
+        status = PostgresCDCAdapter().get_status(source)
+        assert status["published_tables"] == []
+        mock_tables.assert_not_called()

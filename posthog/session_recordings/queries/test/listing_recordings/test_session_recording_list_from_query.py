@@ -216,6 +216,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_two,
                 "activity_score": 40.16,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -238,6 +239,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -450,6 +452,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 40.16,
+                "surfacing_score": 0.36,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -480,6 +483,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -1620,6 +1624,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 0,
+                "surfacing_score": 0.36,
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
@@ -4157,6 +4162,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "active_seconds": 0.0,
                 "activity_score": 0.28,
+                "surfacing_score": 0.36,
                 "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,

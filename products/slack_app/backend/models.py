@@ -28,6 +28,12 @@ class SlackThreadTaskMapping(UUIDModel):
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of the most recent message we've already shown to the agent (either
+    # in the original `<slack_thread_context>` block at task creation, or in a follow-up
+    # `<slack_thread_context_update>` diff). On each follow-up, anything in the thread
+    # with a strictly larger `ts` (and smaller than the just-arrived message's `ts`) is
+    # rendered as a diff so the agent catches up on messages it never saw.
+    last_forwarded_ts = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -52,6 +58,7 @@ class SlackUserProfileCache(UUIDModel):
     real_name = models.CharField(max_length=255, blank=True, default="")
     is_admin = models.BooleanField(default=False, db_default=False)
     is_owner = models.BooleanField(default=False, db_default=False)
+    is_bot = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Null is treated as stale (rows predating this field).

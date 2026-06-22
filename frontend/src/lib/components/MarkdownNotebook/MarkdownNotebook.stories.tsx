@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, MarkdownNotebookProps } from './MarkdownNotebook'
@@ -180,6 +181,10 @@ export const ListsAndLinks: Story = {
 - Session replay
 - Feature flags
 
+- [x] Ship the onboarding experiment
+- [ ] Review session recordings
+  - [ ] Share findings with the team
+
 [Open PostHog](https://posthog.com)`,
     },
 }
@@ -240,6 +245,17 @@ export const SlashMenuAndInsertion: Story = {
     args: {
         value: '',
         initialInsertMenu: { nodeIndex: 0, query: '' },
+        // Extra commands are injected by the caller (the scenes layer wires up "Saved insight"); a stub
+        // command keeps that row present in the menu snapshot without mounting any real modal.
+        extraInsertCommands: () => [
+            {
+                key: 'query-saved-insight',
+                label: 'Saved insight',
+                category: 'Insight',
+                icon: <IconGraph />,
+                run: () => {},
+            },
+        ],
     },
 }
 

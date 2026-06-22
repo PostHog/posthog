@@ -57,7 +57,14 @@ rules:
                               AccessControl
                               |Account
                               |Action
+                              |AgentApplication
                               |AgentArtifact
+                              |AgentRevision
+                              |AgentSandboxInstance
+                              |AgentSession
+                              |AgentSessionCredential
+                              |AgentToolApprovalRequest
+                              |AgentUser
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -139,6 +146,7 @@ rules:
                               |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
+                              |FileSystemFolderContextGeneration
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -217,6 +225,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -244,7 +253,12 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |VisionAction
+                              |VisionActionRun
+                              |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
+                              |WebAnalyticsInteraction
+                              |WebAnalyticsVisit
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -304,7 +318,14 @@ rules:
                         AccessControl
                         |Account
                         |Action
+                        |AgentApplication
                         |AgentArtifact
+                        |AgentRevision
+                        |AgentSandboxInstance
+                        |AgentSession
+                        |AgentSessionCredential
+                        |AgentToolApprovalRequest
+                        |AgentUser
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -386,6 +407,7 @@ rules:
                         |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
+                        |FileSystemFolderContextGeneration
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -460,6 +482,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -487,7 +510,12 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |VisionAction
+                        |VisionActionRun
+                        |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
+                        |WebAnalyticsInteraction
+                        |WebAnalyticsVisit
                         |WizardSession
                     )$
           # Exclude when team filter is present
@@ -578,6 +606,7 @@ rules:
                       regex: |
                           (?x)(
                               CIMDVerificationToken
+                              |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -645,6 +674,7 @@ rules:
                 regex: |
                     (?x)(
                         CIMDVerificationToken
+                        |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
@@ -891,6 +921,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -962,6 +993,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList

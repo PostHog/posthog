@@ -11,6 +11,7 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
+    advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
@@ -107,7 +108,9 @@ class PipelineV3(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental or schema.is_webhook
+        # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
+        # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
+        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
 
@@ -116,7 +119,7 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook:
+        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -383,6 +386,8 @@ class PipelineV3(Generic[ResumableData]):
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
         )
+
+        await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
         if not self._schema.initial_sync_complete:
             await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")

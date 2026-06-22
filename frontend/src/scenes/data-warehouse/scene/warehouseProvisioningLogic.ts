@@ -1,19 +1,47 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseProvisioningStatus } from '~/types'
+import { Region } from '~/types'
+
+import {
+    dataWarehouseCheckDatabaseNameRetrieve,
+    dataWarehouseDeprovisionCreate,
+    dataWarehouseProvisionCreate,
+    dataWarehouseResetPasswordCreate,
+    dataWarehouseWarehouseStatusRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
+import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogicType'
+
+// The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
+// mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:
+// 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
+const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
+
+// DNS zone the connection host lives under, selected by deployment region. Mirrors
+// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
+const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
+    [Region.US]: 'us.postwh.com',
+    [Region.EU]: 'eu.postwh.com',
+    [Region.DEV]: 'dev.postwh.com',
+}
 
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
 
+const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
+
 export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'warehouseProvisioningLogic']),
+
+    connect(() => ({
+        values: [preflightLogic, ['preflight']],
+    })),
 
     actions({
         provisionWarehouse: (params: { databaseName: string }) => params,
@@ -35,11 +63,11 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
     loaders({
         warehouseStatus: [
-            null as DataWarehouseProvisioningStatus | null,
+            null as WarehouseStatusResponseApi | null,
             {
                 loadWarehouseStatus: async () => {
                     try {
-                        return await api.dataWarehouse.warehouseStatus()
+                        return await dataWarehouseWarehouseStatusRetrieve(currentProjectId())
                     } catch (e: any) {
                         if (e.status === 404) {
                             return null
@@ -137,7 +165,15 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 return status.state === 'pending' || status.state === 'provisioning' || status.state === 'deleting'
             },
         ],
-        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => /^[a-z][a-z0-9_-]{2,62}$/.test(name)],
+        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => WAREHOUSE_NAME_REGEX.test(name)],
+        // DNS zone for the connection host, resolved from the deployment region (null when unknown).
+        warehouseDomain: [
+            (s) => [s.preflight],
+            (preflight): string | null => {
+                const region = preflight?.region
+                return region ? (MANAGED_WAREHOUSE_DOMAINS[region] ?? null) : null
+            },
+        ],
         retryDatabaseName: [
             (s) => [s.databaseName, s.lastRequestedDatabaseName],
             (databaseName, lastRequestedDatabaseName): string => databaseName || lastRequestedDatabaseName || '',
@@ -145,6 +181,10 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         canProvision: [
             (s) => [s.isValidDatabaseName, s.databaseNameAvailable],
             (valid, available): boolean => valid && available === true,
+        ],
+        canRetryProvision: [
+            (s) => [s.retryDatabaseName],
+            (retryDatabaseName): boolean => !!retryDatabaseName && WAREHOUSE_NAME_REGEX.test(retryDatabaseName),
         ],
     }),
 
@@ -156,7 +196,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 if (debounceTimer) {
                     clearTimeout(debounceTimer)
                 }
-                if (/^[a-z][a-z0-9_-]{2,62}$/.test(name)) {
+                if (WAREHOUSE_NAME_REGEX.test(name)) {
                     actions.setDatabaseNameChecking(true)
                     debounceTimer = setTimeout(() => {
                         actions.checkDatabaseName(name)
@@ -166,7 +206,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             checkDatabaseName: async ({ name }) => {
                 try {
-                    const result = await api.dataWarehouse.checkDatabaseName(name)
+                    const result = await dataWarehouseCheckDatabaseNameRetrieve(currentProjectId(), { name })
                     if (values.databaseName === name) {
                         actions.setDatabaseNameAvailable(result.available)
                     }
@@ -180,7 +220,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.setLastRequestedDatabaseName(databaseName)
                 window.localStorage.setItem(databaseNameStorageKey(teamLogic.values.currentTeamId), databaseName)
                 try {
-                    const result = await api.dataWarehouse.provisionWarehouse(databaseName)
+                    const result = await dataWarehouseProvisionCreate(currentProjectId(), {
+                        database_name: databaseName,
+                    })
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -188,14 +230,21 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
                 } catch (e: any) {
-                    lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    if (e.status === 409) {
+                        // Another project in this organization already provisioned the shared warehouse.
+                        lemonToast.info('This organization already has a managed warehouse')
+                        actions.loadWarehouseStatus()
+                        actions.pollStatus()
+                    } else {
+                        lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    }
                 }
                 actions.provisionWarehouseComplete()
             },
 
             resetPassword: async () => {
                 try {
-                    const result = await api.dataWarehouse.resetPassword()
+                    const result = await dataWarehouseResetPasswordCreate(currentProjectId())
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -209,7 +258,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             deprovisionWarehouse: async () => {
                 window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
                 try {
-                    await api.dataWarehouse.deprovisionWarehouse()
+                    await dataWarehouseDeprovisionCreate(currentProjectId())
                     lemonToast.success('Warehouse deprovisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()

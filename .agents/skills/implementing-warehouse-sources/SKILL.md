@@ -68,7 +68,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, label, caption, docsUrl, iconPath, fields. Use appropriate field types (see below).
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
 5. **Register** the source — add an import line to `posthog/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `posthog/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -105,6 +105,49 @@ For REST sources that mix top-level and fan-out endpoints, keep endpoint metadat
 1. endpoint-specific custom iterators (only when required),
 2. generic fan-out helper path,
 3. top-level endpoint path.
+
+## Source category & keywords
+
+Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
+catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
+source has no category, so this is non-optional. Import the enum from `posthog.schema`:
+
+```python
+from posthog.schema import DataWarehouseSourceCategory
+...
+return SourceConfig(
+    name=SchemaExternalDataSourceType.STRIPE,
+    category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+    keywords=["billing", "subscriptions"],
+    ...
+)
+```
+
+Pick the single closest bucket. The enum members (note the triple underscore where the label has " & "):
+
+- `DATABASES` — OLTP/OLAP databases, warehouses, data streams (Postgres, Snowflake, BigQuery, Kafka, …)
+- `FILE_STORAGE` — object/file stores & file transfer (S3, Azure Blob, GCS, Google Drive, SFTP, …)
+- `ADVERTISING` — ad platforms & mobile attribution (Google Ads, Meta Ads, Reddit Ads, Adjust, …)
+- `MARKETING___EMAIL` — email/SMS/marketing automation (Klaviyo, Mailchimp, Braze, SendGrid, …)
+- `CRM` — CRM & sales intelligence (HubSpot, Salesforce, Attio, Pipedrive, ZoomInfo, …)
+- `SALES` — sales engagement/enablement, contracts (Salesloft, Outreach, Gong, DocuSign, …)
+- `CUSTOMER_SUPPORT` — helpdesk/support/CX (Zendesk, Intercom, Freshdesk, Front, …)
+- `PAYMENTS___BILLING` — payment processors & subscription billing (Stripe, Chargebee, PayPal, …)
+- `FINANCE___ACCOUNTING` — accounting/ERP/expense/spend (QuickBooks, Xero, NetSuite, SAP ERP, …)
+- `ANALYTICS` — product/web/marketing analytics & experimentation (Amplitude, Mixpanel, GA, …)
+- `ENGINEERING___MONITORING` — dev tooling, CI, error/uptime monitoring, feature flags, identity/auth (GitHub, Datadog, Sentry, LaunchDarkly, Auth0, …)
+- `PRODUCTIVITY` — project mgmt, docs, forms, scheduling (Notion, Airtable, Jira, Linear, Typeform, …)
+- `HR___RECRUITING` — HRIS/ATS/payroll/people (Ashby, Greenhouse, BambooHR, Workday, Gusto, …)
+- `COMMUNICATION` — messaging/meetings/telephony/social (Slack, Zoom, Microsoft Teams, Twilio, …)
+- `E_COMMERCE` — online store/commerce (Shopify, WooCommerce, BigCommerce, …)
+
+The category list is the source of truth in `frontend/src/queries/schema/schema-general.ts`
+(`dataWarehouseSourceCategories`); `pnpm run schema:build` regenerates the Python `DataWarehouseSourceCategory`
+enum. Adding a **new** category means editing that array and rebuilding — don't invent ad-hoc strings.
+
+`keywords` is an optional list of lowercase search aliases — only add when the source has a common acronym or
+alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
+the name already obviously matches; don't add noise.
 
 ## Source fields (the form the user fills in)
 
@@ -181,6 +224,26 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - Add `webhookFields` to `SourceConfig` for post-setup inputs (e.g. signing secret).
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
+
+## Multi-schema SQL database sources
+
+SQL DB sources (Postgres, MSSQL, Snowflake, Redshift today) can import tables from **every namespace (schema) in one connection**: a blank namespace field discovers tables across all non-system namespaces, the wizard groups them by namespace, and sync writes one warehouse table per `namespace.table`. Reference implementation: `postgres/postgres.py` + `PostgresImplementation`; the shared seam lives in `common/sql/`.
+
+The capability marker is the source's `schema` field being **optional** (`required=False`) in `get_source_config` — `is_multi_schema_capable_sql_source()` (`products/data_warehouse/backend/sql_warehouse_migration.py`) keys off it, so flipping the field optional is what turns on the viewset migration behavior. Treat `None` / `""` / whitespace as "all namespaces" (`normalize_namespace` in `common/sql/location.py`) and never emit `WHERE table_schema = ''`.
+
+Checklist for bringing a SQL source to multi-schema parity:
+
+1. **Namespace field optional** — `required=False` on the `schema` field, rerun `pnpm run generate:source-configs`. Keep `database` required: the database/catalog stays fixed per connection.
+2. **Multi-namespace discovery** — in `get_columns`, `get_primary_keys`, index/row-count/foreign-key helpers: when the namespace is blank, drop the `WHERE table_schema = <ns>` predicate (excluding system namespaces like `information_schema`, `pg_catalog`, `sys`) and return **qualified display names** (`namespace.table`). Keep the single-namespace fast path when the field is set.
+3. **Implement `get_source_metadata`** — return `SourceMetadata(catalog_by_table, schema_by_table, table_name_by_table)` keyed by the qualified display name. `SQLSource.get_schemas` stamps it onto each `SourceSchema`, and `reconcile_schema_metadata` persists it into `ExternalDataSchema.sync_type_config["schema_metadata"]`.
+4. **Per-row routing in `build_pipeline`** — resolve `(schema, table_name, response_name)` with `resolve_source_location` (`common/sql/location.py`): per-row metadata → dotted-name self-heal → config namespace. Run SQL against the resolved schema + **unqualified** table; set `SourceResponse.name = response_name` (`dwh_storage_key or schema.name`, normalized) — never the bare table name, or the row's Delta path moves and orphans synced data.
+5. **Thread the resolved namespace through every streaming/stats helper** — table metadata, row stats, average row size, partition settings, chunk size, primary-key lookup all take `(schema, table)`. Missing one degrades silently (no partitioning / wrong stats).
+6. **Never feed a dotted display name to an identifier quoter** — `quote("a.b")` yields one wrong identifier. Split into `(schema, table)` first and use `quote_qualified` (`common/sql/identifiers.py`).
+7. **Naming layers are derived, never stored** — display name `analytics.users`; S3/Delta subdir `analytics_users` (normalized `response_name`); HogQL table `{prefix}_analytics_users`. The one stored exception is `dwh_storage_key`, which pins a migrated legacy row to its original Delta path.
+8. **Legacy migration is capability-driven, not source-type-gated** — when a user clears the namespace on an existing single-schema source, `sql_warehouse_migration.py` renames rows to qualified form and stamps `dwh_storage_key`, preserving synced data with no re-sync. Don't add `source_type == "..."` branches to the shared layer.
+9. **Tests** — two namespaces with the same table name stay distinct end to end; blank-namespace discovery excludes system namespaces; per-row routing hits the right namespace; legacy single-namespace sources keep working; migrated rows keep their legacy Delta path.
+
+Discovery cost: `validate_credentials` and `database_schema` run discovery with no name filter, so a blank namespace on a catalog with hundreds of schemas must not issue per-table queries per namespace — batch the listing queries or cap enumeration (see Snowflake's `SHOW PRIMARY KEYS` handling).
 
 ## Outbound HTTP must go through the tracked transport
 
@@ -452,6 +515,8 @@ Bootstrapping:
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
+- [ ] Set category on get_source_config (required — DataWarehouseSourceCategory; groups the source in the wizard catalog)
+- [ ] Add keywords if the source has a common acronym / alternate spelling (optional, lowercase)
 - [ ] Define source fields in get_source_config
 - [ ] Implement validate_credentials
 - [ ] Implement get_schemas
@@ -493,6 +558,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 ## Common pitfalls
 
 - Source not visible in wizard: not registered/imported in `sources/__init__.py`, or `schema:build` not rerun.
+- `test_source_categories` failing: the source's `get_source_config` is missing `category` — set it to the closest `DataWarehouseSourceCategory` bucket.
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.

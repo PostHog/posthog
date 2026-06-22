@@ -35,26 +35,14 @@ const meta: Meta<ActivityLogProps> = {
                         },
                     },
                 ],
-                '/api/projects/:team/feature_flags/6/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: [] }),
+                '/api/projects/:team/feature_flags/6/activity': () => [200, { results: [] }],
+                '/api/projects/:team/feature_flags/7/activity': () => [
+                    200,
+                    { results: featureFlagsActivityResponseJson },
                 ],
-                '/api/projects/:team/feature_flags/7/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: featureFlagsActivityResponseJson }),
-                ],
-                '/api/environments/:team_id/insights/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: insightsActivityResponseJson }),
-                ],
-                '/api/person/:id/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: personActivityResponseJson }),
-                ],
-                '/api/projects/:id/activity': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({ results: teamActivityResponseJson }),
-                ],
+                '/api/environments/:team_id/insights/activity': () => [200, { results: insightsActivityResponseJson }],
+                '/api/person/:id/activity': () => [200, { results: personActivityResponseJson }],
+                '/api/projects/:id/activity': () => [200, { results: teamActivityResponseJson }],
             },
         }),
     ],

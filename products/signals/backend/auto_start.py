@@ -28,7 +28,7 @@ from products.signals.backend.report_generation.resolve_reviewers import resolve
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, record_implementation_task
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -98,7 +98,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
-) -> Task | None:
+) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
@@ -106,13 +106,13 @@ def _create_implementation_task_if_absent(
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
-    returns ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report
-    is gone.
+    returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
+    report is gone.
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
-            return None
+            return False
         # The gate is the legacy `SignalReportTask` implementation link, not the artefact log:
         # task_run artefacts are freeform and API-mutable (any agent can append or delete them via
         # the API), so they can't be trusted to decide whether an implementation has started.
@@ -120,13 +120,13 @@ def _create_implementation_task_if_absent(
         # once `backfill_task_run_artefacts` has converted every legacy row, the gate can move to
         # the artefact log and `SignalReportTask` can be dropped.
         if SignalReportTask.objects.filter(report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists():
-            return None
+            return False
         team = Team.objects.select_related("organization").get(id=team_id)
-        task = Task.create_and_run(
+        created = tasks_facade.create_and_run_task(
             team=team,
             title=title,
             description=description,
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,
             repository=repository,
             branch=base_branch,
@@ -135,19 +135,19 @@ def _create_implementation_task_if_absent(
             # code references) via the task:write artefact tools.
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+            ai_stage="implementation",
         )
-        task_run = task.runs.order_by("-created_at").first()
-        if task_run is None:
-            raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
+        if created.latest_run is None:
+            raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
         # Written inside the lock so the gate check above and this write are serialized — the
         # `SignalReportTask` gate row must be visible before the lock releases.
         record_implementation_task(
             team_id=team_id,
             report_id=report_id,
-            task_id=str(task.id),
-            run_id=str(task_run.id),
+            task_id=str(created.task_id),
+            run_id=str(created.latest_run.id),
         )
-        return task
+        return True
 
 
 def _resolve_autostart_assignee(
@@ -276,7 +276,7 @@ async def maybe_autostart_implementation_task(
     if repository and team_config:
         base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
 
-    task = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
+    created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         title=title,
@@ -287,7 +287,7 @@ async def maybe_autostart_implementation_task(
         repository=repository,
         base_branch=base_branch,
     )
-    if task is None:
+    if not created:
         # Another evaluation won the race and already created the implementation task.
         logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return

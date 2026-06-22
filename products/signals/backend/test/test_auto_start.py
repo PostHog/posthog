@@ -1,12 +1,15 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import patch
+
+from django.apps import apps
 
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend import auto_start
 from products.signals.backend.auto_start import (
     ReviewerContent,
     _create_implementation_task_if_absent,
@@ -20,7 +23,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_generation.research import Priority
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade import api as tasks_facade
 
 
 @pytest.fixture
@@ -75,13 +78,19 @@ def test_resolve_autostart_assignee(organization, team, autostart_priority, repo
 @pytest.mark.django_db
 def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
-    # observes the link row must no-op rather than spawn another Task / draft PR.
+    # observes the link row must no-op rather than spawn another Task / draft PR. It also asserts
+    # the facade is invoked with the SIGNAL_REPORT origin and ai_stage="implementation" so the
+    # run's $ai_generation traces are attributed rather than landing in the "(none)" bucket.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
 
-    def _fake_create_and_run(**kwargs):
+    created_tasks = []
+
+    def _fake_create_and_run_task(**kwargs):
         task = Task.objects.create(
             team=team,
             title=kwargs["title"],
@@ -89,8 +98,9 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
             created_by=user,
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        TaskRun.objects.create(task=task, team=team)
-        return task
+        run = TaskRun.objects.create(task=task, team=team)
+        created_tasks.append(task)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
 
     kwargs = {
         "team_id": team.id,
@@ -101,21 +111,21 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "repository": "owner/repo",
         "base_branch": None,
     }
-    with patch.object(auto_start.Task, "create_and_run", side_effect=_fake_create_and_run) as mock_create:
+    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 
-    assert first is not None
-    assert second is None
+    assert first is True
+    assert second is False
     assert mock_create.call_count == 1
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    assert call_kwargs["ai_stage"] == "implementation"
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.
-    assert (
-        SignalReportTask.objects.filter(report=report, task=first, relationship=TASK_RUN_TYPE_IMPLEMENTATION).count()
-        == 1
-    )
+    assert SignalReportTask.objects.filter(report=report, relationship=TASK_RUN_TYPE_IMPLEMENTATION).count() == 1
     assert (
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )
-    assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(first.id)]
+    assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(created_tasks[0].id)]

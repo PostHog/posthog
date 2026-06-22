@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -95,6 +96,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZOOM,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Zoom",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync your Zoom users, meetings, and webinars into the PostHog Data warehouse.

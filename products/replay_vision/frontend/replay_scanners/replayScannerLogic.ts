@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -233,7 +233,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
         loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
-        triggerOnDemandObservation: (sessionId: string) => ({ sessionId }),
+        // `silent` skips the success toast — the list view has its own inline spinner/result feedback.
+        triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
         triggerOnDemandObservationSuccess: true,
         triggerOnDemandObservationFailure: true,
         refreshObservations: true,
@@ -756,7 +757,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            triggerOnDemandObservation: async ({ sessionId }) => {
+            triggerOnDemandObservation: async ({ sessionId, silent }) => {
                 if (props.id === 'new') {
                     actions.triggerOnDemandObservationFailure()
                     return
@@ -773,7 +774,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 try {
                     await visionScannersObserveCreate(String(teamId), props.id, { session_id: trimmed })
-                    lemonToast.success('Scanning session — new observation will appear below shortly.')
+                    if (!silent) {
+                        lemonToast.success(
+                            'Scanning recording — the observation will appear on the Observations tab shortly.'
+                        )
+                    }
                     actions.triggerOnDemandObservationSuccess()
                     actions.refreshObservations()
                 } catch (error: any) {

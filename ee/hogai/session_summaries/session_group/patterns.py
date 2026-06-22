@@ -9,6 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
@@ -532,7 +533,8 @@ def get_persons_for_sessions_from_distinct_ids(
         # No ids to search for persons - return empty mapping
         return {}
     try:
-        distinct_to_person = get_persons_mapped_by_distinct_id(team_id=team_id, distinct_ids=distinct_ids)
+        with personhog_caller_tag("session-summaries/persons"):
+            distinct_to_person = get_persons_mapped_by_distinct_id(team_id=team_id, distinct_ids=distinct_ids)
         session_id_to_person_mapping: dict[str, Person | None] = {}
         for distinct_id, person in distinct_to_person.items():
             person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)

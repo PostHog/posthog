@@ -7,7 +7,7 @@ and for reads that consume stored rows — and everything in between passes the 
 around; the model helpers derive a row's type from the content model's class. The module is
 kept deliberately dependency-light so models, views, and temporal code can all import it without
 pulling in the report-research / sandbox machinery — its non-pydantic imports are leaf DTOs that
-carry no such weight: the cross-product `RepoSelectionResult` (`repo_selection.types`) and the
+carry no such weight: the cross-product `RepoSelectionResult` (`logic.repo_selection.types`) and the
 generated `posthog.schema.RelevantCommit` (reused as the single source of truth for commit shape).
 
 Reads of legacy rows that predate these schemas stay tolerant (parse failures are skipped or
@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, RootModel, ValidationError, field_validat
 
 from posthog.schema import RelevantCommit
 
-from products.tasks.backend.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
 # contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays

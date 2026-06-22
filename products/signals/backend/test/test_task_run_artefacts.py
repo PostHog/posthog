@@ -23,8 +23,8 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     signals_task_ids,
 )
+from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.models import Task
-from products.tasks.backend.repo_selection.agent import RepoSelectionResult
 
 
 class TestTaskRunArtefacts(BaseTest):

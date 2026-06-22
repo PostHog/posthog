@@ -3,7 +3,12 @@ import { MutableRefObject } from 'react'
 import { CommentBlock } from './CommentBlock'
 import { ComponentPanel, ComponentPanelVisibility } from './componentPanels'
 import { DividerBlock } from './DividerBlock'
-import { isCommentComponentNode, isDividerComponentNode, isPromptComponentNode } from './documentModel'
+import {
+    isCommentComponentNode,
+    isDiscussionCommentNode,
+    isDividerComponentNode,
+    isPromptComponentNode,
+} from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
 import { EditableListBlock } from './EditableListBlock'
 import { EditablePromptComponent } from './EditablePromptComponent'
@@ -56,6 +61,10 @@ export function renderNode({
     isInsertMenuOpen,
     insertMenuMode,
     hasInvalidInsertMenuQuery,
+    isAIWriting,
+    isAIWritingPlaceholder,
+    isAIPromptSubmitDisabled,
+    aiPromptFocusRequest,
     submitInsertMenuSelection,
     submitAIPrompt,
     handleSelectionChange,
@@ -99,6 +108,10 @@ export function renderNode({
     isInsertMenuOpen: boolean
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
+    isAIWriting: boolean
+    isAIWritingPlaceholder: boolean
+    isAIPromptSubmitDisabled: boolean
+    aiPromptFocusRequest?: number
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
@@ -122,7 +135,9 @@ export function renderNode({
             )
         }
 
-        if (isCommentComponentNode(node)) {
+        // Discussion comments (ref/replies) render through the registry shell; only the
+        // authorial note flavor uses the inline chip.
+        if (isCommentComponentNode(node) && !isDiscussionCommentNode(node)) {
             return (
                 <CommentBlock
                     node={node}
@@ -148,7 +163,9 @@ export function renderNode({
                     deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
                     updateAIPromptQuery={updateAIPromptQuery}
                     submitAIPrompt={submitAIPrompt}
+                    isAIPromptSubmitDisabled={isAIPromptSubmitDisabled}
                     isActive={isInsertMenuOpen && insertMenuMode === 'ai'}
+                    focusRequest={aiPromptFocusRequest}
                     restoreSelectionRef={restoreSelectionRef}
                 />
             )
@@ -244,6 +261,8 @@ export function renderNode({
             isInsertMenuOpen={isInsertMenuOpen}
             insertMenuMode={insertMenuMode}
             hasInvalidInsertMenuQuery={hasInvalidInsertMenuQuery}
+            isAIWriting={isAIWriting}
+            isAIWritingPlaceholder={isAIWritingPlaceholder}
             submitInsertMenuSelection={submitInsertMenuSelection}
             handleSelectionChange={handleSelectionChange}
             startTextSelectionPointer={startTextSelectionPointer}

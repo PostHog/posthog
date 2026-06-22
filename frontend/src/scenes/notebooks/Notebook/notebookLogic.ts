@@ -35,11 +35,16 @@ import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNoteb
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { base64Decode, base64Encode } from 'lib/utils/base64'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -85,11 +90,7 @@ import {
     TableOfContentData,
 } from '../types'
 import { updateContentHeading } from '../utils'
-import {
-    NotebookArtifactApplyMode,
-    insertMarkdownAfterNotebookAIChatMarker,
-    preserveNotebookAIChatMarker,
-} from './markdownNotebookRuntime'
+import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
@@ -106,6 +107,18 @@ import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
+import {
+    NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+    NOTEBOOK_AI_PRESENCE_NAME,
+    NOTEBOOK_AI_PRESENCE_USER_ID,
+    getNotebookMarkdownClientId,
+    getNotebookPresenceParticipants,
+    getNotebookRemoteParticipants,
+    type NotebookPresenceParticipant,
+    type NotebookPresenceState,
+    type NotebookRemoteParticipant,
+    pruneNotebookRemotePresence,
+} from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export const SYNC_DELAY = 1000
@@ -134,13 +147,9 @@ export type MarkdownStreamEvent = {
 }
 
 /** Latest known caret of another client, from presence pings or update events. */
-export type NotebookRemotePresenceState = {
-    clientId: string
-    userId: number
-    userName: string
+export type NotebookRemotePresenceState = NotebookPresenceState & {
     version: number
     cursor: NotebookCollabCursorApi
-    lastSeenAt: number
 }
 
 /** Remote carets older than this stop rendering; senders heartbeat well within it. */
@@ -259,7 +268,9 @@ export const notebookLogic = kea<notebookLogicType>([
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['ttEditor'],
+            ['ttEditor', 'remoteParticipants'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             notebooksModel,
@@ -282,14 +293,15 @@ export const notebookLogic = kea<notebookLogicType>([
         onEditorSelectionUpdate: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
+        setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
         handleMarkdownEditorChange: (markdown: string) => ({ markdown }),
         setMarkdownEditorDraft: (draft: string | null) => ({ draft }),
         setMarkdownEditorBuffer: (buffered: string | null) => ({ buffered }),
         applyNotebookArtifactMarkdown: (
             content: NotebookArtifactContent,
-            chatId?: string,
+            conversationId?: string,
             mode: NotebookArtifactApplyMode = 'replace'
-        ) => ({ content, chatId, mode }),
+        ) => ({ content, conversationId, mode }),
         setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
             jsonContent,
             updateEditor,
@@ -314,10 +326,14 @@ export const notebookLogic = kea<notebookLogicType>([
         /** Broadcast the local caret; null means the selection left the notebook. */
         publishMarkdownCaret: (position: MarkdownNotebookCaretPosition | null) => ({ position }),
         reportMarkdownMergeConflicts: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
+        showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
+        dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
+        downloadMarkdown: true,
+        copyMarkdown: true,
         showConflictWarning: true,
         onUpdateEditor: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
@@ -440,6 +456,13 @@ export const notebookLogic = kea<notebookLogicType>([
                 dismissCollabConflict: () => null,
             },
         ],
+        markdownMergeConflictDetails: [
+            null as NotebookCollaborationConflict[] | null,
+            {
+                showMarkdownMergeConflictDetails: (_, { conflicts }) => conflicts,
+                dismissMarkdownMergeConflictDetails: () => null,
+            },
+        ],
         markdownRemotePresence: [
             {} as Record<string, NotebookRemotePresenceState>,
             {
@@ -447,11 +470,15 @@ export const notebookLogic = kea<notebookLogicType>([
                     ...state,
                     [presence.clientId]: { ...presence, lastSeenAt: receivedAt },
                 }),
-                pruneRemotePresence: (state, { now }) => {
-                    const fresh = Object.entries(state).filter(([, p]) => now - p.lastSeenAt <= PRESENCE_TTL_MS)
-                    return fresh.length === Object.keys(state).length ? state : Object.fromEntries(fresh)
-                },
+                pruneRemotePresence: (state, { now }) => pruneNotebookRemotePresence(state, now, PRESENCE_TTL_MS),
                 disconnectMarkdownUpdateStream: () => ({}),
+            },
+        ],
+        markdownAIPresenceActive: [
+            false,
+            {
+                setMarkdownAIPresenceActive: (_, { active }) => active,
+                disconnectMarkdownUpdateStream: () => false,
             },
         ],
         editingNodeIds: [
@@ -597,6 +624,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
+                    const notebookContent = notebook.content
+
                     if (values.collabEnabled && values.ttEditor) {
                         const sendable = sendableSteps(values.ttEditor.state)
                         if (!sendable) {
@@ -659,10 +688,10 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebook.content)) {
+                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebookContent)) {
                         const baselineVersion = values.notebook.version
                         const baseMarkdown = getMarkdownNotebookMarkdown(values.notebook.content)
-                        const nextMarkdown = getMarkdownNotebookMarkdown(notebook.content)
+                        const nextMarkdown = getMarkdownNotebookMarkdown(notebookContent)
                         const nodeId = getMarkdownNotebookNodeId(values.notebook.content)
 
                         if (nextMarkdown === baseMarkdown) {
@@ -676,13 +705,13 @@ export const notebookLogic = kea<notebookLogicType>([
                             return values.notebook
                         }
 
-                        cache.markdownClientId = cache.markdownClientId || uuid()
+                        cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
                         try {
                             const response = await api.notebooks.markdownSave(values.notebook.short_id, {
                                 client_id: cache.markdownClientId,
                                 version: baselineVersion,
-                                content: notebook.content,
-                                text_content: getNotebookTextContent(notebook.content, ''),
+                                content: notebookContent,
+                                text_content: getNotebookTextContent(notebookContent, ''),
                                 title: notebook.title,
                                 cursor: cache.lastMarkdownCaret
                                     ? caretPositionToApiCursor(cache.lastMarkdownCaret)
@@ -752,8 +781,8 @@ export const notebookLogic = kea<notebookLogicType>([
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
-                            content: notebook.content,
-                            text_content: getNotebookTextContent(notebook.content, values.editor?.getText() || ''),
+                            content: notebookContent,
+                            text_content: getNotebookTextContent(notebookContent, values.editor?.getText() || ''),
                             title: notebook.title,
                         })
 
@@ -761,7 +790,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             response.content &&
                             values.editor &&
                             values.localContent &&
-                            notebook.content === values.localContent
+                            notebookContent === values.localContent
                         ) {
                             const currentEditorContent = values.editor.getJSON()
                             if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
@@ -943,6 +972,37 @@ export const notebookLogic = kea<notebookLogicType>([
                 return carets
             },
         ],
+        markdownRemoteParticipants: [
+            (s) => [s.markdownRemotePresence],
+            (markdownRemotePresence): NotebookRemoteParticipant[] =>
+                getNotebookRemoteParticipants(markdownRemotePresence),
+        ],
+        notebookPresenceParticipants: [
+            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants, s.markdownAIPresenceActive],
+            (
+                user,
+                markdownRemoteParticipants: NotebookRemoteParticipant[],
+                remoteParticipants: NotebookRemoteParticipant[],
+                markdownAIPresenceActive: boolean
+            ): NotebookPresenceParticipant[] => {
+                const participants = getNotebookPresenceParticipants(
+                    user,
+                    markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
+                )
+                if (!markdownAIPresenceActive) {
+                    return participants
+                }
+                const aiParticipant: NotebookPresenceParticipant = {
+                    clientId: NOTEBOOK_AI_PRESENCE_CLIENT_ID,
+                    userId: NOTEBOOK_AI_PRESENCE_USER_ID,
+                    userName: NOTEBOOK_AI_PRESENCE_NAME,
+                    lastSeenAt: 0,
+                    isAI: true,
+                }
+                const [firstParticipant, ...remainingParticipants] = participants
+                return firstParticipant ? [firstParticipant, aiParticipant, ...remainingParticipants] : [aiParticipant]
+            },
+        ],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],
             (notebook, localContent, previewContent): JSONContent => {
@@ -1002,11 +1062,18 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editingNodeLogicsForLeft: [
-            (s) => [s.editingNodeLogics, s.containerSize],
-            (editingNodeLogics, containerSize) =>
-                containerSize === 'small'
+            (s) => [s.editingNodeLogics, s.containerSize, s.content],
+            (
+                editingNodeLogics: BuiltLogic<notebookNodeLogicType>[],
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) =>
+                containerSize === 'small' || isMarkdownNotebookContent(content)
                     ? []
-                    : editingNodeLogics.filter((nodeLogic) => nodeLogic.values.settingsPlacement !== 'inline'),
+                    : editingNodeLogics.filter(
+                          (nodeLogic: BuiltLogic<notebookNodeLogicType>) =>
+                              nodeLogic.values.settingsPlacement !== 'inline'
+                      ),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -1081,8 +1148,20 @@ export const notebookLogic = kea<notebookLogicType>([
                 s.showTableOfContents,
                 s.showKernelInfo,
                 s.containerSize,
+                s.content,
             ],
-            (editingNodeLogicsForLeft, showHistory, showTableOfContents, showKernelInfo, containerSize) => {
+            (
+                editingNodeLogicsForLeft: BuiltLogic<notebookNodeLogicType>[],
+                showHistory: boolean,
+                showTableOfContents: boolean,
+                showKernelInfo: boolean,
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) => {
+                if (isMarkdownNotebookContent(content)) {
+                    return false
+                }
+
                 const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
 
                 return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings
@@ -1188,6 +1267,7 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.markdownRealtimeEnabled) {
                 return
             }
+            cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
 
             cache.disposables.add(
                 () => {
@@ -1331,7 +1411,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
 
-            cache.markdownClientId = cache.markdownClientId || uuid()
+            cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
             try {
                 await notebooksCollabPresenceCreate(String(getCurrentTeamId()), values.notebook.short_id, {
                     client_id: cache.markdownClientId,
@@ -1395,9 +1475,15 @@ export const notebookLogic = kea<notebookLogicType>([
             })
             lemonToast.warning(
                 conflicts.length === 1
-                    ? 'Someone else edited the same block as you — your version was kept.'
-                    : `Someone else edited ${conflicts.length} of the same blocks as you — your versions were kept.`,
-                { toastId: `notebook-merge-conflict-${values.shortId}` }
+                    ? "Your edit and a collaborator's edit to the same block couldn't be merged — your version is showing."
+                    : `Your edits and a collaborator's edits to ${conflicts.length} blocks couldn't be merged — your versions are showing.`,
+                {
+                    toastId: `notebook-merge-conflict-${values.shortId}`,
+                    button: {
+                        label: 'Review',
+                        action: () => actions.showMarkdownMergeConflictDetails(conflicts),
+                    },
+                }
             )
         },
         insertAfterLastNode: async ({ content }) => {
@@ -1585,7 +1671,7 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setAutosavePaused(false)
         },
 
-        applyNotebookArtifactMarkdown: ({ content, chatId, mode }) => {
+        applyNotebookArtifactMarkdown: ({ content, mode }) => {
             const artifactMarkdown = notebookArtifactContentToMarkdown(content)
             if (!artifactMarkdown.trim()) {
                 return
@@ -1593,9 +1679,9 @@ export const notebookLogic = kea<notebookLogicType>([
 
             const currentMarkdown = values.markdownEditorValue
             const nextMarkdown =
-                mode === 'insert-after-chat'
-                    ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
-                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+                mode === 'insert-after-response'
+                    ? [currentMarkdown, artifactMarkdown].filter((block) => block.trim()).join('\n\n')
+                    : artifactMarkdown
             if (nextMarkdown === currentMarkdown) {
                 return
             }
@@ -1758,6 +1844,15 @@ export const notebookLogic = kea<notebookLogicType>([
             )
 
             downloadFile(file)
+        },
+        downloadMarkdown: () => {
+            const markdown = getMarkdownNotebookMarkdown(values.content)
+            const file = new File([markdown], `${slugify(values.title ?? 'untitled')}.md`, { type: 'text/markdown' })
+
+            downloadFile(file)
+        },
+        copyMarkdown: async () => {
+            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
         },
 
         discardLocalChanges: () => {

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -167,11 +168,14 @@ def load_integrations(
     the routing resolver against them. Thin wrapper around
     ``resolve_from_candidates`` that owns the candidate query.
     """
+    from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
+
     candidates = list(
         Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
+    candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
         slack_team_id=slack_team_id,
@@ -217,13 +221,13 @@ def resolve_user_for_workspace(
     and the membership query.
     """
     # The user resolver lives in api.py alongside the Slack-API helpers it
-    # depends on (``_get_slack_user_info`` etc). Inline-imported to break the
+    # depends on (``get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
     from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
 
     if not slack_user_id:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="user_not_found",
             slack_team_id=slack_team_id,
             slack_user_id=None,
@@ -237,6 +241,10 @@ def resolve_user_for_workspace(
     probe = workspace_result.candidates[0]
     slack_email = get_slack_email_for_user(probe, slack_user_id)
 
+    if settings.DEBUG:
+        # When running locally - match the local user
+        slack_email = "test@posthog.com"
+
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
@@ -245,7 +253,7 @@ def resolve_user_for_workspace(
     )
     if posthog_user is None:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="user_not_found",
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id,
@@ -268,7 +276,7 @@ def resolve_user_for_workspace(
     accessible_team_ids = {c.team_id for c in accessible_candidates}
     if not accessible_candidates:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="no_team_access",
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id,

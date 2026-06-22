@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext, OutputFn
 
 logger = logging.getLogger(__name__)
 
@@ -625,8 +625,8 @@ async def run_multi_turn_research(
     has_business_knowledge: bool = False,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
-    from products.tasks.backend.models import Task
-    from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.agents import MultiTurnSession
 
     total = len(signals)
     if total == 0:
@@ -666,8 +666,9 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        ai_stage="research",
         internal=True,
     )
 

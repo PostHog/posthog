@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'

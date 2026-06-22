@@ -29,7 +29,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { isGroupType, isSessionType } from 'lib/utils/guards'
+import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -39,7 +41,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefinitionType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActorType,
+    ExporterFormat,
+    PropertiesTimelineFilterType,
+    PropertyDefinitionType,
+} from '~/types'
 
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
@@ -100,6 +109,12 @@ export function PersonsModal({
         useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { startExport } = useActions(exportsLogic)
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const totalActorsCount = missingActorsCount + actors.length
     type ActorsQuery = NonNullable<typeof query>
@@ -310,6 +325,7 @@ export function PersonsModal({
                                         })
                                     }}
                                     tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     data-attr="person-modal-download-csv"
                                 >
                                     Download CSV

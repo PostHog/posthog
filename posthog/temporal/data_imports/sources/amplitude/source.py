@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -99,6 +100,7 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMPLITUDE,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Amplitude",
             caption=(
                 "Connect Amplitude with your project's **API key** and **secret key**, found in Amplitude under "
