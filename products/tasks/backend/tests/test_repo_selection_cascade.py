@@ -57,8 +57,10 @@ class TestSelectRepositoryForMessage:
         result = RepoSelectionResult(repository="posthog/posthog", reason="agent picked it")
         with resolve, list_repos, patch(f"{_CASCADE}.select_repository", new=AsyncMock(return_value=result)) as select:
             await _run("the dashboards are slow")
-            assert select.await_args.kwargs["github"] is github
-            assert select.await_args.kwargs["candidate_repos"] == candidates
+            await_args = select.await_args
+            assert await_args is not None
+            assert await_args.kwargs["github"] is github
+            assert await_args.kwargs["candidate_repos"] == candidates
 
     async def test_select_repository_null_returns_none(self):
         resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog", "posthog/posthog-js"])
