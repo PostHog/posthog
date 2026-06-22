@@ -635,25 +635,32 @@ class CDCExtractActivity:
             columns=filtered,
         )
 
+    def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
+        """Resolve a CDC schema row to its source-qualified `schema.table` name.
+
+        Prefers stored schema_metadata, then a dotted display name, then the source's
+        default schema — so a row stored bare (`orders`) still resolves to its real
+        source location (`public.orders`).
+        """
+        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        metadata = schema.sync_type_config.get("schema_metadata") or {}
+        src_schema = metadata.get("source_schema")
+        src_table = metadata.get("source_table_name")
+        if isinstance(src_schema, str) and isinstance(src_table, str):
+            return f"{src_schema}.{src_table}"
+        if "." in schema.name:
+            return schema.name
+        return f"{default_schema or 'public'}.{schema.name}"
+
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.
 
         WAL events are always qualified (`public.orders`) but `name` may be stored bare
         (`orders`), so an exact-equality match silently drops every change for a bare row.
         """
-        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
         mapping: dict[str, str] = {}
         for schema in self.cdc_schemas:
-            metadata = schema.sync_type_config.get("schema_metadata") or {}
-            src_schema = metadata.get("source_schema")
-            src_table = metadata.get("source_table_name")
-            if isinstance(src_schema, str) and isinstance(src_table, str):
-                qualified = f"{src_schema}.{src_table}"
-            elif "." in schema.name:
-                qualified = schema.name
-            else:
-                qualified = f"{default_schema or 'public'}.{schema.name}"
-            mapping[qualified] = schema.name
+            mapping[self._qualified_table_name(schema)] = schema.name
             mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
         return mapping
 
@@ -922,7 +929,9 @@ class CDCExtractActivity:
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
-        resource_fields = self.adapter.recreate_slot(self.source, tables=[s.name for s in self.cdc_schemas])
+        resource_fields = self.adapter.recreate_slot(
+            self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
+        )
 
         self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
         self.source.save(update_fields=["job_inputs", "updated_at"])

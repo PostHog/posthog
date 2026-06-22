@@ -1,13 +1,17 @@
 import json
 import base64
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from posthog.session_recordings.recordings.errors import BlockFetchError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.session_replay.export_recording.activities import (
+    _mark_stale_exports_failed,
     _redis_key,
     _redis_url,
     build_recording_export_context,
@@ -16,9 +20,15 @@ from posthog.temporal.session_replay.export_recording.activities import (
     export_recording_data,
     export_recording_data_prefix,
     export_replay_clickhouse_rows,
+    mark_export_failed,
     store_export_data,
 )
-from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+from posthog.temporal.session_replay.export_recording.types import (
+    ExportContext,
+    ExportRecordingInput,
+    MarkExportFailedInput,
+    RedisConfig,
+)
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 
@@ -83,6 +93,8 @@ async def test_build_recording_export_context_success():
     mock_qs.select_related.assert_called_once_with("team")
     mock_qs.select_related.return_value.only.assert_called_once_with("status", "session_id", "team__id")
     mock_qs.select_related.return_value.only.return_value.aget.assert_called_once_with(id=TEST_RECORDING_ID)
+    # stale exports are reaped opportunistically when a new export starts
+    mock_qs.filter.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -172,6 +184,65 @@ async def test_export_event_clickhouse_rows_success():
         call_args = mock_redis.setex.call_args
         assert call_args[0][0] == _redis_key(export_id, "events")
         assert call_args[0][1] == TEST_REDIS_CONFIG.redis_ttl
+
+
+@pytest.mark.asyncio
+async def test_mark_export_failed_sets_status_and_truncated_message():
+    mock_record = MagicMock()
+    mock_record.save = MagicMock()
+
+    mock_async_save = AsyncMock()
+
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(return_value=mock_record)
+        mock_db_sync.return_value = mock_async_save
+
+        await mark_export_failed(
+            MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="x" * 5000)
+        )
+
+    mock_objects.aget.assert_called_once_with(id=TEST_RECORDING_ID)
+    assert mock_record.status == ExportedRecording.Status.FAILED
+    assert mock_record.error_message == "x" * 2000
+    mock_db_sync.assert_called_once_with(mock_record.save)
+    mock_async_save.assert_awaited_once_with(update_fields=["status", "error_message"])
+
+
+@pytest.mark.asyncio
+async def test_mark_export_failed_does_not_overwrite_completed_export():
+    mock_record = MagicMock()
+    mock_record.status = ExportedRecording.Status.COMPLETE
+    mock_record.save = MagicMock()
+
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(return_value=mock_record)
+        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
+
+        await mark_export_failed(
+            MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="cleanup blew up")
+        )
+
+    assert mock_record.status == ExportedRecording.Status.COMPLETE
+    mock_db_sync.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mark_export_failed_handles_deleted_export():
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(side_effect=ExportedRecording.DoesNotExist)
+
+        await mark_export_failed(MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="boom"))
+
+    mock_db_sync.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -552,3 +623,32 @@ async def test_cleanup_export_data_no_manifest():
         mock_redis.delete.assert_called_once()
         delete_args = mock_redis.delete.call_args[0]
         assert len(delete_args) == 4
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,age_hours,expect_swept",
+    [
+        (ExportedRecording.Status.RUNNING, 49, True),
+        (ExportedRecording.Status.PENDING, 49, True),
+        # still within the export workflow's max legitimate lifetime - must not be reaped
+        (ExportedRecording.Status.RUNNING, 13, False),
+        (ExportedRecording.Status.PENDING, 1, False),
+        (ExportedRecording.Status.COMPLETE, 49, False),
+        (ExportedRecording.Status.FAILED, 49, False),
+    ],
+)
+def test_mark_stale_exports_failed_only_sweeps_old_unfinished(team, status, age_hours, expect_swept):
+    record = ExportedRecording.objects.create(team=team, session_id="s", reason="r", status=status)
+    ExportedRecording.objects.filter(pk=record.pk).update(created_at=timezone.now() - timedelta(hours=age_hours))
+
+    swept = _mark_stale_exports_failed()
+    record.refresh_from_db()
+
+    if expect_swept:
+        assert swept == 1
+        assert record.status == ExportedRecording.Status.FAILED
+        assert record.error_message == "timed out"
+    else:
+        assert swept == 0
+        assert record.status == status
