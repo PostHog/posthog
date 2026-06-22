@@ -22,6 +22,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -743,30 +744,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
