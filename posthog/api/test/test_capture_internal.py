@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -15,6 +16,7 @@ from posthog.api.capture import (
     CaptureInternalError,
     CaptureInternalResult,
     _build_v1_headers,
+    _merge_results,
     _normalize_options_and_properties,
     _parse_retry_after,
     _resolve_scalar,
@@ -49,18 +51,23 @@ class MockResponse:
 
 
 class InstallV1Spy:
-    """Spy that records POST calls and returns a configurable sequence of responses."""
+    """Spy that records POST calls and returns a configurable sequence of responses.
+
+    Thread-safe: concurrent calls from chunked batch submissions are serialized via lock.
+    """
 
     def __init__(self, mock_session_fn: MagicMock, responses: list[MockResponse] | None = None):
         self.calls: list[dict[str, Any]] = []
         self._responses = list(responses or [MockResponse(body={})])
         self._call_idx = 0
+        self._lock = threading.Lock()
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
-            self.calls.append({"url": url, **kwargs})
-            resp = self._responses[min(self._call_idx, len(self._responses) - 1)]
-            self._call_idx += 1
-            return resp
+            with self._lock:
+                self.calls.append({"url": url, **kwargs})
+                resp = self._responses[min(self._call_idx, len(self._responses) - 1)]
+                self._call_idx += 1
+                return resp
 
         mock_session = MagicMock()
         mock_session.post.side_effect = spy_post
@@ -983,3 +990,226 @@ class TestCaptureInternalResult(SimpleTestCase):
     def test_raise_for_status_noop_on_success(self) -> None:
         r = CaptureInternalResult(status_code=200, ok=["a"])
         r.raise_for_status()
+
+
+# --------------------------------------------------------------------------- #
+# Helpers for chunking tests
+# --------------------------------------------------------------------------- #
+
+
+def _make_realistic_event(index: int = 0, **overrides: Any) -> dict[str, Any]:
+    """Generate an event dict with realistic properties (5-10 fields)."""
+    uid = str(uuid4())
+    ev: dict[str, Any] = {
+        "event": f"test_event_{index % 5}",
+        "distinct_id": f"user-{index % 50}",
+        "event_uuid": uid,
+        "timestamp": datetime(2025, 6, 15, 12, 0, index % 60, tzinfo=UTC).isoformat(),
+        "session_id": f"sess-{index % 20}",
+        "properties": {
+            "url": f"https://app.example.com/page/{index}",
+            "referrer": "https://google.com",
+            "screen_width": 1920,
+            "screen_height": 1080,
+            "browser": "Chrome",
+            "os": "macOS",
+            "lib_version": "1.42.0",
+            "custom_metric": index * 3.14,
+        },
+    }
+    ev.update(overrides)
+    return ev
+
+
+def _make_batch(size: int) -> list[dict[str, Any]]:
+    return [_make_realistic_event(i) for i in range(size)]
+
+
+# --------------------------------------------------------------------------- #
+# Chunking orchestration tests
+# --------------------------------------------------------------------------- #
+
+
+class TestBatchChunking(SimpleTestCase):
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_small_batch_no_chunking(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(200)
+        uuids = [e["event_uuid"] for e in events]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(*uuids))])
+
+        result = capture_batch_internal(events=events, token="tok", event_source="small")
+
+        assert result.succeeded()
+        assert len(result.ok) == 200
+        assert len(spy.calls) == 1
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_boundary_201_triggers_chunking(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(201)
+        uuids = [e["event_uuid"] for e in events]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(*uuids))])
+
+        result = capture_batch_internal(events=events, token="tok", event_source="boundary")
+
+        assert result.succeeded()
+        assert len(result.ok) == 201
+        # 2 chunks: 200 + 1
+        assert len(spy.calls) == 2
+        batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
+        assert batch_sizes == [1, 200]
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_large_batch_450_events_three_chunks(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(450)
+        uuids = [e["event_uuid"] for e in events]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(*uuids))])
+
+        result = capture_batch_internal(events=events, token="tok", event_source="large")
+
+        assert result.succeeded()
+        assert len(result.ok) == 450
+        assert len(spy.calls) == 3
+        batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
+        assert batch_sizes == [50, 200, 200]
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_partial_chunk_failure_preserves_successful_chunks(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(400)
+        chunk1_uuids = [e["event_uuid"] for e in events[:200]]
+        lock = threading.Lock()
+
+        def spy_post(url: str, **kwargs: Any) -> MockResponse:
+            with lock:
+                pass
+            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
+            if set(batch_uuids) & set(chunk1_uuids):
+                return MockResponse(body=_ok_results(*batch_uuids))
+            else:
+                raise RequestsConnectionError("connection refused")
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = spy_post
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+
+        result = capture_batch_internal(events=events, token="tok", event_source="partial")
+
+        assert not result.succeeded()
+        assert len(result.ok) == 200
+        assert result.error is not None
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_all_chunks_fail(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(400)
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = RequestsConnectionError("network down")
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+
+        result = capture_batch_internal(events=events, token="tok", event_source="allfail")
+
+        assert not result.succeeded()
+        assert result.error is not None
+        assert result.error["error"] == "transport_error"
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_chunked_results_merge_correctly(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(400)
+        chunk1_uuids = [e["event_uuid"] for e in events[:200]]
+        chunk2_uuids = [e["event_uuid"] for e in events[200:]]
+
+        def spy_post(url: str, **kwargs: Any) -> MockResponse:
+            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
+            results: dict[str, Any] = {}
+            for uid in batch_uuids:
+                if uid in chunk1_uuids:
+                    results[uid] = {"result": "ok"}
+                else:
+                    results[uid] = {"result": "drop", "details": "quota"}
+            return MockResponse(body={"results": results})
+
+        mock_session = MagicMock()
+        mock_session.post.side_effect = spy_post
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+
+        result = capture_batch_internal(events=events, token="tok", event_source="merge")
+
+        assert not result.succeeded()
+        assert len(result.ok) == 200
+        assert len(result.dropped) == 200
+        assert set(result.ok) == set(chunk1_uuids)
+        assert set(result.dropped) == set(chunk2_uuids)
+
+    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_chunked_historical_migration_flag_propagated(self, mock_session_fn: MagicMock) -> None:
+        events = _make_batch(201)
+        uuids = [e["event_uuid"] for e in events]
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(*uuids))])
+
+        capture_batch_internal(events=events, token="tok", event_source="hist", historical_migration=True)
+
+        for call in spy.calls:
+            assert call["json"]["historical_migration"] is True
+            assert call["json"]["capture_internal"] is True
+
+
+class TestMergeResults(SimpleTestCase):
+    def test_merge_all_success(self) -> None:
+        r1 = CaptureInternalResult(status_code=200, results={"a": {"result": "ok"}}, ok=["a"])
+        r2 = CaptureInternalResult(status_code=200, results={"b": {"result": "ok"}}, ok=["b"])
+
+        merged = _merge_results([r1, r2])
+
+        assert merged.status_code == 200
+        assert merged.succeeded()
+        assert set(merged.ok) == {"a", "b"}
+        assert merged.error is None
+
+    def test_merge_with_one_error(self) -> None:
+        r1 = CaptureInternalResult(status_code=200, results={"a": {"result": "ok"}}, ok=["a"])
+        r2 = CaptureInternalResult(status_code=0, error={"error": "transport_error", "error_description": "timeout"})
+
+        merged = _merge_results([r1, r2])
+
+        assert merged.status_code == 0
+        assert not merged.succeeded()
+        assert "a" in merged.ok
+        assert merged.error is not None
+
+    def test_merge_mixed_buckets(self) -> None:
+        r1 = CaptureInternalResult(
+            status_code=200,
+            results={"a": {"result": "ok"}, "b": {"result": "drop"}},
+            ok=["a"],
+            dropped=["b"],
+        )
+        r2 = CaptureInternalResult(
+            status_code=200,
+            results={"c": {"result": "warning"}, "d": {"result": "retry"}},
+            warnings=["c"],
+            retried=["d"],
+        )
+
+        merged = _merge_results([r1, r2])
+
+        assert merged.ok == ["a"]
+        assert merged.dropped == ["b"]
+        assert merged.warnings == ["c"]
+        assert merged.retried == ["d"]
+        assert set(merged.results.keys()) == {"a", "b", "c", "d"}

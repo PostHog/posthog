@@ -21,6 +21,7 @@ capture-rs's blind property splicing never produces duplicate keys.
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Optional
@@ -33,6 +34,8 @@ from requests.exceptions import RequestException
 
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
+    CAPTURE_BATCH_CHUNK_SIZE,
+    CAPTURE_BATCH_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
@@ -362,102 +365,20 @@ def prepare_capture_internal_batch(
 # --------------------------------------------------------------------------- #
 
 
-def capture_batch_internal(
+def _submit_batch_chunk(
     *,
     events: list[dict[str, Any]],
     token: str,
     event_source: str,
-    historical_migration: bool = False,
-    process_person_profile: bool = False,
-    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
-    timeout: float = 2,
+    historical_migration: bool,
+    process_person_profile: bool,
+    max_attempts: int,
+    timeout: float,
 ) -> CaptureInternalResult:
-    """
-    capture_batch_internal submits multiple capture request payloads to capture-rs on
-    behalf of a customer team.  This is the preferred method for publishing analytics events
-    from the Django app.  PLEASE DO NOT write events directly to ingestion Kafka topics —
-    USE THIS!  The capture-rs pipeline handles deduplication, quotas, billing, and routing;
-    bypassing it creates safety and correctness problems.
+    """Submit a single chunk of events to the v1 batch endpoint with retry logic.
 
-    NOTE: This is for submitting events ON BEHALF OF A CUSTOMER TEAM.  It is NOT for
-    submitting SDK-style internal telemetry events for PostHog's own team (team 2) — the
-    posthoganalytics SDK integration handles that separately.
-
-    Unlike legacy capture_batch_internal this is a true batch POST to the v1 analytics
-    endpoint (not a fan-out of individual requests).  capture-rs returns per-event results;
-    events that get a ``retry`` result are automatically resubmitted up to ``max_attempts``
-    rounds.  Transport-level retries on 5xx are handled by urllib3 (3 retries with backoff).
-
-    Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT SUPPORTED
-    and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
-    to the capture-rs /s/ endpoint.
-
-    event.options reference (typed options replacing legacy $-prefixed properties):
-    ┌─────────────────────────┬────────────────────────────┬──────────────┐
-    │ options key             │ replaces legacy property   │ default      │
-    ├─────────────────────────┼────────────────────────────┼──────────────┤
-    │ cookieless_mode         │ $cookieless_mode           │ None/omitted │
-    │ disable_skew_correction │ $ignore_sent_at            │ None/omitted │
-    │                         │ (alias: disable_skew_      │              │
-    │                         │  adjustment)               │              │
-    │ product_tour_id         │ $product_tour_id           │ None/omitted │
-    │ process_person_profile  │ $process_person_profile    │ see below    │
-    └─────────────────────────┴────────────────────────────┴──────────────┘
-
-    Additional top-level event fields (also extracted from properties):
-    ┌─────────────────────────┬────────────────────────────┬──────────────┐
-    │ event field             │ replaces legacy property   │ default      │
-    ├─────────────────────────┼────────────────────────────┼──────────────┤
-    │ session_id              │ $session_id                │ None/omitted │
-    │ window_id               │ $window_id                 │ None/omitted │
-    └─────────────────────────┴────────────────────────────┴──────────────┘
-
-    When both a typed key AND its legacy $-property are present, the typed key wins
-    (a warning metric ``capture_v1_internal_option_conflict`` is emitted).  The legacy
-    property is always stripped from ``properties`` regardless.
-
-    process_person_profile interaction:
-        The batch-level ``process_person_profile`` param acts as a SAFETY RAIL.  When
-        False (default), it forces ``options.process_person_profile = False`` for EVERY
-        event in the batch — even if the event's own options dict says True (a warning
-        is logged on conflict).  Only when the batch-level param is True does the
-        per-event ``options.process_person_profile`` value get respected as-is.  This
-        prevents accidental expensive person profile updates from internal tooling.
-
-    Args:
-        events: list of event dicts to capture. Each MUST include:
-            - ``event`` (str): event name
-            - ``distinct_id`` (str): required; may alternatively appear in ``properties``
-            - ``properties`` (dict): event properties (required; can be empty)
-            Optional per-event fields:
-            - ``timestamp`` (str | datetime): defaults to now UTC if absent
-            - ``options`` (dict): typed options per table above
-            - ``session_id``, ``window_id`` (str): top-level fields per table above
-            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
-        token: API token to submit events on behalf of (required; overrides individual
-            event tokens)
-        event_source: observability tag indicating the internal module/codepath submitting
-            the events (REQUIRED — validated; raises CaptureInternalError if empty).
-            Callers MUST supply this so Prometheus metrics can identify which call site
-            is submitting events and detect (ab)usive new callers.
-        historical_migration: if True, routes events to the historical ingestion path
-            in capture-rs (separate Kafka topic/consumer group)
-        process_person_profile: batch-level safety rail (default: False).  See
-            "process_person_profile interaction" above.
-        max_attempts: application-level retry budget for per-event ``retry`` results from
-            capture-rs (default: 4). Does not affect transport-level 5xx retries.
-        timeout: HTTP request timeout in seconds (default: 2)
-
-    Returns:
-        CaptureInternalResult with per-event outcomes.  Call ``.raise_for_status()`` to
-        raise ``CaptureInternalError`` on any failure (whole-request or partial).  Inspect
-        ``.ok``, ``.dropped``, ``.retried``, ``.unaccounted`` lists for fine-grained handling.
-
-    Raises:
-        CaptureInternalError: on client-side validation failures (missing/empty event_source,
-            missing token, empty batch, replay event names, unknown option keys) or
-            HTTP/transport errors.  The exception carries a ``.status_code`` attribute
-            (the HTTP status from capture-rs, or 0 for client-side/transport errors).
+    This is the internal workhorse — callers should use ``capture_batch_internal``
+    which handles validation, chunking, and concurrent fan-out.
     """
     payload, uuids = prepare_capture_internal_batch(
         events,
@@ -472,12 +393,10 @@ def capture_batch_internal(
     CAPTURE_V1_BATCH_SUBMITTED.labels(event_source=event_source).inc()
     CAPTURE_V1_EVENT_SUBMITTED.labels(event_source=event_source).inc(len(uuids))
 
-    # Build the index of uuid→event so we can resubmit subsets.
     uuid_to_event: dict[str, dict[str, Any]] = {}
     for uid, entry in zip(uuids, payload["batch"]):
         uuid_to_event[uid] = entry
 
-    # Aggregate terminal outcomes across rounds.
     aggregated: dict[str, dict[str, Any]] = {}
     attempt = 1
     pending_batch = payload["batch"]
@@ -592,6 +511,187 @@ def capture_batch_internal(
             result.unaccounted.append(uid)
 
     return result
+
+
+def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInternalResult:
+    """Merge results from multiple chunk submissions into a single result."""
+    merged = CaptureInternalResult(status_code=200)
+    for cr in chunk_results:
+        if cr.error is not None and merged.error is None:
+            merged.error = cr.error
+            merged.status_code = cr.status_code
+        merged.results.update(cr.results)
+        merged.ok.extend(cr.ok)
+        merged.dropped.extend(cr.dropped)
+        merged.warnings.extend(cr.warnings)
+        merged.retried.extend(cr.retried)
+        merged.unaccounted.extend(cr.unaccounted)
+    return merged
+
+
+def capture_batch_internal(
+    *,
+    events: list[dict[str, Any]],
+    token: str,
+    event_source: str,
+    historical_migration: bool = False,
+    process_person_profile: bool = False,
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """
+    capture_batch_internal submits multiple capture request payloads to capture-rs on
+    behalf of a customer team.  This is the preferred method for publishing analytics events
+    from the Django app.  PLEASE DO NOT write events directly to ingestion Kafka topics —
+    USE THIS!  The capture-rs pipeline handles deduplication, quotas, billing, and routing;
+    bypassing it creates safety and correctness problems.
+
+    NOTE: This is for submitting events ON BEHALF OF A CUSTOMER TEAM.  It is NOT for
+    submitting SDK-style internal telemetry events for PostHog's own team (team 2) — the
+    posthoganalytics SDK integration handles that separately.
+
+    Submits events as true batch POSTs to the v1 analytics endpoint.  capture-rs returns
+    per-event results; events that get a ``retry`` result are automatically resubmitted up
+    to ``max_attempts`` rounds.  Transport-level retries on 5xx are handled by urllib3.
+
+    Automatic chunking:
+        Batches larger than ``CAPTURE_BATCH_CHUNK_SIZE`` (default 200 events) are
+        automatically split into chunks and submitted concurrently using up to
+        ``CAPTURE_BATCH_MAX_WORKERS`` (default 8) threads.  Callers do NOT need to
+        pre-chunk — the API handles this transparently.  Small batches (<=200 events)
+        are submitted directly with zero threading overhead.
+
+        Each chunk gets its own retry budget (``max_attempts``).  If one chunk fails
+        entirely (transport error), its events appear in ``unaccounted``; other chunks'
+        results are preserved.
+
+    Session replay events ($snapshot, $performance_event, $snapshot_items) are NOT SUPPORTED
+    and will raise CaptureInternalError.  Real replay ingestion flows through SDKs directly
+    to the capture-rs /s/ endpoint.
+
+    event.options reference (typed options replacing legacy $-prefixed properties):
+    ┌─────────────────────────┬────────────────────────────┬──────────────┐
+    │ options key             │ replaces legacy property   │ default      │
+    ├─────────────────────────┼────────────────────────────┼──────────────┤
+    │ cookieless_mode         │ $cookieless_mode           │ None/omitted │
+    │ disable_skew_correction │ $ignore_sent_at            │ None/omitted │
+    │                         │ (alias: disable_skew_      │              │
+    │                         │  adjustment)               │              │
+    │ product_tour_id         │ $product_tour_id           │ None/omitted │
+    │ process_person_profile  │ $process_person_profile    │ see below    │
+    └─────────────────────────┴────────────────────────────┴──────────────┘
+
+    Additional top-level event fields (also extracted from properties):
+    ┌─────────────────────────┬────────────────────────────┬──────────────┐
+    │ event field             │ replaces legacy property   │ default      │
+    ├─────────────────────────┼────────────────────────────┼──────────────┤
+    │ session_id              │ $session_id                │ None/omitted │
+    │ window_id               │ $window_id                 │ None/omitted │
+    └─────────────────────────┴────────────────────────────┴──────────────┘
+
+    When both a typed key AND its legacy $-property are present, the typed key wins
+    (a warning metric ``capture_v1_internal_option_conflict`` is emitted).  The legacy
+    property is always stripped from ``properties`` regardless.
+
+    process_person_profile interaction:
+        The batch-level ``process_person_profile`` param acts as a SAFETY RAIL.  When
+        False (default), it forces ``options.process_person_profile = False`` for EVERY
+        event in the batch — even if the event's own options dict says True (a warning
+        is logged on conflict).  Only when the batch-level param is True does the
+        per-event ``options.process_person_profile`` value get respected as-is.  This
+        prevents accidental expensive person profile updates from internal tooling.
+
+    Args:
+        events: list of event dicts to capture. Each MUST include:
+            - ``event`` (str): event name
+            - ``distinct_id`` (str): required; may alternatively appear in ``properties``
+            - ``properties`` (dict): event properties (required; can be empty)
+            Optional per-event fields:
+            - ``timestamp`` (str | datetime): defaults to now UTC if absent
+            - ``options`` (dict): typed options per table above
+            - ``session_id``, ``window_id`` (str): top-level fields per table above
+            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
+        token: API token to submit events on behalf of (required; overrides individual
+            event tokens)
+        event_source: observability tag indicating the internal module/codepath submitting
+            the events (REQUIRED — validated; raises CaptureInternalError if empty).
+            Callers MUST supply this so Prometheus metrics can identify which call site
+            is submitting events and detect (ab)usive new callers.
+        historical_migration: if True, routes events to the historical ingestion path
+            in capture-rs (separate Kafka topic/consumer group)
+        process_person_profile: batch-level safety rail (default: False).  See
+            "process_person_profile interaction" above.
+        max_attempts: application-level retry budget for per-event ``retry`` results from
+            capture-rs (default: 4). Does not affect transport-level 5xx retries.
+        timeout: HTTP request timeout in seconds (default: 2)
+
+    Returns:
+        CaptureInternalResult with per-event outcomes.  Call ``.raise_for_status()`` to
+        raise ``CaptureInternalError`` on any failure (whole-request or partial).  Inspect
+        ``.ok``, ``.dropped``, ``.retried``, ``.unaccounted`` lists for fine-grained handling.
+
+    Raises:
+        CaptureInternalError: on client-side validation failures (missing/empty event_source,
+            missing token, empty batch, replay event names, unknown option keys) or
+            HTTP/transport errors.  The exception carries a ``.status_code`` attribute
+            (the HTTP status from capture-rs, or 0 for client-side/transport errors).
+    """
+    # Validate early so all chunks share the same validation errors.
+    if not event_source:
+        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
+    if not token:
+        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+    if not events:
+        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+
+    chunk_kwargs = {
+        "token": token,
+        "event_source": event_source,
+        "historical_migration": historical_migration,
+        "process_person_profile": process_person_profile,
+        "max_attempts": max_attempts,
+        "timeout": timeout,
+    }
+
+    # Hot path: small batch — submit directly, no threading overhead.
+    if len(events) <= CAPTURE_BATCH_CHUNK_SIZE:
+        return _submit_batch_chunk(events=events, **chunk_kwargs)
+
+    # Large batch: chunk and fan out concurrently.
+    chunks = [events[i : i + CAPTURE_BATCH_CHUNK_SIZE] for i in range(0, len(events), CAPTURE_BATCH_CHUNK_SIZE)]
+    logger.info(
+        "capture_batch_internal_chunked",
+        event_source=event_source,
+        total_events=len(events),
+        chunks=len(chunks),
+        chunk_size=CAPTURE_BATCH_CHUNK_SIZE,
+        max_workers=CAPTURE_BATCH_MAX_WORKERS,
+    )
+
+    chunk_results: list[CaptureInternalResult] = []
+    with ThreadPoolExecutor(max_workers=CAPTURE_BATCH_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_submit_batch_chunk, events=chunk, **chunk_kwargs): i for i, chunk in enumerate(chunks)
+        }
+        for future in as_completed(futures):
+            chunk_idx = futures[future]
+            try:
+                chunk_results.append(future.result())
+            except Exception as exc:
+                logger.exception(
+                    "capture_batch_internal_chunk_error",
+                    event_source=event_source,
+                    chunk=chunk_idx,
+                    error=str(exc),
+                )
+                chunk_results.append(
+                    CaptureInternalResult(
+                        status_code=0,
+                        error={"error": "chunk_exception", "error_description": str(exc)},
+                    )
+                )
+
+    return _merge_results(chunk_results)
 
 
 def _parse_retry_after(header_value: Optional[str]) -> float:
