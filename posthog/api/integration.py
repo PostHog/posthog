@@ -59,6 +59,7 @@ from posthog.models.integration import (
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
+    PostgreSQLIntegration,
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
@@ -74,6 +75,9 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
@@ -509,6 +513,57 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "postgresql":
+            config = validated_data.get("config", {})
+            host = config.get("host")
+            port = config.get("port", 5432)
+            user = config.get("user")
+            password = config.get("password")
+            ssl_mode = config.get("ssl_mode", "require")
+            ssl_root_cert = config.get("ssl_root_cert")
+
+            if not (host and port and user and password):
+                raise ValidationError("Host, port, user, and password must be provided")
+
+            if not all(isinstance(value, str) for value in (host, user, password)):
+                raise ValidationError("Host, user, and password must be strings")
+
+            from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+
+            try:
+                resolve_and_validate_host(host)
+            except ValueError:
+                raise ValidationError(f"Invalid host: '{host}'")
+
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                raise ValidationError("Port must be an integer")
+
+            if port < 0 or port > 65535:
+                raise ValidationError("Port must be between 0 and 65535")
+
+            if ssl_mode not in ("require", "verify-ca", "verify-full"):
+                raise ValidationError("SSL mode must be one of: require, verify-ca, verify-full")
+
+            if ssl_mode in ("verify-ca", "verify-full"):
+                if not ssl_root_cert:
+                    raise ValidationError("Root certificate must be provided when verifying server certificates")
+                if not isinstance(ssl_root_cert, str):
+                    raise ValidationError("Root certificate must be a string")
+
+            instance = PostgreSQLIntegration.integration_from_config(
+                team_id=team_id,
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                ssl_mode=ssl_mode,
+                ssl_root_cert=ssl_root_cert,
+                created_by=request.user,
+            )
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -628,6 +683,27 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
+        flows_using_integration = get_active_hog_flows_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        functions_using_integration = get_enabled_hog_functions_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        used_by = []
+        if flows_using_integration:
+            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            used_by.append(f"active workflows: {flow_names}")
+        if functions_using_integration:
+            function_names = ", ".join(
+                sorted(function.name or str(function.id) for function in functions_using_integration)
+            )
+            used_by.append(f"enabled data pipelines: {function_names}")
+        if used_by:
+            raise ValidationError(
+                f"This integration is used by {' and '.join(used_by)}. "
+                "Update them to use a different integration before disconnecting it."
+            )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
@@ -672,12 +748,11 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
-        is_sandbox = request.GET.get("is_sandbox", "").lower() in ("true", "1", "yes")
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, is_sandbox=is_sandbox)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)

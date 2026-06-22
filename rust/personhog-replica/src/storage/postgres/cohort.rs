@@ -26,15 +26,15 @@ async fn insert_cohort_members_chunk(
     let result = sqlx::query!(
         r#"
         INSERT INTO posthog_cohortpeople (person_id, cohort_id, version)
-        SELECT pid, $1, $3
+        SELECT pid, $1::bigint, $3
         FROM UNNEST($2::bigint[]) AS t(pid)
         WHERE NOT EXISTS (
             SELECT 1 FROM posthog_cohortpeople cp
-            WHERE cp.person_id = pid AND cp.cohort_id = $1
+            WHERE cp.person_id = pid AND cp.cohort_id = $1::bigint
         )
         ON CONFLICT DO NOTHING
         "#,
-        cohort_id as i32,
+        cohort_id,
         person_ids,
         version,
     )
@@ -72,16 +72,17 @@ impl CohortStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
-
-        let member_ids: Vec<i32> = sqlx::query_scalar!(
+        // cohort_id::bigint + the bigint[] bind keep this region-agnostic: prod-us widened
+        // cohort_id to bigint (out-of-band), while prod-eu and the tracked schema have it as
+        // integer. sqlx decodes i64 from the cast either way, so one binary works on both.
+        let member_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
-            SELECT cohort_id
+            SELECT cohort_id::bigint AS "cohort_id!"
             FROM posthog_cohortpeople
-            WHERE person_id = $1 AND cohort_id = ANY($2)
+            WHERE person_id = $1 AND cohort_id = ANY($2::bigint[])
             "#,
             person_id,
-            &cohort_ids_i32
+            cohort_ids
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -99,7 +100,7 @@ impl CohortStorage for PostgresStorage {
             member_ids.len() as f64,
         );
 
-        let member_set: HashSet<i64> = member_ids.into_iter().map(|id| id as i64).collect();
+        let member_set: HashSet<i64> = member_ids.into_iter().collect();
 
         Ok(cohort_ids
             .iter()
@@ -133,15 +134,13 @@ impl CohortStorage for PostgresStorage {
         let pool = self.pool_for_consistency(consistency);
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
-
         let count: i64 = sqlx::query_scalar!(
             r#"
             SELECT COUNT(*) as "count!"
             FROM posthog_cohortpeople
-            WHERE cohort_id = ANY($1)
+            WHERE cohort_id = ANY($1::bigint[])
             "#,
-            &cohort_ids_i32
+            cohort_ids
         )
         .fetch_one(&mut *conn)
         .await?;
@@ -165,9 +164,9 @@ impl CohortStorage for PostgresStorage {
         let result = sqlx::query!(
             r#"
             DELETE FROM posthog_cohortpeople
-            WHERE cohort_id = $1 AND person_id = $2
+            WHERE cohort_id = $1::bigint AND person_id = $2
             "#,
-            cohort_id as i32,
+            cohort_id,
             person_id,
         )
         .execute(&mut *conn)
@@ -201,18 +200,16 @@ impl CohortStorage for PostgresStorage {
         let mut conn =
             PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
-        let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
-
         let result = sqlx::query!(
             r#"
             DELETE FROM posthog_cohortpeople
             WHERE id IN (
                 SELECT id FROM posthog_cohortpeople
-                WHERE cohort_id = ANY($1)
+                WHERE cohort_id = ANY($1::bigint[])
                 LIMIT $2
             )
             "#,
-            &cohort_ids_i32,
+            cohort_ids,
             batch_size as i64,
         )
         .execute(&mut *conn)
@@ -320,11 +317,11 @@ impl CohortStorage for PostgresStorage {
             r#"
             SELECT person_id
             FROM posthog_cohortpeople
-            WHERE cohort_id = $1 AND person_id > $2
+            WHERE cohort_id = $1::bigint AND person_id > $2
             ORDER BY person_id ASC
             LIMIT $3
             "#,
-            cohort_id as i32,
+            cohort_id,
             cursor,
             fetch_limit,
         )

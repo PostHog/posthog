@@ -9,23 +9,20 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../config/kafka-topics'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '../ingestion/common/outputs'
 import {
-    DEFAULT_PRODUCER,
-    type DefaultProducer,
-    INGESTION_PRODUCER,
-    type IngestionProducer,
-    type WarpstreamProducer,
-} from '../ingestion/common/outputs'
+    INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayProducer,
+} from '../session-replay/shared/outputs/producer-config'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
 
 /**
- * Session replay uses DEFAULT, WARPSTREAM, and INGESTION producers.
- *
- * INGESTION is for the dedicated Kafka cluster between capture and ingestion —
- * the natural target for the DLQ and overflow topics that live there.
+ * Session replay's producer slots: DOWNSTREAM (warpstream-ingestion, defined in ingestion
+ * common) for ClickHouse-bound outputs, and SESSIONREPLAY (warpstream-replay, defined in the
+ * session-replay folder) for replay-domain topics.
  */
-export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer | IngestionProducer
+export type SessionReplayProducerName = IngestionDownstreamProducer | IngestionSessionreplayProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -180,21 +177,19 @@ export type SessionReplayOutputsConfig = {
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
     return {
         INGESTION_SESSIONREPLAY_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
-        INGESTION_SESSIONREPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: DEFAULT_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_INGESTION_WARNINGS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_DLQ_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
-        // DLQ and overflow live on the ingestion-internal cluster — route them through the
-        // INGESTION producer rather than DEFAULT (MSK) by default. Restores the pre-outputs-
-        // framework split between metadata (MSK) and message (ingestion cluster) producers.
-        INGESTION_SESSIONREPLAY_OUTPUT_DLQ_PRODUCER: INGESTION_PRODUCER,
+        // Replay DLQ/overflow live on the replay cluster alongside the replay events themselves.
+        INGESTION_SESSIONREPLAY_OUTPUT_DLQ_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-        INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_PRODUCER: INGESTION_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
-        INGESTION_SESSIONREPLAY_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_TOPHOG_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
-        INGESTION_SESSIONREPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: DEFAULT_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-        INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-        INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }

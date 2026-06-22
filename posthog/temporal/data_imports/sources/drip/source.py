@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -86,6 +87,7 @@ class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DRIP,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Drip",
             caption="""Enter your Drip API token and account ID to pull your Drip data into the PostHog Data warehouse.
 

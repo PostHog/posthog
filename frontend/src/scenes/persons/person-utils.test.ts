@@ -1,4 +1,4 @@
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'

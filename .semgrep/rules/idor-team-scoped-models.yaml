@@ -57,7 +57,14 @@ rules:
                               AccessControl
                               |Account
                               |Action
+                              |AgentApplication
                               |AgentArtifact
+                              |AgentRevision
+                              |AgentSandboxInstance
+                              |AgentSession
+                              |AgentSessionCredential
+                              |AgentToolApprovalRequest
+                              |AgentUser
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -136,8 +143,10 @@ rules:
                               |TeamFeatureFlagDefaultsConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
+                              |FieldNote
                               |FileSystem
                               |FileSystemFolderInstructions
+                              |FileSystemFolderContextGeneration
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -181,6 +190,7 @@ rules:
                               |Notebook
                               |ObjectMediaPreview
                               |ParserRecipe
+                              |PendingSourceCredential
                               |PluginConfig
                               |ProductTour
                               |ProjectSecretAPIKey
@@ -243,7 +253,12 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |VisionAction
+                              |VisionActionRun
+                              |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
+                              |WebAnalyticsInteraction
+                              |WebAnalyticsVisit
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -252,6 +267,8 @@ rules:
           - pattern: $M.objects. ... .$METHOD(..., effective_project_id=$T, ...)
           - pattern: $M.objects. ... .$METHOD(..., team=$T, ...)
           - pattern: $M.objects. ... .$METHOD(..., team_id=$T, ...)
+          # for_team() is the team filter on fail-closed (TeamScopedManager) models
+          - pattern: $M.objects.for_team(...). ... .$METHOD(...)
           # get_object_or_404
           - pattern: get_object_or_404($M, ..., team__project_id=$T, ...)
           - pattern: get_object_or_404($M, ..., effective_project_id=$T, ...)
@@ -301,7 +318,14 @@ rules:
                         AccessControl
                         |Account
                         |Action
+                        |AgentApplication
                         |AgentArtifact
+                        |AgentRevision
+                        |AgentSandboxInstance
+                        |AgentSession
+                        |AgentSessionCredential
+                        |AgentToolApprovalRequest
+                        |AgentUser
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -380,8 +404,10 @@ rules:
                         |TeamFeatureFlagDefaultsConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
+                        |FieldNote
                         |FileSystem
                         |FileSystemFolderInstructions
+                        |FileSystemFolderContextGeneration
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -421,6 +447,7 @@ rules:
                         |Notebook
                         |ObjectMediaPreview
                         |ParserRecipe
+                        |PendingSourceCredential
                         |PluginConfig
                         |ProductTour
                         |ProjectSecretAPIKey
@@ -483,7 +510,12 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |VisionAction
+                        |VisionActionRun
+                        |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
+                        |WebAnalyticsInteraction
+                        |WebAnalyticsVisit
                         |WizardSession
                     )$
           # Exclude when team filter is present
@@ -491,6 +523,8 @@ rules:
           - pattern-not: $M.objects. ... .$METHOD2(..., effective_project_id=$T, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., team=$T, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., team_id=$T, ...)
+          # for_team() is the team filter on fail-closed (TeamScopedManager) models
+          - pattern-not: $M.objects.for_team(...). ... .$METHOD2(...)
           # get_object_or_404
           - pattern-not: get_object_or_404($M, ..., team__project_id=$T, ...)
           - pattern-not: get_object_or_404($M, ..., effective_project_id=$T, ...)
@@ -572,6 +606,7 @@ rules:
                       regex: |
                           (?x)(
                               CIMDVerificationToken
+                              |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
                               |OrganizationDomain
@@ -639,6 +674,7 @@ rules:
                 regex: |
                     (?x)(
                         CIMDVerificationToken
+                        |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
                         |OrganizationDomain
@@ -885,6 +921,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -956,6 +993,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList

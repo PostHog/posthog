@@ -67,6 +67,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
+    splitPerson: () => ({ splits: [] }),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {

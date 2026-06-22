@@ -200,7 +200,7 @@ procs:
             layer: Product services
             tech: Other
         env:
-            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -235,6 +235,45 @@ procs:
         groups:
             layer: Processing
             tech: Rust
+
+    agent-ingress:
+        # Sources .env.local on restart for AGENT_INGRESS_PUBLIC_URL (bin/agent-tunnel
+        # writes it post-start); skips 1Password op:// refs.
+        shell: |-
+            bin/wait-for-docker && \
+            if [ -f .env.local ] && ! grep -q 'op://' .env.local; then \
+                set -a; . ./.env.local; set +a; \
+            fi && \
+            pnpm --filter @posthog/agent-ingress start:dev
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Product services
+            tech: Node
+
+    agent-runner:
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
+        capability: agent_runtime
+        ready_pattern: 'starting worker loop'
+        groups:
+            layer: Processing
+            tech: Node
+
+    agent-janitor:
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Processing
+            tech: Node
+
+    ai-gateway:
+        shell: 'bin/wait-for-docker && bin/start-ai-gateway'
+        capability: ai_gateway
+        ready_pattern: 'listening on'
+        groups:
+            layer: Product services
+            tech: Go
 
     cymbal:
         shell: |-
@@ -432,7 +471,7 @@ procs:
         ready_pattern: 'Application startup complete'
         groups:
             layer: Product services
-            tech: Python
+            tech: Go
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
@@ -503,6 +542,10 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    # agent_platform schema is now Django-owned in its product DB, migrated by
+    # the main `migrate` process (migrate_product_databases). The old node-side
+    # migrate-agent-runtime process was removed.
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'

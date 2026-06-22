@@ -1,1 +1,1 @@
-1219_duckgres_sink_schema_state
+1231_duckgres_sink_schema_state

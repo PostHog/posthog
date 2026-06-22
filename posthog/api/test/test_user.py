@@ -812,9 +812,9 @@ class TestUserAPI(APIBaseTest):
 
         with patch(
             "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
-            side_effect=lambda email, organization=None: "google-oauth2"
-            if email.split("@")[-1] in ("example.com", "example.org")
-            else None,
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.org") else None
+            ),
         ):
             with self.is_cloud(True):
                 response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
@@ -849,9 +849,9 @@ class TestUserAPI(APIBaseTest):
 
         with patch(
             "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
-            side_effect=lambda email, organization=None: "google-oauth2"
-            if email.split("@")[-1] in ("example.com", "example.net")
-            else None,
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.net") else None
+            ),
         ):
             with self.is_cloud(True):
                 response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})

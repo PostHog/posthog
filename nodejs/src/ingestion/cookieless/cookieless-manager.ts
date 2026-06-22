@@ -14,7 +14,14 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    RedisPool,
+    Team,
+} from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
@@ -1023,4 +1030,27 @@ export function extractRootDomain(input: string): string {
 
     // Add the port back if it exists
     return port ? `${domain}:${port}` : domain
+}
+
+/**
+ * Scope entry for a `CookielessManager`. Takes an already-built Redis pool (its own scope entry, so
+ * draining it is the pool component's job); `stop` only shuts the manager down — i.e. clears its
+ * cleanup interval.
+ */
+export class CookielessManagerComponent {
+    constructor(
+        private readonly config: CookielessManagerConfig,
+        private readonly redisPool: RedisPool
+    ) {}
+
+    start(): Promise<{ value: CookielessManager; stop: () => Promise<void> }> {
+        const manager = new CookielessManager(this.config, this.redisPool)
+        return Promise.resolve({
+            value: manager,
+            stop: (): Promise<void> => {
+                manager.shutdown()
+                return Promise.resolve()
+            },
+        })
+    }
 }

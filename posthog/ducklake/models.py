@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
-
-if TYPE_CHECKING:
-    from posthog.ducklake.storage import CrossAccountDestination
 
 
 class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -46,16 +41,6 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     bucket = models.CharField(max_length=255)
     bucket_region = models.CharField(max_length=50, default="us-east-1")
 
-    # Cross-account S3 access settings (required - for writing to customer-owned buckets)
-    cross_account_role_arn = models.CharField(
-        max_length=255,
-        help_text="ARN of the IAM role to assume for cross-account S3 access",
-    )
-    cross_account_external_id = EncryptedTextField(
-        max_length=500,
-        help_text="External ID for cross-account role assumption (encrypted)",
-    )
-
     class Meta:
         db_table = "posthog_ducklakecatalog"
         verbose_name = "DuckLake catalog"
@@ -73,17 +58,6 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
-
-    def to_cross_account_destination(self) -> CrossAccountDestination:
-        """Convert to a CrossAccountDestination for cross-account S3 access."""
-        from posthog.ducklake.storage import CrossAccountDestination
-
-        return CrossAccountDestination(
-            role_arn=self.cross_account_role_arn,
-            bucket_name=self.bucket,
-            external_id=self.cross_account_external_id,
-            region=self.bucket_region or None,
-        )
 
 
 class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -113,6 +87,13 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     database = models.CharField(max_length=255, default="ducklake")
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)
+
+    # S3 bucket backing the org's managed warehouse (no secrets — access is via IRSA / the
+    # ClickHouse EC2 role). Written at provision time so the duckling backfill reads the
+    # authoritative bucket name instead of re-deriving it. Nullable for rows provisioned
+    # before this field existed.
+    bucket = models.CharField(max_length=255, null=True, blank=True)
+    bucket_region = models.CharField(max_length=50, default="us-east-1")
 
     class Meta:
         db_table = "posthog_duckgresserver"

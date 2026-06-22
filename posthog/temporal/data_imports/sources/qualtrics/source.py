@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class QualtricsSource(SimpleSource[QualtricsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.QUALTRICS,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualtrics",
             iconPath="/static/services/qualtrics.png",
             fields=cast(list[FieldType], []),

@@ -2,7 +2,9 @@ import re
 from typing import Optional
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -33,10 +35,18 @@ _SourceField = (
 _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNORECASE)
 
 _SUPABASE_POOLER_HOST_CAPTION = (
-    "Use the **Session pooler** host from Supabase (Project settings → Database → "
+    "For standard syncs, use the **Session pooler** host (Project settings → Database → "
     "Connection pooling), e.g. `aws-0-<region>.pooler.supabase.com`, with username "
-    "`postgres.<project-ref>`. The direct host `db.<ref>.supabase.co` is IPv6-only and "
-    "won't be reachable."
+    "`postgres.<project-ref>` — the direct host `db.<ref>.supabase.co` is IPv6-only. "
+    "For **change data capture (CDC)** you must use the direct host instead and enable "
+    "Supabase's **IPv4 add-on**, because logical replication doesn't work through the pooler."
+)
+
+_SUPABASE_DIRECT_HOST_IPV4_HINT = (
+    "Couldn't reach the Supabase direct host (db.<ref>.supabase.co). It's IPv6-only unless you "
+    "enable Supabase's IPv4 add-on (Project settings → Add-ons), which is required for change "
+    "data capture. For standard (non-CDC) syncs, use the Session pooler host instead "
+    "(aws-0-<region>.pooler.supabase.com) with username postgres.<project-ref>."
 )
 
 
@@ -51,8 +61,6 @@ class SupabaseSource(PostgresSource):
 
     @staticmethod
     def _adjust_field(field: _SourceField) -> _SourceField:
-        if isinstance(field, SourceFieldInputConfig) and field.name == "schema":
-            return field.model_copy(update={"required": True, "label": "Schema", "caption": None})
         if isinstance(field, SourceFieldInputConfig) and field.name == "host":
             return field.model_copy(
                 update={
@@ -68,24 +76,23 @@ class SupabaseSource(PostgresSource):
 
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
+            category=DataWarehouseSourceCategory.DATABASES,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",
             fields=fields,
-            releaseStatus="beta",
-            featureFlag="supabase-dwh",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(
         self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        # Catch the IPv6-only direct host before the generic Postgres connect attempt
-        # times out with an opaque "could not connect to the host on the port given".
-        if _SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()):
-            return False, (
-                "This looks like the Supabase direct database host (db.<ref>.supabase.co), which is "
-                "IPv6-only and unreachable from PostHog. Use the Session pooler host instead "
-                "(aws-0-<region>.pooler.supabase.com) with username postgres.<project-ref> — find it "
-                "under Project settings → Database → Connection pooling."
-            )
-        return super().validate_credentials(config, team_id, schema_name=schema_name)
+        # The direct host (IPv6-only by default) is the only host that supports logical
+        # replication, so CDC users need it. We let the real connection attempt decide
+        # reachability — it succeeds when the IPv4 add-on is enabled — and only swap in a
+        # clearer message when it fails, since the generic Postgres error is opaque.
+        is_direct_host = bool(_SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()))
+        success, error = super().validate_credentials(config, team_id, schema_name=schema_name)
+        if not success and is_direct_host:
+            return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
+        return success, error

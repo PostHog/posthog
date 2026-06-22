@@ -1,5 +1,6 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
@@ -19,8 +20,10 @@ import {
     WidgetListCount,
     WIDGET_LIST_COUNT_RECORDINGS,
 } from '../../components/WidgetCard'
+import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
+import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'
 
 type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]
@@ -56,7 +59,8 @@ function SessionReplayWidgetRecordingRow({
 export function SessionReplayWidget({ result, loading, config }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as SessionReplayWidgetResult | null | undefined
     const recordings = payload?.results ?? []
-    const order = parseSessionReplayWidgetConfig(config).orderBy as RecordingsQuery['order']
+    const parsedConfig = parseSessionReplayWidgetConfig(config)
+    const order = parsedConfig.orderBy as RecordingsQuery['order']
 
     if (loading) {
         return (
@@ -80,9 +84,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                     >
                         <FilmCameraHog className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
-                        <p className="m-0 text-sm text-muted">
-                            No session recordings matched your filters for this date range.
-                        </p>
+                        <p className="m-0 text-sm text-muted">No session recordings matched your filters.</p>
                     </div>
                 </WidgetCardBodyMessage>
             </WidgetCardContent>
@@ -109,5 +111,25 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                 />
             </WidgetContentFooter>
         </>
+    )
+}
+
+// A saved filter overrides the widget's date range, so the header shows the filter's name in its place.
+export function SessionReplayWidgetTopHeading({
+    config,
+    widgetTypeLabel,
+    showWidgetType,
+    dateText,
+}: DashboardWidgetTopHeadingProps): JSX.Element {
+    const rawSavedFilterId = config.savedFilterId
+    const savedFilterId = typeof rawSavedFilterId === 'string' && rawSavedFilterId.length > 0 ? rawSavedFilterId : null
+    const { savedFilterLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+
+    return (
+        <CardTopHeadingRow
+            typeLabel={widgetTypeLabel}
+            showTypeLabel={showWidgetType}
+            dateText={savedFilterId ? (savedFilterLabelById[savedFilterId] ?? 'Saved filter') : dateText}
+        />
     )
 }

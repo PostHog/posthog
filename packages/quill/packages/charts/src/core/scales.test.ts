@@ -106,6 +106,21 @@ describe('hog-charts scales', () => {
             expect(domainMax).toBeLessThan(100)
         })
 
+        it('widens the domain to cover a confidence ribbon lower bound below the data', () => {
+            // The ribbon top is the series data; fill.lowerData is the bottom of the band and
+            // must influence the axis, otherwise the band clips at the series line.
+            const band = makeSeries({ key: 'ci', data: [50, 60, 70], fill: { lowerData: [-20, -10, 30] } })
+            const [domainMin] = createYScale([band], dimensions).domain()
+            expect(domainMin).toBeLessThanOrEqual(-20)
+        })
+
+        it('lets a ribbon lower bound below 0 suppress the positive-data zero baseline clamp', () => {
+            // Without folding lowerData in, all `data` are positive so min would clamp to 0.
+            const band = makeSeries({ key: 'ci', data: [10, 20, 30], fill: { lowerData: [-5, -15, 5] } })
+            const [domainMin] = createYScale([band], dimensions).domain()
+            expect(domainMin).toBeLessThan(0)
+        })
+
         it.each([
             {
                 description: 'clips baseline to 0 when an overlay dips below 0 but primary data is non-negative',
@@ -263,6 +278,16 @@ describe('hog-charts scales', () => {
             const [domainMin, domainMax] = scale.domain()
             expect(domainMin).toBeLessThan(domainMax)
             expect(scale(-100)).not.toBeCloseTo(scale(-10), 0)
+        })
+
+        it('stays well-formed on all-zero data (degenerate linear fallback)', () => {
+            // No positive values → linear fallback; min === max === 0 would collapse to a
+            // [0, 0] domain mapping everything to NaN without the bracketing guard.
+            const series = [makeSeries({ key: 's1', data: [0, 0, 0] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            const [domainMin, domainMax] = scale.domain()
+            expect(domainMin).toBeLessThan(domainMax)
+            expect(isFinite(scale(0))).toBe(true)
         })
     })
 

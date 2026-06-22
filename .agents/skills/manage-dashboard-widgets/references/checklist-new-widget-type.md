@@ -4,7 +4,7 @@
 
 1. Complete [widget-intake.md](widget-intake.md) — infer, batched questions, **spec confirmation** (mandatory).
 2. Work **§1 → §8 below in order**. Do not skip step 2 (permissions).
-3. **§5b** after MVP tests green; **skill docs** per [skill-maintenance.md](skill-maintenance.md) if workflow changed.
+3. **§5b** (dedicated stories — required before the PR, not a follow-up) once MVP tests are green; **skill docs** per [skill-maintenance.md](skill-maintenance.md) if workflow changed.
 
 Copy spine: [widget-intake.md § Defaults](widget-intake.md#defaults-and-inference).
 
@@ -86,6 +86,7 @@ Use when the product area already has a widget and you need another visualizatio
 Use when introducing a new **`groupId`**, not just another variant in an existing group.
 
 - [ ] Add **`groupId`** to `DASHBOARD_WIDGET_GROUP_LABELS` in `catalog.ts`; matching `group_id`/`group_label` on BE **`WidgetSpec`**
+- [ ] Add the product's icon to **`DASHBOARD_WIDGET_GROUP_ICONS`** in `catalog.ts` (use the canonical product icon from `defaultTree.tsx` `iconTypes`) — shown next to the group heading in the Add widget picker
 - [ ] Storybook title path: `'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'`
 - [ ] **UI + query reuse** — pick one pattern (do not fork query paths):
 
@@ -98,6 +99,7 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)
+- [ ] Optional **`DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO`** entry in `catalog.ts` (`{ productKey, requirement, valueProp, ctaLabel, docsHref }`) — surfaces a group-level nudge in the Add widget picker (value-prop one-liner + explore CTA). The `requirement` (a `WidgetAvailabilityRequirementId`) gates it directly: shown only while that requirement is unmet, so it's only meaningful for products that gate on a project setting (skip for areas with no requirement, e.g. `experiments`, `activity`)
 - [ ] Net-new product: see [`products/README.md`](../../../products/README.md) for product bootstrap before wiring the widget
 
 ## 5. Frontend widget component
@@ -138,6 +140,8 @@ See [composition.md](composition.md) for WidgetCard rules.
 
 ## 5b. Storybook
 
+**Required, not optional.** Every new `widget_type` ships a dedicated `<YourWidget>.stories.tsx` — plus an `Edit*WidgetModal.stories.tsx` when it has an edit modal — matching the sibling pattern (error tracking, session replay, activity each have both). The catalog overview story (`getWidgetOverviewDemoState`) is **not** a substitute: it renders a single demo state per type and covers none of the per-widget states, tile-filter read-only, loading, empty, or the edit modal. A PR that adds a widget without dedicated stories is incomplete.
+
 File: `products/dashboards/frontend/widgets/<product>/<YourWidget>.stories.tsx`
 
 Reference: `products/dashboards/frontend/widgets/error_tracking/ErrorTrackingWidget.stories.tsx`
@@ -154,7 +158,7 @@ Reference: `products/dashboards/frontend/widgets/error_tracking/ErrorTrackingWid
   - **Error** — when the component renders `error` (pass a string or error-shaped prop your component expects)
 - [ ] Include `tileId`, `config` (defaults from catalog), and stub `onUpdateConfig` / `onRefresh` where the component needs them
 - [ ] Add **`getWidgetOverviewDemoState`** case in `components/WidgetCard/widgetOverviewStoryFixtures.ts` (exhaustive switch — overview story breaks if missing)
-- [ ] Optional: `Edit*WidgetModal.stories.tsx` — mirror `EditErrorTrackingWidgetModal.stories.tsx` / `EditSessionReplayWidgetModal.stories.tsx`
+- [ ] **`Edit*WidgetModal.stories.tsx`** when the type has an edit modal — required, mirror `EditErrorTrackingWidgetModal.stories.tsx` / `EditSessionReplayWidgetModal.stories.tsx`. If the modal (or a tile filter) hits an API (e.g. an experiment picker), mock it with `mswDecorator` from `~/mocks/browser`
 
 Run locally:
 

@@ -1,6 +1,6 @@
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
-import { dateFilterToText } from 'lib/utils'
-import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -32,6 +32,7 @@ export function TopHeading({
     hasTileOverrides,
     resolvedDateRange,
     showInsightType = true,
+    showDate = true,
     dateFromOverride,
     dateToOverride,
 }: {
@@ -40,6 +41,7 @@ export function TopHeading({
     hasTileOverrides?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    showDate?: boolean
     dateFromOverride?: string | null
     dateToOverride?: string | null
 }): JSX.Element {
@@ -76,7 +78,7 @@ export function TopHeading({
             typeLabel={insightType?.name}
             typeTitle={insightType?.description}
             showTypeLabel={showInsightType}
-            dateText={dateText}
+            dateText={showDate ? dateText : null}
             dateTooltip={resolvedDateTooltip}
         >
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}

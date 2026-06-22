@@ -2,10 +2,12 @@ import { ToolbarParams } from '~/types'
 
 // Mock window and fetch
 const mockFetch = jest.fn()
-global.fetch = mockFetch
 
 describe('Toolbar flag loading', () => {
     beforeEach(() => {
+        // Assigned per-test: the MSW harness's beforeAll (src/mocks/jest.ts) replaces
+        // global.fetch after module evaluation, so a module-level assignment is clobbered.
+        global.fetch = mockFetch
         jest.clearAllMocks()
         mockFetch.mockClear()
         jest.resetModules()

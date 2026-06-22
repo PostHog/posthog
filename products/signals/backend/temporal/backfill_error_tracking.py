@@ -39,7 +39,7 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
     from posthog.models import Team
     from posthog.sync import database_sync_to_async
 
-    from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+    from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
     team = await Team.objects.aget(id=input.team_id)
 
@@ -53,7 +53,6 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
                 orderDirection="DESC",
                 volumeResolution=1,
                 limit=100,
-                useQueryV2=False,
                 withFirstEvent=True,
                 withAggregations=False,
             ),

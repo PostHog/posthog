@@ -36,14 +36,7 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './analytics/outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './analytics/outputs'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import {
     AppMetricsOutput,
@@ -73,7 +66,6 @@ export interface IngestionConsumerDeps {
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -269,7 +261,6 @@ export class IngestionConsumer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
-            groupId: this.groupId,
             outputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
@@ -284,6 +275,7 @@ export class IngestionConsumer {
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -316,6 +308,9 @@ export class IngestionConsumer {
     }
 
     public async stop(): Promise<void> {
+        if (this.isStopping) {
+            return
+        }
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
@@ -328,6 +323,21 @@ export class IngestionConsumer {
         await this.hogTransformer.stop()
         await this.stopEventFilterManager?.()
         await this.stopEventIngestionRestrictionManager?.()
+        // Stores must be clean by now — flushBatchStoresStep runs after every
+        // batch as part of the pipeline. After disconnect, we cannot commit
+        // offsets, so writing dirty data here would produce duplicates on
+        // partition rebalance. shutdown() will throw if anything is dirty,
+        // which surfaces the drain-ordering bug without masking it.
+        try {
+            await this.personsStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - personsStore.shutdown() failed`, { error })
+        }
+        try {
+            await this.groupStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - groupStore.shutdown() failed`, { error })
+        }
         logger.info('👍', `${this.name} - stopped!`)
     }
 

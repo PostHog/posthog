@@ -464,6 +464,10 @@ export const BusinessModelEnumApi = {
  * * `test_endpoint` - test_endpoint
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
+ * * `use_posthog_ai` - use_posthog_ai
+ * * `use_posthog_code` - use_posthog_code
+ * * `use_posthog_mcp` - use_posthog_mcp
+ * * `use_posthog_in_slack` - use_posthog_in_slack
  */
 export type AvailableSetupTaskIdsEnumApi =
     (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
@@ -534,6 +538,10 @@ export const AvailableSetupTaskIdsEnumApi = {
     TestEndpoint: 'test_endpoint',
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
+    UsePosthogAi: 'use_posthog_ai',
+    UsePosthogCode: 'use_posthog_code',
+    UsePosthogMcp: 'use_posthog_mcp',
+    UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
 /**
@@ -2685,6 +2693,22 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+export interface ContextGenerationApi {
+    /**
+     * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface ContextGenerationSetApi {
+    /**
+     * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
+     * @nullable
+     */
+    task_id: string | null
 }
 
 export interface FolderInstructionsApi {
