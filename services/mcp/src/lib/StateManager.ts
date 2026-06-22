@@ -1,7 +1,13 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    isTransientUpstreamError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -167,6 +173,14 @@ export class StateManager {
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        // Transient upstream blips (502/503/504, network timeouts) on best-effort
+        // paths that already fall back to cached data are noise, not signal —
+        // filing a new error tracking issue per occurrence just adds observability
+        // noise. Downgrade to a warning so persistent failures still surface.
+        if (isTransientUpstreamError(error)) {
+            console.warn(`[StateManager] transient upstream error in ${context}, using cached value:`, error)
+            return
+        }
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
         } catch {

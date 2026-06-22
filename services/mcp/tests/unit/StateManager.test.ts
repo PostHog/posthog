@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
+const mockCaptureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException: mockCaptureException }),
+}))
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -30,6 +36,7 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+        mockCaptureException.mockClear()
     })
 
     describe('getUser', () => {
@@ -700,6 +707,39 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+
+        it('reports a non-transient fetch failure to error tracking', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(new Error('boom'))
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(mockCaptureException).toHaveBeenCalledOnce()
+        })
+
+        it('does not report a transient upstream 504, still falls back to cache', async () => {
+            const cached = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set(`groupTypes:${projectId}` as any, cached as any)
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+            const getGroupTypes = vi.fn().mockRejectedValue(
+                new PostHogApiError({
+                    status: 504,
+                    statusText: 'Gateway Timeout',
+                    body: 'upstream request timeout',
+                    url: `/api/projects/${projectId}/`,
+                    method: 'GET',
+                })
+            )
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(cached)
+            expect(mockCaptureException).not.toHaveBeenCalled()
         })
     })
 

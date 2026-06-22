@@ -379,6 +379,57 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
     return undefined
 }
 
+// Transient upstream gateway statuses. A 5xx from a reverse proxy / load balancer
+// (not the application) usually clears on its own, so reporting it as a new error
+// tracking issue is noise rather than signal.
+const TRANSIENT_HTTP_STATUSES = new Set([502, 503, 504])
+
+// Node/undici network-layer error codes and names that indicate a transient
+// connectivity blip (timeouts, dropped connections, transient DNS) rather than a
+// defect on our side. `fetch` surfaces these as a TypeError whose `cause` carries
+// the real `code`/`name`, so callers must walk the cause chain.
+const TRANSIENT_NETWORK_CODES = new Set([
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_SOCKET',
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'EAI_AGAIN',
+])
+const TRANSIENT_NETWORK_NAMES = new Set(['AbortError', 'TimeoutError'])
+
+/**
+ * Walks an `Error.cause` chain to decide whether a failure is a transient,
+ * retryable upstream blip — a 502/503/504 gateway timeout or a network-layer
+ * timeout/reset. Best-effort code paths that already degrade gracefully (e.g.
+ * returning a cached value) use this to avoid filing error tracking issues for
+ * noise that clears on its own, while still surfacing genuine persistent
+ * failures.
+ */
+export function isTransientUpstreamError(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogApiError && TRANSIENT_HTTP_STATUSES.has(current.status)) {
+            return true
+        }
+        if (current instanceof Error) {
+            const code = (current as Error & { code?: unknown }).code
+            if (typeof code === 'string' && TRANSIENT_NETWORK_CODES.has(code)) {
+                return true
+            }
+            if (TRANSIENT_NETWORK_NAMES.has(current.name)) {
+                return true
+            }
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return false
+}
+
 /**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
