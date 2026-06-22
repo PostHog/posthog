@@ -76,6 +76,7 @@ struct BenchConfig {
     seed: u64,
     hours: usize,
     cache_cap: usize,
+    compaction_batch_size: usize,
     emit_json: bool,
 }
 
@@ -87,6 +88,10 @@ impl BenchConfig {
             seed: env_usize("PROPDEFS_BENCH_SEED", 42) as u64,
             hours: env_usize("PROPDEFS_BENCH_HOURS", 6),
             cache_cap: env_usize("PROPDEFS_BENCH_CACHE_CAP", 1_000_000),
+            // Mirrors the producer's bounded compaction batch (`compaction_batch_size`). Bounded
+            // so repeats spanning a flush reach the shared cache, where eviction can re-issue —
+            // without this the unbounded window hides all cache-capacity effects.
+            compaction_batch_size: env_usize("PROPDEFS_BENCH_COMPACTION", 10_000),
             emit_json: env_flag("PROPDEFS_BENCH_JSON"),
         }
     }
@@ -300,22 +305,31 @@ impl DedupStats {
 /// Mirrors the per-update filtering in `update_producer_loop`: a per-worker AHashSet
 /// compaction window followed by the shared `Cache` membership filter. Kept tiny and
 /// obviously equivalent; the metric depends only on `into_updates` + `Cache`, both real.
-fn run_dedup(updates: &[Update], cache: &Cache, compaction: &mut AHashSet<Update>, stats: &mut DedupStats) {
+fn run_dedup(
+    updates: &[Update],
+    cache: &Cache,
+    compaction: &mut AHashSet<Update>,
+    batch_size: usize,
+    stats: &mut DedupStats,
+) {
     for u in updates {
         stats.updates_seen += 1;
         // producer-local compaction window
-        if !compaction.insert(u.clone()) {
-            continue;
+        if compaction.insert(u.clone()) {
+            // first sighting in this window — filter through the shared cross-worker cache
+            if !cache.contains_key(u) {
+                cache.insert(u.clone());
+                match u {
+                    Update::Event(_) => stats.passed_event_defs += 1,
+                    Update::EventProperty(_) => stats.passed_event_props += 1,
+                    Update::Property(_) => stats.passed_prop_defs += 1,
+                }
+            }
         }
-        // shared cross-worker cache filter
-        if cache.contains_key(u) {
-            continue;
-        }
-        cache.insert(u.clone());
-        match u {
-            Update::Event(_) => stats.passed_event_defs += 1,
-            Update::EventProperty(_) => stats.passed_event_props += 1,
-            Update::Property(_) => stats.passed_prop_defs += 1,
+        // Flush the compaction window when it fills, mirroring the producer's batch flush. Repeats
+        // after a flush re-reach the shared cache, so its capacity/eviction actually matters.
+        if compaction.len() >= batch_size {
+            compaction.clear();
         }
     }
 }
@@ -364,7 +378,7 @@ fn main() {
     let mut stats = DedupStats::default();
     let dedup_start = Instant::now();
     for updates in &all_updates {
-        run_dedup(updates, &cache, &mut compaction, &mut stats);
+        run_dedup(updates, &cache, &mut compaction, cfg.compaction_batch_size, &mut stats);
     }
     let dedup_elapsed = dedup_start.elapsed();
 

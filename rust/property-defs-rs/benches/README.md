@@ -36,6 +36,7 @@ Tunables (env):
 | `PROPDEFS_BENCH_SEED` | 42 | RNG seed (determinism) |
 | `PROPDEFS_BENCH_HOURS` | 6 | simulated hours for last_seen_at churn |
 | `PROPDEFS_BENCH_CACHE_CAP` | 1000000 | per-subcache capacity (sweep eviction effects) |
+| `PROPDEFS_BENCH_COMPACTION` | 10000 | producer compaction-window size (matches prod `compaction_batch_size`); bounded so cache eviction is actually exercised |
 | `PROPDEFS_BENCH_FLOOR_SECS` | 3600 | last_seen_at floor period for Phase C (3600 = historical hourly baseline; 86400 = current daily default) |
 | `PROPDEFS_BENCH_JSON` | unset | also print one `BENCH_JSON {...}` line |
 
@@ -47,8 +48,11 @@ Tunables (env):
   wall-clock `events_per_sec` which swings up to 4x on shared CI and is reported as
   indicative only.
 - **Phase B — dedup.** Replays every update through the producer-local compaction
-  (`AHashSet`) + the real shared `Cache`. Reports `dedup_ratio`, `writes_per_1k_evt`, and
-  the passed-write split by record type (`event_defs` / `event_props` / `prop_defs`).
+  (a **bounded** `AHashSet`, flushed every `PROPDEFS_BENCH_COMPACTION` distinct updates to mirror
+  the real producer's batch flush) + the real shared `Cache`. The bound matters: an unbounded
+  window would absorb every repeat and the shared cache would only ever see first-sightings, hiding
+  all capacity/eviction effects. Reports `dedup_ratio`, `writes_per_1k_evt`, and the passed-write
+  split by record type (`event_defs` / `event_props` / `prop_defs`).
 - **Phase C — last_seen_at churn.** Replays event-definition updates across N simulated
   hours with the real key (`team, name, last_seen_at@hour`) vs a `(team, name)`-only
   counterfactual. The delta is `wasted_timestamp_writes` — the volume the
@@ -128,8 +132,14 @@ Dedup-focused (primary):
   successful write, or use a short-lived "pending" set, so a transient DB blip doesn't evict
   a whole batch and cause a re-issue storm. (Not visible in Phase A/B/C — needs the DB-backed
   harness with failure injection.)
-- ⬜ **D4. Cache sizing / weighting / hybrid (foyer).** Only after the benchmark shows
-  eviction-driven re-issues hurt at prod cardinality (sweep `PROPDEFS_BENCH_CACHE_CAP`).
+- 🔬 **D4. Cache sizing / weighting / hybrid (foyer). NOW MEASURABLE + motivated (iter5).** With the
+  bounded compaction window in place, sweeping `PROPDEFS_BENCH_CACHE_CAP` shows a steep eviction
+  cliff: once a subcache drops below its working set (~11k distinct eventprops here), `writes_per_1k`
+  explodes — 70 (≥20k cap) → 98 (10k) → **4,432 (5k) → 9,779 (1k)**, a 60-140× re-issue storm, with
+  `dedup_ratio` collapsing 0.998 → 0.78. Real production risk: an undersized cache amplifies the slow
+  173 ms eventproperty writes. Next: confirm prod working-set cardinality vs the 1M-per-subcache
+  default, then size/weight the subcaches (eventprops/propdefs need far more than eventdefs) or adopt
+  a hybrid (foyer). The bench can now score these directly.
 
 Throughput-focused:
 
@@ -230,6 +240,16 @@ baseline; everything worth keeping lands here and is pushed.
   validates write-concurrency and dedup, but CANNOT score reader/recv-side optimizations** (batched
   reads, parse-parallelism, multi-consumer) — those need prod or a prod-like Kafka harness.
 
+- **The dedup bench was blind to cache eviction until iter5; an undersized cache is catastrophic.**
+  Phase B's producer compaction was an *unbounded* per-run `AHashSet`, so it absorbed every repeat
+  and the shared cache only ever saw first-sightings — `PROPDEFS_BENCH_CACHE_CAP` had zero effect.
+  iter5 bounded the window (`PROPDEFS_BENCH_COMPACTION`, default 10k = prod `compaction_batch_size`)
+  so repeats span flushes and reach the cache. The 1M baseline is unchanged (70.27), but a cap below
+  the working set now shows a steep cliff: `writes_per_1k` 70 → 4,432 (cap 5k) → 9,779 (cap 1k),
+  dedup 0.998 → 0.78. Lesson: dedup numbers are only trustworthy when the compaction window is
+  bounded like prod; and cache capacity must exceed the active distinct-key working set or re-issues
+  explode 60-140×.
+
 ### Iteration history (compact)
 
 - **iter1 — REVERTED.** `is_likely_date_string` prefix fast-path. Behaviour-preserving; pipeline
@@ -252,6 +272,12 @@ baseline; everything worth keeping lands here and is pushed.
   the cheap local recv (recv is not the in-bench bottleneck). This disproved iter3's "recv-bound"
   reading and established the meta-finding above: the e2e bench can't validate reader/recv work.
   Prod-plausible (where recv *is* the bottleneck) but not loop-validatable here.
+- **iter5 — KEPT (bench fidelity fix).** Bounded Phase B's producer compaction window
+  (`PROPDEFS_BENCH_COMPACTION`, default 10k) so it flushes like the real producer instead of
+  absorbing every repeat for the whole run. Unblocks cache-eviction (D4) measurement: the 1M
+  baseline is unchanged (70.27, dedup 0.998412 — no disruption), but undersized caps now reveal a
+  60-140× re-issue cliff. Tests/clippy green. Pivots the loop toward the dedup/cache work the bench
+  can now actually score.
 
 ## The benchmarks
 
