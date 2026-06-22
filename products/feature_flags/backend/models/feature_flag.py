@@ -1,4 +1,5 @@
 import json
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -707,19 +708,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            flags = []
-            for flag_data in parsed_data:
-                # Extract evaluation contexts before creating the model instance since
-                # it's not a DB field. Accept both old and new key names for cache
-                # entries written before or after the rename.
-                contexts_list = flag_data.pop("evaluation_contexts", None)
-                if contexts_list is None:
-                    contexts_list = flag_data.pop("evaluation_tags", None)
-                else:
-                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
-                flag = FeatureFlag(**flag_data)
-                flag._evaluation_tag_names = contexts_list
-                flags.append(flag)
+            flags = [_feature_flag_from_cache_entry(entry) for entry in parsed_data]
             # Filter to only return active flags. The cache includes inactive flags
             # for dependency resolution (used by the Rust service), but Python callers
             # expect only active flags for backward compatibility.
@@ -730,6 +719,37 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
             return None
 
     return None
+
+
+@lru_cache(maxsize=1)
+def _feature_flag_model_field_names() -> frozenset[str]:
+    """Names accepted by the FeatureFlag constructor (concrete fields only), used to
+    separate real model fields from serializer-only extras in cached payloads. The
+    field set is constant for the process, so it's computed once and cached."""
+    names: set[str] = set()
+    for field in FeatureFlag._meta.concrete_fields:
+        names.add(field.name)
+        names.add(field.attname)  # FK attnames like `team_id`
+    return frozenset(names)
+
+
+def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
+    """Reconstruct a FeatureFlag from one cached payload entry.
+
+    The cache payload comes from MinimalFeatureFlagSerializer, which emits
+    SerializerMethodFields (e.g. `evaluation_contexts`) that are not model fields.
+    Keep only real model fields so unknown extras are ignored rather than crashing
+    the FeatureFlag(**...) constructor; known extras are then assigned onto the instance.
+    """
+    model_field_names = _feature_flag_model_field_names()
+    model_fields = {key: value for key, value in entry.items() if key in model_field_names}
+
+    flag = FeatureFlag(**model_fields)
+    # Evaluation contexts are derived data, not a DB field. Accept both the current
+    # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
+    # written before the rename.
+    flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
+    return flag
 
 
 class FeatureFlagDashboards(models.Model):
