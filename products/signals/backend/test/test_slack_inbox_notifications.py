@@ -1011,6 +1011,28 @@ def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() 
     assert "<@U999>" not in content_text
     assert "<https://evil.com|click here>" not in content_text
     assert "&lt;!here&gt;" in content_text
+    assert "&lt;@U999&gt;" in content_text
+
+
+def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links() -> None:
+    # `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form; an untrusted
+    # description could smuggle a broadcast/ping by pointing the link at `!channel` / `@U123`.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "[ping everyone](!channel) and [dm me](@U12345678) but [real](https://example.com) is fine",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    # No live mention/broadcast token survives.
+    assert "<!channel|" not in content_text
+    assert "<@U12345678|" not in content_text
+    assert "&lt;!channel|ping everyone&gt;" in content_text
+    assert "&lt;@U12345678|dm me&gt;" in content_text
+    # A genuine http(s) link is still rendered as a clickable Slack link.
+    assert "<https://example.com|real>" in content_text
 
 
 @pytest.mark.django_db

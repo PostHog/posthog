@@ -11,6 +11,7 @@ All sends are best-effort.
 
 from __future__ import annotations
 
+import re
 import json
 import logging
 
@@ -285,14 +286,37 @@ def _escape_mrkdwn(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert signal markdown to Slack mrkdwn, escaping first so untrusted angle-bracket
-    syntax can't inject mentions — markdown links use no angle brackets, so they still
-    convert to the well-formed `<url|text>` form. Kept local rather than shared with the
-    other `SlackMarkdownConverter` call sites: they render trusted LLM output, signals does
-    not, so it needs this escape-first step.
+# Matches a converter-emitted Slack angle token: `<dest>` or `<dest|label>`. Input `<`/`>`
+# are escaped before conversion, so any literal angle bracket here was produced by the converter.
+_SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
+
+
+def _defang_unsafe_slack_tokens(text: str) -> str:
+    """Render any non-URL `<dest|label>` token the converter emitted as inert literal text.
+
+    `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form without checking
+    the scheme, so untrusted signal content could smuggle a broadcast or ping via `[x](!channel)`
+    or `[x](@U123)`. Tokens whose destination isn't a plain http(s) URL get their angle brackets
+    escaped so Slack shows the text instead of firing a mention.
     """
-    return _SLACK_MRKDWN_CONVERTER.convert(_escape_mrkdwn(text))
+
+    def _replace(match: re.Match[str]) -> str:
+        if _is_safe_http_url(match.group(1)):
+            return match.group(0)
+        return match.group(0).replace("<", "&lt;").replace(">", "&gt;")
+
+    return _SLACK_ANGLE_TOKEN_RE.sub(_replace, text)
+
+
+def _markdown_to_slack_mrkdwn(text: str) -> str:
+    """Convert signal markdown to Slack mrkdwn, then neutralize any injected mentions.
+
+    Escaping runs first so raw `<@U…>`/`<!channel>` in untrusted content can't reach Slack;
+    after conversion, `_defang_unsafe_slack_tokens` strips any mention/broadcast the converter
+    synthesized from a `[text](!channel)`-style link. Kept local rather than shared with the
+    other `SlackMarkdownConverter` call sites: they render trusted LLM output, signals does not.
+    """
+    return _defang_unsafe_slack_tokens(_SLACK_MRKDWN_CONVERTER.convert(_escape_mrkdwn(text)))
 
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
