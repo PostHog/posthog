@@ -607,14 +607,17 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: ^0.36.6
-        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^0.37.2
+        version: 0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/products-access-control':
         specifier: workspace:*
         version: link:../products/access_control
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-ai-gateway':
+        specifier: workspace:*
+        version: link:../products/ai_gateway
       '@posthog/products-ai-observability':
         specifier: workspace:*
         version: link:../products/ai_observability
@@ -2532,6 +2535,43 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+
+  products/ai_gateway:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      clsx:
+        specifier: '*'
+        version: 2.1.1
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-forms:
+        specifier: 'catalog:'
+        version: 3.2.0(kea@4.0.0-pre.5(react@18.3.1))
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.391.6
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/ai_observability:
     dependencies:
@@ -9522,6 +9562,12 @@ packages:
 
   '@posthog/icons@0.36.6':
     resolution: {integrity: sha512-L/UJyGN99dSoGIbKwEN2W1a3CmCkPzLmBFfgVTRPOLNIs8ZYUYK0+tfpf4w1JNmH232ZQkJGqcQ1NFmQszwcnQ==}
+    peerDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1
+
+  '@posthog/icons@0.37.3':
+    resolution: {integrity: sha512-nVgnFtpctBpMa3quVfHE7XJXVrH4D8wkwwdUM9KdgQa8VX9k+pjXbfu0nvTFFNrqQDlbFjXpr21EYMYOLzCYhw==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -29765,6 +29811,11 @@ snapshots:
       react-dom: 18.3.1(react@18.3.1)
 
   '@posthog/icons@0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
+  '@posthog/icons@0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
