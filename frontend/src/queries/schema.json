@@ -3618,6 +3618,35 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantStickinessActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a stickiness insight to list the persons behind one bar — the users who were active in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days). Returned rows are `distinct_id`, `email`, and `name`.\n\nPair this with `query-stickiness`: run the stickiness query first to read the distribution (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.\n\nStickiness drilldown is membership-based and does not surface a matched-recordings column, so `includeRecordings` is intentionally omitted (as with lifecycle and retention).",
+            "properties": {
+                "compare": {
+                    "description": "Whether to pull from the previous period when `compareFilter` is enabled in the source.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based index of the series to drill into when the source has multiple series. Defaults to 0."
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantStickinessQuery",
+                    "description": "The source stickiness insight query whose bar we are drilling into."
+                }
+            },
+            "required": ["kind", "source", "day"],
+            "type": "object"
+        },
         "AssistantStickinessDisplayType": {
             "description": "Stickiness display types. Only time-series visualizations are supported:\n- `ActionsLineGraph` - line chart (default)\n- `ActionsBar` - bar chart\n- `ActionsAreaGraph` - area chart",
             "enum": ["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph"],
@@ -21505,6 +21534,7 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
+                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -23326,7 +23356,7 @@
                     "description": "How to read the result rows — an explicit choice, no implicit default."
                 },
                 "label_column": {
-                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.",
+                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).",
                     "type": ["string", "null"]
                 },
                 "type": {
@@ -25950,6 +25980,10 @@
         "LogValueResult": {
             "additionalProperties": false,
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of log records with this attribute value, over the current date range, service, and resource filters."
+                },
                 "id": {
                     "type": "string"
                 },
@@ -30448,6 +30482,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",

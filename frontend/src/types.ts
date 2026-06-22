@@ -289,6 +289,7 @@ export enum AccessControlResourceType {
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
@@ -4457,6 +4458,8 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
+    ai_gateway_url?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -5487,6 +5490,7 @@ export interface ExportedAssetType {
     created_at: string
     expires_after?: string
     exception?: string
+    user_access_level?: AccessControlLevel
 }
 
 export enum FeatureFlagReleaseType {
