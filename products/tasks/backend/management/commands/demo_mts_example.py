@@ -89,8 +89,7 @@ class Command(BaseCommand):
         self.stdout.write("")
         actionability = result.effective_actionability()
         self.stdout.write(
-            f"Actionability: {actionability.actionability.value} "
-            f"(already_addressed={actionability.already_addressed})"
+            f"Actionability: {actionability.actionability.value} (already_addressed={actionability.already_addressed})"
         )
         self.stdout.write(f"  Reason: {actionability.explanation}")
         priority = result.effective_priority()
