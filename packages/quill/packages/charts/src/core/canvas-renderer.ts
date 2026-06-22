@@ -244,8 +244,9 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
-    // Gradient applies only to the un-stacked baseline fill; dashed-partial segments
-    // stay on a solid fill via the branch below.
+    // A gradient fill always paints the whole area; partial dashing then only affects the stroke
+    // (drawLine), so the fade stays intact under an in-progress dashed tail instead of flipping to
+    // the solid + hatch treatment below (which non-gradient area charts still use).
     const useGradient = series.fill?.gradient && !bottomValues
     let gradient: CanvasGradient | null = null
     if (useGradient) {
@@ -259,7 +260,7 @@ export function drawArea(
             continue
         }
 
-        if (dashedFrom === null && dashedTo === null) {
+        if (useGradient || (dashedFrom === null && dashedTo === null)) {
             ctx.fillStyle = gradient ?? series.color
             fillAreaPath(ctx, top, bottom)
             continue

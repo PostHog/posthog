@@ -528,6 +528,32 @@ describe('hog-charts canvas-renderer', () => {
             const [solid, hatch] = fillRanges
             expect(solid.max).toBe(hatch.min)
         })
+
+        // A gradient fill must survive partial dashing — only the stroke dashes, so the fill stays a
+        // single gradient area rather than flipping to the solid + hatch treatment.
+        it('keeps a single gradient fill (no hatch) when the line is partially dashed', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            const series = makeSeries({
+                key: 's',
+                data: [10, 20, 30, 40, 50],
+                fill: { gradient: true },
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            drawArea(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            expect(recordedFillStyles).toEqual([gradient])
+        })
     })
 
     describe('drawArea — fill.lowerData edge cases', () => {
