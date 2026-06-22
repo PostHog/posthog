@@ -362,7 +362,7 @@ class BatchConsumer:
                     job_state=self._adapter.executing_state,
                     attempt=attempt,
                 )
-            except (OwnershipLostError, Exception):
+            except Exception:
                 return
 
     async def _process_single(self, batch: PendingBatch, lock_conn: psycopg.AsyncConnection[Any] | None = None) -> bool:

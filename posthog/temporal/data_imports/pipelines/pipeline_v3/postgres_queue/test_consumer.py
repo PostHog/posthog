@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import OwnershipLostError
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
@@ -167,6 +168,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -189,6 +195,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -218,6 +229,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -246,6 +262,11 @@ class TestProcessGroup:
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -328,6 +349,7 @@ class TestRecoverySweep:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            pytest.raises(Exception, match="db gone"),
         ):
             await consumer._recovery_sweep()
 
@@ -520,6 +542,11 @@ class TestConnectionRecovery:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
                 side_effect=Exception("the connection is closed"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
             await consumer._process_group((1, "schema-1"), [_make_batch()])
@@ -774,13 +801,14 @@ class TestOwnershipVerification:
         dead_conn = _make_healthy_conn(closed=True)
         consumer._conn = dead_conn
 
-        with patch(
-            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            pytest.raises(OwnershipLostError),
         ):
-            result = await consumer._process_single(batch, lock_conn=dead_conn)
-
-        assert result is False
+            await consumer._process_single(batch, lock_conn=dead_conn)
 
     @pytest.mark.asyncio
     async def test_process_single_without_lock_conn_skips_verification(self):
