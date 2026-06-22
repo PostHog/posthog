@@ -10,6 +10,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -318,6 +319,23 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["allow_dev_login"] is True
         assert is_dev_login_allowed()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_preflight_kafka_reflects_probe_on_self_hosted(self, probe_result):
+        # Regression for #54702: the kafka probe was removed, hardcoding the
+        # response to False off-cloud and blocking self-hosted Live-mode setup.
+        # Patch is_kafka_connected at the view's import site so the preflight
+        # wiring is exercised directly; TEST=False also defeats the helper's own
+        # DEBUG/TEST short-circuit as belt-and-braces.
+        self.client.logout()
+        with (
+            self.is_cloud(False),
+            self.settings(TEST=False, OBJECT_STORAGE_ENABLED=False),
+            patch("posthog.views.is_kafka_connected", return_value=probe_result),
+        ):
+            response = self.client.get("/_preflight/")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["kafka"] is probe_result
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_preflight_omits_allow_dev_login_when_disabled(self):

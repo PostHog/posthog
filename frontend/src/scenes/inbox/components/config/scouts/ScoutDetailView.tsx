@@ -95,6 +95,7 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     const { emissionRows, emissionsLoading, emissionsLoadFailed, runsWindowLoadedOnce, runsWindowComplete } = useValues(
         scoutDetailLogic({ skillName })
     )
+    const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
     // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
     // resolved — otherwise a fresh deep-link would flash the empty state before we know the
@@ -102,6 +103,10 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     // quiet-scout empty state from flickering to a skeleton every 60s poll.
     const loading = !runsWindowLoadedOnce || emissionsLoading
     const hasRows = emissionRows.length > 0
+    // The unique emission the deep-link resolves to: the newest row whose finding matches.
+    const deepLinkedEmissionId = selectedScoutFindingId
+        ? (emissionRows.find(({ emission }) => emission.finding_id === selectedScoutFindingId)?.emission.id ?? null)
+        : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -122,8 +127,18 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                 </div>
             ) : (
                 <>
-                    {emissionRows.map(({ emission, run }) => (
-                        <ScoutEmissionCard key={emission.id} emission={emission} run={run} />
+                    {emissionRows.map(({ emission, run, report }) => (
+                        <ScoutEmissionCard
+                            key={emission.id}
+                            skillName={skillName}
+                            emission={emission}
+                            run={run}
+                            report={report}
+                            // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
+                            // mark the newest matching emission — rows are newest-first — to keep the
+                            // highlight/scroll deterministic for a single shared link.
+                            isDeepLinked={emission.id === deepLinkedEmissionId}
+                        />
                     ))}
                     {!runsWindowComplete && (
                         <span className="text-xs text-muted">

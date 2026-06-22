@@ -17,6 +17,7 @@ import { buildClientToolResultMarker, CLIENT_KIND_HEADER, parseClientKind } from
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
+import { activeStreams } from '../metrics'
 import {
     ChatCancelBodySchema,
     ChatClientToolResultBodySchema,
@@ -210,6 +211,7 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
     res.flushHeaders()
+    activeStreams.labels({ transport: 'chat' }).inc()
     const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`)
     })
@@ -223,6 +225,7 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     req.on('close', () => {
         clearInterval(heartbeat)
         unsubscribe()
+        activeStreams.labels({ transport: 'chat' }).dec()
     })
 }
 

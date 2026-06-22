@@ -49,7 +49,7 @@ tools:
             CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped
             to `archived=false`).
     agent-applications-env-keys-clear:
-        operation: agent_applications_env_keys_clear
+        operation: agent_revisions_env_keys_clear
         enabled: true
         scopes:
             - agents:write
@@ -64,7 +64,7 @@ tools:
             in-flight sessions keep the value they resolved at start. Playbook: read the `secrets-and-integrations`
             playbook via `agent-resolve-resource` for the credential punch-out flow.
     agent-applications-env-keys-get:
-        operation: agent_applications_env_keys_get
+        operation: agent_revisions_env_keys_get
         enabled: true
         scopes:
             - agents:read
@@ -79,7 +79,7 @@ tools:
             landed. Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the
             credential punch-out flow.
     agent-applications-env-keys-list:
-        operation: agent_applications_env_keys_list
+        operation: agent_revisions_env_keys_list
         enabled: true
         scopes:
             - agents:read
@@ -95,7 +95,7 @@ tools:
             Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential
             punch-out flow.
     agent-applications-env-keys-set:
-        operation: agent_applications_env_keys_set
+        operation: agent_revisions_env_keys_set
         enabled: false
         scopes:
             - agents:write
@@ -398,6 +398,9 @@ tools:
             id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` /
             `agent-applications-revisions-bundle-retrieve`. Playbook: read the `reading-an-agent` playbook via
             `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-revisions-set-env-create:
+        operation: agent_applications_revisions_set_env_create
+        enabled: false
     agent-applications-revisions-skills-destroy:
         operation: agent_applications_revisions_skills_destroy
         enabled: true
@@ -567,24 +570,6 @@ tools:
             `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full
             untrimmed conversation so cost reporting stays accurate. Playbook: read the `debugging-sessions` playbook
             via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
-    agent-applications-set-env-create:
-        operation: agent_applications_set_env_create
-        enabled: false
-        scopes:
-            - agents:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Replace the application's env block (raw values — disabled by default)
-        description: >
-            Body `{ env: { KEY: "value", … } }` — the whole env is replaced (not patched). **Disabled for the standard
-            MCP surface** — the body carries raw secret values, which would land in the agent's tool-call history. Raw
-            secret entry goes through the agent console's secret editor instead (deep-link flow; see the
-            secrets-and-integrations skill). Values are encrypted at rest with the team's Fernet keys and never leave
-            Django; this endpoint stays available on the REST API for the console / CI that already hold the values.
-            Playbook: read the `secrets-and-integrations` playbook via `agent-resolve-resource` for the credential
-            punch-out flow.
     agent-applications-stats:
         operation: agent_applications_stats
         enabled: false

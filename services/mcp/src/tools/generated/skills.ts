@@ -236,6 +236,7 @@ const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkill
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,
             query: {
+                category: params.category,
                 created_by_id: params.created_by_id,
                 limit: params.limit,
                 offset: params.offset,

@@ -5,10 +5,9 @@
  */
 
 import express, { Express, Request, Response } from 'express'
-import type { Pool } from 'pg'
 import { z } from 'zod'
 
-import type { IdentityStore, IntegrationStore, SecretResolver } from '@posthog/agent-shared'
+import type { IdentityStore, SecretResolver } from '@posthog/agent-shared'
 import { createLogger, RevisionStore, SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
@@ -24,7 +23,7 @@ import { resolveAgent } from '../triggers/resolve'
 import { slackTrigger } from '../triggers/slack'
 import type { RouteAuthKind, TriggerModule } from '../triggers/types'
 import { webhookTrigger } from '../triggers/webhook'
-import { asyncHandler, errorHandler, requestLogger } from './http-utils'
+import { asyncHandler, errorHandler, httpMetricsMiddleware, requestLogger } from './http-utils'
 import { RevisionResolver, RoutingMode } from './resolver'
 
 /**
@@ -97,19 +96,6 @@ export interface BuildAppOpts {
      */
     internalSigningKey?: string
     /**
-     * Read-only access to PostHog's integration table. Slack trigger uses it
-     * to fetch a workspace bot token for the Slack → PostHog user bridge
-     * (#23 step 2). Optional — when absent, the bridge is skipped and
-     * AgentUser.posthog_user_id stays null.
-     */
-    integrations?: IntegrationStore | null
-    /**
-     * Direct access to the posthog DB pool. Slack → PostHog user bridge
-     * queries `posthog_user` by email. Optional — required only when
-     * `integrations` is also set.
-     */
-    posthogDb?: Pool | null
-    /**
      * Per-session credential broker. Ingress writes user auth materials
      * (OAuth bearer, PAT, JWT) here at /run + /send; the runner reads
      * via `ToolContext.credentials.resolve(target)`. Required — prod wires
@@ -118,8 +104,8 @@ export interface BuildAppOpts {
      */
     credentialBroker: import('@posthog/agent-shared').CredentialBroker
     /**
-     * Outbound HTTP for any trigger's outbound calls (currently only the
-     * slack identity bridge). Wired at the ingress entrypoint from
+     * Outbound HTTP for a trigger's outbound calls (the slack trigger's
+     * bot-token Slack calls). Wired at the ingress entrypoint from
      * `config.httpsProxy` so the call dispatches through smokescreen in
      * prod. Optional — falls back to a direct HttpClient in tests.
      */
@@ -131,6 +117,9 @@ export function buildApp(opts: BuildAppOpts): Express {
     // First in the chain so it sees — and times — every request, including
     // those that never match a route (404s) or fail body parsing (400s).
     app.use(requestLogger(log))
+    // Record HTTP latency/status for every request. Sits right after the
+    // logger so it shares the same view of unmatched + rejected requests.
+    app.use(httpMetricsMiddleware())
     const bus = opts.bus
     const resolver = new RevisionResolver({
         revisions: opts.revisions,
@@ -172,8 +161,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         authProvider,
         signingSecretResolver: opts.slackSigningSecretResolver ?? UNCONFIGURED_SLACK_SIGNING_SECRET_RESOLVER,
         identities: opts.identities,
-        integrations: opts.integrations ?? null,
-        posthogDb: opts.posthogDb ?? null,
         broker: opts.credentialBroker,
         http: opts.http,
         routingMode: opts.routingMode,
