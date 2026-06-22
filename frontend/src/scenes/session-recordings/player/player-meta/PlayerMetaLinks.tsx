@@ -28,8 +28,7 @@ import {
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
-import { AccessControlResourceType } from '~/types'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 

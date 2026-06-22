@@ -1571,7 +1571,7 @@ class TestExportsResourceAccessControl(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_response_includes_object_level_user_access_level(self) -> None:
+    def test_creator_sees_highest_user_access_level(self) -> None:
         self._set_export_resource_level("editor")
         asset = ExportedAsset.objects.create(
             team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.member
@@ -1581,10 +1581,47 @@ class TestExportsResourceAccessControl(APIBaseTest):
         # The member created this export, so they have the highest level for it.
         self.assertEqual(response.json()["user_access_level"], "manager")
 
-    def test_object_level_access_controls_endpoint_available(self) -> None:
+    def test_non_creator_sees_resource_level_user_access_level(self) -> None:
+        # Session-recording exports are retrievable by non-creators, so this exercises the
+        # non-creator branch of the serializer field (which resolves to the resource level).
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        SessionRecording.objects.create(team=self.team, session_id="export-rbac-session")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "export-rbac-session"},
+            created_by=self.user,
+        )
+        self._set_export_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_access_controls_endpoint_route_exists(self) -> None:
         asset = ExportedAsset.objects.create(
             team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
         )
         self.client.force_login(self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/access_controls")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_manager_member_cannot_modify_object_access_controls(self) -> None:
+        # A session-recording export the member can retrieve (non-creator path), with the member
+        # granted editor (so the request passes resource-level write checks) but not manager.
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        SessionRecording.objects.create(team=self.team, session_id="export-acl-session")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "export-acl-session"},
+            created_by=self.user,
+        )
+        self._set_export_resource_level("editor")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/exports/{asset.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        # Modifying an object's access controls requires manager access to that object.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
