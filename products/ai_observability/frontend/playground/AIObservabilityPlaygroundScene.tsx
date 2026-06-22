@@ -4,6 +4,7 @@ import React from 'react'
 
 import {
     IconChevronRight,
+    IconDocument,
     IconGear,
     IconPencil,
     IconPlay,
@@ -11,6 +12,7 @@ import {
     IconRevert,
     IconStack,
     IconTrash,
+    IconUpload,
     IconWrench,
     IconCopy,
 } from '@posthog/icons'
@@ -53,6 +55,7 @@ import {
     getLinkedSourceLabel,
     llmPlaygroundPromptsLogic,
     type Message,
+    type MessageFile,
     type MessageRole,
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
@@ -86,6 +89,9 @@ const EXAMPLE_TOOL = [
         },
     },
 ]
+
+const MESSAGE_FILE_ACCEPT =
+    '.txt,.text,.md,.markdown,.json,.jsonl,.csv,.tsv,.yaml,.yml,.xml,.html,.htm,.css,.scss,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.swift,.sh,.bash,.zsh,.sql,.toml,.ini,.cfg,.env,.log,text/*'
 
 function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element {
     return (
@@ -1000,6 +1006,60 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     )
 }
 
+function MessageFilesControl({
+    promptId,
+    index,
+    files,
+}: {
+    promptId: string
+    index: number
+    files: MessageFile[]
+}): JSX.Element {
+    const { submitting } = useValues(llmPlaygroundRunLogic)
+    const { attachFilesToMessage, removeMessageFile } = useActions(llmPlaygroundPromptsLogic)
+    const inputRef = React.useRef<HTMLInputElement>(null)
+
+    return (
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+            <input
+                ref={inputRef}
+                className="hidden"
+                type="file"
+                multiple
+                accept={MESSAGE_FILE_ACCEPT}
+                onChange={(e) => {
+                    if (e.target.files?.length) {
+                        attachFilesToMessage(index, Array.from(e.target.files), promptId)
+                    }
+                    // Reset so re-selecting the same file fires onChange again
+                    e.target.value = ''
+                }}
+                data-attr="llma-playground-message-file-input"
+            />
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={<IconUpload />}
+                onClick={() => inputRef.current?.click()}
+                disabledReason={submitting ? 'Generating...' : undefined}
+                tooltip="Attach text files as context. Their contents are added to this message when you run."
+            >
+                Attach files
+            </LemonButton>
+            {files.map((file) => (
+                <LemonTag
+                    key={file.id}
+                    icon={<IconDocument />}
+                    closable={!submitting}
+                    onClose={() => removeMessageFile(index, file.id, promptId)}
+                >
+                    <span className="max-w-[180px] truncate">{file.name}</span>
+                </LemonTag>
+            ))}
+        </div>
+    )
+}
+
 function MessageDisplay({
     promptId,
     message,
@@ -1087,7 +1147,9 @@ function MessageDisplay({
                         <span className="text-xs text-muted truncate flex-1">
                             {message.content
                                 ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
-                                : `Empty ${message.role} message`}
+                                : message.files?.length
+                                  ? `${message.files.length} file${message.files.length === 1 ? '' : 's'} attached`
+                                  : `Empty ${message.role} message`}
                         </span>
                     )}
                 </div>
@@ -1112,6 +1174,9 @@ function MessageDisplay({
                             maxRows={undefined}
                             onPressCmdEnter={() => submitPrompt()}
                         />
+                    )}
+                    {message.role === 'user' && (
+                        <MessageFilesControl promptId={promptId} index={index} files={message.files ?? []} />
                     )}
                 </AnimatedCollapsible>
             </div>
