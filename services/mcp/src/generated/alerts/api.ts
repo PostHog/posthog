@@ -3663,7 +3663,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe(
-                                'In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.'
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
                     }),
