@@ -278,6 +278,8 @@ class Commit(BaseModel):
 
     Recorded automatically by the agent harness after each successful signed-commit push (one
     artefact per commit), so the report log shows exactly what landed, when, and from which task.
+    A `commit` artefact only ever records a commit that has already been pushed to a remote branch;
+    recording an unpushed or local-only commit is always a mistake.
     """
 
     repository: str = Field(description="GitHub repository the commit was pushed to, as `owner/repo`.")

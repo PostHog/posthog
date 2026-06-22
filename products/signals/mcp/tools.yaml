@@ -32,9 +32,11 @@ tools:
         description: >
             Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types
             accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line,
-            end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one
-            pushed commit: repository, branch, commit_sha, message — usually recorded automatically when you push via
-            git_signed_commit, so only create one yourself for commits pushed by other means), `task_run` (associates a
+            end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that
+            has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
+            automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
+            by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
+            always a mistake), `task_run` (associates a
             tasks.Task with the report — this IS the task↔report association: content.task_id defaults to your own task,
             product/type label the run and default to tasks/agent_run, and re-associating an already-linked task is
             idempotent, returning the existing entry), `note` (free-form: note). Status types are latest-wins —
@@ -198,8 +200,9 @@ tools:
             commits you push via git_signed_commit are recorded on the report through it, and without it your work is
             invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task
             id of your own — that's expected, not an error to fix; skip the association and continue. Then log the work
-            as artefacts as you go — notes, code references, and commits pushed outside git_signed_commit (signed pushes
-            are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a
+            as artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch
+            outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a
+            remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a
             new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is
             handled for you."
     inbox-reports-set-state:
