@@ -1138,6 +1138,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const incrementalTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'incremental'
                 )
+                const xminTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'xmin'
+                )
                 const fullRefreshTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
                 )
@@ -1177,6 +1180,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             — Ideal. Syncs only changed rows using a field like{' '}
                             <span className="font-mono text-xs">updated_at</span>.
                         </div>
+
+                        {/* xmin - Good */}
+                        {xminTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">xmin</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(xminTables.length)}</span> — Syncs
+                                    only changed rows using Postgres' internal{' '}
+                                    <span className="font-mono text-xs">xmin</span> column. No cursor field required.
+                                </div>
+                            </>
+                        )}
 
                         {/* Append-only - Caution */}
                         <div className="font-bold text-warning">Append-only</div>

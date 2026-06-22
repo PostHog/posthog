@@ -21290,7 +21290,13 @@
                 "Datorama",
                 "Ahrefs",
                 "Lightfield",
-                "Custom"
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },
@@ -43605,6 +43611,12 @@
                 "hideWeekends": {
                     "default": false,
                     "type": "boolean"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",

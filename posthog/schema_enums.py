@@ -1789,7 +1789,13 @@ class ExternalDataSourceType(StrEnum):
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
     LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
+    RAZORPAY = "Razorpay"
+    NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
+    TILE38 = "Tile38"
+    CHATWOOT = "Chatwoot"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3278,6 +3284,13 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):
