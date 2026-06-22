@@ -3,7 +3,9 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db import IntegrityError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,6 +18,7 @@ from products.customer_analytics.backend.facade import (
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyDefinitionNotFound,
+    CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     list_active_custom_property_values,
     set_custom_property_value,
@@ -26,7 +29,10 @@ from products.customer_analytics.backend.models import (
     CustomPropertyValue,
     DisplayType,
 )
+from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+
+LOGIC_MODULE = "products.customer_analytics.backend.logic.custom_property_values"
 
 
 class TestSetCustomPropertyValue(BaseTest):
@@ -166,6 +172,26 @@ class TestSetCustomPropertyValue(BaseTest):
             (plan.id, "enterprise", None),
             (seats.id, None, 42.0),
         }
+
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_losing_the_active_value_race_surfaces_as_a_conflict(self, mock_value_model):
+        definition = self._create_property_definition()
+        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+            f'duplicate key value violates unique constraint "{ACTIVE_VALUE_CONSTRAINT_NAME}"'
+        )
+
+        with pytest.raises(CustomPropertyValueConflict):
+            self._set(definition=definition, value="enterprise")
+
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_other_integrity_errors_are_not_masked_as_conflicts(self, mock_value_model):
+        definition = self._create_property_definition()
+        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+            'new row violates check constraint "custom_property_value_exactly_one_value"'
+        )
+
+        with pytest.raises(IntegrityError):
+            self._set(definition=definition, value="enterprise")
 
 
 class TestCustomPropertyValueFacade(BaseTest):

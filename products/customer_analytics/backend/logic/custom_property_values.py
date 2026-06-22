@@ -11,10 +11,11 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertyValue, DataType
+from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
 
@@ -25,6 +26,15 @@ class InvalidCustomPropertyValue(ValueError):
 
 class CustomPropertyDefinitionNotFound(Exception):
     """Raised when the target custom property definition does not exist for the team."""
+
+
+class CustomPropertyValueConflict(Exception):
+    """Raised when a concurrent write already set an active value for this (account, definition).
+
+    Only the active-value uniqueness race maps to this — retrying succeeds, since the retry
+    soft-deletes the now-existing active row before inserting. Any other integrity error is a real
+    fault and is left to surface.
+    """
 
 
 def set_custom_property_value(
@@ -42,7 +52,8 @@ def set_custom_property_value(
     definition) while leaving superseded rows for later analysis.
 
     Raises `CustomPropertyDefinitionNotFound` (unknown definition), `Account.DoesNotExist`
-    (account not in team), or `InvalidCustomPropertyValue` (value doesn't match the data type).
+    (account not in team), `InvalidCustomPropertyValue` (value doesn't match the data type), or
+    `CustomPropertyValueConflict` (a concurrent write won the active-value race — retry).
     """
     try:
         definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
@@ -53,21 +64,32 @@ def set_custom_property_value(
     _assert_account_in_team(team_id=team_id, account_id=account_id)
     column, coerced = _coerce_to_column(definition, value)
 
-    with transaction.atomic():
-        CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=account_id, definition_id=definition_id, is_deleted=False
-        ).update(is_deleted=True)
-        row = CustomPropertyValue.objects.for_team(team_id).create(
-            team_id=team_id,
-            account_id=account_id,
-            definition_id=definition_id,
-            created_by_id=created_by_id,
-            **{column: coerced},
-        )
+    try:
+        with transaction.atomic():
+            CustomPropertyValue.objects.for_team(team_id).filter(
+                account_id=account_id, definition_id=definition_id, is_deleted=False
+            ).update(is_deleted=True)
+            row = CustomPropertyValue.objects.for_team(team_id).create(
+                team_id=team_id,
+                account_id=account_id,
+                definition_id=definition_id,
+                created_by_id=created_by_id,
+                **{column: coerced},
+            )
+    except IntegrityError as exc:
+        if _is_active_value_conflict(exc):
+            raise CustomPropertyValueConflict(
+                f"An active value for custom property '{definition.name}' was set concurrently."
+            ) from exc
+        raise
     # Cache the definition we already hold so callers reading row.definition.* don't trigger a
     # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
+
+
+def _is_active_value_conflict(exc: IntegrityError) -> bool:
+    return ACTIVE_VALUE_CONSTRAINT_NAME in str(exc)
 
 
 def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) -> list[CustomPropertyValue]:
