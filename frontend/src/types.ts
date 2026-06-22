@@ -4757,6 +4757,8 @@ export interface Experiment {
         }
     }
     running_time_calculation?: ExperimentRunningTimeCalculationConfig
+    /** Variant keys dropped from statistical analysis. Canonical home for what historically lived in `parameters.excluded_variants`. */
+    excluded_variants?: string[] | null
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
