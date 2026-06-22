@@ -289,13 +289,24 @@ describe('CDP Consumer loop', () => {
                     sigv4FetchCalls.push({ url, opts })
                     kinesisCallCount++
                     if (kinesisCallCount === 1) {
-                        return Promise.resolve({
-                            status: 500,
-                            json: () => Promise.resolve({}),
-                            text: () => Promise.resolve(''),
-                            headers: {},
-                            dump: () => Promise.resolve(),
-                        })
+                        // Delay the first 500 by long enough that attempt-2 signs in a
+                        // different wall-clock second. X-Amz-Date is second-resolution,
+                        // so without this delay both attempts would land in the same
+                        // second and produce identical signatures — masking whether the
+                        // retry actually re-signed or just reused the original payload.
+                        return new Promise((resolve) =>
+                            setTimeout(
+                                () =>
+                                    resolve({
+                                        status: 500,
+                                        json: () => Promise.resolve({}),
+                                        text: () => Promise.resolve(''),
+                                        headers: {},
+                                        dump: () => Promise.resolve(),
+                                    }),
+                                1500
+                            )
+                        )
                     }
                 }
                 return Promise.resolve({
@@ -365,13 +376,30 @@ describe('CDP Consumer loop', () => {
             // header derived from the decrypted `encrypted_inputs` map. A regression in
             // the lookup path would either crash with the "input not found" error or
             // ship an unsigned request — both visible here.
-            for (const { opts } of sigv4FetchCalls.slice(0, 2)) {
+            const sigv4Authorizations = sigv4FetchCalls.slice(0, 2).map(({ opts }) => {
                 const headers = (opts?.headers ?? {}) as Record<string, string>
-                const auth = headers['Authorization'] ?? headers.authorization
+                return headers['Authorization'] ?? headers.authorization
+            })
+            const sigv4AmzDates = sigv4FetchCalls.slice(0, 2).map(({ opts }) => {
+                const headers = (opts?.headers ?? {}) as Record<string, string>
+                return headers['X-Amz-Date'] ?? headers['x-amz-date']
+            })
+
+            for (const auth of sigv4Authorizations) {
                 expect(auth).toMatch(
                     /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/\d{8}\/us-east-1\/kinesis\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[a-f0-9]{64}$/
                 )
             }
+
+            // The actual bug this whole PR exists to fix: a retry must NOT reuse the
+            // signature from the first attempt. The 1.5s delay on the 500 response
+            // forces the two attempts to sign in different wall-clock seconds, so a
+            // correct implementation produces different X-Amz-Date values and therefore
+            // different signatures. If we ever regress to "sign once, reuse on retry"
+            // these two would match and AWS would return InvalidSignatureException in
+            // production whenever the retry crossed the 5-minute signature window.
+            expect(sigv4AmzDates[0]).not.toEqual(sigv4AmzDates[1])
+            expect(sigv4Authorizations[0]).not.toEqual(sigv4Authorizations[1])
         })
 
         it('should handle fetch failures with retries', async () => {
