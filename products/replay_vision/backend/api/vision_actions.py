@@ -1,3 +1,4 @@
+import uuid
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError, transaction
@@ -322,9 +323,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
         queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
-        # The per-scanner "Actions and summaries" tab scopes the list to one scanner.
+        # The per-scanner "Actions" tab scopes the list to one scanner.
         scanner_id = self.request.query_params.get("scanner")
         if scanner_id:
+            try:
+                uuid.UUID(scanner_id)
+            except ValueError:
+                # A malformed ?scanner= would otherwise raise ValueError when the UUID column builds the
+                # query — uncaught by DRF, so a 500. Treat unparseable input as "matches nothing".
+                return queryset.none()
             queryset = queryset.filter(scanner_id=scanner_id)
         return queryset.order_by("name", "id")
 

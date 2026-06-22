@@ -114,6 +114,13 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual([r["name"] for r in results], ["a"])
         self.assertEqual(results[0]["scanner"], str(self.scanner.id))
 
+    def test_list_with_malformed_scanner_param_returns_empty(self) -> None:
+        # A non-UUID ?scanner= must not 500 (it would, building the UUID-column query) — return nothing.
+        self.client.post(self.actions_url, data=self._create_payload(name="a"), format="json")
+        resp = self.client.get(self.actions_url, data={"scanner": "not-a-uuid"})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()["results"], [])
+
     def test_actions_flag_off_hides_endpoint(self) -> None:
         # `replay-vision-actions` gates the sub-feature even when product-level `replay-vision` is on.
         def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
