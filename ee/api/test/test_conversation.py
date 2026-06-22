@@ -1883,7 +1883,7 @@ class TestConversationListTaskHandle(APIBaseTest):
         )
         return latest
 
-    def test_list_surfaces_task_without_latest_run(self):
+    def test_list_surfaces_task_handle_with_run_id(self):
         latest = self._sandbox_conversation("Sandbox chat")
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
@@ -1892,7 +1892,8 @@ class TestConversationListTaskHandle(APIBaseTest):
         results = response.json()["results"]
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["task"]["id"], str(latest.task_id))
-        self.assertNotIn("latest_run", results[0]["task"])
+        # The handle carries the latest run as a bare id (not the nested run detail).
+        self.assertEqual(results[0]["task"]["latest_run"], str(latest.id))
 
     def test_list_reports_null_task_for_langgraph(self):
         Conversation.objects.create(
@@ -1910,7 +1911,7 @@ class TestConversationListTaskHandle(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertIsNone(results[0]["task"])
 
-    def test_retrieve_surfaces_task_without_latest_run(self):
+    def test_retrieve_surfaces_task_handle_with_run_id(self):
         # A sandbox conversation backed by a Task with runs, and one with no Task at all.
         latest = self._sandbox_conversation("With task")
         with_task = Conversation.objects.get(task_id=latest.task_id)
@@ -1930,7 +1931,7 @@ class TestConversationListTaskHandle(APIBaseTest):
         self.assertEqual(r_with.status_code, status.HTTP_200_OK)
         self.assertEqual(r_without.status_code, status.HTTP_200_OK)
         self.assertEqual(r_with.json()["task"]["id"], str(latest.task_id))
-        self.assertNotIn("latest_run", r_with.json()["task"])
+        self.assertEqual(r_with.json()["task"]["latest_run"], str(latest.id))
         self.assertIsNone(r_without.json()["task"])
 
     def test_list_query_count_does_not_scale_with_conversation_count(self):

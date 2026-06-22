@@ -57,9 +57,9 @@ from products.posthog_ai.backend.context_wrapper import (
 )
 from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.tasks.backend.constants import INITIAL_PERMISSION_MODE_CHOICES
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
+from products.tasks.backend.facade.run_config import INITIAL_PERMISSION_MODE_CHOICES
 from products.tasks.backend.models import Task
 from products.tasks.backend.visibility import task_visibility_q
 
