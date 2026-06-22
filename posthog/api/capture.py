@@ -653,18 +653,20 @@ def capture_batch_internal(
         "timeout": timeout,
     }
 
+    chunk_size = max(CAPTURE_BATCH_CHUNK_SIZE, 1)
+
     # Hot path: small batch — submit directly, no threading overhead.
-    if len(events) <= CAPTURE_BATCH_CHUNK_SIZE:
+    if len(events) <= chunk_size:
         return _submit_batch_chunk(events=events, **chunk_kwargs)
 
     # Large batch: chunk and fan out concurrently.
-    chunks = [events[i : i + CAPTURE_BATCH_CHUNK_SIZE] for i in range(0, len(events), CAPTURE_BATCH_CHUNK_SIZE)]
+    chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
     logger.info(
         "capture_batch_internal_chunked",
         event_source=event_source,
         total_events=len(events),
         chunks=len(chunks),
-        chunk_size=CAPTURE_BATCH_CHUNK_SIZE,
+        chunk_size=chunk_size,
         max_workers=CAPTURE_BATCH_MAX_WORKERS,
     )
 
