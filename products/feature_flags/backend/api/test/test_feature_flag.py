@@ -3682,13 +3682,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             feature_flag=flag,
+            name="My experiment",
             start_date=now(),
         )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
+            == f'Cannot delete a feature flag that is linked to running experiment(s): "My experiment" (ID: {exp.id}). Please stop the experiment(s) before deleting the flag.'
         )
 
     @parameterized.expand(
@@ -3743,6 +3744,96 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         assert response.status_code == 200
         assert response.json()["is_used_in_replay_settings"] is True
+
+    def test_archive_flag_requires_disabled(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="enabled-flag", active=True)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True})
+        assert response.status_code == 400
+        assert "Cannot archive an enabled feature flag" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.archived is False
+
+    def test_archive_disabled_flag(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="disabled-flag", active=False)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True})
+        assert response.status_code == 200, response.content
+        assert response.json()["archived"] is True
+        assert response.json()["status"] == "ARCHIVED"
+        flag.refresh_from_db()
+        assert flag.archived is True
+
+    def test_archive_and_disable_flag_in_one_request(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="enabled-flag", active=True)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True, "active": False}
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is True
+        assert flag.active is False
+
+    def test_cannot_enable_archived_flag(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"active": True})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cannot enable an archived feature flag. Unarchive it first."
+
+    def test_unarchive_flag_stays_disabled(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": False})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is False
+        assert flag.active is False
+
+    @parameterized.expand(
+        [
+            ("default", "", True, False),
+            ("archived_true", "?archived=true", False, True),
+            ("archived_false", "?archived=false", True, False),
+        ]
+    )
+    def test_list_archived_filtering(self, _name, query, expect_visible, expect_archived):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="visible-flag")
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{query}")
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert ("visible-flag" in keys) is expect_visible
+        assert ("archived-flag" in keys) is expect_archived
+
+    def test_list_excluded_tags_filtering(self):
+        for key, tags in [
+            ("deprecated-flag", ["deprecated"]),
+            ("multi-tag-flag", ["deprecated", "app"]),
+            ("app-flag", ["app"]),
+            ("untagged-flag", []),
+        ]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "key": key,
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                    "tags": tags,
+                },
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/?excluded_tags={json.dumps(['deprecated'])}"
+        )
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert "deprecated-flag" not in keys
+        assert "multi-tag-flag" not in keys
+        assert {"app-flag", "untagged-flag"} <= keys
 
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
@@ -11011,6 +11102,34 @@ class TestFeatureFlagMatchingIds(APIBaseTest):
         assert data["total"] == 1
         assert data["ids"] == [active_flag.id]
 
+    def test_matching_ids_excludes_archived_by_default(self):
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="visible_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Default: archived flag is absent from the "select all matching" set.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+        assert response.status_code == 200
+        ids = response.json()["ids"]
+        assert visible_flag.id in ids
+        assert archived_flag.id not in ids
+
+        # ?archived=true returns only archived flags.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?archived=true")
+        assert response.status_code == 200
+        assert response.json()["ids"] == [archived_flag.id]
+
     def test_matching_ids_excludes_deleted_flags(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -11169,6 +11288,36 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert active_flag.deleted is False
         assert inactive_flag.deleted is True
 
+    def test_bulk_delete_by_filter_excludes_archived_by_default(self):
+        """An archived flag must not be deleted by a filter-based bulk delete, even when it
+        matches the filter (archived flags are inactive, so an active=false filter matches them)."""
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_inactive_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        inactive_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="plain_inactive_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"active": "false"}},
+        )
+
+        assert response.status_code == 200
+        archived_flag.refresh_from_db()
+        inactive_flag.refresh_from_db()
+        assert archived_flag.deleted is False
+        assert inactive_flag.deleted is True
+
     def test_bulk_delete_by_ids_no_limit(self):
         """Test that ID-based deletion has no 100 limit (unlike the old endpoint)."""
         # Create 150 flags
@@ -11217,7 +11366,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         data = response.json()
         assert len(data["deleted"]) == 0
         assert len(data["errors"]) == 1
-        assert "experiment" in data["errors"][0]["reason"].lower()
+        # The error names the blocking experiment, matching the single-delete path's formatting.
+        assert (
+            'Cannot delete a feature flag linked to running experiment(s): "Test Experiment"'
+            in (data["errors"][0]["reason"])
+        )
 
         # Verify flag is NOT deleted
         flag.refresh_from_db()

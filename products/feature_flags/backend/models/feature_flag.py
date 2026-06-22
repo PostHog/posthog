@@ -71,6 +71,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
+    # Archived flags are "done for good" (e.g. a finished experiment's flag): hidden from
+    # the flag list by default but kept so linked experiments/surveys retain their data.
+    # An archived flag must be disabled — enforced at the DB level by the
+    # `archived_flag_must_be_disabled` check constraint below, so writers that bypass the
+    # serializer (e.g. the experiment service) can't persist an archived-but-still-serving flag.
+    archived = models.BooleanField(default=False, db_default=False)
 
     version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(
@@ -139,7 +145,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="unique key for team"),
+            # An archived flag must be disabled — keeps an archived flag from ever serving traffic,
+            # regardless of which code path wrote it.
+            models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
+        ]
         db_table = "posthog_featureflag"
 
     def __str__(self):
