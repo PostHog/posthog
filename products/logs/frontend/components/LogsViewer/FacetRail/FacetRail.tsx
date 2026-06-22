@@ -7,6 +7,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { serviceFilterLogic } from 'products/logs/frontend/components/LogsViewer/Filters/serviceFilterLogic'
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
@@ -38,8 +39,11 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { severityTotals } = useValues(logsViewerDataLogic)
     const { collapsedFacets } = useValues(facetRailLogic({ id }))
     const { toggleSeverityLevel, toggleServiceName, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+
+    const levelOptions = SEVERITY_OPTIONS.map((option) => ({ ...option, count: severityTotals?.[option.value] }))
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -76,7 +80,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 </div>
                 <Facet
                     title="Level"
-                    options={SEVERITY_OPTIONS}
+                    options={levelOptions}
                     selected={severityLevels ?? []}
                     onToggle={(value) => toggleSeverityLevel(value as LogSeverityLevel)}
                     collapsed={collapsedFacets.includes('level')}
@@ -107,10 +111,10 @@ function ServiceFacet({
     collapsed: boolean
     onToggleCollapsed: () => void
 }): JSX.Element {
-    const { serviceNames, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
+    const { serviceValues, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
     const { setSearch } = useActions(serviceFilterLogic)
 
-    const options: FacetOption[] = serviceNames.map((name) => ({ value: name, label: name }))
+    const options: FacetOption[] = serviceValues.map((s) => ({ value: s.name, label: s.name, count: s.count }))
 
     return (
         <Facet

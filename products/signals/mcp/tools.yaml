@@ -255,7 +255,6 @@ tools:
             Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
             immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned
             configs.
-        requires_ai_consent: true
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
