@@ -37,6 +37,7 @@ from posthog.models.activity_logging.activity_log import ActivityContextBase, De
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
+from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
@@ -73,6 +74,22 @@ class TeamAdminForm(ModelForm):
         if not isinstance(value, list):
             raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
         return value
+
+    def clean_llm_gateway_overspend_allowance_usd(self):
+        value = self.cleaned_data.get("llm_gateway_overspend_allowance_usd")
+        if value is None:
+            return value
+        # The projection reads the allowance from the project-root team, so a child-env value
+        # never reaches the wire — reject instead of silently no-opping.
+        if self.instance.parent_team_id is not None:
+            raise ValidationError(
+                f"This is a child environment; set the allowance on its project-root team "
+                f"({self.instance.parent_team_id}) instead."
+            )
+        try:
+            return validate_overspend_allowance_usd(value)
+        except ValueError as e:
+            raise ValidationError(str(e))
 
 
 @admin.register(Team)
@@ -242,6 +259,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "llm_gateway_enabled_at",
                     "llm_gateway_revoked_at",
+                    "llm_gateway_overspend_allowance_usd",
                     "admit_state",
                     "ai_gateway_actions",
                     "policy_cache_blob",
@@ -251,7 +269,9 @@ class TeamAdmin(admin.ModelAdmin):
                     "If you want the team enabled or revoked in the other region too, flip the "
                     "matching Team row there. The gateway admits a team only when "
                     "<code>llm_gateway_enabled_at</code> is set and "
-                    "<code>llm_gateway_revoked_at</code> is null."
+                    "<code>llm_gateway_revoked_at</code> is null. "
+                    "<code>llm_gateway_overspend_allowance_usd</code> (0–10000) lets the team keep dispatching "
+                    "past $0 down to that USD floor; leave blank to use the gateway's operator default."
                 ),
             },
         ),

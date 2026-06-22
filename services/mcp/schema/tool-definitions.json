@@ -607,7 +607,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",

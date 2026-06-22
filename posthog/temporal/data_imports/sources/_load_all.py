@@ -68,6 +68,7 @@ from .bluetally.source import BluetallySource
 from .boldsign.source import BoldSignSource
 from .box.source import BoxSource
 from .braintree.source import BraintreeSource
+from .braintrust.source import BraintrustSource
 from .branch.source import BranchSource
 from .braze.source import BrazeSource
 from .breezometer.source import BreezometerSource
@@ -143,6 +144,7 @@ from .customerly.source import CustomerlySource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
 from .datascope.source import DatascopeSource
+from .datorama.source import DatoramaSource
 from .db2.source import Db2Source
 from .dbt.source import DbtSource
 from .deel.source import DeelSource
@@ -533,6 +535,8 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .strava.source import StravaSource
+from .streamelements.source import StreamElementsSource
+from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
 from .surveymonkey.source import SurveyMonkeySource

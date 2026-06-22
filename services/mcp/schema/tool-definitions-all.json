@@ -1687,7 +1687,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -1799,7 +1799,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -2297,6 +2297,20 @@
         "summary": "Preview endpoint materialization",
         "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-sources": {
+        "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "List connected GitHub sources",
+        "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3173,7 +3187,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
@@ -3537,7 +3551,7 @@
         }
     },
     "feature-flags-status-retrieve": {
-        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status.",
+        "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag status",
@@ -8103,7 +8117,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
+        "description": "Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door, since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -8131,7 +8145,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",
@@ -8285,7 +8299,7 @@
         }
     },
     "workflows-patch-graph": {
-        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit.",
+        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch workflow graph",
@@ -8355,7 +8369,7 @@
         }
     },
     "workflows-test-run": {
-        "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
+        "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Test-run workflow",
@@ -8369,7 +8383,7 @@
         }
     },
     "workflows-update": {
-        "description": "Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a static frozen-list cohort. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why.",
+        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

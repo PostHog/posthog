@@ -1,16 +1,13 @@
 """
 Traffic type classification functions for HogQL.
 
-EXPERIMENTAL: These functions are prefixed with __preview_ to indicate they are
-experimental and may change without notice. The patterns and return values may
-be adjusted as we gather more data on real-world traffic classification accuracy.
-
-These are implemented as HogQL functions (rather than hardcoded in specific query
-runners) to provide maximum flexibility during development. This allows usage in:
+Implemented as HogQL functions (rather than hardcoded in specific query runners) so they
+can be used anywhere HogQL runs:
 - SQL editor for ad-hoc analysis and exploration
 - HogQLQuery runner for custom dashboards and insights
 - Trends and other query runners when filtering/grouping by traffic type
-- Any future features that leverage HogQL expressions
+
+The legacy __preview_* names still resolve as deprecated aliases.
 
 Bot definitions (patterns, categories, names) live in
 products.web_analytics.backend.hogql_queries.bot_definitions so that changes to
@@ -67,9 +64,7 @@ def _build_bot_array_lookup(
 
 def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_getBotName(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: getBotName(user_agent)
 
     Returns bot name: "Googlebot", "ChatGPT", etc. Empty string for regular traffic.
     """
@@ -78,9 +73,7 @@ def get_bot_name(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
 def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_getBotOperator(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: getBotOperator(user_agent)
 
     Returns operator/company name: "Google", "OpenAI", "Anthropic", etc. Empty string for regular traffic.
     """
@@ -89,9 +82,7 @@ def get_bot_operator(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
 def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_getTrafficType(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: getTrafficType(user_agent)
 
     Returns one of: 'AI Agent', 'Bot', 'Automation', 'Regular'
     """
@@ -100,9 +91,7 @@ def get_traffic_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
 def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_getTrafficCategory(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: getTrafficCategory(user_agent)
 
     Returns subcategory: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler', etc.
     For regular traffic, returns 'regular'.
@@ -112,9 +101,7 @@ def get_traffic_category(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
 def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_isBot(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: isLikelyBot(user_agent)
 
     Returns true if the user agent matches bot/automation patterns, false otherwise.
     NULL user agents are treated as bots (empty UA is considered automation).
@@ -130,18 +117,22 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.NotEq,
-        left=index_call,
-        right=ast.Constant(value=0),
+    # Cast to Bool so results render as true/false (not 0/1) in insights breakdowns.
+    return ast.Call(
+        name="toBool",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=index_call,
+                right=ast.Constant(value=0),
+            )
+        ],
     )
 
 
 def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     """
-    HogQL function: __preview_getBotType(user_agent)
-
-    EXPERIMENTAL: This function may change without notice.
+    HogQL function: getBotType(user_agent)
 
     Returns the bot category or empty string for regular traffic.
     Categories: 'ai_crawler', 'ai_search', 'ai_assistant', 'search_crawler', 'seo_crawler',

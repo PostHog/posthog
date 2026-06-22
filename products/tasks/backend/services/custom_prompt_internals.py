@@ -115,6 +115,7 @@ async def create_task_and_trigger(
     step_name: str = "",
     origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
+    ai_stage: str | None = None,
     internal: bool = False,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
@@ -135,6 +136,7 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        ai_stage=ai_stage,
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,

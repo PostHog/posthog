@@ -49,7 +49,11 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
-const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: string) => string> = {
+// Maps each source type to a path builder from `source_id`, or `null` to fall through to the
+// backend-provided `source_url` (customer_analytics carries a precise account deep-link a
+// source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
+// `NotificationEventSourceTypeEnumApi` value fails the build until it's handled here.
+const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: string) => string) | null> = {
     replay: (id) => urls.replaySingle(id),
     notebook: (id) => urls.notebook(id),
     insight: (id) => urls.insightView(id as InsightShortId),
@@ -58,7 +62,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
-    customer_analytics: () => urls.customerAnalyticsAccounts(),
+    customer_analytics: null,
 }
 
 export interface NotificationGroup {
@@ -120,10 +124,11 @@ export function buildGroups(notifications: InAppNotification[], loadedGroupKeys:
 }
 
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
-    if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
-        return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
-            notification.source_id
-        )
+    const toPath = notification.source_type
+        ? SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi]
+        : undefined
+    if (toPath && notification.source_id) {
+        return toPath(notification.source_id)
     }
     return notification.source_url || null
 }

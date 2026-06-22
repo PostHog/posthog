@@ -248,7 +248,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -566,6 +566,8 @@ SPECTACULAR_SETTINGS = {
         "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
+        "ExperimentsListWidgetTypeEnum": ["experiments_list"],
+        "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],

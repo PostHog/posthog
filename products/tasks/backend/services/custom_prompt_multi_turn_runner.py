@@ -61,6 +61,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
@@ -84,6 +85,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
@@ -111,6 +113,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
@@ -129,6 +132,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
