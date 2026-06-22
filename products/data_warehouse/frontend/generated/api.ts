@@ -1472,19 +1472,17 @@ export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: 
 }
 
 /**
- * Create, Read, Update and Delete Warehouse Tables.
+ * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
+ * @summary Refresh table schema from source
  */
 export const warehouseTablesRefreshSchemaCreate = async (
     projectId: string,
     id: string,
-    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getWarehouseTablesRefreshSchemaCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(tableApi),
     })
 }
 
