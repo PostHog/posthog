@@ -1,8 +1,12 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import DatabaseError, models
 from django.db.models import QuerySet
+from django.utils.timezone import now
+
+import structlog
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -13,6 +17,13 @@ from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+logger = structlog.get_logger(__name__)
+
+# Debounce read-path writes of `last_accessed_at`. The timestamp only feeds
+# day-granularity staleness checks (cache warming, recent-dashboard ordering),
+# so a write on every read is wasteful — once per interval is plenty fresh.
+LAST_ACCESSED_WRITE_INTERVAL = timedelta(minutes=10)
 
 
 class DashboardManager(RootTeamManager):
@@ -111,6 +122,22 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
 
     def __str__(self):
         return self.name or str(self.id)
+
+    def touch_last_accessed_at(self) -> None:
+        """Best-effort update of `last_accessed_at` for read paths (including public shared reads).
+
+        Debounced so repeated reads don't issue a write each time, and tolerant of database
+        errors so a transient failure — e.g. a saturated connection pool timing out — never
+        fails the read it's piggybacking on.
+        """
+        current = now()
+        if self.last_accessed_at and current - self.last_accessed_at < LAST_ACCESSED_WRITE_INTERVAL:
+            return
+        self.last_accessed_at = current
+        try:
+            self.save(update_fields=["last_accessed_at"])
+        except DatabaseError:
+            logger.warning("dashboard_last_accessed_at_update_failed", dashboard_id=self.pk, exc_info=True)
 
     def delete(self, *args, **kwargs):
         from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping

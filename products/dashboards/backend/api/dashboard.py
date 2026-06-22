@@ -2164,8 +2164,7 @@ class DashboardsViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
 
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.touch_last_accessed_at()
         serializer = DashboardSerializer(dashboard, context=self.get_serializer_context())
         data = serializer.data
 
@@ -2208,8 +2207,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()  # This will raise 404 if not found - let it bubble up normally
 
         # Do all database operations and data loading synchronously first
-        dashboard.last_accessed_at = now()
-        dashboard.save(update_fields=["last_accessed_at"])
+        dashboard.touch_last_accessed_at()
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=self.get_serializer_context())

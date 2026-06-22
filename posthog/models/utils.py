@@ -531,7 +531,20 @@ class RootTeamMixin(models.Model):
         if self._meta.model_name in PERSONS_DB_MODELS:
             return self._save_in_persons_db(*args, **kwargs)
 
-        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+        # Remapping to the parent team only matters when the `team` column is actually being
+        # written. For partial updates that don't touch `team`, skip dereferencing the `team`
+        # FK so the save can't trigger (and block on) loading the relation — important on hot
+        # read paths that issue a `save(update_fields=[...])` under connection-pool pressure.
+        update_fields = kwargs.get("update_fields")
+        writes_team = update_fields is None or "team" in update_fields or "team_id" in update_fields
+
+        if (
+            writes_team
+            and hasattr(self, "team")
+            and self.team  # type: ignore
+            and hasattr(self.team, "parent_team")
+            and self.team.parent_team  # type: ignore
+        ):
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
 
