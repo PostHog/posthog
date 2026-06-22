@@ -56,9 +56,7 @@ from posthog.dags.events_backfill_to_duckling import (
 class TestResolveDucklingTarget:
     @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_builds_target_from_stored_server_bucket(
-        self, mock_org: MagicMock, _mock_catalog: MagicMock
-    ):
+    def test_builds_target_from_stored_server_bucket(self, mock_org: MagicMock, _mock_catalog: MagicMock):
         # The authoritative bucket lives on the org's DuckgresServer row.
         server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
         with patch(
