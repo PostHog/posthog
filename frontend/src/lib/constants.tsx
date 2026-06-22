@@ -325,6 +325,7 @@ export const FEATURE_FLAGS = {
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
     HOGQL_INSIGHT_ALERTS: 'hogql-insight-alerts', // owner: @vdekrijger, gates alerts on SQL-backed (HogQL) insights
     IDENTITY_MATCHING: 'identity-matching', // owner: #team-growth
+    INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INSIGHT_ADD_TO_DASHBOARD_AAB: 'insight-add-to-dashboard-aab', // owner: @pauldambra #team-product-analytics multivariate=control,control_2,test
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
