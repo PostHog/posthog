@@ -6971,6 +6971,114 @@ class TestMySQLPrinter(BaseTest):
             printer._print_identifier("bad%name")
 
 
+# Pins what the Snowflake printer emits for each function category. The maps are
+# standalone (no Postgres fallback), so this also guards that every still-valid
+# function stays wired. (name, hogql_expr, expected_snowflake_sql)
+SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
+    # Casts (Snowflake type synonyms; no UUID type → VARCHAR)
+    ("toString", "toString(1)", "CAST(1 AS VARCHAR)"),
+    ("toFloat", "toFloat('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE)"),
+    ("toUUID", "toUUID('x')", "CAST(%(hogql_val_0)s AS VARCHAR)"),
+    ("toDate", "toDate(now())", "CAST(CURRENT_TIMESTAMP() AS DATE)"),
+    # Date extraction (Snowflake EXTRACT unit names)
+    ("toYear", "toYear(now())", "EXTRACT(YEAR FROM CURRENT_TIMESTAMP())"),
+    ("toDayOfWeek", "toDayOfWeek(now())", "EXTRACT(dayofweekiso FROM CURRENT_TIMESTAMP())"),
+    ("toDayOfYear", "toDayOfYear(now())", "EXTRACT(dayofyear FROM CURRENT_TIMESTAMP())"),
+    ("toISOWeek", "toISOWeek(now())", "EXTRACT(weekiso FROM CURRENT_TIMESTAMP())"),
+    ("toISOYear", "toISOYear(now())", "EXTRACT(yearofweekiso FROM CURRENT_TIMESTAMP())"),
+    ("toUnixTimestamp", "toUnixTimestamp(now())", "CAST(DATE_PART('epoch_second', CURRENT_TIMESTAMP()) AS BIGINT)"),
+    ("toYYYYMMDD", "toYYYYMMDD(now())", "CAST(TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD') AS INTEGER)"),
+    # Date truncation / generators
+    ("toMonday", "toMonday(now())", "CAST(DATE_TRUNC('week', CURRENT_TIMESTAMP()) AS DATE)"),
+    ("toLastDayOfMonth", "toLastDayOfMonth(now())", "CAST(LAST_DAY(CURRENT_TIMESTAMP()) AS DATE)"),
+    ("today", "today()", "CURRENT_DATE"),
+    ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
+    # toStartOf* (DATE_TRUNC; week/ISO-year via DAYOFWEEKISO so WEEK_START is irrelevant;
+    # sub-hour buckets via native TIME_SLICE)
+    ("toStartOfDay", "toStartOfDay(now())", "DATE_TRUNC('day', CURRENT_TIMESTAMP())"),
+    ("toStartOfMonth", "toStartOfMonth(now())", "DATE_TRUNC('month', CURRENT_TIMESTAMP())"),
+    ("toStartOfHour", "toStartOfHour(now())", "DATE_TRUNC('hour', CURRENT_TIMESTAMP())"),
+    ("toStartOfQuarter", "toStartOfQuarter(now())", "DATE_TRUNC('quarter', CURRENT_TIMESTAMP())"),
+    (
+        "toStartOfWeek",
+        "toStartOfWeek(now())",
+        "DATE_TRUNC('day', DATEADD('day', -(DAYOFWEEKISO(CURRENT_TIMESTAMP()) % 7), CURRENT_TIMESTAMP()))",
+    ),
+    (
+        "toStartOfISOYear",
+        "toStartOfISOYear(now())",
+        "DATEADD('day', 1 - DAYOFWEEKISO(DATE_FROM_PARTS(YEAROFWEEKISO(CURRENT_TIMESTAMP()), 1, 4)), "
+        "DATE_FROM_PARTS(YEAROFWEEKISO(CURRENT_TIMESTAMP()), 1, 4))",
+    ),
+    ("toStartOfFiveMinutes", "toStartOfFiveMinutes(now())", "TIME_SLICE(CURRENT_TIMESTAMP(), 5, 'MINUTE')"),
+    (
+        "toStartOfFifteenMinutes",
+        "toStartOfFifteenMinutes(now())",
+        "TIME_SLICE(CURRENT_TIMESTAMP(), 15, 'MINUTE')",
+    ),
+    # Intervals / arithmetic (DATEADD; no INTERVAL multiplication)
+    ("toIntervalDay", "toIntervalDay(7)", "INTERVAL '7 day'"),
+    ("addDays", "addDays(now(), 7)", "DATEADD('day', 7, CURRENT_TIMESTAMP())"),
+    ("subtractMonths", "subtractMonths(now(), 3)", "DATEADD('month', -(3), CURRENT_TIMESTAMP())"),
+    # dateDiff / formatDateTime — unit / format inlined as a literal
+    ("dateDiff", "dateDiff('day', now(), now())", "DATEDIFF('day', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())"),
+    (
+        "formatDateTime",
+        "formatDateTime(now(), '%Y-%m-%d %H:%M:%S')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD HH24:MI:SS')",
+    ),
+    # Conditional / null
+    ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
+    ("isNull", "isNull(1)", "(1 IS NULL)"),
+    # JSON (PARSE_JSON + bracket path; chained keys for nested access)
+    (
+        "JSONExtractString",
+        "JSONExtractString('{}', 'a')",
+        "CAST(PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s] AS VARCHAR)",
+    ),
+    (
+        "JSONExtractInt_nested",
+        "JSONExtractInt('{}', 'a', 'b')",
+        "CAST(PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s][%(hogql_val_2)s] AS INTEGER)",
+    ),
+    ("JSONExtractRaw", "JSONExtractRaw('{}', 'a')", "PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s]"),
+    ("JSONLength", "JSONLength('[]')", "ARRAY_SIZE(PARSE_JSON(%(hogql_val_0)s))"),
+    # String
+    ("match", "match('h', 'h.*o')", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) != 0)"),
+    ("splitByChar", "splitByChar(',', 'a,b')", "SPLIT(%(hogql_val_1)s, %(hogql_val_0)s)"),
+    (
+        "replaceOne",
+        "replaceOne('a', 'b', 'c')",
+        "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, 1, 1)",
+    ),
+    # Math
+    ("log10", "log10(100)", "LOG(10, 100)"),
+    ("log", "log(2)", "LN(2)"),
+    ("rand", "rand()", "UNIFORM(0::float, 1::float, RANDOM())"),
+    # Aggregation (no FILTER clause; CASE WHEN / COUNT_IF)
+    ("countIf_1arg", "countIf(1)", "COUNT_IF(1)"),
+    ("countIf_2arg", "countIf(event, 1)", "COUNT(CASE WHEN 1 THEN events.event END)"),
+    ("sumIf", "sumIf(1, 1)", "SUM(CASE WHEN 1 THEN 1 END)"),
+    ("avgIf", "avgIf(1, 1)", "AVG(CASE WHEN 1 THEN 1 END)"),
+    ("anyIf", "anyIf(1, 1)", "MIN(CASE WHEN 1 THEN 1 END)"),
+    ("groupArrayIf", "groupArrayIf(1, 1)", "ARRAY_AGG(CASE WHEN 1 THEN 1 END)"),
+    ("uniqIf", "uniqIf(1, 1)", "COUNT(DISTINCT CASE WHEN 1 THEN 1 END)"),
+    ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
+    # Renames
+    ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
+    ("groupArray", "groupArray(event)", "ARRAY_AGG(events.event)"),
+    ("toTypeName", "toTypeName(1)", "TYPEOF(1)"),
+    ("startsWith", "startsWith('a', 'b')", "STARTSWITH(%(hogql_val_0)s, %(hogql_val_1)s)"),
+    ("now", "now()", "CURRENT_TIMESTAMP()"),
+    ("pow", "pow(2, 3)", "POWER(2, 3)"),
+    # Passthrough (valid Snowflake verbatim)
+    ("count", "count()", "count()"),
+    ("avg", "avg(1)", "avg(1)"),
+    ("coalesce", "coalesce(1, 2)", "coalesce(1, 2)"),
+    ("power", "power(2, 3)", "power(2, 3)"),
+]
+
+
 class TestSnowflakePrinter(BaseTest):
     maxDiff = None
 
@@ -6992,3 +7100,24 @@ class TestSnowflakePrinter(BaseTest):
             dialect="snowflake",
             stack=[prepared_select_query],
         )
+
+    @parameterized.expand(SNOWFLAKE_EMIT_CASES)
+    def test_snowflake_emit(self, _name: str, hogql_expr: str, expected: str):
+        self.assertEqual(self._expr(hogql_expr), expected)
+
+    @parameterized.expand(
+        [
+            ("datediff_non_literal_unit", "dateDiff(event, now(), now())", "requires a literal unit"),
+            ("datediff_bad_unit", "dateDiff('fortnight', now(), now())", "Unsupported dateDiff unit 'fortnight'"),
+            (
+                "format_unknown_specifier",
+                "formatDateTime(now(), '%Q')",
+                "Unsupported formatDateTime specifier '%Q'",
+            ),
+            ("unsupported_function", "argMax(1, 2)", "not supported in the Snowflake dialect"),
+        ]
+    )
+    def test_snowflake_errors(self, _name: str, hogql_expr: str, error_substring: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(hogql_expr)
+        self.assertIn(error_substring, str(ctx.exception))

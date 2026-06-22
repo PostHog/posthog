@@ -9,6 +9,7 @@ import snowflake.connector
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
+from snowflake.connector.constants import FIELD_ID_TO_NAME
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
 
@@ -150,23 +151,29 @@ MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     MYSQL_FIELD_TYPE.GEOMETRY: "String",
 }
 
-SNOWFLAKE_FIELD_TYPE_TO_CLICKHOUSE_TYPE: dict[str, str] = {
-    "BOOLEAN": "Bool",
-    "NUMBER": "Decimal",
-    "FLOAT": "Float64",
-    "INT": "Int64",
-    "BIGINT": "Int64",
-    "SMALLINT": "Int16",
-    "TINYINT": "Int8",
-    "BYTEINT": "Int8",
+# Snowflake's Python connector reports column types as integer codes in
+# cursor.description[*].type_code, decoded to names via FIELD_ID_TO_NAME. Those
+# names are Snowflake's *internal* vocabulary (FIXED/REAL/TEXT/…), not SQL type
+# names — e.g. NUMBER/DECIMAL/INT all surface as FIXED, VARCHAR/CHAR as TEXT.
+# FIXED is resolved separately (scale decides int vs decimal), so it's not here.
+SNOWFLAKE_FIELD_NAME_TO_CLICKHOUSE_TYPE: dict[str, str] = {
+    "REAL": "Float64",
     "TEXT": "String",
-    "VARCHAR": "String",
-    "CHAR": "String",
-    "STRING": "String",
+    "BOOLEAN": "Bool",
     "DATE": "Date",
+    "TIME": "String",
+    "TIMESTAMP": "DateTime64(6, 'UTC')",
     "TIMESTAMP_NTZ": "DateTime64(6, 'UTC')",
     "TIMESTAMP_LTZ": "DateTime64(6, 'UTC')",
     "TIMESTAMP_TZ": "DateTime64(6, 'UTC')",
+    "VARIANT": "String",
+    "OBJECT": "String",
+    "ARRAY": "String",
+    "MAP": "String",
+    "BINARY": "String",
+    "GEOGRAPHY": "String",
+    "GEOMETRY": "String",
+    "VECTOR": "String",
 }
 
 
@@ -188,10 +195,17 @@ def mysql_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
-def snowflake_field_type_to_clickhouse_type(type_code: object | None) -> str:
-    if type_code is None:
+def snowflake_field_type_to_clickhouse_type(type_code: object | None, scale: object | None = None) -> str:
+    # type_code is the integer index into Snowflake's FIELD_ID_TO_NAME, taken from
+    # cursor.description; the prior str(type_code) lookup never matched a name and
+    # silently typed every column as String.
+    if not isinstance(type_code, int):
         return "String"
-    return SNOWFLAKE_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(str(type_code).upper(), "String")
+    name = FIELD_ID_TO_NAME.get(type_code, "")
+    if name == "FIXED":
+        # NUMBER/DECIMAL/INT all report as FIXED; scale 0 (or absent) is an integer.
+        return "Decimal" if isinstance(scale, int) and scale > 0 else "Int64"
+    return SNOWFLAKE_FIELD_NAME_TO_CLICKHOUSE_TYPE.get(name, "String")
 
 
 def snowflake_error_to_message(error: Exception) -> str:
@@ -935,7 +949,10 @@ class HogQLQueryExecutor:
 
         span.set_attribute("row_count", len(results))
         self.results = list(results)
-        self.types = [(column[0], snowflake_field_type_to_clickhouse_type(column[1])) for column in description]
+        self.types = [
+            (column[0], snowflake_field_type_to_clickhouse_type(column[1], column[5] if len(column) > 5 else None))
+            for column in description
+        ]
         if not self.print_columns:
             self.print_columns = [column[0] for column in description]
 
