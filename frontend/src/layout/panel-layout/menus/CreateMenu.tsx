@@ -180,7 +180,6 @@ export function CreateMenu(): JSX.Element {
                     )
                 }
                 return (
-
                     <DropdownMenuItem
                         key={item.id}
                         asChild
@@ -195,7 +194,6 @@ export function CreateMenu(): JSX.Element {
                             {labelFor(item)}
                         </ButtonPrimitive>
                     </DropdownMenuItem>
-
                 )
             })}
         </DropdownMenuGroup>
