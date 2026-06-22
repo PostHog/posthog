@@ -18,7 +18,10 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "updated_at",
     )
     search_fields = ("=team__id", "=organization__id", "host", "bucket")
-    readonly_fields = ("id", "created_at", "updated_at")
+    # bucket / bucket_region are control-plane-owned: provisioning persists them
+    # and status_for() self-heals them on every read, so a manual admin edit
+    # would just be overwritten. Show them, but read-only.
+    readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region")
     raw_id_fields = ("team", "organization")
 
     fieldsets = (
@@ -37,10 +40,10 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         (
             "Storage",
             {
-                # The duckling's per-org S3 bucket. Normally populated automatically
-                # from the provision response (the control plane is the authoritative
-                # source of the name). Editable here for manual reconciliation of rows
-                # provisioned before the CP returned it.
+                # The duckling's per-org S3 bucket. Control-plane-owned and
+                # read-only: provisioning persists it and status_for() self-heals
+                # it from the warehouse status, so it's shown for reference but not
+                # editable here.
                 "fields": ("bucket", "bucket_region"),
             },
         ),
