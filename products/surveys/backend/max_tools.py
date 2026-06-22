@@ -85,31 +85,44 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
     }
 
 
+# SimpleSurveyQuestion attribute -> internal question dict key. Rating-only fields (scale, display)
+# are handled separately in _apply_question_overrides since they depend on the question type.
+_QUESTION_FIELD_MAP: dict[str, str] = {
+    "description": "description",
+    "optional": "optional",
+    "choices": "choices",
+    "lower_bound_label": "lowerBoundLabel",
+    "upper_bound_label": "upperBoundLabel",
+    "link": "link",
+    "button_text": "buttonText",
+}
+
+
+def _apply_question_overrides(result: dict[str, Any], q: SimpleSurveyQuestion) -> None:
+    """Write the explicitly-provided SimpleSurveyQuestion fields onto an internal question dict.
+
+    Shared by the build (from QUESTION_TYPE_MAP) and merge (onto an existing question) paths so
+    both apply the exact same set of fields. Only non-None values are written; scale/display only
+    apply to rating questions.
+    """
+    result["question"] = q.question
+    for attr, key in _QUESTION_FIELD_MAP.items():
+        value = getattr(q, attr)
+        if value is not None:
+            result[key] = value
+    is_rating = result.get("type") == "rating"
+    if is_rating and q.scale is not None:
+        result["scale"] = q.scale
+    if is_rating and q.display is not None:
+        result["display"] = q.display
+
+
 def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     """Convert a SimpleSurveyQuestion to the internal question dict."""
     if q.type in ("single_choice", "multiple_choice") and not q.choices:
         raise serializers.ValidationError(f"Question of type '{q.type}' must include a non-empty 'choices' list")
     result = dict(QUESTION_TYPE_MAP[q.type])
-    result["question"] = q.question
-    if q.description is not None:
-        result["description"] = q.description
-    if q.optional is not None:
-        result["optional"] = q.optional
-    if q.choices is not None:
-        result["choices"] = q.choices
-    if result.get("type") == "rating":
-        if q.scale is not None:
-            result["scale"] = q.scale
-        if q.display is not None:
-            result["display"] = q.display
-    if q.lower_bound_label is not None:
-        result["lowerBoundLabel"] = q.lower_bound_label
-    if q.upper_bound_label is not None:
-        result["upperBoundLabel"] = q.upper_bound_label
-    if q.link is not None:
-        result["link"] = q.link
-    if q.button_text is not None:
-        result["buttonText"] = q.button_text
+    _apply_question_overrides(result, q)
     return result
 
 
@@ -124,27 +137,37 @@ def _merge_question(existing: dict[str, Any], q: SimpleSurveyQuestion) -> dict[s
     if q.type in ("single_choice", "multiple_choice") and not (q.choices or existing.get("choices")):
         raise serializers.ValidationError(f"Question of type '{q.type}' must include a non-empty 'choices' list")
     merged = dict(existing)
-    merged["question"] = q.question
-    if q.description is not None:
-        merged["description"] = q.description
-    if q.optional is not None:
-        merged["optional"] = q.optional
-    if q.choices is not None:
-        merged["choices"] = q.choices
-    if merged.get("type") == "rating":
-        if q.scale is not None:
-            merged["scale"] = q.scale
-        if q.display is not None:
-            merged["display"] = q.display
-    if q.lower_bound_label is not None:
-        merged["lowerBoundLabel"] = q.lower_bound_label
-    if q.upper_bound_label is not None:
-        merged["upperBoundLabel"] = q.upper_bound_label
-    if q.link is not None:
-        merged["link"] = q.link
-    if q.button_text is not None:
-        merged["buttonText"] = q.button_text
+    _apply_question_overrides(merged, q)
     return merged
+
+
+def _resolve_edited_question(simple_q: SimpleSurveyQuestion, existing: dict[str, Any] | None) -> dict[str, Any]:
+    """Build one replacement question, preserving identity and (for same-type edits) stored config."""
+    if existing is not None and QUESTION_TYPE_MAP[simple_q.type]["type"] == existing.get("type"):
+        return _merge_question(existing, simple_q)
+    built = _build_question(simple_q)
+    if existing is not None and existing.get("id"):
+        built["id"] = existing["id"]  # preserve identity even when the type changes
+    return built
+
+
+def _resolve_edited_questions(
+    existing_questions: list[dict[str, Any]], questions: list[SimpleSurveyQuestion]
+) -> list[dict[str, Any]]:
+    """Build the replacement questions list for an edit, preserving identity and untouched config.
+
+    A supplied id resolves against both the 1-indexed positional label shown in read_data and the
+    question's real UUID, so passing either form keeps the question's identity (and its historical
+    responses).
+    """
+    by_label = {str(i + 1): eq for i, eq in enumerate(existing_questions)}
+    by_uuid = {eq["id"]: eq for eq in existing_questions if eq.get("id")}
+
+    def resolve(simple_q: SimpleSurveyQuestion) -> dict[str, Any]:
+        existing = (by_uuid.get(simple_q.id) or by_label.get(simple_q.id)) if simple_q.id else None
+        return _resolve_edited_question(simple_q, existing)
+
+    return [resolve(simple_q) for simple_q in questions]
 
 
 def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -530,30 +553,7 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                existing_questions = survey.questions or []
-
-                # Resolve a supplied id to an existing question by either the 1-indexed positional
-                # label shown in read_data ("1", "2", ...) or the question's real UUID. Accepting
-                # both means passing a real UUID preserves identity instead of minting a fresh one.
-                by_label = {str(i + 1): eq for i, eq in enumerate(existing_questions)}
-                by_uuid = {eq["id"]: eq for eq in existing_questions if eq.get("id")}
-
-                new_questions = []
-                for simple_q in questions:
-                    existing = None
-                    if simple_q.id:
-                        existing = by_uuid.get(simple_q.id) or by_label.get(simple_q.id)
-
-                    if existing is not None and QUESTION_TYPE_MAP[simple_q.type]["type"] == existing.get("type"):
-                        # Same underlying type: overlay only changed fields so stored config the
-                        # semantic type can't express (rating scale/display/labels, branching) survives.
-                        new_questions.append(_merge_question(existing, simple_q))
-                    else:
-                        built = _build_question(simple_q)
-                        if existing is not None and existing.get("id"):
-                            built["id"] = existing["id"]  # preserve identity even when the type changes
-                        new_questions.append(built)
-
+                new_questions = _resolve_edited_questions(survey.questions or [], questions)
                 update_data["questions"] = _validate_and_sanitize_questions(new_questions)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
