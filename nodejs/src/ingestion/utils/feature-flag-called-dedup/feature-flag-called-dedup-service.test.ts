@@ -1,5 +1,6 @@
-import { RedisPool } from '../../../types'
-import { IngestionLane } from '../../config'
+import { IngestionLane } from '~/ingestion/config'
+import { RedisPool } from '~/types'
+
 import {
     RedisFeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,

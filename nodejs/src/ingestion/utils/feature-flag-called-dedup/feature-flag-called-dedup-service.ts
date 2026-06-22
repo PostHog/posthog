@@ -1,11 +1,12 @@
 import { createHash } from 'crypto'
 import { Redis } from 'ioredis'
 
-import { RedisPool } from '../../../types'
-import { timeoutGuard } from '../../../utils/db/utils'
-import { logger } from '../../../utils/logger'
-import { IngestionConsumerConfig, IngestionLane } from '../../config'
-import { parseTeamsList } from '../parse-teams-list'
+import { IngestionConsumerConfig, IngestionLane } from '~/ingestion/config'
+import { RedisPool } from '~/types'
+import { timeoutGuard } from '~/utils/db/utils'
+import { parseTeamsList } from '~/utils/env-utils'
+import { logger } from '~/utils/logger'
+
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 
 // Deliberately terse: at full rollout every key byte costs ~13 MB of shared

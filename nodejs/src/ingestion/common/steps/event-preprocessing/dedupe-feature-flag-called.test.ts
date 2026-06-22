@@ -1,12 +1,13 @@
-import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
-import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
-import { createTestTeam } from '../../../tests/helpers/team'
-import { isDropResult, isOkResult } from '../pipelines/results'
+import { isDropResult, isOkResult } from '~/ingestion/framework/results'
 import {
     FeatureFlagCalledDedupMode,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
-} from '../utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+} from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
+
 import { DedupeFeatureFlagCalledStepInput, createDedupeFeatureFlagCalledStep } from './dedupe-feature-flag-called'
 
 const createMockService = (

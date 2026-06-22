@@ -1,13 +1,12 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
-import { Team } from '../../types'
-import { PipelineResult, drop, ok } from '../pipelines/results'
+import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import {
     FeatureFlagCalledDedupClaim,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
-} from '../utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { featureFlagCalledDedupEventsTotal } from '../utils/feature-flag-called-dedup/metrics'
+} from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { featureFlagCalledDedupEventsTotal } from '~/ingestion/utils/feature-flag-called-dedup/metrics'
+import { PluginEvent } from '~/plugin-scaffold'
+import { Team } from '~/types'
 
 export interface DedupeFeatureFlagCalledStepInput {
     event: PluginEvent

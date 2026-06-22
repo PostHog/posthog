@@ -21,7 +21,7 @@ import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-p
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
-import { FeatureFlagCalledDedupService } from '../utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
