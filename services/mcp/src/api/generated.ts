@@ -21017,6 +21017,11 @@ export namespace Schemas {
       readonly expires_after: string | null;
       /** @nullable */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -23357,6 +23362,17 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
+    }
+
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -25037,6 +25053,8 @@ export namespace Schemas {
     }
 
     export interface LogValueResult {
+      /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+      count?: number | null;
       id: string;
       name: string;
     }
@@ -29078,6 +29096,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -29093,6 +29112,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -39616,6 +39636,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -45032,6 +45053,47 @@ export namespace Schemas {
     }
 
     /**
+     * A team's enforced scout run caps and current usage.
+     *
+     * These are the values the coordinator actually applies at dispatch (resolved per-team override →
+     * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+     * user thinks they configured.
+     */
+    export interface ScoutLimits {
+      /** Most scout runs the team can start in a single 30-minute coordinator tick. */
+      max_runs_per_tick: number;
+      /**
+         * Most scout runs the team can start per rolling 24 hours, or null when uncapped.
+         * @nullable
+         */
+      max_runs_per_day: number | null;
+      /** Scout runs the team has started in the trailing 24 hours. */
+      runs_today: number;
+      /**
+         * Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.
+         * @nullable
+         */
+      runs_remaining_today: number | null;
+    }
+
+    /**
+     * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+     * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+     * change without a deploy to either app.
+     */
+    export interface ScoutMetadata {
+      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      enrolled: boolean;
+      /**
+         * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
+         * @nullable
+         */
+      banner_message: string | null;
+      /** The team's enforced scout run caps and current usage. */
+      limits: ScoutLimits;
+    }
+
+    /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
     export interface ScratchpadEntry {
@@ -47398,15 +47460,6 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
-    export interface SuggestReplyError {
-      detail: string;
-      error_type?: string;
-    }
-
-    export interface SuggestReplyResponse {
-      suggestion: string;
-    }
-
     /**
      * * `trace` - trace
      * * `event` - event
@@ -48731,6 +48784,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -49138,6 +49192,11 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TicketError {
+      detail: string;
+      error_type?: string;
     }
 
     /**
@@ -49815,6 +49874,8 @@ export namespace Schemas {
       id: string;
       /** Display name — currently identical to `id`. */
       name: string;
+      /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+      count?: number;
     }
 
     /**
@@ -52026,6 +52087,38 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsExternalDataSchemasLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
      */
     search?: string;
     };
@@ -58016,6 +58109,38 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSchemasLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type ExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -61863,6 +61988,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsStreamRetrieveParams = {
+    /**
+     * Set to `latest` to skip the event backlog and only receive events published after connecting.
+     */
+    start?: string;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {

@@ -1,13 +1,27 @@
+import uuid
+from types import SimpleNamespace
+
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.auto_start import ReviewerContent, _resolve_autostart_assignee
-from products.signals.backend.models import SignalUserAutonomyConfig
-from products.signals.backend.report_generation.research import Priority
+from products.signals.backend.auto_start import (
+    ReviewerContent,
+    _resolve_autostart_assignee,
+    maybe_autostart_implementation_task,
+)
+from products.signals.backend.models import SignalReportTask, SignalUserAutonomyConfig
+from products.signals.backend.report_generation.research import (
+    ActionabilityAssessment,
+    ActionabilityChoice,
+    Priority,
+    PriorityAssessment,
+)
+from products.tasks.backend.facade import api as tasks_facade
 
 
 @pytest.fixture
@@ -57,3 +71,38 @@ def test_resolve_autostart_assignee(organization, team, autostart_priority, repo
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_autostart_tags_implementation_ai_stage(ateam):
+    """The autostart implementation run is tagged ai_stage="implementation" so its
+    $ai_generation traces are attributed instead of landing in the "(none)" bucket."""
+    assignee = SimpleNamespace(id=123)
+    created = SimpleNamespace(task_id=uuid.uuid4(), team_id=ateam.id, latest_run=object())
+    create_and_run_task = MagicMock(return_value=created)
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", create_and_run_task),
+        patch("products.signals.backend.auto_start._resolve_autostart_assignee", return_value=assignee),
+        patch.object(SignalReportTask.objects, "acreate", AsyncMock()),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=ateam.id,
+            report_id=str(uuid.uuid4()),
+            repository="PostHog/posthog",
+            title="Fix the thing",
+            summary="A short summary",
+            actionability=ActionabilityAssessment(
+                explanation="Clearly actionable.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[_reviewer("octocat")],
+            priority=PriorityAssessment(explanation="High impact.", priority=Priority.P0),
+        )
+
+    create_and_run_task.assert_called_once()
+    kwargs = create_and_run_task.call_args.kwargs
+    assert kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+    assert kwargs["ai_stage"] == "implementation"

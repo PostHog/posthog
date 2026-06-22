@@ -12,6 +12,7 @@ instead of producing a malformed payload deeper in a caller.
 
 from dataclasses import field
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -93,3 +94,46 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ExternalAccount:
+    """The account shape the external (CDP worker) API serializes verbatim.
+
+    ``properties`` is carried as a plain dict set to exactly
+    ``account.properties.model_dump(mode="json")`` so the JSON the CDP worker
+    consumes stays byte-identical to the pre-facade response — a validated
+    pydantic pass-through, not a re-typed projection. ``id`` is the stringified
+    UUID, matching the wire shape.
+    """
+
+    id: str
+    external_id: str | None
+    name: str
+    properties: dict
+    tags: list[str] = field(default_factory=list)
+
+
+class ExternalAccountUpdateError(Enum):
+    """Failure modes of the external account write, each mapping to a distinct
+    HTTP response in the view."""
+
+    NOT_FOUND = "not_found"
+    USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
+    INVALID_PROPERTIES = "invalid_properties"
+    UPDATE_FAILED = "update_failed"
+
+
+@dataclass(frozen=True)
+class ExternalAccountUpdateResult:
+    """Outcome of the external account write, modeled so the view can map each
+    case to its exact HTTP status and error string without holding write logic.
+
+    Exactly one of ``account`` / ``error`` is set. ``error_field`` carries the
+    role field name for a ``USER_NOT_IN_ORGANIZATION`` failure (so the view can
+    keep the ``"{field}: ..."`` message shape); it is None otherwise.
+    """
+
+    account: ExternalAccount | None = None
+    error: ExternalAccountUpdateError | None = None
+    error_field: str | None = None
