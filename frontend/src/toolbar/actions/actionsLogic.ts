@@ -20,7 +20,7 @@ export const actionsLogic = kea<actionsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getActions: async (_ = null, breakpoint: () => void) => {
-                    const result = await toolbarApi.get<{ results: ActionType[] }>('/api/projects/@current/actions/', {
+                    const result = await toolbarApi.actions.list({
                         context: 'load_actions',
                         reauthenticateOnForbidden: true,
                     })

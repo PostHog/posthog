@@ -1,6 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
@@ -19,7 +18,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
-import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
@@ -234,43 +233,43 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     await breakpoint(150)
 
                     const { href, wildcardHref } = values
-                    let defaultUrl: string = ''
-                    if (!url) {
-                        const params: Partial<FilterType> = {
-                            properties: [
-                                wildcardHref === href
-                                    ? {
-                                          key: '$current_url',
-                                          value: href,
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      }
-                                    : {
-                                          key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
-                                          operator: PropertyOperator.Regex,
-                                          type: PropertyFilterType.Event,
-                                      },
-                            ],
-                            date_from: values.commonFilters.date_from,
-                            date_to: values.commonFilters.date_to,
-                        }
-
-                        defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
-                            '?'
-                        )}`
-                    }
-
-                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const result = await toolbarApi.get<PaginatedResponse<ElementsEventType>>(url || defaultUrl, {
+                    // We re-raise below to drive getElementStatsFailure; let the global
+                    // loader handler report it once rather than capturing twice.
+                    const options = {
                         context: 'load_heatmap_stats',
-                        urlConstruction: url ? 'use-as-provided' : 'full',
                         reauthenticateOnForbidden: true,
-                        // We re-raise below to drive getElementStatsFailure; let the global
-                        // loader handler report it once rather than capturing twice.
                         captureOnError: false,
-                    })
+                    }
+                    const result = url
+                        ? // Paginating — the URL came from a previous response body.
+                          await toolbarApi.elementStats.page(url, options)
+                        : await toolbarApi.elementStats.list(
+                              {
+                                  properties: [
+                                      wildcardHref === href
+                                          ? {
+                                                key: '$current_url',
+                                                value: href,
+                                                operator: PropertyOperator.Exact,
+                                                type: PropertyFilterType.Event,
+                                            }
+                                          : {
+                                                key: '$current_url',
+                                                value: `^${wildcardHref
+                                                    .split('*')
+                                                    .map(escapeUnescapedRegex)
+                                                    .join('.*')}$`,
+                                                operator: PropertyOperator.Regex,
+                                                type: PropertyFilterType.Event,
+                                            },
+                                  ],
+                                  date_from: values.commonFilters.date_from,
+                                  date_to: values.commonFilters.date_to,
+                                  paginate_response: true,
+                                  sampling_factor: values.samplingFactor,
+                              },
+                              options
+                          )
                     breakpoint()
 
                     if (result.status === 403) {

@@ -226,12 +226,11 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 const isUpdate = selectedActionId && selectedActionId !== 'new'
                 const result = isUpdate
-                    ? await toolbarApi.patch<ActionType>(
-                          `/api/projects/@current/actions/${selectedActionId}/`,
-                          actionToSave,
-                          { context: 'save_action', toastOnError: 'Failed to save action' }
-                      )
-                    : await toolbarApi.post<ActionType>(`/api/projects/@current/actions/`, actionToSave, {
+                    ? await toolbarApi.actions.update(selectedActionId, actionToSave, {
+                          context: 'save_action',
+                          toastOnError: 'Failed to save action',
+                      })
+                    : await toolbarApi.actions.create(actionToSave, {
                           context: 'save_action',
                           toastOnError: 'Failed to save action',
                       })

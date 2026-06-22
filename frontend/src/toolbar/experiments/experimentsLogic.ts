@@ -20,10 +20,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
-                    const result = await toolbarApi.get<{ results: WebExperiment[] }>(
-                        '/api/projects/@current/web_experiments/',
-                        { context: 'load_experiments', reauthenticateOnForbidden: true }
-                    )
+                    const result = await toolbarApi.webExperiments.list({
+                        context: 'load_experiments',
+                        reauthenticateOnForbidden: true,
+                    })
                     breakpoint()
 
                     // Any failure (unauthenticated, server error, malformed body) soft-fails to

@@ -330,7 +330,7 @@ async function patchAndRefreshSurvey(
     payload: Record<string, unknown>,
     successMessage: string
 ): Promise<boolean> {
-    const result = await toolbarApi.patch(`/api/projects/@current/surveys/${surveyId}/`, payload, {
+    const result = await toolbarApi.surveys.update(surveyId, payload, {
         context: 'update_survey',
         toastOnError: 'Failed to update survey',
     })
@@ -372,17 +372,10 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
             {
                 loadSurveys: async () => {
                     const search = values.searchTerm
-                    const params = new URLSearchParams()
-                    params.set('archived', 'false')
-                    params.set('limit', String(SURVEYS_PAGE_SIZE))
-                    params.set('offset', '0')
-                    if (search) {
-                        params.set('search', search)
-                    }
-                    const url = `/api/projects/@current/surveys/?${params}`
-                    const result = await toolbarApi.get<{ results?: Survey[]; next?: string | null }>(url, {
-                        context: 'load_surveys',
-                    })
+                    const result = await toolbarApi.surveys.list(
+                        { limit: SURVEYS_PAGE_SIZE, offset: 0, search: search || undefined },
+                        { context: 'load_surveys' }
+                    )
                     // If the search term changed while we were awaiting,
                     // abandon this result to avoid clobbering newer state.
                     if (search !== values.searchTerm) {
@@ -401,17 +394,10 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     }
                     const search = values.searchTerm
                     const previousIds = new Set(values.allSurveys.map((s) => s.id))
-                    const params = new URLSearchParams()
-                    params.set('archived', 'false')
-                    params.set('limit', String(SURVEYS_PAGE_SIZE))
-                    params.set('offset', String(values.allSurveys.length))
-                    if (search) {
-                        params.set('search', search)
-                    }
-                    const url = `/api/projects/@current/surveys/?${params}`
-                    const result = await toolbarApi.get<{ results?: Survey[]; next?: string | null }>(url, {
-                        context: 'load_more_surveys',
-                    })
+                    const result = await toolbarApi.surveys.list(
+                        { limit: SURVEYS_PAGE_SIZE, offset: values.allSurveys.length, search: search || undefined },
+                        { context: 'load_more_surveys' }
+                    )
                     // Search changed while we were paging — drop the result.
                     if (search !== values.searchTerm) {
                         return values.allSurveys
@@ -654,11 +640,11 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                 delete payload.start_date
             }
             const result = editingId
-                ? await toolbarApi.patch<{ id?: string }>(`/api/projects/@current/surveys/${editingId}/`, payload, {
+                ? await toolbarApi.surveys.update(editingId, payload, {
                       context: 'save_survey',
                       toastOnError: 'Failed to save survey',
                   })
-                : await toolbarApi.post<{ id?: string }>('/api/projects/@current/surveys/', payload, {
+                : await toolbarApi.surveys.create(payload, {
                       context: 'create_survey',
                       toastOnError: 'Failed to create survey',
                   })

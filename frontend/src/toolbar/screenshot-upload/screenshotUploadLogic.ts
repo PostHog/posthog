@@ -66,10 +66,10 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                         return []
                     }
                     await breakpoint(300)
-                    const result = await toolbarApi.get<{ results?: EventDefinition[] }>(
-                        `/api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20&event_type=event_custom`,
-                        { context: 'search_event_definitions', reauthenticateOnForbidden: true }
-                    )
+                    const result = await toolbarApi.eventDefinitions.search(query, {
+                        context: 'search_event_definitions',
+                        reauthenticateOnForbidden: true,
+                    })
 
                     breakpoint()
                     if (!result.ok) {
@@ -95,8 +95,7 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
 
                     // Re-raise on failure so submitUploadFailure surfaces the toast; toolbarApi
                     // already logged it, so don't double-report via the global loader handler.
-                    const result = await toolbarApi.post(
-                        '/api/projects/@current/object_media_previews/',
+                    const result = await toolbarApi.objectMediaPreviews.create(
                         {
                             uploaded_media_id: mediaId,
                             event_definition_id: selectedDefinition.id,

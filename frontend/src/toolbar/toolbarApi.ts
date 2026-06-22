@@ -1,17 +1,23 @@
+import { encodeParams } from 'kea-router'
+
+import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
+import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
 /**
  * The single, blessed way to talk to the PostHog API from the toolbar.
  *
- * Every authenticated data request should go through `toolbarApi` (`get`/`post`/
- * `patch`/`delete`). It wraps `toolbarFetch` (which owns the OAuth bearer + token
- * refresh) and folds the eight different ad-hoc failure-handling styles the toolbar
- * had grown into one consistent contract:
+ * Every authenticated data request should go through `toolbarApi` — preferably one of its
+ * resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.surveys.update(id, …)`), which
+ * own the route strings (see the `toolbarApi` export below for the full contract). It wraps
+ * `toolbarFetch` (which owns the OAuth bearer + token refresh) and folds the eight different
+ * ad-hoc failure-handling styles the toolbar had grown into one consistent contract:
  *
  *   - It never throws. Network-level failures (CORS, offline, a customer page that
  *     replaced `window.fetch`) are caught and returned as a normal failure result,
@@ -222,25 +228,164 @@ async function request<T>(
     return { ok: false, status, data: null, error }
 }
 
+function apiGet<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
+    return request<T>('GET', url, undefined, options)
+}
+function apiPost<T = unknown>(
+    url: string,
+    payload: Record<string, any> | FormData | undefined,
+    options: ToolbarApiOptions
+): Promise<ToolbarApiResult<T>> {
+    return request<T>('POST', url, payload, options)
+}
+function apiPatch<T = unknown>(
+    url: string,
+    payload: Record<string, any> | FormData | undefined,
+    options: ToolbarApiOptions
+): Promise<ToolbarApiResult<T>> {
+    return request<T>('PATCH', url, payload, options)
+}
+function apiDelete<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
+    return request<T>('DELETE', url, undefined, options)
+}
+
+const PROJECT = '/api/projects/@current'
+const ENVIRONMENT = '/api/environments/@current'
+
+/**
+ * `toolbarApi` is the single entry point for talking to the PostHog API from the toolbar.
+ *
+ * Prefer the resource namespaces (`toolbarApi.actions.list()`, `toolbarApi.surveys.update(id, …)`):
+ * they own the route strings so every `/api/projects/@current/…` path lives in exactly one place
+ * and call sites read as intent rather than URLs. Each method takes the resource-specific arguments
+ * (id, payload, query) plus a `ToolbarApiOptions` and returns the same `ToolbarApiResult<T>`, so
+ * failure handling stays identical everywhere.
+ *
+ * The bare verb methods (`get`/`post`/`patch`/`delete`) remain as the low-level primitive that the
+ * namespaces are built on — reach for them only for a one-off route not yet modeled as a resource.
+ */
 export const toolbarApi = {
-    get<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
-        return request<T>('GET', url, undefined, options)
+    get: apiGet,
+    post: apiPost,
+    patch: apiPatch,
+    delete: apiDelete,
+
+    actions: {
+        list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results: ActionType[] }>> =>
+            apiGet(`${PROJECT}/actions/`, options),
+        create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<ActionType>> =>
+            apiPost(`${PROJECT}/actions/`, payload, options),
+        update: (
+            id: number | string,
+            payload: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<ActionType>> => apiPatch(`${PROJECT}/actions/${id}/`, payload, options),
     },
-    post<T = unknown>(
-        url: string,
-        payload: Record<string, any> | FormData | undefined,
-        options: ToolbarApiOptions
-    ): Promise<ToolbarApiResult<T>> {
-        return request<T>('POST', url, payload, options)
+
+    webExperiments: {
+        list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results: WebExperiment[] }>> =>
+            apiGet(`${PROJECT}/web_experiments/`, options),
+        create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<WebExperiment>> =>
+            apiPost(`${PROJECT}/web_experiments/`, payload, options),
+        update: (
+            id: number | string,
+            payload: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<WebExperiment>> => apiPatch(`${PROJECT}/web_experiments/${id}/`, payload, options),
     },
-    patch<T = unknown>(
-        url: string,
-        payload: Record<string, any> | FormData | undefined,
-        options: ToolbarApiOptions
-    ): Promise<ToolbarApiResult<T>> {
-        return request<T>('PATCH', url, payload, options)
+
+    productTours: {
+        list: (options: ToolbarApiOptions): Promise<ToolbarApiResult<{ results?: ProductTour[] } | ProductTour[]>> =>
+            apiGet(`${PROJECT}/product_tours/`, options),
+        create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<ProductTour>> =>
+            apiPost(`${PROJECT}/product_tours/`, payload, options),
+        updateDraft: (
+            id: number | string,
+            payload: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<ProductTour>> =>
+            apiPatch(`${PROJECT}/product_tours/${id}/draft/`, payload, options),
+        delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
+            apiDelete(`${PROJECT}/product_tours/${id}/`, options),
     },
-    delete<T = unknown>(url: string, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> {
-        return request<T>('DELETE', url, undefined, options)
+
+    fieldNotes: {
+        listPending: <T = unknown>(options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
+            apiGet<T>(`${PROJECT}/field_notes/?field_note_status=pending`, options),
+        create: <T = unknown>(payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
+            apiPost<T>(`${PROJECT}/field_notes/`, payload, options),
+        delete: (id: number | string, options: ToolbarApiOptions): Promise<ToolbarApiResult<null>> =>
+            apiDelete(`${PROJECT}/field_notes/${id}/`, options),
+    },
+
+    surveys: {
+        list: (
+            params: { limit: number; offset: number; search?: string },
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<{ results?: Survey[]; next?: string | null }>> =>
+            apiGet(`${PROJECT}/surveys/${encodeParams({ archived: false, ...params }, '?')}`, options),
+        create: (
+            payload: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<{ id?: string }>> => apiPost(`${PROJECT}/surveys/`, payload, options),
+        update: (
+            id: number | string,
+            payload: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<{ id?: string }>> => apiPatch(`${PROJECT}/surveys/${id}/`, payload, options),
+    },
+
+    featureFlags: {
+        myFlags: (
+            params: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<CombinedFeatureFlagAndValueType[]>> =>
+            apiGet(`${PROJECT}/feature_flags/my_flags${encodeParams(params, '?')}`, options),
+        evaluationReasons: <T = unknown>(
+            distinctId: string,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<T>> =>
+            apiGet<T>(
+                `${PROJECT}/feature_flags/evaluation_reasons${encodeParams({ distinct_id: distinctId }, '?')}`,
+                options
+            ),
+    },
+
+    webVitals: {
+        get: <T = unknown>(params: { pathname: string }, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
+            apiGet<T>(`${ENVIRONMENT}/web_vitals${encodeParams(params, '?')}`, options),
+    },
+
+    eventDefinitions: {
+        search: (
+            query: string,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<{ results?: EventDefinition[] }>> =>
+            apiGet(
+                `${PROJECT}/event_definitions/${encodeParams(
+                    { search: query, limit: 20, event_type: 'event_custom' },
+                    '?'
+                )}`,
+                options
+            ),
+    },
+
+    objectMediaPreviews: {
+        create: (payload: Record<string, any>, options: ToolbarApiOptions): Promise<ToolbarApiResult<unknown>> =>
+            apiPost(`${PROJECT}/object_media_previews/`, payload, options),
+    },
+
+    elementStats: {
+        list: (
+            params: Record<string, any>,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<PaginatedResponse<ElementsEventType>>> =>
+            apiGet(`/api/element/stats/${encodeParams(params, '?')}`, options),
+        // Pagination URLs come from a response body — pinned to the uiHost/apiHost origin.
+        page: (
+            url: string,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<PaginatedResponse<ElementsEventType>>> =>
+            apiGet(url, { ...options, urlConstruction: 'use-as-provided' }),
     },
 }

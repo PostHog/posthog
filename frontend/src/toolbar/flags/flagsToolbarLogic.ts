@@ -1,6 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
 import type { PostHog } from 'posthog-js'
 
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -64,11 +63,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             [] as CombinedFeatureFlagAndValueType[],
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const params = {
-                        groups: getGroups(values.posthog),
-                    }
-                    const result = await toolbarApi.get<CombinedFeatureFlagAndValueType[]>(
-                        `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`,
+                    const result = await toolbarApi.featureFlags.myFlags(
+                        { groups: getGroups(values.posthog) },
                         { context: 'load_user_flags' }
                     )
 
@@ -303,11 +299,9 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 }
             },
             loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {
-                const params = { distinct_id: distinctId }
-                const result = await toolbarApi.get<EvaluationReasonsResponse>(
-                    `/api/projects/@current/feature_flags/evaluation_reasons${encodeParams(params, '?')}`,
-                    { context: 'load_flags_for_distinct_id' }
-                )
+                const result = await toolbarApi.featureFlags.evaluationReasons<EvaluationReasonsResponse>(distinctId, {
+                    context: 'load_flags_for_distinct_id',
+                })
                 breakpoint()
 
                 if (!result.ok) {

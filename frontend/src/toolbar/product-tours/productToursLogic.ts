@@ -192,10 +192,7 @@ export const productToursLogic = kea<productToursLogicType>([
             [] as ProductTour[],
             {
                 loadTours: async () => {
-                    const result = await toolbarApi.get<{ results?: ProductTour[] } | ProductTour[]>(
-                        '/api/projects/@current/product_tours/',
-                        { context: 'load_product_tours' }
-                    )
+                    const result = await toolbarApi.productTours.list({ context: 'load_product_tours' })
                     if (!result.ok) {
                         return []
                     }
@@ -344,8 +341,8 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
                 // Re-raise on failure so kea-forms runs submitTourFormFailure (resets the
                 // draft-save status). toolbarApi already logged it, so don't double-report.
-                const result = await toolbarApi.patch(
-                    `/api/projects/@current/product_tours/${formValues.id}/draft/`,
+                const result = await toolbarApi.productTours.updateDraft(
+                    formValues.id,
                     buildDraftPayload(formValues, values.tours),
                     { context: 'save_product_tour_draft', captureOnError: false }
                 )
@@ -608,15 +605,12 @@ export const productToursLogic = kea<productToursLogicType>([
             }
             const isUpdate = !!tourForm.id
             const payload = { ...buildDraftPayload(tourForm, tours), creation_context: 'toolbar' }
-            const url = isUpdate
-                ? `/api/projects/@current/product_tours/${tourForm.id}/draft/`
-                : '/api/projects/@current/product_tours/'
-            const result = isUpdate
-                ? await toolbarApi.patch<ProductTour>(url, payload, {
+            const result = tourForm.id
+                ? await toolbarApi.productTours.updateDraft(tourForm.id, payload, {
                       context: 'save_product_tour',
                       toastOnError: 'Failed to save tour',
                   })
-                : await toolbarApi.post<ProductTour>(url, payload, {
+                : await toolbarApi.productTours.create(payload, {
                       context: 'save_product_tour',
                       toastOnError: 'Failed to save tour',
                   })
@@ -740,7 +734,7 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         deleteTour: async ({ id }) => {
-            const result = await toolbarApi.delete(`/api/projects/@current/product_tours/${id}/`, {
+            const result = await toolbarApi.productTours.delete(id, {
                 context: 'delete_product_tour',
                 toastOnError: 'Failed to delete tour',
             })

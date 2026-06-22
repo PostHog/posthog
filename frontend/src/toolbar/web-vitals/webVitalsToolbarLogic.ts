@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -70,10 +70,8 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
-                    const params = { pathname: window.location.pathname }
-
-                    const result = await toolbarApi.get<WebVitalsMetricsResponse>(
-                        `/api/environments/@current/web_vitals${encodeParams(params, '?')}`,
+                    const result = await toolbarApi.webVitals.get<WebVitalsMetricsResponse>(
+                        { pathname: window.location.pathname },
                         { context: 'load_web_vitals' }
                     )
                     breakpoint()

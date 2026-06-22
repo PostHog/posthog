@@ -78,10 +78,9 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             [] as FieldNote[],
             {
                 loadFieldNotes: async () => {
-                    const result = await toolbarApi.get<{ results?: FieldNote[] } | FieldNote[]>(
-                        '/api/projects/@current/field_notes/?field_note_status=pending',
-                        { context: 'load_field_notes' }
-                    )
+                    const result = await toolbarApi.fieldNotes.listPending<{ results?: FieldNote[] } | FieldNote[]>({
+                        context: 'load_field_notes',
+                    })
                     if (!result.ok) {
                         return values.fieldNotes
                     }
@@ -214,7 +213,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                         ...(screenshotUrl ? { screenshot_url: screenshotUrl } : {}),
                     }
 
-                    const result = await toolbarApi.post<FieldNote>('/api/projects/@current/field_notes/', payload, {
+                    const result = await toolbarApi.fieldNotes.create<FieldNote>(payload, {
                         context: 'save_field_note',
                         toastOnError: 'Failed to save field note',
                     })
@@ -249,7 +248,7 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             }
         },
         deleteFieldNote: async ({ id }) => {
-            await toolbarApi.delete(`/api/projects/@current/field_notes/${id}/`, {
+            await toolbarApi.fieldNotes.delete(id, {
                 context: 'delete_field_note',
                 toastOnError: 'Failed to delete field note',
             })

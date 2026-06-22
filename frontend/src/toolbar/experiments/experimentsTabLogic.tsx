@@ -195,16 +195,14 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 const isUpdate = selectedExperimentId && selectedExperimentId !== 'new'
                 const result = isUpdate
-                    ? await toolbarApi.patch<WebExperiment>(
-                          `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
-                          experimentToSave,
-                          { context: 'save_experiment', toastOnError: 'Failed to save experiment' }
-                      )
-                    : await toolbarApi.post<WebExperiment>(
-                          `/api/projects/@current/web_experiments/`,
-                          experimentToSave,
-                          { context: 'save_experiment', toastOnError: 'Failed to save experiment' }
-                      )
+                    ? await toolbarApi.webExperiments.update(selectedExperimentId, experimentToSave, {
+                          context: 'save_experiment',
+                          toastOnError: 'Failed to save experiment',
+                      })
+                    : await toolbarApi.webExperiments.create(experimentToSave, {
+                          context: 'save_experiment',
+                          toastOnError: 'Failed to save experiment',
+                      })
 
                 if (!result.ok) {
                     return
