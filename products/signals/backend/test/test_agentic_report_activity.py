@@ -399,9 +399,7 @@ async def test_run_agentic_report_activity_requires_human_input_when_integration
     assert result.repository == "posthog/posthog"
 
     # No artefacts persisted — the run short-circuited before research.
-    artefact_count = await database_sync_to_async(
-        lambda: SignalReportArtefact.objects.filter(report=report).count()
-    )()
+    artefact_count = await database_sync_to_async(lambda: SignalReportArtefact.objects.filter(report=report).count())()
     assert artefact_count == 0
 
 
