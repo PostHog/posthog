@@ -34,6 +34,10 @@ jobs:
             pull-requests: read
         outputs:
             nodejs: ${{ steps.nodejs-changes.outputs.nodejs || 'true' }}
+            # Jest --testPathPatterns narrowing the suite to the changed area (empty = run everything).
+            jest_patterns: ${{ steps.nodejs-changes.outputs.jest_patterns }}
+            # Whether to run the Rust ingestion consumer Node API e2e (skipped for cdp-only changes).
+            run_e2e: ${{ steps.nodejs-changes.outputs.run_e2e || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -54,6 +58,7 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: shell
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
@@ -89,35 +94,59 @@ jobs:
             - name: Decide whether Node.js checks should run
               id: nodejs-changes
               env:
+                  EVENT_NAME: ${{ github.event_name }}
                   NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
+                  NODEJS_FILES: ${{ steps.filter.outputs.nodejs_files }}
                   RUST_CHANGED: ${{ steps.filter.outputs.rust }}
                   RUST_REBUILD_ALL: ${{ steps.rust-affected.outputs.rebuild-all }}
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
               run: |
-                  if [ "${{ github.event_name }}" = "push" ]; then
-                    echo "nodejs=true" >> "$GITHUB_OUTPUT"
-                    exit 0
-                  fi
-
-                  if [ "$NODEJS_CHANGED" = "true" ]; then
-                    echo "nodejs=true" >> "$GITHUB_OUTPUT"
-                    exit 0
-                  fi
-
-                  if [ "$RUST_CHANGED" = "true" ]; then
+                  # 1. Decide whether to run Node.js CI at all.
+                  run_nodejs=false
+                  if [ "$EVENT_NAME" = "push" ]; then
+                    run_nodejs=true
+                  elif [ "$NODEJS_CHANGED" = "true" ]; then
+                    run_nodejs=true
+                  elif [ "$RUST_CHANGED" = "true" ]; then
                     if [ "$RUST_REBUILD_ALL" = "true" ]; then
-                      echo "nodejs=true" >> "$GITHUB_OUTPUT"
-                      exit 0
-                    fi
-
-                    if echo "${RUST_AFFECTED_CRATES:-[]}" | jq -e --argjson e2e_crates "$RUST_NODE_E2E_CRATES" '. as $affected | any($e2e_crates[]; . as $crate | $affected | index($crate) != null)' >/dev/null; then
-                      echo "nodejs=true" >> "$GITHUB_OUTPUT"
-                      exit 0
+                      run_nodejs=true
+                    elif echo "${RUST_AFFECTED_CRATES:-[]}" | jq -e --argjson e2e_crates "$RUST_NODE_E2E_CRATES" '. as $affected | any($e2e_crates[]; . as $crate | $affected | index($crate) != null)' >/dev/null; then
+                      run_nodejs=true
                     fi
                   fi
 
-                  echo "nodejs=false" >> "$GITHUB_OUTPUT"
+                  echo "nodejs=$run_nodejs" >> "$GITHUB_OUTPUT"
+                  if [ "$run_nodejs" != "true" ]; then
+                    exit 0
+                  fi
+
+                  # 2. Per-area test selection (pull_request only). The ingestion/cdp boundary guard
+                  # proves the two are isolated (they only meet through src/common), so a change confined
+                  # to one side can skip the other side's tests. Anything broader runs the full suite.
+                  patterns=""
+                  run_e2e=true
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                    ing=0; cdp=0; other=0
+                    set -f # changed-file names have no globs; disable expansion for the word-split loop
+                    for f in $NODEJS_FILES; do
+                      case "$f" in
+                        nodejs/src/ingestion/*|nodejs/tests/ingestion/*|nodejs/tests/worker/*) ing=1 ;;
+                        nodejs/src/cdp/*) cdp=1 ;;
+                        *) other=1 ;;
+                      esac
+                    done
+                    set +f
+                    if [ "$other" = "0" ] && [ "$ing" = "1" ] && [ "$cdp" = "0" ]; then
+                      patterns='(src/ingestion/|tests/ingestion/|tests/worker/)'
+                    elif [ "$other" = "0" ] && [ "$cdp" = "1" ] && [ "$ing" = "0" ]; then
+                      patterns='(src/cdp/)'
+                      run_e2e=false
+                    fi
+                  fi
+
+                  echo "jest_patterns=$patterns" >> "$GITHUB_OUTPUT"
+                  echo "run_e2e=$run_e2e" >> "$GITHUB_OUTPUT"
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
@@ -366,6 +395,8 @@ jobs:
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
+                  # Narrows Jest to the changed area (empty = full suite). See the `changes` job.
+                  TEST_PATH_PATTERNS: ${{ needs.changes.outputs.jest_patterns }}
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
@@ -391,7 +422,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
-        if: needs.changes.outputs.nodejs == 'true'
+        if: needs.changes.outputs.nodejs == 'true' && needs.changes.outputs.run_e2e != 'false'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-latest-4)
         needs: changes
         runs-on: depot-ubuntu-latest-4

@@ -29,4 +29,14 @@ pnpm test                      # full suite (sharded in CI)
 pnpm jest tests/path/to.test.ts  # single file
 ```
 
+### CI test selection
+
+On pull requests, CI runs only the tests for the area you changed. The boundary guard (`bin/check-ingestion-boundaries.mjs`) proves `cdp` and `ingestion` are isolated — they share only `src/common` — so a change confined to one side can safely skip the other side's tests:
+
+- only `src/ingestion/**` (or `tests/ingestion/**`, `tests/worker/**`) changed → ingestion tests
+- only `src/cdp/**` changed → cdp tests
+- anything in `src/common/**`, config, cross-cutting paths, or both sides → the full suite
+
+`master` and the merge queue always run everything. To narrow a local run, set `TEST_PATH_PATTERNS` (a jest `--testPathPatterns` regex), e.g. `TEST_PATH_PATTERNS='(src/cdp/)' pnpm test`.
+
 Destructive test helpers refuse to run against a database without `test` in its name — see `tests/helpers/database-guard.ts`. The guard's error message explains how to fix a misconfigured environment.
