@@ -77,7 +77,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             null as ScoutMetadataApi | null,
             {
                 loadScoutMetadata: async () => {
-                    return await signalsScoutMetadataGet(String(teamLogic.values.currentTeamId))
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutMetadataGet(String(teamId))
                 },
             },
         ],
