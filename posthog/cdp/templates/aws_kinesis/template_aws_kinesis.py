@@ -27,8 +27,8 @@ let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', {
   'aws_sigv4': {
     'service': 'kinesis',
     'region': inputs.aws_region,
-    'access_key_id': inputs.aws_access_key_id,
-    'secret_access_key': inputs.aws_secret_access_key,
+    'access_key_id_input': 'aws_access_key_id',
+    'secret_access_key_input': 'aws_secret_access_key',
   },
 })
 

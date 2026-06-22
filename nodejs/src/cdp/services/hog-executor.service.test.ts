@@ -1291,6 +1291,26 @@ describe('Hog Executor', () => {
         })
 
         describe('aws_sigv4', () => {
+            // The queue payload carries only input-key references; credentials are
+            // resolved fresh from `invocation.hogFunction.inputs` at fetch time, so
+            // secrets stay out of the plaintext `cyclotron_jobs.state` blob. The
+            // tests below populate inputs to mirror what hog-function-manager.service
+            // would after decrypting `encrypted_inputs`.
+            const seedAwsCredentialInputs = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+            }
+
+            const sigv4Refs = {
+                service: 'kinesis',
+                region: 'us-east-1',
+                access_key_id_input: 'aws_access_key_id',
+                secret_access_key_input: 'aws_secret_access_key',
+            }
+
             it('signs the request and Authorization header arrives at the upstream', async () => {
                 let receivedAuth: string | undefined
                 let receivedAmzDate: string | undefined
@@ -1306,13 +1326,9 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: '{}',
                     headers: { 'Content-Type': 'application/x-amz-json-1.1' },
-                    aws_sigv4: {
-                        service: 'kinesis',
-                        region: 'us-east-1',
-                        access_key_id: 'AKIDEXAMPLE',
-                        secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
-                    },
+                    aws_sigv4: sigv4Refs,
                 })
+                seedAwsCredentialInputs(invocation)
 
                 await executor.executeFetch(invocation)
 
@@ -1348,13 +1364,9 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: '{}',
                     headers: { 'Content-Type': 'application/x-amz-json-1.1' },
-                    aws_sigv4: {
-                        service: 'kinesis',
-                        region: 'us-east-1',
-                        access_key_id: 'AKIDEXAMPLE',
-                        secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
-                    },
+                    aws_sigv4: sigv4Refs,
                 })
+                seedAwsCredentialInputs(invocation)
 
                 let result = await executor.executeFetch(invocation)
                 expect(result.invocation.state.attempts).toBe(1)
@@ -1396,18 +1408,41 @@ describe('Hog Executor', () => {
                         Authorization: 'AWS4-HMAC-SHA256 Credential=STALE/19700101/us-east-1/kinesis/aws4_request, ...',
                         'X-Amz-Date': '19700101T000000Z',
                     },
-                    aws_sigv4: {
-                        service: 'kinesis',
-                        region: 'us-east-1',
-                        access_key_id: 'AKIDEXAMPLE',
-                        secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
-                    },
+                    aws_sigv4: sigv4Refs,
                 })
+                seedAwsCredentialInputs(invocation)
 
                 await executor.executeFetch(invocation)
 
                 expect(receivedAuth).not.toContain('STALE')
                 expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // If the input referenced by `*_input` is missing or non-string we must
+            // NOT fall through and ship an unsigned request to AWS — that'd 403 and
+            // potentially leak the request body in error logs.
+            it('errors loudly when the referenced credential input is missing', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                // Intentionally do NOT seed inputs.
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('AWS SigV4 signing failed')
+                expect(result.error.message).toContain('aws_access_key_id')
+                expect(result.error.message).toContain('aws_secret_access_key')
             })
         })
 

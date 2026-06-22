@@ -797,17 +797,47 @@ export class HogExecutorService {
         // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
         // fetch (every attempt — including retries) so a request that sat in the
         // backoff queue or whose first attempt timed out cannot reach AWS with a
-        // stale signature. The queue payload keeps only the structured credentials
-        // and base headers; signing artifacts (Authorization, X-Amz-Date) are
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
         // regenerated here and never persisted back to queueParameters.
+        //
+        // Credentials are resolved from `hogFunction.inputs` by key name — never
+        // from the queue payload itself — so `secret: true` inputs stay out of the
+        // plaintext `cyclotron_jobs.state` blob.
         let signedHeaders = headers
         if (params.aws_sigv4) {
+            const sigv4 = params.aws_sigv4
+            const accessKeyId = invocation.hogFunction.inputs?.[sigv4.access_key_id_input]?.value
+            const secretAccessKey = invocation.hogFunction.inputs?.[sigv4.secret_access_key_input]?.value
+            const sessionToken = sigv4.session_token_input
+                ? invocation.hogFunction.inputs?.[sigv4.session_token_input]?.value
+                : undefined
+
+            if (typeof accessKeyId !== 'string' || typeof secretAccessKey !== 'string') {
+                const missing = [
+                    typeof accessKeyId !== 'string' ? sigv4.access_key_id_input : null,
+                    typeof secretAccessKey !== 'string' ? sigv4.secret_access_key_input : null,
+                ]
+                    .filter(Boolean)
+                    .join(', ')
+                const message = `AWS SigV4 signing failed: input(s) ${missing} not found on hog function or not a string. Refusing to send an unsigned request to AWS.`
+                addLog('error', message)
+                result.error = new Error(message)
+                result.finished = true
+                return result
+            }
+
             signedHeaders = signAwsRequest({
                 method,
                 url: params.url,
                 body: params.body ?? '',
                 headers,
-                credentials: params.aws_sigv4,
+                credentials: {
+                    service: sigv4.service,
+                    region: sigv4.region,
+                    access_key_id: accessKeyId,
+                    secret_access_key: secretAccessKey,
+                    session_token: typeof sessionToken === 'string' ? sessionToken : undefined,
+                },
             })
         }
 

@@ -67,12 +67,19 @@ export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSche
 // `X-Amz-Date` headers. This is the only path that keeps a retry within AWS's
 // 5-minute signature window — never embed a pre-signed Authorization header
 // in the queue payload.
+//
+// Credentials are NOT carried on the queue payload — the `*_input` fields are
+// input-key references that the executor resolves against `HogFunction.inputs`
+// at fetch time. The cyclotron `cyclotron_jobs.state` blob is plaintext JSON;
+// embedding credential strings on the queue payload would defeat the at-rest
+// encryption that `EncryptedJSONStringField` provides on
+// `posthog_hogfunction.encrypted_inputs`.
 export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
     service: z.string(),
     region: z.string(),
-    access_key_id: z.string(),
-    secret_access_key: z.string(),
-    session_token: z.string().optional(),
+    access_key_id_input: z.string(),
+    secret_access_key_input: z.string(),
+    session_token_input: z.string().optional(),
 })
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({

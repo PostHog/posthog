@@ -21,8 +21,9 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
         )
 
         # The Hog template now hands signing off to the Node.js cyclotron fetch executor,
-        # which re-signs on every attempt. From Hog's side we only assert that the
-        # un-signed request and the credentials bag reach the executor.
+        # which re-signs on every attempt. The aws_sigv4 bag carries input-key references,
+        # not credential values — the executor resolves them from HogFunction.inputs at
+        # fetch time so secrets never enter the plaintext queue payload.
         assert res.result is None
         assert self.get_mock_fetch_calls()[0] == (
             "https://kinesis.aws_region.amazonaws.com",
@@ -36,8 +37,8 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
                 "aws_sigv4": {
                     "service": "kinesis",
                     "region": "aws_region",
-                    "access_key_id": "aws_access_key_id",
-                    "secret_access_key": "aws_secret_access_key",
+                    "access_key_id_input": "aws_access_key_id",
+                    "secret_access_key_input": "aws_secret_access_key",
                 },
             },
         )
