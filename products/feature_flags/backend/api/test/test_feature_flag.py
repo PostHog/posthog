@@ -10103,6 +10103,82 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
+    @pytest.mark.ee
+    def test_cache_read_back_ignores_unknown_non_model_key(self):
+        from posthog.caching.flags_redis_cache import write_flags_to_cache
+
+        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="unknown-key-flag",
+            name="Unknown Key Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        [serialized] = serialize_feature_flags([flag])
+        # A future SDK-only serializer field that is not a model field must not break read-back.
+        serialized["some_future_sdk_field"] = {"anything": True}
+        write_flags_to_cache(
+            f"team_feature_flags_{self.team.project_id}",
+            json.dumps([serialized]),
+            FIVE_DAYS,
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
+        assert cached_flags is not None
+        self.assertEqual(len(cached_flags), 1)
+        self.assertEqual(cached_flags[0].key, "unknown-key-flag")
+
+    @parameterized.expand(
+        [
+            # (name, evaluation_contexts value, evaluation_tags value, expected)
+            ("current_key", ["app", "docs"], None, ["app", "docs"]),
+            ("legacy_key", None, ["app", "docs"], ["app", "docs"]),
+            # When both keys are present, the current `evaluation_contexts` key wins.
+            ("both_keys_current_wins", ["app", "docs"], ["legacy"], ["app", "docs"]),
+        ]
+    )
+    @pytest.mark.ee
+    def test_cache_read_back_accepts_evaluation_context_keys(
+        self,
+        _name: str,
+        contexts_value: Optional[list[str]],
+        tags_value: Optional[list[str]],
+        expected: list[str],
+    ):
+        from posthog.caching.flags_redis_cache import write_flags_to_cache
+
+        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"eval-context-key-{_name}",
+            name="Eval Context Key Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        [serialized] = serialize_feature_flags([flag])
+        # Exercise the current `evaluation_contexts` key, the legacy `evaluation_tags`
+        # key, and entries that carry both (where the current key must take precedence).
+        serialized.pop("evaluation_contexts", None)
+        if contexts_value is not None:
+            serialized["evaluation_contexts"] = contexts_value
+        if tags_value is not None:
+            serialized["evaluation_tags"] = tags_value
+        write_flags_to_cache(
+            f"team_feature_flags_{self.team.project_id}",
+            json.dumps([serialized]),
+            FIVE_DAYS,
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
+        assert cached_flags is not None
+        cached_flag = next(f for f in cached_flags if f.key == flag.key)
+        self.assertEqual(cached_flag.evaluation_tag_names, expected)
+
     def _get_eval_context_activity_entries(self, flag_id: int, activity: str = "updated") -> list:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
