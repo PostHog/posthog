@@ -39,6 +39,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         trendsFilter,
         hasLegend,
         showLegend,
+        usesInChartLegend,
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
@@ -83,8 +84,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     // The in-chart quill legend supports placement, so it gets a single "Legend" select (Hide +
-    // position) instead of the legacy show/hide checkbox.
-    const useQuillLegendOptions = quillLegendEnabled && isTrends && isLineDisplay
+    // position) instead of the legacy show/hide checkbox. `usesInChartLegend` covers
+    // trends/stickiness/lifecycle; funnel trends draw their own in-chart legend too.
+    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle

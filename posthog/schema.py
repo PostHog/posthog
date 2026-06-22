@@ -5512,6 +5512,10 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,
@@ -7010,6 +7014,10 @@ class StickinessFilter(BaseModel):
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -22174,6 +22182,10 @@ class FunnelsFilter(BaseModel):
         ),
     )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",

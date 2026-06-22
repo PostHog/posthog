@@ -6,6 +6,8 @@ import { ChartLegend, TimeSeriesLineChart, legendItemsFromSeries } from '@postho
 import type { PointClickData, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
@@ -69,12 +71,19 @@ export function FunnelLineChart({
         interval,
         insightData,
         showLegend,
+        legendPosition,
         showValuesOnSeries,
         funnelsFilter,
         breakdownFilter,
         labelGroupType,
         getFunnelsColor,
     } = useValues(funnelDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The legend has always rendered in-chart here; the flag only adds the configurable placement
+    // (defaulting to bottom to match the other in-chart legends). Without the flag it stays at top.
+    const legendPlacement = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+        ? ((legendPosition as 'top' | 'bottom' | 'left' | 'right') ?? 'bottom')
+        : 'top'
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { timezone, weekStartDay } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
@@ -193,7 +202,7 @@ export function FunnelLineChart({
         <ChartLegend
             show={!!showLegend && legendItems.length > 1}
             items={legendItems}
-            position="top"
+            position={legendPlacement}
             legendDataAttr="funnel-line-legend"
         >
             <TimeSeriesLineChart<FunnelSeriesMeta>

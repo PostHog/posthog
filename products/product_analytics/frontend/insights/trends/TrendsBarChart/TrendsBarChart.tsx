@@ -39,6 +39,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -87,6 +88,10 @@ export function TrendsBarChart({
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
+    // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
+    // no legend (each bar is a breakdown row, not a series).
+    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+
     const {
         indexedResults,
         display,
@@ -116,6 +121,7 @@ export function TrendsBarChart({
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
+    const quillLegendEnabled = !isAggregated && !!legendConfig
     const isPercentStackView = !isAggregated && !!showPercentStackView && !!supportsPercentStackView
     // Per-series y-axes are only meaningful for grouped (unstacked) bars — stacked layouts share
     // one axis. Mirrors the legacy ActionsLineGraph, which assigns y0/y1/… per dataset.
@@ -156,7 +162,9 @@ export function TrendsBarChart({
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
             getColor: getTrendsColor,
-            getHidden: getTrendsHidden,
+            // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
+            // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
+            getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
@@ -174,6 +182,7 @@ export function TrendsBarChart({
         stackBreakdowns,
         getAggregatedDisplayLabel,
         applyMultipleYAxes,
+        quillLegendEnabled,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -204,6 +213,7 @@ export function TrendsBarChart({
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: TIME_SERIES_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             trendsFilter,
@@ -219,6 +229,7 @@ export function TrendsBarChart({
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
 

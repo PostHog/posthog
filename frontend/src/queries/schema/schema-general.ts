@@ -1732,6 +1732,9 @@ export type FunnelsFilter = {
      * @default false
      */
     showLegend?: boolean
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1932,6 +1935,9 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1951,6 +1957,7 @@ export type StickinessFilter = {
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
 ])
@@ -1997,6 +2004,9 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
 }

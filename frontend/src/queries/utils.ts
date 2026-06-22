@@ -579,6 +579,12 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.legendPosition
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.legendPosition
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.legendPosition
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.legendPosition
     }
     return undefined
 }

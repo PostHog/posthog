@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -53,12 +54,20 @@ function makeRetentionQuery(): RetentionQuery {
     return { kind: NodeKind.RetentionQuery, retentionFilter: {} }
 }
 
-function makeStickinessQuery(): StickinessQuery {
-    return { kind: NodeKind.StickinessQuery, series: [...pageviewSeries] }
+function makeStickinessQuery(display?: ChartDisplayType): StickinessQuery {
+    return {
+        kind: NodeKind.StickinessQuery,
+        series: [...pageviewSeries],
+        stickinessFilter: { display },
+    }
 }
 
 function makeLifecycleQuery(): LifecycleQuery {
-    return { kind: NodeKind.LifecycleQuery, series: [...pageviewSeries] }
+    return {
+        kind: NodeKind.LifecycleQuery,
+        series: [...pageviewSeries],
+        lifecycleFilter: { showLegend: true },
+    }
 }
 
 function getSectionTitles(): string[] {
@@ -348,6 +357,47 @@ describe('InsightDisplayConfig', () => {
             await waitFor(() => {
                 expect(optionsButton).not.toHaveTextContent(/\(1\)/)
             })
+        })
+    })
+
+    describe('line graph display options with the quill legend flag', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true,
+            })
+        })
+
+        it('keeps the "Show legend" checkbox and adds a position select on the same row', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            await openOptionsMenu()
+
+            const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
+            expect(legendItem).toBeTruthy()
+            expect(legendItem).toContain('Bottom')
+        })
+
+        it.each([
+            ['trends bar', () => makeTrendsQuery(ChartDisplayType.ActionsBar)],
+            ['trends unstacked bar', () => makeTrendsQuery(ChartDisplayType.ActionsUnstackedBar)],
+            ['stickiness line', () => makeStickinessQuery(ChartDisplayType.ActionsLineGraph)],
+            ['stickiness bar', () => makeStickinessQuery(ChartDisplayType.ActionsBar)],
+            ['lifecycle', () => makeLifecycleQuery()],
+        ])('adds the legend position select for %s', async (_desc, makeQuery) => {
+            setupAndRender(makeQuery())
+            await openOptionsMenu()
+
+            const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
+            expect(legendItem).toBeTruthy()
+            expect(legendItem).toContain('Bottom')
+        })
+
+        it('keeps the plain "Show legend" checkbox for the aggregated bar-value chart', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
+            await openOptionsMenu()
+
+            // The aggregated bar-value layout has no in-chart legend, so it must not get a position select.
+            const items = getDisplaySectionItems()
+            expect(items.some((item) => item.includes('Bottom'))).toBe(false)
         })
     })
 })

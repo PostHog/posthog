@@ -120,6 +120,7 @@ export interface BuildStickinessLineTimeSeriesConfigOpts {
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
     showCrosshair?: boolean
     tooltip?: TooltipConfig
+    legend?: TimeSeriesLineChartConfig['legend']
 }
 
 export function buildStickinessLineTimeSeriesConfig(
@@ -131,5 +132,6 @@ export function buildStickinessLineTimeSeriesConfig(
         valueLabels: opts.valueLabels,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }

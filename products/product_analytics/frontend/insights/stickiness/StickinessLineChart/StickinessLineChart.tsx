@@ -24,6 +24,7 @@ import {
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
+import { useTrendsLegendConfig } from '../../trends/shared/useTrendsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
     buildStickinessLabels,
@@ -43,6 +44,9 @@ const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
+
+    const legendConfig = useTrendsLegendConfig({ insightProps })
+    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -80,10 +84,12 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 display: display ?? undefined,
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
+                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
+                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes]
+        [indexedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
@@ -93,8 +99,9 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
-        [yAxisScaleType, showValuesOnSeries]
+        [yAxisScaleType, showValuesOnSeries, legendConfig]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
