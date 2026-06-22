@@ -202,38 +202,46 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
             )}
 
             {selectedTeamId && appInstalled && (
-                <div className="flex gap-2 items-center">
-                    <div className="flex-1">
-                        <LemonSelect
-                            value={null}
-                            options={[
-                                { value: null, label: 'Select channel...' },
-                                ...selectedTeamChannels.map(
-                                    (c: { id: string; name: string; membership_type?: string | null }) => {
-                                        const isShared = isSharedMembershipType(c.membership_type)
-                                        return {
-                                            value: c.id,
-                                            label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
-                                        }
-                                    }
-                                ),
-                            ]}
-                            onChange={handleChannelSelect}
-                            loading={teamsChannelsLoading || !!teamsChannelPairLoading}
-                            placeholder="Select channel"
-                            fullWidth
-                            disabledReason={adminRestrictionReason || undefined}
-                        />
-                    </div>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
-                        disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
-                    >
-                        Refresh
-                    </LemonButton>
-                </div>
+                <>
+                    {selectedTeamChannels.length === 0 && !teamsChannelsLoading ? (
+                        <p className="text-xs text-muted-alt italic">
+                            All channels in this group are already configured.
+                        </p>
+                    ) : (
+                        <div className="flex gap-2 items-center">
+                            <div className="flex-1">
+                                <LemonSelect
+                                    value={null}
+                                    options={[
+                                        { value: null, label: 'Select channel...' },
+                                        ...selectedTeamChannels.map(
+                                            (c: { id: string; name: string; membership_type?: string | null }) => {
+                                                const isShared = isSharedMembershipType(c.membership_type)
+                                                return {
+                                                    value: c.id,
+                                                    label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
+                                                }
+                                            }
+                                        ),
+                                    ]}
+                                    onChange={handleChannelSelect}
+                                    loading={teamsChannelsLoading || !!teamsChannelPairLoading}
+                                    placeholder="Select channel"
+                                    fullWidth
+                                    disabledReason={adminRestrictionReason || undefined}
+                                />
+                            </div>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadTeamsChannelsForTeam(selectedTeamId)}
+                                disabledReason={teamsChannelsLoading ? 'Loading...' : undefined}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )

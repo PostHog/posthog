@@ -161,9 +161,17 @@ describe('supportSettingsLogic', () => {
                 { team_id: 't1', team_name: 'Team 1', channel_id: 'ch-2', channel_name: 'Channel 2' },
             ]
 
+            const updatedTeam = {
+                conversations_settings: {
+                    teams_enabled: true,
+                    teams_channels: updatedChannels,
+                },
+            }
+
             useMocks({
                 get: {
                     'api/conversations/v1/email/status': { configs: [] },
+                    'api/environments/@current/': updatedTeam,
                 },
                 post: {
                     'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
@@ -189,7 +197,9 @@ describe('supportSettingsLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.addTeamsChannelPair('t1', 'ch-2')
-            }).toDispatchActions(['addTeamsChannelPair', 'loadCurrentTeam', 'installTeamsApp'])
+            })
+                .toDispatchActions(['addTeamsChannelPair', 'loadCurrentTeam', 'loadCurrentTeamSuccess'])
+                .toMatchValues({ teamsChannelPairs: updatedChannels })
         })
     })
 })
