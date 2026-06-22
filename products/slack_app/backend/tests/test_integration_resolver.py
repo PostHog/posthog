@@ -17,6 +17,11 @@ SLACK_USER = "U001"
 class TestResolveIntegration:
     @pytest.fixture(autouse=True)
     def setup(self, db):
+        from django.core.cache import cache
+
+        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+
+        cache.clear()
         self.organization = Organization.objects.create(name="Org")
         self.team_a = Team.objects.create(organization=self.organization, name="A")
         self.team_b = Team.objects.create(organization=self.organization, name="B")
@@ -37,6 +42,20 @@ class TestResolveIntegration:
             integration_id="T_OTHER",
             sensitive_config={"access_token": "xoxb-other"},
         )
+        # These tests assert routing precedence (thread > user_default > etc),
+        # not auth-state filtering. Pre-seed every integration as healthy so
+        # ``load_integrations``' eager ``auth.test`` short-circuits on cache
+        # hit and the precedence ladder is exercised against a stable full
+        # candidate list.
+        for integration in (
+            self.integration_a,
+            self.integration_b,
+            self.integration_c,
+            self.integration_other_workspace,
+        ):
+            write_auth_state_ok(integration.id, bot_user_id="U_BOT")
+        yield
+        cache.clear()
 
     def _mk_integration(self, team: Team) -> Integration:
         return Integration.objects.create(
@@ -500,12 +519,14 @@ class TestLoadIntegrationsAuthStateFilter:
 
         assert self.mock_auth_test.call_count == 0
 
-    def test_invalid_auth_demotes_install_to_end(self):
+    def test_invalid_auth_drops_install_from_candidates(self):
         from slack_sdk.errors import SlackApiError
 
         # ``old`` install fails auth.test with invalid_auth — exactly the
         # production case for the original ticket. ``mid`` and ``new`` succeed
-        # so the resolver should rank them ahead.
+        # so the resolver should keep them and drop ``old`` entirely (not
+        # demote to the back, otherwise the resolver's precedence ladder would
+        # still pin a stale thread mapping or user-default to it).
         healthy_response = {"user_id": "U_BOT"}
         self.mock_auth_test.side_effect = [
             SlackApiError("invalid_auth", response={"ok": False, "error": "invalid_auth"}),
@@ -515,12 +536,9 @@ class TestLoadIntegrationsAuthStateFilter:
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
-        # ``mid`` and ``new`` both auth.tested successfully; ``new`` was the
-        # second call so its ``checked_at`` is fractionally later. The sort by
-        # ``checked_at`` DESC puts ``new`` first. ``old`` is broken and demoted.
         ids = self._candidate_ids(result.candidates)
-        assert ids[-1] == self.integration_old.id
-        assert set(ids[:2]) == {self.integration_mid.id, self.integration_new.id}
+        assert self.integration_old.id not in ids
+        assert set(ids) == {self.integration_mid.id, self.integration_new.id}
 
     def test_freshest_healthy_wins_over_warm_older_entry(self):
         # ``new`` was confirmed healthy most recently; ``old`` and ``mid``
@@ -555,7 +573,13 @@ class TestLoadIntegrationsAuthStateFilter:
         assert result.candidates[0].id == self.integration_new.id
         assert self.mock_auth_test.call_count == 0  # all cached, no API calls
 
-    def test_all_broken_returns_full_list_so_workspace_self_heals(self):
+    def test_all_broken_returns_empty(self):
+        # When every candidate is cached as broken, return an empty list.
+        # Upstream code (``_resolve_region_or_terminal_route``) treats an empty
+        # candidate set the same way it'd handle a workspace with no rows at
+        # all — falls through to ``ROUTE_NO_INTEGRATION``. Recovery paths:
+        # the 6h TTL expires, OAuth reconnect invalidates the cache, or a
+        # subsequent ``auth.test`` succeeds.
         from products.slack_app.backend.services.slack_auth import write_auth_state_broken
 
         write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
@@ -564,30 +588,64 @@ class TestLoadIntegrationsAuthStateFilter:
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
-        # All three returned despite cache saying every one is broken — refusing
-        # to strand the workspace; the success-path write hook will flip the
-        # cache back if the call now succeeds.
-        assert {c.id for c in result.candidates} == {
-            self.integration_old.id,
-            self.integration_mid.id,
-            self.integration_new.id,
-        }
+        assert result.candidates == []
 
-    def test_transient_auth_test_error_keeps_candidate_in_unknown_bucket(self):
-        # Network blip / Slack 5xx must not brick the workspace by writing a
-        # negative verdict. The unknown candidate stays in the list, neither
-        # demoted nor promoted.
+    def test_transient_auth_test_error_drops_candidate(self):
+        # A transient ``auth.test`` failure (Slack 5xx, network blip) leaves
+        # the cache untouched but still drops the candidate from THIS
+        # invocation's result — we have no proof the token works, so we don't
+        # ship the user a probably-broken probe. The next mention retries.
         from products.slack_app.backend.services.slack_auth import get_cached_auth_state
 
         self.mock_auth_test.side_effect = RuntimeError("boom")
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
-        assert {c.id for c in result.candidates} == {
-            self.integration_old.id,
-            self.integration_mid.id,
-            self.integration_new.id,
-        }
-        # Cache untouched — the next mention will retry instead of inheriting
-        # a 6-hour-old negative verdict.
+        assert result.candidates == []
+        # Cache untouched: next mention retries instead of inheriting a stale
+        # negative verdict.
         assert get_cached_auth_state(self.integration_old.id) is None
+
+    def test_broken_thread_mapping_falls_through_to_healthy_sibling(self):
+        # Reproduces the production case: a thread mapping pins routing to an
+        # install whose token has since been revoked. With ``drop`` semantics
+        # the resolver's "out-of-set" handling in ``resolve_from_candidates``
+        # walks past the dead mapping rather than honoring a target the bot
+        # can't actually reach.
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+        from products.slack_app.backend.services.slack_auth import write_auth_state_broken, write_auth_state_ok
+
+        # ``old`` is broken; ``new`` is the healthy sibling on the same workspace.
+        write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
+        write_auth_state_ok(self.integration_new.id, bot_user_id="U_NEW_BOT")
+
+        # Thread mapping points at the broken ``old`` install. ``team`` /
+        # ``task`` / ``task_run`` aren't relevant to this test's assertions —
+        # we only need a mapping row that resolves the mapped integration.
+        task = Task.objects.create(team=self.team_old, title="t")
+        task_run = TaskRun.objects.create(team=self.team_old, task=task)
+        SlackThreadTaskMapping.objects.create(
+            team=self.team_old,
+            integration=self.integration_old,
+            slack_workspace_id=WORKSPACE,
+            channel="C1",
+            thread_ts="123.456",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id=SLACK_USER,
+        )
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            channel="C1",
+            thread_ts="123.456",
+        )
+
+        # ``old`` was dropped; the thread mapping has nothing in the candidate
+        # set to resolve through. The resolver must not return ``old`` as the
+        # chosen target — that's the whole point of dropping rather than
+        # demoting.
+        assert self.integration_old.id not in {c.id for c in result.candidates}
+        assert result.integration != self.integration_old

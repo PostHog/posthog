@@ -192,26 +192,39 @@ def check_integrations_auth_and_filter(
     *,
     slack_user_id: str | None = None,
 ) -> list["Integration"]:
-    """Check each candidate's bot-token health and return them reordered so a
-    healthy install lands at index 0.
+    """Check each candidate's bot-token health and return only the healthy ones,
+    sorted with the freshest verdict first.
 
     Single entry point for the resolver: for every candidate the function
     consults the cache, runs ``auth.test`` on miss (populating the cache with
-    the result), and ranks the list in one pass:
+    the result), then drops anything not cached as ``ok=true``.
 
-    - **healthy** (cached ``ok=true``) — sorted by ``checked_at`` DESC so a
-      freshly-reconnected install lands ahead of one that's been healthy for
-      hours.
-    - **unknown** (cache miss survived the eager populate because ``auth.test``
-      transiently errored — Slack 5xx, network blip) — kept in the middle.
-    - **broken** (cached ``ok=false``) — demoted to the end, **never dropped**.
-      Refusing to strand the workspace on stale negative cache: if every
-      candidate is broken, the resolver still tries them and the next
-      successful ``auth.test`` (after the 6h TTL) flips the cache back.
+    Why drop rather than demote: the resolver's precedence ladder
+    (thread mapping > user default > workspace default > sole candidate >
+    picker) only honors a target that's *in the candidate list*. Keeping a
+    broken install in the list — even at the back — lets a stale thread
+    mapping or user-default route every mention through a dead token. Dropping
+    it lets the existing "kind drift" fallback in ``resolve_from_candidates``
+    walk down to the next precedence level naturally.
+
+    Buckets that get **dropped**:
+
+    - **unknown** — cache miss survived eager populate because ``auth.test``
+      transiently errored (Slack 5xx, network blip). The cache is left
+      untouched so the next mention retries, but we don't ship the user a
+      probably-broken probe in the meantime.
+    - **broken** — cached ``ok=false``. Recovery paths: the 6h TTL expires,
+      the OAuth reconnect callback invalidates the entry, or a subsequent
+      ``auth.test`` succeeds (the cache also expires naturally).
 
     Slack ``auth.test`` is Tier 4 (100+/min/workspace) so the per-mention cost
     is fine even for orgs with many installs on the same workspace. Concurrent
     mentions racing here just overwrite each other with the same verdict.
+
+    Empty return when every candidate is broken/unknown is intentional and
+    upstream code already handles it: ``_resolve_region_or_terminal_route``
+    routes events to ``ROUTE_NO_INTEGRATION`` when no candidates are present,
+    matching the behavior we'd see if the DB had no rows for this workspace.
 
     Every failure log includes ``slack_team_id`` (workspace), ``integration_id``
     (the broken install's PK) and ``slack_user_id`` of the mentioning user (when
@@ -235,17 +248,20 @@ def check_integrations_auth_and_filter(
             broken.append(candidate)
 
     healthy.sort(key=lambda pair: pair[1], reverse=True)
-    reordered = [c for c, _ in healthy] + unknown + broken
-    if broken:
+    result = [c for c, _ in healthy]
+    if broken or unknown:
         # ``candidates`` is workspace-homogeneous (the resolver's DB query
         # filters by ``integration_id=slack_team_id``), so reading the
-        # workspace ID off any one row is safe.
-        logger.info(
+        # workspace ID off any one row is safe. Escalate to ``warning`` when
+        # the filter left nothing — that's the case where support needs the
+        # log line to explain why a mention went unanswered.
+        log = logger.warning if not result else logger.info
+        log(
             "slack_app_load_integrations_filtered",
             slack_team_id=candidates[0].integration_id,
             slack_user_id=slack_user_id,
             broken_integration_ids=[c.id for c in broken],
-            healthy_integration_ids=[c.id for c, _ in healthy],
             unknown_integration_ids=[c.id for c in unknown],
+            healthy_integration_ids=[c.id for c, _ in healthy],
         )
-    return reordered
+    return result
