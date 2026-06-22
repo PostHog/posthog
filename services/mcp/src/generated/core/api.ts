@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -704,6 +704,31 @@ export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Publish a new version of a freeform canvas's React source.
+ *
+ * Merges into the dashboard row's `meta` (never replaces it), so existing
+ * keys like `channelId`/`templateId` survive. Appends a full-file version
+ * snapshot and points `currentVersionId` at it — the server-side mirror of
+ * the app's dashboardsService.saveFreeform.
+ */
+export const DesktopFileSystemCanvasPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        code: zod.string().optional(),
+        prompt: zod.string().optional(),
+        name: zod.string().optional(),
+    })
+    .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
 /**
  * Return the latest non-deleted instructions for this folder.

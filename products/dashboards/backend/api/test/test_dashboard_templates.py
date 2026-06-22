@@ -402,7 +402,8 @@ class TestDashboardTemplates(APIBaseTest):
         assert update_response.status_code == status.HTTP_400_BAD_REQUEST, update_response
 
     def test_non_staff_cannot_edit_dashboard_template(self) -> None:
-        default_template = DashboardTemplate.objects.all()[0]
+        default_template = DashboardTemplate.objects.filter(scope=DashboardTemplate.Scope.GLOBAL).first()
+        assert default_template is not None
         assert default_template.scope == "global"
 
         update_response = self.client.patch(
@@ -942,6 +943,147 @@ class TestDashboardTemplates(APIBaseTest):
         assert another_attempted_escape_response.status_code == status.HTTP_200_OK
         assert id not in [r["id"] for r in another_attempted_escape_response.json()["results"]]
 
+    def test_organization_scoped_template_visible_to_sibling_team_in_same_org(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling team org scope")
+        org_template = DashboardTemplate.objects.create(
+            team_id=self.team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Shared org template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        list_response = self.client.get(f"/api/projects/{sibling_team.pk}/dashboard_templates/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response
+        assert str(org_template.id) in [r["id"] for r in list_response.json()["results"]]
+
+        retrieve_response = self.client.get(f"/api/projects/{sibling_team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve_response.status_code == status.HTTP_200_OK, retrieve_response
+        assert retrieve_response.json()["scope"] == "organization"
+
+    def test_organization_scoped_template_not_visible_to_other_org(self) -> None:
+        org_template = DashboardTemplate.objects.create(
+            team_id=self.team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Org A only template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+        other_org = Organization.objects.create(name="Other org for org-scope idor")
+        other_team = Team.objects.create(organization=other_org, name="Other org team")
+        other_user = User.objects.create_and_join(
+            organization=other_org, first_name="Other", email="other_org_user@email.com", password="wat"
+        )
+        self.client.force_login(other_user)
+
+        list_response = self.client.get(f"/api/projects/{other_team.pk}/dashboard_templates/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response
+        assert str(org_template.id) not in [r["id"] for r in list_response.json()["results"]]
+
+        retrieve_response = self.client.get(f"/api/projects/{other_team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response
+
+    def test_scope_organization_filter_returns_only_caller_org(self) -> None:
+        DashboardTemplate.objects.all().delete()
+        org_template_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.ORGANIZATION, "template_name": "org scoped via filter"}
+        )
+        team_template_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.ONLY_TEAM, "template_name": "team scoped via filter"}
+        )
+        other_org = Organization.objects.create(name="Other org scope filter")
+        other_team = Team.objects.create(organization=other_org, name="Other team scope filter")
+        DashboardTemplate.objects.create(
+            team_id=other_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="other org org-scoped",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=organization")
+        assert response.status_code == status.HTTP_200_OK
+        rows = [(r["id"], r["scope"]) for r in response.json()["results"]]
+        assert rows == [(org_template_id, "organization")]
+        assert team_template_id not in [r_id for r_id, _ in rows]
+
+    def test_non_portable_references_detected(self) -> None:
+        tiles_with_refs = [
+            {
+                "name": "Action and cohort series",
+                "type": "INSIGHT",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "ActionsNode", "id": 12345}],
+                        "properties": [{"type": "cohort", "value": 999}],
+                    },
+                },
+                "layouts": {},
+            },
+            {
+                "name": "Warehouse series",
+                "type": "INSIGHT",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "DataWarehouseNode", "table_name": "stripe_invoices"}],
+                    },
+                },
+                "layouts": {},
+            },
+        ]
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Refs template", "tiles": tiles_with_refs},
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create
+
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{create.json()['id']}")
+        assert retrieve.status_code == status.HTTP_200_OK
+        assert retrieve.json()["non_portable_references"] == {
+            "actions": 1,
+            "cohorts": 1,
+            "warehouse_tables": ["stripe_invoices"],
+        }
+
+    def test_non_portable_references_empty_for_event_only_template(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Portable template"},
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create
+
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{create.json()['id']}")
+        assert retrieve.status_code == status.HTTP_200_OK
+        assert retrieve.json()["non_portable_references"] == {"actions": 0, "cohorts": 0, "warehouse_tables": []}
+
+    def test_non_portable_references_null_in_list_response(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Listed template"},
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create
+        # Not computed on the create (non-retrieve) response, nor in list responses — only on single retrieve.
+        assert create.json()["non_portable_references"] is None
+
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates?scope=team")
+        assert list_response.status_code == status.HTTP_200_OK
+        listed = [t for t in list_response.json()["results"] if t["id"] == create.json()["id"]]
+        assert len(listed) == 1
+        assert listed[0]["non_portable_references"] is None
+
 
 class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
     """Customer authoring: editor on `dashboard_template` (RBAC), team-scoped templates only for non-staff."""
@@ -1092,6 +1234,155 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
             {**variable_template, "template_name": "Analytics emit global scoped", "scope": "global"},
         )
         mock_report.assert_not_called()
+
+    def test_non_staff_editor_can_create_organization_scoped_template(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Org scoped by editor", "scope": "organization"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response
+        assert response.json()["scope"] == "organization"
+        assert response.json()["team_id"] == self.team.pk
+
+    def test_non_staff_editor_can_promote_and_demote_between_team_and_organization(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Promote demote me"},
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create
+        assert create.json()["scope"] == "team"
+        tid = create.json()["id"]
+
+        promote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"scope": "organization"},
+        )
+        assert promote.status_code == status.HTTP_200_OK, promote
+        assert promote.json()["scope"] == "organization"
+
+        demote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"scope": "team"},
+        )
+        assert demote.status_code == status.HTTP_200_OK, demote
+        assert demote.json()["scope"] == "team"
+
+    def test_non_staff_cannot_modify_org_template_owned_by_sibling_team(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling owns org template")
+        org_template = DashboardTemplate.objects.create(
+            team_id=sibling_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Sibling-owned org template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        # Readable org-wide from the current project...
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve.status_code == status.HTTP_200_OK, retrieve
+
+        # ...but rename / demote / delete are rejected because this project does not own it.
+        rename = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"template_name": "Hijacked"},
+        )
+        assert rename.status_code == status.HTTP_403_FORBIDDEN, rename
+
+        demote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"scope": "team"},
+        )
+        assert demote.status_code == status.HTTP_403_FORBIDDEN, demote
+
+        delete = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"deleted": True},
+        )
+        assert delete.status_code == status.HTTP_403_FORBIDDEN, delete
+
+    def test_sibling_team_cannot_retrieve_soft_deleted_org_template(self) -> None:
+        owning_team = Team.objects.create(organization=self.organization, name="Owns deleted org template")
+        org_template = DashboardTemplate.objects.create(
+            team_id=owning_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Soon to be deleted org template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+            deleted=True,
+        )
+
+        # A sibling project that captured the UUID must not be able to read it once it's soft-deleted.
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve
+
+    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    def test_scope_change_emits_analytics(self, mock_report) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Scope change analytics"},
+        )
+        tid = create.json()["id"]
+        mock_report.reset_mock()
+
+        promote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"scope": "organization"},
+        )
+        assert promote.status_code == status.HTTP_200_OK, promote
+        mock_report.assert_called_once()
+        call_kwargs = mock_report.call_args.kwargs
+        assert mock_report.call_args.args[1] == "dashboard template scope changed"
+        assert call_kwargs["properties"]["from_scope"] == "team"
+        assert call_kwargs["properties"]["to_scope"] == "organization"
+
+        # A no-op update (no scope change) must not emit the event.
+        mock_report.reset_mock()
+        rename = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"template_name": "Scope change analytics renamed"},
+        )
+        assert rename.status_code == status.HTTP_200_OK, rename
+        mock_report.assert_not_called()
+
+    @parameterized.expand([("global",), ("feature_flag",)])
+    def test_non_staff_cannot_promote_to_restricted_scope(self, bad_scope: str) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": f"No promote to {bad_scope}"},
+        )
+        tid = create.json()["id"]
+        resp = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"scope": bad_scope},
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp
+        assert resp.json().get("attr") == "scope"
+
+    def test_organization_template_name_unique_within_organization(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling for uniqueness")
+        DashboardTemplate.objects.create(
+            team_id=sibling_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Duplicated org name",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Duplicated org name", "scope": "organization"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response
+        assert response.json().get("attr") == "template_name"
 
 
 class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):

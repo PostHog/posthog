@@ -5,7 +5,7 @@ import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { normalizeAxisLabel } from '../utils/axis-labels'
-import { composeDrawHoverWithCrosshair } from './canvas-renderer'
+import { composeDrawHoverWithCrosshair, composeDrawHoverWithSelection } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
@@ -16,12 +16,14 @@ import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
+import { useYAxisMaps } from './hooks/useYAxisMaps'
 import type {
     ChartConfig,
     ChartDrawArgs,
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DateRangeZoomData,
     DrawHoverResult,
     PointClickData,
     ResolveValueFn,
@@ -55,6 +57,9 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
+     *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -93,8 +98,9 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     onPointClick,
+    onDateRangeZoom,
     className,
     dataAttr,
     children,
@@ -118,14 +124,43 @@ export function Chart<Meta = unknown>({
         animateHover,
         margins: marginsOverride,
         maxCategoryLabelWidth,
+        yAxes,
     } = config ?? {}
+
+    // Per-axis tick formatters, sides, and right-axis title for multi-axis charts. Each gutter
+    // formats against its own axis config; absent here, an axis auto-formats against its ticks.
+    const {
+        formatters: yAxisFormatters,
+        positions: yAxisPositions,
+        labelRight: yAxisLabelRight,
+    } = useYAxisMaps(yAxes)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        showTotal: tooltipShowTotal,
+        totalLabel: tooltipTotalLabel,
+        totalFormatter: tooltipTotalFormatter,
     } = tooltipConfig ?? {}
+
+    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () =>
+            renderTooltipProp ??
+            ((ctx: TooltipContext<Meta>) => (
+                <DefaultTooltip
+                    {...ctx}
+                    valueFormatter={tooltipValueFormatter}
+                    showTotal={tooltipShowTotal}
+                    totalLabel={tooltipTotalLabel}
+                    totalFormatter={tooltipTotalFormatter}
+                />
+            )),
+        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+    )
 
     const margins = useChartMargins({
         series,
@@ -140,6 +175,9 @@ export function Chart<Meta = unknown>({
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisLabelRight,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -155,7 +193,7 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
-    const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
+    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -165,6 +203,7 @@ export function Chart<Meta = unknown>({
         showTooltip,
         pinnable: pinnableTooltip,
         onPointClick,
+        onDateRangeZoom,
         resolveValue,
         resolvePositionValue,
         interactionAxis,
@@ -174,16 +213,15 @@ export function Chart<Meta = unknown>({
 
     // ref keeps composedDrawHover stable across drawHover identity changes
     const drawHoverRef = useLatest(drawHover)
-    const composedDrawHover = useMemo(
-        () =>
-            composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
-                crosshairColor: theme.crosshairColor,
-                showCrosshair,
-                axisOrientation,
-                labelToCoord,
-            }),
-        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
-    )
+    const composedDrawHover = useMemo(() => {
+        const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+            crosshairColor: theme.crosshairColor,
+            showCrosshair,
+            axisOrientation,
+            labelToCoord,
+        })
+        return composeDrawHoverWithSelection(withCrosshair)
+    }, [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current])
 
     useChartDraw({
         ctx,
@@ -195,6 +233,7 @@ export function Chart<Meta = unknown>({
         hoverIndex,
         hoverPosition,
         theme,
+        dragRect,
         drawStatic,
         drawHover: composedDrawHover,
         hoverAnimationMs,
@@ -253,6 +292,7 @@ export function Chart<Meta = unknown>({
                     className={className}
                     dataAttr={dataAttr}
                     pointer={hoverIndex >= 0 && !!onPointClick}
+                    crosshair={!!onDateRangeZoom}
                     ariaLabel={ariaLabel}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
@@ -261,6 +301,7 @@ export function Chart<Meta = unknown>({
                         xTickFormatter={xTickFormatter}
                         yTickFormatter={resolvedYFormatter}
                         userYTickFormatter={yTickFormatter}
+                        yAxisFormatters={yAxisFormatters}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
@@ -271,6 +312,7 @@ export function Chart<Meta = unknown>({
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
                         yAxisLabel={yAxisLabel}
+                        yAxisLabelRight={yAxisLabelRight}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}

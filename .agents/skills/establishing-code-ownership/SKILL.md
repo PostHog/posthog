@@ -7,7 +7,7 @@ description: Determine which PostHog team owns a file, directory, or code path, 
 
 Two sources, checked in order:
 
-1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-signals`, …) and owns **all** of `products/<name>/**`. Lives in the dir it owns, so never stale.
+1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-self-driving`, …) and owns **all** of `products/<name>/**`. Lives in the dir it owns, so never stale.
 2. **`.github/CODEOWNERS` + [`CODEOWNERS-soft`](../../../.github/CODEOWNERS-soft): backup for paths outside `products/`.** [`CODEOWNERS`](../../../.github/CODEOWNERS) is hard/blocking (mostly infra); `CODEOWNERS-soft` carries most product mappings for shared code (backend, frontend scenes, generated artifacts, overrides).
 
 ## Fast path: `ownership.js`
@@ -21,7 +21,7 @@ node $S team team-surveys               # every tracked file the team owns (slug
 node $S unowned                          # every tracked file with no owner (append path prefixes to scope, e.g. `unowned products/ frontend/`)
 ```
 
-For glob matching it reuses `fileMatchesPattern` from [`.github/scripts/assign-reviewers.js`](../../../.github/scripts/assign-reviewers.js), the same matcher the reviewer auto-assigner runs in CI, so answers track what CI assigns rather than a separate reimplementation. That matcher is stricter than GitHub's docs: patterns are anchored, a slash-free pattern matches only at the repo root, and a directory needs a trailing slash (or `/**`) to match its contents. A side effect is that the script exposes dead `CODEOWNERS-soft` entries (a missing trailing slash, or escaped `\*\*` wildcards) as unowned, the same way CI silently skips them.
+For glob matching it uses the vendored, GitHub-faithful matcher [`.github/scripts/codeowners.js`](../../../.github/scripts/codeowners.js) (a zero-dependency JS port of [hmarr/codeowners](https://github.com/hmarr/codeowners)), the same matcher the reviewer auto-assigner runs in CI, so answers track what CI assigns rather than a separate reimplementation. That matcher reproduces GitHub's own CODEOWNERS rules: a slash-free pattern matches at any depth, a trailing slash matches a directory and its contents, and `dir/*` matches only direct children. So a `CODEOWNERS-soft` entry the script shows as unowned is genuinely dead — both CI and GitHub skip it too, not a quirk of a stricter local matcher.
 
 Precedence: `product.yaml` for `products/<name>/**`; else a blocking `CODEOWNERS` owner; else the last-matching `CODEOWNERS-soft` rule. A blocking `CODEOWNERS` glob with **no owner** (a reset, e.g. `posthog/hogql/database/schema/**`) only clears the blocking owner, it does not erase a soft mapping. `file` prints the source line behind each answer.
 
@@ -63,4 +63,4 @@ If even the handbook fails and the Slack MCP is available, search Slack. It's th
 
 - **Handle** (CODEOWNERS): `@PostHog/<slug>`, e.g. `@PostHog/team-replay`.
 - **Slug** (`product.yaml`): handle minus `@PostHog/`, e.g. `team-replay`.
-- **Not uniform**: some carry `team-` (`team-signals`), some don't (`conversations`, `logs`). If a name doesn't resolve, try both forms.
+- **Not uniform**: some carry `team-` (`team-self-driving`), some don't (`conversations`, `logs`). If a name doesn't resolve, try both forms.

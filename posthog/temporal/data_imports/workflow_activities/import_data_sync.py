@@ -28,11 +28,19 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.common.sql.predicates import (
+    RowFilterValidationError,
+    validate_and_coerce_row_filters,
+)
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    apply_incremental_lookback,
+    process_incremental_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -136,11 +144,32 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 schema.incremental_field_type,
             )
 
+            # Shift the watermark back by the user-configured lookback for the source query only
+            # (the stored watermark is untouched), so each incremental run re-reads a rolling
+            # overlap window and catches late or backdated rows. Incremental merge makes the
+            # re-read idempotent — append would duplicate, so it's gated to incremental.
+            if schema.is_incremental:
+                processed_incremental_last_value = apply_incremental_lookback(
+                    processed_incremental_last_value,
+                    schema.incremental_field_type,
+                    schema.incremental_field_lookback_seconds,
+                )
+
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
+
+        # Re-validate against current metadata so a stale filter (dropped column, changed type)
+        # fails here with an actionable message rather than emitting a broken query downstream.
+        try:
+            row_filters = validate_and_coerce_row_filters(schema.row_filters, schema.schema_metadata)
+        except RowFilterValidationError as e:
+            raise RowFilterValidationError(
+                f"Row filter on schema '{schema.name}' no longer matches the current table schema ({e}). "
+                f"Fix or remove the row filter in the schema's configuration to resume syncing."
+            ) from e
 
         if SourceRegistry.is_registered(source_type):
             source_inputs = SourceInputs(
@@ -161,6 +190,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
                 enabled_columns=schema.enabled_columns,
+                row_filters=row_filters,
                 schema_metadata=schema.schema_metadata,
                 s3_folder_name=schema.resolved_s3_folder_name,
             )

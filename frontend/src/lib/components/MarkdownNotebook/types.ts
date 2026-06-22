@@ -9,7 +9,7 @@ export type NotebookInlineMark =
     | { type: 'strike' }
     | { type: 'code' }
     | { type: 'link'; href: string }
-    /** Anchors an inline chat to this text: `<ref id="x">text</ref>` pairs with `<Chat ref="x" />`. */
+    /** Anchors a discussion or inline AI selection to this text. */
     | { type: 'ref'; id: string }
     /** A person mention: `<mention id="5">@Name</mention>` — the text is the display label. */
     | { type: 'mention'; id: string }

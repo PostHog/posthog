@@ -237,6 +237,7 @@ const RecordingOrder = z.enum([
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ])
 
 const RecordingOrderDirection = z.enum(['ASC', 'DESC'])
