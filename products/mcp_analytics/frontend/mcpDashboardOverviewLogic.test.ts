@@ -115,6 +115,13 @@ describe('mcpDashboardOverviewLogic', () => {
         ])('resolves a logo for the %s category', (category) => {
             expect(harnessLogo(category)?.src).toBeTruthy()
         })
+
+        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
+            'has no logo for the logo-less %s category',
+            (category) => {
+                expect(harnessLogo(category)).toBeUndefined()
+            }
+        )
     })
 
     describe('deltaPct', () => {

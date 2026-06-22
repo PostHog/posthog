@@ -118,6 +118,13 @@ LIMIT 50
 //
 // The version segment is dropped so claude-code/2.1.x folds to one token;
 // categorizeHarness then buckets surface-specific tokens and folds the rest.
+//
+// The User-Agent token is the leading product name plus the first parenthetical
+// (the surface, e.g. "cli"); steps 2 and 4 both need it, so it lives here once.
+// HogQL has no scalar WITH alias, but this is a JS template literal — interpolating
+// a const keeps the source DRY while the generated SQL stays identical.
+const UA_PRODUCT = `extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')`
+const UA_TOKEN = `trim(concat(${UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))`
 const HARNESS_ROWS_QUERY = `
 SELECT
     coalesce(
@@ -128,21 +135,9 @@ SELECT
             lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
             NULL
         ),
-        if(
-            lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
-            trim(concat(
-                extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
-                ' ',
-                extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
-            )),
-            NULL
-        ),
+        if(lower(${UA_PRODUCT}) = 'claude-code', ${UA_TOKEN}, NULL),
         nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
-        nullIf(trim(concat(
-            extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
-            ' ',
-            extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
-        )), ''),
+        nullIf(${UA_TOKEN}, ''),
         nullIf(toString(properties.$mcp_oauth_client_name), ''),
         ''
     ) AS client,
