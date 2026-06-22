@@ -233,22 +233,22 @@ def test_first_row_has_no_cap():
     assert result.series[0].points[result.series[0].current_index].value == 0.0  # row 0
 
 
-def test_single_row_labels_evaluated_row_by_explicit_label_column():
-    # last_row evaluates the tail; the label column names that row in breach messages.
-    rows = [["Burn rate 1h", 0.93], ["Burn rate 24h", 1.03]]
-    result = _extract(rows, columns=["metric", "value"], config={"type": "HogQLAlertConfig", "label_column": "metric"})
-    assert result.series[0].label == "Burn rate 24h"
-
-
-def test_first_row_labels_evaluated_head_row():
-    # first_row evaluates the head; the label is that row's label-column cell.
+@pytest.mark.parametrize(
+    "evaluation,expected_label",
+    [
+        ("last_row", "Burn rate 24h"),  # tail row is the evaluated one
+        ("first_row", "Burn rate 1h"),  # head row is the evaluated one
+    ],
+)
+def test_single_row_labels_evaluated_row_by_label_column(evaluation, expected_label):
+    # The label column names the evaluated row (tail for last_row, head for first_row) in breach messages.
     rows = [["Burn rate 1h", 0.93], ["Burn rate 24h", 1.03]]
     result = _extract(
         rows,
         columns=["metric", "value"],
-        config={"type": "HogQLAlertConfig", "evaluation": "first_row", "label_column": "metric"},
+        config={"type": "HogQLAlertConfig", "evaluation": evaluation, "label_column": "metric"},
     )
-    assert result.series[0].label == "Burn rate 1h"
+    assert result.series[0].label == expected_label
 
 
 def test_single_row_label_falls_back_to_value_column_when_single_column():
