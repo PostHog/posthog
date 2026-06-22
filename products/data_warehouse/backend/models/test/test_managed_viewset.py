@@ -57,8 +57,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         ]
         self.team.revenue_analytics_config.save()
 
-    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value=set())
-    def test_sync_views_creates_views(self, _mock_v2_ids):
+    def test_sync_views_creates_views(self):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
