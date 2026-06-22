@@ -3,7 +3,6 @@ import logging
 from posthog.git import extract_explicit_repo
 from posthog.sync import database_sync_to_async
 
-from products.tasks.backend.models import Task
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionUnavailableError,
@@ -11,6 +10,7 @@ from products.tasks.backend.logic.repo_selection.agent import (
     resolve_team_github_integration,
     select_repository,
 )
+from products.tasks.backend.models import Task
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,16 @@ async def select_repository_for_message(
         if explicit:
             return explicit
 
-        result = await select_repository(team_id, user_id, context=message, origin_product=origin_product)
+        # Reuse the integration and candidate list already resolved above so the heavy
+        # multi-repo path doesn't re-run both queries inside `select_repository`.
+        result = await select_repository(
+            team_id,
+            user_id,
+            context=message,
+            origin_product=origin_product,
+            github=github,
+            candidate_repos=candidates,
+        )
         return result.repository
     except (RepoSelectionRejectedError, RepoSelectionUnavailableError) as e:
         logger.info("repo_selection_for_message.no_selection team_id=%s reason=%s", team_id, e)

@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
-from products.tasks.backend.models import Task
 from products.tasks.backend.logic.repo_selection.agent import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
 )
 from products.tasks.backend.logic.repo_selection.cascade import select_repository_for_message
+from products.tasks.backend.models import Task
 
 _CASCADE = "products.tasks.backend.logic.repo_selection.cascade"
 
@@ -49,6 +49,16 @@ class TestSelectRepositoryForMessage:
         with resolve, list_repos, patch(f"{_CASCADE}.select_repository", new=AsyncMock(return_value=result)) as select:
             assert await _run("the dashboards are slow") == "posthog/posthog"
             select.assert_awaited_once()
+
+    async def test_forwards_resolved_integration_and_candidates(self):
+        github = MagicMock()
+        candidates = ["posthog/posthog", "posthog/posthog-js"]
+        resolve, list_repos = _patch_candidates(github, candidates)
+        result = RepoSelectionResult(repository="posthog/posthog", reason="agent picked it")
+        with resolve, list_repos, patch(f"{_CASCADE}.select_repository", new=AsyncMock(return_value=result)) as select:
+            await _run("the dashboards are slow")
+            assert select.await_args.kwargs["github"] is github
+            assert select.await_args.kwargs["candidate_repos"] == candidates
 
     async def test_select_repository_null_returns_none(self):
         resolve, list_repos = _patch_candidates(MagicMock(), ["posthog/posthog", "posthog/posthog-js"])
