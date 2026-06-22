@@ -932,6 +932,27 @@ class TestRecoveryConflictAbortError:
         assert any(pattern in message for pattern in non_retryable.keys())
 
 
+class TestSourceOutOfMemoryIsNonRetryable:
+    # A server-side OOM on the customer's Postgres (psycopg `OutOfMemory`, SQLSTATE 53200) is raised
+    # during schema discovery / metadata reads. It must be classified as non-retryable so the
+    # activity stops looping back into the same memory wall and surfaces an actionable message.
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Raw psycopg message (what `str(e)` yields at the activity-level check).
+            'out of memory\nDETAIL:  Failed on request of size 2048 in memory context "MessageContext".',
+            # Stringified form once Temporal wraps the failure (class name prefix).
+            "OutOfMemory: out of memory",
+        ],
+    )
+    def test_out_of_memory_is_non_retryable(self, message):
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        matches = [friendly for key, friendly in non_retryable.items() if key in message]
+        assert matches, f"expected an OOM key to match {message!r}"
+        assert matches[0] is not None
+        assert "ran out of memory" in matches[0]
+
+
 # Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
 # `UNICODE`, which psycopg3 can't decode — it raises `NotSupportedError: codec not available in
 # Python: 'UNICODE'`. We pin the client encoding to UTF8 on connect to avoid the crash.

@@ -389,6 +389,28 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # The source Postgres exhausted its memory while serving a query (SQLSTATE 53200,
+            # psycopg `OutOfMemory`) — e.g. "out of memory ... in memory context "MessageContext"".
+            # It's raised server-side during schema discovery / metadata reads in `_get_table`, so a
+            # whole-activity retry just re-runs into the same memory wall. Listing it here routes the
+            # error through `handle_non_retryable_error`, which still allows a few bounded retries
+            # (a server-side OOM can be transient under concurrent load) before giving up with this
+            # actionable message instead of looping the activity's full retry budget. Both the raw
+            # lowercase message ("out of memory") and the psycopg class name ("OutOfMemory", as it
+            # surfaces once Temporal wraps the failure) are matched. The volatile size/context detail
+            # is excluded from the match.
+            "out of memory": (
+                "Your source database ran out of memory while PostHog was reading from it "
+                '("out of memory"). This is a memory limit on your database server, not a PostHog '
+                "bug. Reduce concurrent load on the database, increase its memory (for example "
+                "work_mem / shared_buffers), or sync fewer tables at once, then re-enable the sync."
+            ),
+            "OutOfMemory": (
+                "Your source database ran out of memory while PostHog was reading from it "
+                '("out of memory"). This is a memory limit on your database server, not a PostHog '
+                "bug. Reduce concurrent load on the database, increase its memory (for example "
+                "work_mem / shared_buffers), or sync fewer tables at once, then re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
