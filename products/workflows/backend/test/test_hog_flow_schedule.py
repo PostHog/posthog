@@ -245,6 +245,17 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 class TestProcessDueSchedules(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
 
+    def setUp(self):
+        super().setUp()
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        # Default to an under-limit audience so existing scheduler tests don't need to think about it.
+        # Tests that need a specific audience size override mock_blast.return_value.
+        blast_patcher = unittest.mock.patch("products.workflows.backend.api.hog_flow.get_user_blast_radius")
+        self.mock_blast = blast_patcher.start()
+        self.mock_blast.return_value = BlastRadiusResult(affected=0, total=0)
+        self.addCleanup(blast_patcher.stop)
+
     def _create_workflow_with_schedule(self, next_run_at=None, rrule="FREQ=HOURLY;INTERVAL=1", starts_at=None):
         hog_flow = HogFlow.objects.create(
             team=self.team,
@@ -354,6 +365,24 @@ class TestProcessDueSchedules(APIBaseTest):
         assert len(response.json()["processed"]) == 0
         assert len(response.json()["initialized"]) == 0
         assert len(response.json()["failed"]) == 0
+        assert len(response.json()["skipped"]) == 0
+
+    def test_over_limit_batch_schedule_lands_in_skipped_not_failed(self, mock_dispatch):
+        from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+        _, schedule = self._create_workflow_with_schedule(
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        with override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=10, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set()):
+            self.mock_blast.return_value = BlastRadiusResult(affected=500, total=1000)
+            response = self._post()
+
+        assert response.status_code == 200
+        body = response.json()
+        assert str(schedule.id) in body["skipped"]
+        assert str(schedule.id) not in body["failed"]
+        assert HogFlowBatchJob.objects.filter(hog_flow_id=schedule.hog_flow_id).count() == 0
+        mock_dispatch.assert_not_called()
 
     def test_schedule_with_variable_overrides_resolves_correctly(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(

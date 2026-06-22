@@ -1704,6 +1704,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         processed = []
         initialized = []
         failed = []
+        skipped = []
 
         try:
             # 1. Process due schedules (next_run_at <= now)
@@ -1746,36 +1747,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         advance_next_run(schedule, after=schedule.next_run_at)
 
                         if trigger_type == "batch":
-                            schedule_filters = (hog_flow.trigger or {}).get("filters", {}) or {}
-                            schedule_limit = get_hogflow_batch_trigger_limit(schedule.team_id)
-                            try:
-                                reject_flag_conditions_in_audience(hog_flow.team, schedule_filters)
-                                schedule_blast_radius = get_user_blast_radius(hog_flow.team, schedule_filters)
-                            except Exception:
-                                logger.exception(
-                                    "Failed to evaluate scheduled batch trigger audience size",
-                                    schedule_id=str(schedule_id),
-                                    team_id=schedule.team_id,
-                                    hog_flow_id=str(hog_flow.id),
-                                )
-                                failed.append(str(schedule_id))
-                                continue
-                            if schedule_blast_radius.affected > schedule_limit:
-                                logger.warning(
-                                    "Skipping scheduled batch trigger over limit",
-                                    schedule_id=str(schedule_id),
-                                    team_id=schedule.team_id,
-                                    hog_flow_id=str(hog_flow.id),
-                                    affected=schedule_blast_radius.affected,
-                                    limit=schedule_limit,
-                                )
-                                failed.append(str(schedule_id))
-                                continue
                             batch_job_params = {
                                 "team_id": schedule.team_id,
                                 "hog_flow": hog_flow,
                                 "variables": resolve_variables(hog_flow, schedule),
-                                "filters": schedule_filters,
+                                "filters": (hog_flow.trigger or {}).get("filters", {}) or {},
                             }
                         else:
                             schedule_invocation_params = {
@@ -1784,8 +1760,36 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                                 "variables": resolve_variables(hog_flow, schedule),
                             }
 
-                    # Dispatch outside the transaction so HTTP calls don't hold the row lock.
+                    # Dispatch outside the transaction so the ClickHouse audience check and HTTP calls don't
+                    # hold the row lock.
                     if batch_job_params:
+                        batch_hog_flow = batch_job_params["hog_flow"]
+                        batch_team_id = batch_job_params["team_id"]
+                        batch_filters = batch_job_params["filters"]
+                        limit = get_hogflow_batch_trigger_limit(batch_team_id)
+                        try:
+                            reject_flag_conditions_in_audience(batch_hog_flow.team, batch_filters)
+                            blast_radius = get_user_blast_radius(batch_hog_flow.team, batch_filters)
+                        except Exception:
+                            logger.exception(
+                                "Failed to evaluate scheduled batch trigger audience size",
+                                schedule_id=str(schedule_id),
+                                team_id=batch_team_id,
+                                hog_flow_id=str(batch_hog_flow.id),
+                            )
+                            failed.append(str(schedule_id))
+                            continue
+                        if blast_radius.affected > limit:
+                            logger.warning(
+                                "Skipping scheduled batch trigger over limit",
+                                schedule_id=str(schedule_id),
+                                team_id=batch_team_id,
+                                hog_flow_id=str(batch_hog_flow.id),
+                                affected=blast_radius.affected,
+                                limit=limit,
+                            )
+                            skipped.append(str(schedule_id))
+                            continue
                         HogFlowBatchJob.objects.create(
                             **batch_job_params,
                             status=HogFlowBatchJob.State.QUEUED,
@@ -1837,6 +1841,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     "processed": processed,
                     "initialized": initialized,
                     "failed": failed,
+                    "skipped": skipped,
                 }
             )
         except Exception as e:
