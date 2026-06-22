@@ -66,6 +66,8 @@ export function SegmentedDateInput({
             return
         }
         const handle = setTimeout(() => {
+            // Two-digit year input: 2000-2099 only. Acceptable for analytics date ranges;
+            // a value outside that window can't be entered via the segments (silent, not an error).
             onChangeRef.current(new Date(2000 + year, month - 1, day, hour, minute))
             touched.current = false
         }, 400)

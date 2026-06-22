@@ -8,6 +8,7 @@ import { Calendar } from './calendar-grid'
 import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
 import { Day } from './use-calendar'
 
+// Minute precision, no seconds — deliberately differs from DateTimePicker's HH:mm:ss; don't unify.
 const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     MDY: 'MM/dd/yy HH:mm',
     DMY: 'dd/MM/yy HH:mm',
@@ -64,11 +65,14 @@ export function DatePicker({
     }
 
     const handleInputChange = (next: Date): void => {
-        if (next.getTime() === selected.getTime()) {
+        // The segmented input caps its segments at maxDate but has no lower bound,
+        // so a typed value below minDate would otherwise bypass the advertised bound.
+        const clamped = minDate && next.getTime() < minDate.getTime() ? minDate : next
+        if (clamped.getTime() === selected.getTime()) {
             return
         }
-        setSelected(next)
-        setViewing(new Date(getYear(next), getMonth(next), 1))
+        setSelected(clamped)
+        setViewing(new Date(getYear(clamped), getMonth(clamped), 1))
     }
 
     const handleApply = (): void => {
@@ -145,6 +149,7 @@ export function DatePicker({
                         onCheckedChange={setIncludeTime}
                         aria-label="Include time"
                         id="date-picker-include-time"
+                        data-attr="date-picker-include-time"
                     />
                     <label htmlFor="date-picker-include-time" className="text-xs text-muted-foreground select-none">
                         Include time
