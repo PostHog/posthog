@@ -100,6 +100,16 @@ def has_real_facade(backend_dir: Path) -> bool:
     return facade_api.exists() and has_any_function_defs(facade_api)
 
 
+def has_routes_module(backend_dir: Path) -> bool:
+    """The product-local route-registration entry point (a routes.py file or routes/ package).
+
+    Core imports it to assemble the API router, so it is public contract surface — not an
+    internal. That is why it does not mark a product as un-isolatable (see
+    pattern_targets_public_surface), but it does need watching once turbo inputs are narrowed.
+    """
+    return (backend_dir / "routes.py").exists() or (backend_dir / "routes").is_dir()
+
+
 def has_tach_interface(name: str, tach_content: str | None = None) -> bool:
     """True if the product is named in a tach [[interfaces]] block (inline or global).
 
@@ -167,19 +177,44 @@ def has_contract_check_script(product_dir: Path) -> bool:
     return "backend:contract-check" in scripts
 
 
-def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
+def contract_check_inputs(product_dir: Path) -> list[str]:
+    """The product's backend:contract-check `inputs` globs (empty if no override)."""
     turbo_json = product_dir / "turbo.json"
     if not turbo_json.exists():
-        return False
+        return []
     try:
         tasks = json.loads(turbo_json.read_text()).get("tasks", {})
     except json.JSONDecodeError:
-        return False
+        return []
     contract_task = tasks.get("backend:contract-check")
     if not contract_task:
+        return []
+    return contract_task.get("inputs", [])
+
+
+def _input_targets_surface(glob: str) -> bool:
+    """A contract-check input confined to the product's public surface (facade, presentation, or
+    routes) — i.e. it does not broaden the skip back out to all of backend/."""
+    normalized = glob.lstrip("./")
+    return normalized.startswith(
+        ("backend/facade", "backend/presentation", "backend/routes", "facade", "presentation", "routes")
+    )
+
+
+def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
+    """True only when contract-check inputs are confined to the public surface. A broad glob like
+    backend/** alongside a facade entry would keep the skip inert — every change still re-runs the
+    Django suite — so every positive input must target the surface, not merely one of them."""
+    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    if not inputs:
         return False
-    inputs = contract_task.get("inputs", [])
-    return any("facade" in i or "presentation" in i for i in inputs)
+    return all(_input_targets_surface(i) for i in inputs) and any("facade" in i or "presentation" in i for i in inputs)
+
+
+def routes_in_turbo_inputs(product_dir: Path) -> bool:
+    """True if contract-check inputs watch the routes module — without it a routes-only
+    change is invisible to the skip and runs no Django suite."""
+    return any("routes" in i for i in contract_check_inputs(product_dir))
 
 
 # ---------------------------------------------------------------------------
