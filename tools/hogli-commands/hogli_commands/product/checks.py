@@ -490,6 +490,10 @@ class MisplacedFilesCheck(ProductCheck):
     # `temporal` is the established home for Temporal workflow + activity code
     # across products (batch_exports, data_warehouse, tasks, experiments, and
     # others), so it is allowed in isolated products on the same grounds.
+    # `sandbox` holds Docker build context (Dockerfiles + helper scripts) for
+    # sandboxed execution, not importable Python — its path is referenced by
+    # image-build workflows and COPY directives, so it can't follow the
+    # Python-package convention and is allowed at backend root.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -502,6 +506,7 @@ class MisplacedFilesCheck(ProductCheck):
         "logic",
         "hogql_queries",
         "temporal",
+        "sandbox",
         "templates",
         "admin",
         "__pycache__",
