@@ -904,6 +904,8 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
 TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
+# Graph list-replies caps $top at 50; larger values return 400 Bad Request.
+TEAMS_REPLIES_PAGE_SIZE = 50
 # Cap the number of tickets whose threads we poll per channel per run.
 # Oldest-synced tickets are polled first so the sweep round-robins through
 # the backlog across successive every-minute runs.
@@ -946,7 +948,8 @@ def _sync_one_ticket_thread_replies(
     latest_synced_at = ticket.teams_thread_replies_synced_at
 
     url: str | None = (
-        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies?$top=200"
+        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies"
+        f"?$top={TEAMS_REPLIES_PAGE_SIZE}"
     )
     headers = {"Authorization": f"Bearer {token}"}
     pages = 0
@@ -974,7 +977,9 @@ def _sync_one_ticket_thread_replies(
                 team_id=team.id,
                 channel_id=channel_id,
                 ticket_id=str(ticket.id),
+                root_message_id=root_message_id,
                 status=resp.status_code,
+                body=resp.text[:500],
             )
             return
 

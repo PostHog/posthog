@@ -219,7 +219,7 @@ export type MarkdownNotebookProps = {
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
     isAskAIDisabled?: boolean
-    createAIChatId?: () => string
+    createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
     /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
@@ -242,11 +242,13 @@ export type MarkdownNotebookProps = {
     className?: string
     autoFocus?: boolean
     showDebug?: boolean
+    debugOpen?: boolean
+    onDebugOpenChange?: (isOpen: boolean) => void
     'data-attr'?: string
 }
 
 export type MarkdownNotebookAskAIRequest = {
-    chatId: string
+    conversationId: string
     query: string
     source: 'slash' | 'selection'
     responseNodeId: string
@@ -296,11 +298,11 @@ const UNDO_TYPING_GROUP_MS = 1000
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
 const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
 
-function createDefaultAIChatId(): string {
+function createDefaultAIConversationId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
     }
-    return makeEmptyParagraph('ai-chat').id
+    return makeEmptyParagraph('ai-conversation').id
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -393,7 +395,7 @@ export function MarkdownNotebook({
     onChange,
     onAskAI,
     isAskAIDisabled = false,
-    createAIChatId = createDefaultAIChatId,
+    createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
     extraInsertCommands,
@@ -410,6 +412,8 @@ export function MarkdownNotebook({
     className,
     autoFocus = false,
     showDebug = false,
+    debugOpen,
+    onDebugOpenChange,
     'data-attr': dataAttr = 'markdown-notebook',
 }: MarkdownNotebookProps): JSX.Element {
     const mergedRegistry = useMemo(
@@ -429,7 +433,8 @@ export function MarkdownNotebook({
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [componentPanelCache, setComponentPanelCache] = useState<Record<string, ComponentPanelCacheEntry>>({})
-    const [isDebugOpen, setIsDebugOpen] = useState(false)
+    const [internalDebugOpen, setInternalDebugOpen] = useState(false)
+    const isDebugOpen = debugOpen ?? internalDebugOpen
     const [isDebugLogging, setIsDebugLogging] = useState(false)
     const debugLogRef = useRef<NotebookDebugLog | null>(null)
     // Margin layout needs the container to fit the text column plus the full comment
@@ -688,11 +693,22 @@ export function MarkdownNotebook({
         floatingToolbarRevealTimeoutRef.current = null
     }, [])
 
+    const setDebugOpen = useCallback(
+        (nextOpen: boolean | ((isOpen: boolean) => boolean)): void => {
+            const resolvedNextOpen = typeof nextOpen === 'function' ? nextOpen(isDebugOpen) : nextOpen
+            if (debugOpen === undefined) {
+                setInternalDebugOpen(resolvedNextOpen)
+            }
+            onDebugOpenChange?.(resolvedNextOpen)
+        },
+        [debugOpen, isDebugOpen, onDebugOpenChange]
+    )
+
     useEffect(() => {
         if (!showDebug) {
-            setIsDebugOpen(false)
+            setDebugOpen(false)
         }
-    }, [showDebug])
+    }, [setDebugOpen, showDebug])
 
     const mapRemoteCaretAnchors = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
@@ -4727,7 +4743,7 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
+        const conversationId = createAIConversationId()
         const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
@@ -4738,7 +4754,7 @@ export function MarkdownNotebook({
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
         const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
-            chatId,
+            conversationId,
             query:
                 source === 'selection' && selectedMarkdown
                     ? getAskAISelectionQuery(
@@ -5017,7 +5033,7 @@ export function MarkdownNotebook({
                     aria-label="Edit markdown source"
                     aria-controls={debugDrawerId}
                     aria-expanded={isDebugOpen}
-                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                    onClick={() => setDebugOpen((isOpen) => !isOpen)}
                 />
             </div>
         )
@@ -5408,7 +5424,7 @@ export function MarkdownNotebook({
                                 >
                                     {isDebugLogging ? 'Stop' : 'Log'}
                                 </LemonButton>
-                                <LemonButton size="xsmall" onClick={() => setIsDebugOpen(false)}>
+                                <LemonButton size="xsmall" onClick={() => setDebugOpen(false)}>
                                     Close
                                 </LemonButton>
                             </div>

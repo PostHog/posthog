@@ -61,9 +61,11 @@ import {
     createLogger,
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
+    handleMetricsRequest,
     instrument,
     INTERNAL_JWT_AUDIENCE,
     InternalJwtVerifyError,
+    isDev,
     lastAssistantTextPreview,
     MemoryStore,
     readTypedBundle,
@@ -293,6 +295,16 @@ const DecideApprovalBodySchema = z.object({
 
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
+    // Dev only: serve /metrics on the request port (no dedicated scrape server —
+    // three services on one host would collide). First in the chain so scrapes
+    // bypass auth + routing. Prod uses the dedicated port.
+    if (isDev()) {
+        app.use((req, res, next) => {
+            if (!handleMetricsRequest(req, res, log)) {
+                next()
+            }
+        })
+    }
     // JSON bodies up to 8MB cover any reasonable bundle bulk-push (TS source +
     // a few markdown files). Larger bundles should land an S3 presigned URL
     // path eventually; flagged in the bundle-push action below.

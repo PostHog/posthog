@@ -144,6 +144,7 @@ export function RadialChart<Meta = unknown>({
             resolvePositionValue: defaultResolveValue,
             canvasBounds,
             axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+            yGutters: [],
         }
     }, [scales, dimensions, coloredSeries, theme, canvasBounds])
 

@@ -670,7 +670,11 @@ class ExternalDataSourceType(models.TextChoices):
     LIGHTFIELD = "Lightfield", "Lightfield"
     APPSTACK = "Appstack", "Appstack"
     RAZORPAY = "Razorpay", "Razorpay"
+    NEON = "Neon", "Neon"
+    NEWRELIC = "NewRelic", "NewRelic"
     CUSTOM = "Custom", "Custom"
+    TILE38 = "Tile38", "Tile38"
+    CHATWOOT = "Chatwoot", "Chatwoot"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

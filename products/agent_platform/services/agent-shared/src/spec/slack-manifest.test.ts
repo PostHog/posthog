@@ -132,4 +132,15 @@ describe('buildSlackManifest', () => {
         expect(manifest.display_information.description).toHaveLength(140)
         expect(manifest.features.bot_user.display_name).toHaveLength(35)
     })
+
+    it('trims an over-long description at a word boundary, ending with an ellipsis', () => {
+        const longDesc = `${'kudos '.repeat(40)}end`
+        const { manifest } = build({ displayDescription: longDesc })
+        const desc = manifest.display_information.description ?? ''
+        expect(desc.length).toBeLessThanOrEqual(140)
+        expect(desc.endsWith('…')).toBe(true)
+        const kept = desc.slice(0, -1)
+        expect(longDesc.startsWith(kept)).toBe(true) // a clean prefix, not mangled
+        expect(longDesc[kept.length]).toBe(' ') // cut fell on a word boundary
+    })
 })

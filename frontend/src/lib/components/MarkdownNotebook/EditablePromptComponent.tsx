@@ -170,10 +170,10 @@ export function EditablePromptComponent({
                     </button>
                 </div>
                 {isCollapsed ? null : (
-                    <div className="MarkdownNotebook__ai-chat-reply MarkdownNotebook__ai-prompt-form">
+                    <div className="MarkdownNotebook__ai-prompt-form">
                         <LemonTextArea
                             ref={setElementRef}
-                            className="MarkdownNotebook__ai-chat-reply-input MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
+                            className="MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
                             data-attr="markdown-notebook-ai-prompt"
                             value={question}
                             onChange={updateQuestion}
