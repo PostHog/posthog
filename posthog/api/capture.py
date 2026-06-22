@@ -427,6 +427,13 @@ def _submit_batch_chunk(
                 resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
             except RequestException as exc:
                 CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
+                logger.warning(
+                    "capture_internal_transport_error",
+                    event_source=event_source,
+                    request_id=headers.get("PostHog-Request-Id", ""),
+                    batch_size=len(pending_batch),
+                    error=str(exc),
+                )
                 return CaptureInternalResult(
                     status_code=0,
                     error={"error": "transport_error", "error_description": str(exc)},
@@ -444,6 +451,14 @@ def _submit_batch_chunk(
                         "error": "unknown",
                         "error_description": resp.text[:500] if resp.text else "",
                     }
+                logger.warning(
+                    "capture_internal_request_failed",
+                    event_source=event_source,
+                    request_id=headers.get("PostHog-Request-Id", ""),
+                    status_code=resp.status_code,
+                    batch_size=len(pending_batch),
+                    error=error_body.get("error", "unknown"),
+                )
                 return CaptureInternalResult(
                     status_code=resp.status_code,
                     error=error_body,
@@ -644,20 +659,22 @@ def capture_batch_internal(
     if not events:
         raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
 
-    chunk_kwargs = {
-        "token": token,
-        "event_source": event_source,
-        "historical_migration": historical_migration,
-        "process_person_profile": process_person_profile,
-        "max_attempts": max_attempts,
-        "timeout": timeout,
-    }
-
     chunk_size = max(CAPTURE_BATCH_CHUNK_SIZE, 1)
+
+    def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
+        return _submit_batch_chunk(
+            events=chunk_events,
+            token=token,
+            event_source=event_source,
+            historical_migration=historical_migration,
+            process_person_profile=process_person_profile,
+            max_attempts=max_attempts,
+            timeout=timeout,
+        )
 
     # Hot path: small batch — submit directly, no threading overhead.
     if len(events) <= chunk_size:
-        return _submit_batch_chunk(events=events, **chunk_kwargs)
+        return _submit_chunk(events)
 
     # Large batch: chunk and fan out concurrently.
     chunks = [events[i : i + chunk_size] for i in range(0, len(events), chunk_size)]
@@ -672,9 +689,7 @@ def capture_batch_internal(
 
     chunk_results: list[CaptureInternalResult] = []
     with ThreadPoolExecutor(max_workers=CAPTURE_BATCH_MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(_submit_batch_chunk, events=chunk, **chunk_kwargs): i for i, chunk in enumerate(chunks)
-        }
+        futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
         for future in as_completed(futures):
             chunk_idx = futures[future]
             try:
