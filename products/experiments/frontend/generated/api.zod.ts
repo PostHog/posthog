@@ -193,6 +193,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  *
  * Returns 400 if the experiment is not running.
  */
+export const experimentsEndCreateBodyConclusionCommentMax = 400
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -207,7 +209,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -277,6 +283,8 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  * Returns 400 if the experiment is in draft state, the variant_key is not found
  * on the flag, or the experiment has no linked feature flag.
  */
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 400
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -293,7 +301,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
