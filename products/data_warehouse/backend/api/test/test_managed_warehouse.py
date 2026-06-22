@@ -258,9 +258,7 @@ def test_status_for_strips_bucket_from_response(mock_request: MagicMock) -> None
 @patch("products.data_warehouse.backend.api.managed_warehouse.is_enabled", return_value=False)
 @patch("products.data_warehouse.backend.api.managed_warehouse.internal_requests")
 @override_settings(DUCKGRES_API_URL="http://duckgres.invalid", DUCKGRES_INTERNAL_SECRET="s")
-def test_cp_bucket_for_bypasses_feature_gate_and_reconciles(
-    mock_internal: MagicMock, _mock_enabled: MagicMock
-) -> None:
+def test_cp_bucket_for_bypasses_feature_gate_and_reconciles(mock_internal: MagicMock, _mock_enabled: MagicMock) -> None:
     # Backend path: the user-facing flag is OFF, but cp_bucket_for must still reach the
     # control plane (require_enabled=False) and return + reconcile the authoritative bucket.
     org = Organization.objects.create(name="Org")
