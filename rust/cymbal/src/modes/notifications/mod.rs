@@ -16,6 +16,8 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
+use crate::core::notifications::IngestionNotification;
+
 pub mod config;
 
 pub use config::NotificationsConfig;
@@ -64,10 +66,10 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
                     break;
                 }
             }
-            result = consumer.json_recv::<serde_json::Value>() => {
+            result = consumer.json_recv::<IngestionNotification>() => {
                 match result {
                     Ok((notification, offset)) => {
-                        info!(%notification, "received error-tracking ingestion notification");
+                        info!(?notification, "received error-tracking ingestion notification");
                         metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
                         if let Err(e) = offset.store() {
                             warn!(error = %e, "failed to store notification offset");
