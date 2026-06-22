@@ -16,6 +16,7 @@ import {
     IconDownload,
     IconMessage,
     IconPlay,
+    IconPlus,
     IconReceipt,
     IconSearch,
     IconShare,
@@ -67,6 +68,7 @@ import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
+import { isSentimentRun } from './components/EvaluationResultTag'
 import { EventContentConversation } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { JSONValueDisplay } from './components/JSONValueDisplay'
@@ -81,6 +83,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
+import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from './LLMInputOutput'
@@ -604,6 +607,34 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
             {usage}
         </Chip>
     ) : null
+}
+
+function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
+    const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
+        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
+    )
+    const hasSentimentEvaluationRun = generationEvaluationRuns.some(isSentimentRun)
+
+    if (generationEvaluationRunsLoading || hasSentimentEvaluationRun) {
+        return null
+    }
+
+    const createSentimentEvaluationUrl = combineUrl(urls.aiObservabilityEvaluation('new'), {
+        type: 'sentiment',
+    }).url
+
+    return (
+        <LemonButton
+            type="primary"
+            status="alt"
+            size="xsmall"
+            icon={<IconPlus />}
+            to={createSentimentEvaluationUrl}
+            data-attr="llma-create-sentiment-evaluation-from-trace"
+        >
+            Create sentiment eval
+        </LemonButton>
+    )
 }
 
 function CostChip({
@@ -1461,6 +1492,8 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
+        const showCreateSentimentEvalButton =
+            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
@@ -1582,6 +1615,7 @@ const EventContent = React.memo(
                             )}
                             {(showPromptButton ||
                                 showPlaygroundButton ||
+                                showCreateSentimentEvalButton ||
                                 hasSessionRecording ||
                                 showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
@@ -1615,6 +1649,9 @@ const EventContent = React.memo(
                                         >
                                             Open in Playground
                                         </LemonButton>
+                                    )}
+                                    {showCreateSentimentEvalButton && (
+                                        <CreateSentimentEvaluationButton traceId={trace.id} />
                                     )}
                                     {showSaveToDatasetButton && (
                                         <SaveToDatasetButton
