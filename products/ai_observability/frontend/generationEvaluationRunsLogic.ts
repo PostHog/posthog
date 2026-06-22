@@ -5,15 +5,24 @@ import { EvaluationRun } from './evaluations/types'
 import type { generationEvaluationRunsLogicType } from './generationEvaluationRunsLogicType'
 import { queryEvaluationRuns } from './utils'
 
-export interface GenerationEvaluationRunsLogicProps {
+export interface GenerationEvaluationRunsByGenerationProps {
+    lookupBy: 'generation'
     generationEventId: string
-    traceId?: string
 }
+
+export interface GenerationEvaluationRunsByTraceProps {
+    lookupBy: 'trace'
+    traceId: string
+}
+
+export type GenerationEvaluationRunsLogicProps =
+    | GenerationEvaluationRunsByGenerationProps
+    | GenerationEvaluationRunsByTraceProps
 
 export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'generationEvaluationRunsLogic']),
     props({} as GenerationEvaluationRunsLogicProps),
-    key((props) => (props.traceId ? `trace-${props.traceId}` : props.generationEventId)),
+    key((props) => (props.lookupBy === 'trace' ? `trace-${props.traceId}` : props.generationEventId)),
 
     actions({
         refreshGenerationEvaluationRuns: true,
@@ -27,8 +36,9 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
                 loadGenerationEvaluationRuns: async () => {
                     try {
                         return await queryEvaluationRuns({
-                            generationEventId: props.traceId ? undefined : props.generationEventId,
-                            traceId: props.traceId,
+                            ...(props.lookupBy === 'trace'
+                                ? { traceId: props.traceId }
+                                : { generationEventId: props.generationEventId }),
                             forceRefresh: values.isForceRefresh,
                         })
                     } catch (error) {

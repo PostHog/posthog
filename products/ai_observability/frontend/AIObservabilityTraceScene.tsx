@@ -611,7 +611,7 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
 
 function CreateSentimentEvaluationButton({ traceId }: { traceId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ generationEventId: `trace-${traceId}`, traceId })
+        generationEvaluationRunsLogic({ lookupBy: 'trace', traceId })
     )
     const hasSentimentEvaluationRun = generationEvaluationRuns.some(isSentimentRun)
 
