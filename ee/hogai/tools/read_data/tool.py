@@ -617,9 +617,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             lines.append("")
             lines.append("Foreign keys (use these to join related tables):")
             for fk in foreign_keys:
-                if not (fk.get("column") and fk.get("target_table")):
+                if not (fk.get("column") and fk.get("target_table") and fk.get("target_column")):
                     continue
-                lines.append(f"- {fk['column']} → {fk['target_table']}.{fk.get('target_column')}")
+                lines.append(f"- {fk['column']} → {fk['target_table']}.{fk['target_column']}")
 
         if semantics.get("description") or column_descriptions:
             lines.append("")
