@@ -26,6 +26,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
+from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter, render_named_conditions
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -49,6 +51,11 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 # concat and yield a single pa.Table to the pipeline.
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
+
+# Quoter for user-supplied row-filter column names — the allowlist-validated
+# safety rail the shared predicate renderer expects. Trusted internal
+# identifiers (table/incremental columns) keep using `_quote_identifier`.
+_ROW_FILTER_IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 
 
 class ClickHouseConnectionError(Exception):
@@ -975,25 +982,34 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
-) -> str:
-    """Build the data extraction query.
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> tuple[str, dict[str, Any]]:
+    """Build the data extraction query and its bound parameters.
 
-    Returns the SQL string. We never interpolate the incremental cursor
-    value directly — only identifiers (which are validated) end up in the
-    SQL string. Column types ClickHouse can't emit as Arrow (UUID, IPv4,
-    enums, arrays, ...) are wrapped in toString() to avoid error 50.
+    Returns the SQL string plus the row-filter params dict. We never
+    interpolate values — only identifiers (which are validated) end up in the
+    SQL string; the incremental cursor and every row-filter value bind as
+    parameters. Row filters are ANDed onto the WHERE clause. Column types
+    ClickHouse can't emit as Arrow (UUID, IPv4, enums, arrays, ...) are
+    wrapped in toString() to avoid error 50.
     """
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
-        return f"SELECT {select_list} FROM {qualified}"
+        if filter_conditions:
+            return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
+        return f"SELECT {select_list} FROM {qualified}", {}
 
     if incremental_field is None:
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    return f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC"
+    conditions = [f"{quoted_field} > %(last_value)s", *filter_conditions]
+    query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
+    return query, filter_params
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1043,6 +1059,7 @@ def clickhouse_source(
     chunk_size_override: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1147,15 +1164,16 @@ def clickhouse_source(
             )
 
             try:
-                query = _build_query(
+                query, filter_params = _build_query(
                     database=database,
                     table_name=table_name,
                     columns=list(table.columns),
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    row_filters=row_filters,
                 )
 
-                parameters: dict[str, Any] = {}
+                parameters: dict[str, Any] = dict(filter_params)
                 if should_use_incremental_field:
                     last_value = db_incremental_field_last_value
                     if last_value is None and incremental_field_type is not None:

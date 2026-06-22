@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     get_primary_keys_for_schemas,
 )
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -144,8 +145,12 @@ class TestBuildQuery:
     def _cols(*specs: tuple[str, str]) -> list[ClickHouseColumn]:
         return [ClickHouseColumn(name=n, data_type=t, nullable=False) for n, t in specs]
 
+    @staticmethod
+    def _filter(column: str, operator: str, value: object, category: ColumnTypeCategory) -> ValidatedRowFilter:
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
     def test_full_refresh(self):
-        query = _build_query(
+        query, params = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("name", "String")),
@@ -153,9 +158,10 @@ class TestBuildQuery:
             incremental_field=None,
         )
         assert query == "SELECT `id`, `name` FROM `default`.`events`"
+        assert params == {}
 
     def test_incremental(self):
-        query = _build_query(
+        query, params = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
@@ -165,9 +171,10 @@ class TestBuildQuery:
         assert "SELECT `id`, `created_at` FROM `default`.`events`" in query
         assert "WHERE `created_at` > %(last_value)s" in query
         assert "ORDER BY `created_at` ASC" in query
+        assert params == {}
 
     def test_incremental_quotes_field_with_special_chars(self):
-        query = _build_query(
+        query, _ = _build_query(
             database="my-db",
             table_name="weird table",
             columns=self._cols(("event time", "DateTime")),
@@ -188,7 +195,7 @@ class TestBuildQuery:
             )
 
     def test_wraps_arrow_unsupported_types_in_to_string(self):
-        query = _build_query(
+        query, _ = _build_query(
             database="default",
             table_name="events",
             columns=[
@@ -206,6 +213,49 @@ class TestBuildQuery:
         assert "toString(`ip`) AS `ip`" in query
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
+
+    def test_full_refresh_with_row_filters_binds_values_as_params(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("name", "String")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            row_filters=[
+                self._filter("id", ">", 21, ColumnTypeCategory.INTEGER),
+                self._filter("name", "=", "x'; DROP TABLE y; --", ColumnTypeCategory.STRING),
+            ],
+        )
+        assert query == (
+            "SELECT `id`, `name` FROM `default`.`events` WHERE `id` > %(row_filter_0)s AND `name` = %(row_filter_1)s"
+        )
+        assert params == {"row_filter_0": 21, "row_filter_1": "x'; DROP TABLE y; --"}
+        assert "DROP TABLE" not in query.replace("%(row_filter_1)s", "")
+
+    def test_incremental_ands_row_filters_after_cursor(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            row_filters=[self._filter("id", ">=", 100, ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `created_at` > %(last_value)s AND `id` >= %(row_filter_0)s" in query
+        assert "ORDER BY `created_at` ASC" in query
+        assert params == {"row_filter_0": 100}
+
+    def test_row_filter_in_operator_expands_to_placeholders(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("country", "String")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            row_filters=[self._filter("country", "IN", ["US", "CA"], ColumnTypeCategory.STRING)],
+        )
+        assert "WHERE `country` IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert params == {"row_filter_0_0": "US", "row_filter_0_1": "CA"}
 
 
 class TestParseMvTarget:
