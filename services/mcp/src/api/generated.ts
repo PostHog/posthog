@@ -25744,6 +25744,11 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface IdentityMatchingError {
+      /** Human-readable explanation of why the request could not be served. */
+      detail: string;
+    }
+
     /**
      * * `high` - high
      * * `medium` - medium
