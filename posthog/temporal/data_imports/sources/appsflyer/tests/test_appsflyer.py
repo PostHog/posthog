@@ -117,6 +117,15 @@ class TestValidateCredentials:
         assert "app id" in str(exc.value)
         mock_session.return_value.get.assert_not_called()
 
+    @pytest.mark.parametrize("status_code", [400, 418, 451])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_raises_with_status_on_unexpected_code(self, mock_session, status_code):
+        mock_session.return_value.get.return_value = _response("", status=status_code)
+
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "id123")
+        assert str(status_code) in str(exc.value)
+
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_raises_on_transient_status(self, mock_session, status_code):
@@ -140,7 +149,24 @@ class TestGetRows:
         query = parse_qs(urlparse(url).query)
         window = date.fromisoformat(query["to"][0]) - date.fromisoformat(query["from"][0])
         assert window.days == MAX_WINDOW_DAYS
-        assert urlparse(url).path == "/api/agg-data/export/app/id123/dailyreport/v5"
+        assert urlparse(url).path == "/api/agg-data/export/app/id123/daily_report/v5"
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("daily_report", "/api/agg-data/export/app/id123/daily_report/v5"),
+            ("geo_report", "/api/agg-data/export/app/id123/geo_by_date_report/v5"),
+            ("partners_report", "/api/agg-data/export/app/id123/partners_by_date_report/v5"),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_report_slug_matches_appsflyer_api(self, mock_session, endpoint, expected_path):
+        mock_session.return_value.get.return_value = _response(_CSV)
+
+        list(get_rows("token", "id123", endpoint, mock.MagicMock()))
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(url).path == expected_path
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_starts_at_watermark_minus_lookback(self, mock_session):
@@ -172,6 +198,15 @@ class TestGetRows:
         batches = list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
 
         assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_requests_csv_explicitly(self, mock_session):
+        mock_session.return_value.get.return_value = _response(_CSV)
+
+        list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
+
+        headers = mock_session.call_args.kwargs["headers"]
+        assert headers["Accept"] == "text/csv"
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_report_yields_nothing(self, mock_session):

@@ -48,7 +48,7 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -714,8 +714,13 @@ export function getSerializableAttributeInputValue(
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        if (value !== undefined && isNotebookPropValue(value)) {
-            props[key] = value as NotebookPropValue
+        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
+        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
+        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
+        const normalized = toSerializablePropValue(value)
+        if (normalized !== undefined && isNotebookPropValue(normalized)) {
+            props[key] = normalized
         }
         return props
     }, {})

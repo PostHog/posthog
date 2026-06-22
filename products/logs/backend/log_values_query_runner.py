@@ -44,12 +44,12 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
         query = parse_select(
             """
             SELECT
-                groupArray({limit})(attribute_value) as values,
+                groupArray({limit})((attribute_value, value_count)) as values,
                 count() as total_count
             FROM (
                 SELECT
                     attribute_value,
-                    sum(attribute_count)
+                    sum(attribute_count) AS value_count
                 FROM log_attributes
                 WHERE time_bucket >= {date_from_start_of_interval}
                 AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
@@ -107,8 +107,8 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
 
         formatted_results: list[LogValueResult] = []
         if isinstance(response.results, list) and len(response.results) > 0 and len(response.results[0]) > 0:
-            for result in response.results[0][0]:
-                entry = LogValueResult(id=result, name=result)
+            for value, count in response.results[0][0]:
+                entry = LogValueResult(id=value, name=value, count=count)
                 formatted_results.append(entry)
 
         return LogValuesQueryResponse(results=formatted_results)

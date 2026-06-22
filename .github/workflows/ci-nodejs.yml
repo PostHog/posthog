@@ -7,7 +7,7 @@ on:
             - master
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     OBJECT_STORAGE_ENABLED: true
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
@@ -144,6 +144,16 @@ jobs:
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint
 
+            # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
+            # imports. Presence-checked so branches without the guard yet are unaffected.
+            - name: Check ingestion boundaries
+              run: |
+                  if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
+                      node nodejs/bin/check-ingestion-boundaries.mjs
+                  else
+                      echo "Ingestion boundary guard not present on this branch; skipping."
+                  fi
+
     build:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build (depot-ubuntu-latest)
@@ -205,10 +215,10 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
@@ -404,10 +414,10 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose

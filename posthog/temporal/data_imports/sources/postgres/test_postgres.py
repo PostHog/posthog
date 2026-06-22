@@ -471,6 +471,37 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
+            # username omits the project ref. The host/IP and port are volatile; the message is stable.
+            'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+            # The real production message repeats the line (newlines are normalized to spaces upstream).
+            'connection failed: connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required) connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+        ],
+    )
+    def test_missing_pooler_tenant_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing pooler tenant identifier error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
+            # username omits the project ref. The host/IP and port are volatile; the message is stable.
+            'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+            # The real production message repeats the line (newlines are normalized to spaces upstream).
+            'connection failed: connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required) connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+        ],
+    )
+    def test_missing_pooler_tenant_identifier_returns_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing pooler tenant identifier error should surface an actionable message"
+        assert "project ref" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
@@ -1412,6 +1443,124 @@ class TestOffsetChunkingConnectRecoveryConflict:
 
         # 1 setup + 1 initial read + 3 offset-chunking connects (2 conflicts + 1 success).
         assert connect_mock.call_count == 5
+
+
+class TestOffsetChunkingRecoveryConflictTimeout:
+    """When a read replica cancels the initial read with a recovery conflict, `get_rows` falls
+    back to offset chunking. If a chunk then exhausts the 10-min statement_timeout, a full-table
+    sync used to re-raise the raw, retryable QueryCanceled — so Temporal re-read from the start
+    into the same conflicting, overloaded replica every attempt. The fallback must instead surface
+    a non-retryable QueryTimeoutException with actionable replica guidance.
+    """
+
+    class _NamedCursor:
+        def __init__(self):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+
+        def fetchmany(self, _n):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _OffsetCursor:
+        def __init__(self):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return TestOffsetChunkingRecoveryConflictTimeout._NamedCursor()
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_statement_timeout_in_recovery_conflict_fallback_is_non_retryable(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            with pytest.raises(QueryTimeoutException) as exc_info:
+                list(cast(Iterable[Any], response.items()))
+
+        message = str(exc_info.value)
+        assert "max_standby_streaming_delay" in message
+        # Unlike a raw QueryCanceled, QueryTimeoutException is classified non-retryable. It's matched
+        # by class name in the Temporal-wrapped error string (see external_data_job.py), so the
+        # non-retryable signal here is the type name, not the message text.
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert type(exc_info.value).__name__ in non_retryable
 
 
 class TestSafeCloseConnection:

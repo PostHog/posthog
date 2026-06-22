@@ -2350,6 +2350,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
+            # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
@@ -2736,6 +2743,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Probing the source's database to validate it is expected to fail when the host,
+            # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
+            # connection. Surface it as a 400, but don't capture it — these are user/upstream
+            # connection problems, not bugs in our code, and capturing every one floods error
+            # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
+            )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
@@ -2800,6 +2817,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema=schema_hint,
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
+            )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
+            # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
+            # check_cdc_prerequisites_for_source handler above.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})

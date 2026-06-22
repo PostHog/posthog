@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
 import posthoganalytics
@@ -244,6 +245,20 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         set_unread_count(user.id, self.team.organization_id, 0)
         return Response({"updated": len(event_ids)})
 
+    def _get_recipient_event_or_404(self) -> NotificationEvent:
+        # NotificationEvent is org-scoped + user-targeted, not team-scoped. self.get_object() applies
+        # the team_id URL filter from TeamAndOrgViewSetMixin and 404s on org-level notifications
+        # (team_id=NULL). (organization_id, resolved_user_ids__contains=[user.id]) is the real
+        # authorization boundary — the same pair the bulk mark endpoints use.
+        user = self._get_user()
+        return get_object_or_404(
+            NotificationEvent.objects.filter(  # nosemgrep: idor-lookup-without-team
+                organization_id=self.team.organization_id,
+                resolved_user_ids__contains=[user.id],
+            ),
+            pk=self.kwargs["pk"],  # nosemgrep: idor-taint-user-input-to-model-get
+        )
+
     @extend_schema(request=None)
     @action(methods=["POST"], detail=True, url_path="mark_read")
     def mark_read(self, request: Request, **kwargs) -> Response:
@@ -251,8 +266,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        event = self.get_object()
-        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        event = self._get_recipient_event_or_404()
         NotificationReadState.objects.get_or_create(notification_event=event, user=user)
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
@@ -264,8 +278,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        event = self.get_object()
-        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        event = self._get_recipient_event_or_404()
         NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})
