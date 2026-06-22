@@ -87,10 +87,25 @@ def get_fernet(region: str) -> MultiFernet:
 
     secret_key = Fernet(_prepare_key(_load_as_bytes(secret_data["TEMPORAL_SECRET_KEY"])))
     fallback_keys = (
-        Fernet(_prepare_key(_load_as_bytes(secret))) for secret in secret_data.get("TEMPORAL_FALLBACK_SECRET_KEYS", [])
+        Fernet(_prepare_key(_load_as_bytes(secret)))
+        for secret in _split_fallback_keys(secret_data.get("TEMPORAL_FALLBACK_SECRET_KEYS", []))
     )
 
     return MultiFernet([secret_key, *fallback_keys])
+
+
+def _split_fallback_keys(raw: str | list[str]) -> list[str]:
+    """Normalize the fallback keys to a list.
+
+    The secret stores TEMPORAL_FALLBACK_SECRET_KEYS as a comma-separated string, which
+    Django parses with get_list (settings/temporal.py). Iterating the raw string would
+    yield single characters, so mirror get_list here; tolerate an already-parsed list too.
+    """
+    if isinstance(raw, list):
+        return raw
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",")]
 
 
 def decode_payload(payload: dict, fernet: _HasDecrypt) -> dict:
