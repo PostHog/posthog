@@ -25,7 +25,6 @@ from datetime import datetime
 from django.db.models import F, QuerySet
 
 from products.signals.backend.models import SignalReportTask
-from products.tasks.backend.models import TaskRun
 
 _IMPLEMENTATION = SignalReportTask.Relationship.IMPLEMENTATION
 
@@ -40,26 +39,31 @@ SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
 
 
-def _implementation_pr_runs() -> QuerySet[TaskRun]:
-    """`TaskRun`s that ship a billable implementation PR.
+def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTask]:
+    """Implementation bridges whose task shipped a billable PR run matching `run_created_at`.
 
-    Fail closed: a run only counts when it carries a GitHub PR URL and the four teams in the
-    chain — run, task, bridge, and report — all agree. A malformed bridge row whose teams
-    disagree is excluded rather than charged to whichever team_id happened to be on it. These
-    are the constraints that define a "billable PR run"; both the in-period scan and the
-    billed-earlier exclusion build on top of this so they share one definition.
+    Rooted on the signals-owned `SignalReportTask` bridge and traversing to runs via the
+    `task__runs` relation, so the query never imports the tasks product's internals — it stays
+    behind the tasks public interface. Postgres is free to drive the join from the run
+    `created_at` index regardless, so the period scan stays bounded by PRs shipped, not by the
+    number of bridges.
+
+    Fail closed: a bridge only counts when one of its runs carries a GitHub PR URL within the
+    given `created_at` bound and the four teams in the chain — run, task, bridge, and report —
+    all agree. A malformed bridge whose teams disagree is excluded rather than charged to
+    whichever team_id happened to be on it. The run-level conditions sit in one `filter()` so
+    they all resolve against the same `TaskRun` row.
     """
-    return (
-        TaskRun.objects.filter(
-            output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
-            task__signal_report_tasks__relationship=_IMPLEMENTATION,
-            # Fail closed on team disagreement across run / task / bridge / report.
-            task__team_id=F("team_id"),
-            task__signal_report_tasks__team_id=F("team_id"),
-            task__signal_report_tasks__report__team_id=F("team_id"),
-        )
+    return SignalReportTask.objects.filter(
+        relationship=_IMPLEMENTATION,
+        task__runs__output__pr_url__startswith=_GITHUB_PR_URL_PREFIX,
+        # Fail closed on team disagreement across run / task / bridge / report.
+        task__team_id=F("team_id"),
+        report__team_id=F("team_id"),
+        task__runs__team_id=F("team_id"),
         # `output__pr_url__startswith` only matches present, string-typed values, so no
         # separate isnull / empty-string guard is needed.
+        **run_created_at,
     )
 
 
@@ -76,19 +80,14 @@ def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[
     `output__pr_url` indexes), not by the total number of reports, task runs, or teams.
     """
     # Reports whose implementation produced a billable PR within this period, mapped to the team
-    # that owns the report. The teams are guaranteed equal by `_implementation_pr_runs()`, so the
+    # that owns the report. The teams are guaranteed equal by `_bridges_with_pr_run()`, so the
     # bridge's team_id is the report's team.
     report_team: dict[uuid.UUID, int] = {}
-    for report_id, team_id in (
-        _implementation_pr_runs()
-        .filter(
-            created_at__gte=begin,
-            created_at__lt=end,
-        )
-        .values_list("task__signal_report_tasks__report_id", "task__signal_report_tasks__team_id")
-    ):
-        if report_id is not None:
-            report_team.setdefault(report_id, team_id)
+    for report_id, team_id in _bridges_with_pr_run(
+        task__runs__created_at__gte=begin,
+        task__runs__created_at__lt=end,
+    ).values_list("report_id", "team_id"):
+        report_team.setdefault(report_id, team_id)
 
     if not report_team:
         return []
@@ -99,12 +98,9 @@ def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[
     # earlier period. This is what makes billing idempotent across re-runs and prevents
     # double-charging when a report ships more PR runs later.
     billed_earlier = set(
-        _implementation_pr_runs()
-        .filter(
-            created_at__lt=begin,
-            task__signal_report_tasks__report_id__in=report_ids,
-        )
-        .values_list("task__signal_report_tasks__report_id", flat=True)
+        _bridges_with_pr_run(task__runs__created_at__lt=begin)
+        .filter(report_id__in=report_ids)
+        .values_list("report_id", flat=True)
     )
 
     totals: dict[int, int] = defaultdict(int)

@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from posthog.test.base import BaseTest
+
+from django.apps import apps
 
 from parameterized import parameterized
 
@@ -8,7 +11,12 @@ from posthog.models import Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR, get_signals_billing_credits_by_team
 from products.signals.backend.models import SignalReport, SignalReportTask
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import (
+        Task as TaskModel,
+        TaskRun as TaskRunModel,
+    )
 
 PERIOD_START = datetime(2026, 6, 1, tzinfo=UTC)
 PERIOD_END = datetime(2026, 7, 1, tzinfo=UTC)
@@ -16,6 +24,16 @@ PERIOD_END = datetime(2026, 7, 1, tzinfo=UTC)
 
 def _at(day: int, hour: int = 12) -> datetime:
     return datetime(2026, 6, day, hour, tzinfo=UTC)
+
+
+# `products.tasks` is an isolated product, so its models are reached at runtime via the app
+# registry rather than imported across the boundary (type-only imports above are ignored by tach).
+def _task_model() -> type["TaskModel"]:
+    return apps.get_model("tasks", "Task")
+
+
+def _task_run_model() -> type["TaskRunModel"]:
+    return apps.get_model("tasks", "TaskRun")
 
 
 class TestSignalsBilling(BaseTest):
@@ -30,8 +48,9 @@ class TestSignalsBilling(BaseTest):
         pr_url: str | None = "https://github.com/x/y/pull/1",
         team: Team | None = None,
         relationship: str = SignalReportTask.Relationship.IMPLEMENTATION,
-    ) -> TaskRun:
+    ) -> "TaskRunModel":
         team = team or self.team
+        Task, TaskRun = _task_model(), _task_run_model()
         task = Task.objects.create(
             team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
@@ -78,6 +97,7 @@ class TestSignalsBilling(BaseTest):
 
     def test_bridge_team_mismatch_not_billed(self) -> None:
         # A malformed bridge whose team disagrees with the run/report must not produce a charge.
+        Task, TaskRun = _task_model(), _task_run_model()
         other = Team.objects.create(organization=self.organization, name="other")
         report = self._report()
         task = Task.objects.create(
@@ -93,6 +113,7 @@ class TestSignalsBilling(BaseTest):
 
     def test_run_team_mismatch_not_billed(self) -> None:
         # A run whose team disagrees with the task/bridge/report must not produce a charge.
+        Task, TaskRun = _task_model(), _task_run_model()
         other = Team.objects.create(organization=self.organization, name="other")
         report = self._report()
         task = Task.objects.create(

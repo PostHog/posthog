@@ -4262,10 +4262,15 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     def test_signals_credits_bills_reports_with_implementation_pr(self) -> None:
         """Signals credits are a flat charge per report whose implementation shipped a PR (Postgres path)."""
+        from django.apps import apps
+
         from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
 
         from products.signals.backend.models import SignalReport, SignalReportTask
-        from products.tasks.backend.models import Task, TaskRun
+
+        # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
 
         self._setup_teams()
 
