@@ -77,6 +77,10 @@ from posthog.personhog_client.proto import (
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse,
     SplitPersonRequest,
     SplitPersonResponse,
     UpdateGroupRequest,
@@ -222,6 +226,18 @@ class PersonHogClient:
 
     def split_person(self, request: SplitPersonRequest, timeout: float | None = None) -> SplitPersonResponse:
         return self._stub.SplitPerson(request, timeout=timeout or self._timeout)
+
+    # -- Undelete repair --
+
+    def set_person_distinct_id_version_floor(
+        self, request: SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonDistinctIdVersionFloorResponse:
+        return self._stub.SetPersonDistinctIdVersionFloor(request, timeout=timeout or self._timeout)
+
+    def set_person_version_floor(
+        self, request: SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> SetPersonVersionFloorResponse:
+        return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

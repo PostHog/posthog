@@ -319,7 +319,8 @@ class RememberRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
+            "null), not rejected, so the memory write is never lost."
         ),
     )
 
@@ -1109,3 +1110,45 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+# --- Team metadata ---------------------------------------------------------
+
+
+class ScoutLimitsSerializer(serializers.Serializer):
+    """A team's enforced scout run caps and current usage.
+
+    These are the values the coordinator actually applies at dispatch (resolved per-team override →
+    fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+    user thinks they configured.
+    """
+
+    max_runs_per_tick = serializers.IntegerField(
+        help_text="Most scout runs the team can start in a single 30-minute coordinator tick."
+    )
+    max_runs_per_day = serializers.IntegerField(
+        allow_null=True,
+        help_text="Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+    )
+    runs_today = serializers.IntegerField(
+        help_text="Scout runs the team has started in the trailing 24 hours.",
+    )
+    runs_remaining_today = serializers.IntegerField(
+        allow_null=True,
+        help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+
+
+class ScoutMetadataSerializer(serializers.Serializer):
+    """Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+    the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+    change without a deploy to either app."""
+
+    enrolled = serializers.BooleanField(
+        help_text="Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist)."
+    )
+    banner_message = serializers.CharField(
+        allow_null=True,
+        help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+    )
+    limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")

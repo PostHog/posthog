@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
+import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 
 import {
     Breakdown,
@@ -72,6 +73,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
 
@@ -791,7 +794,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties: {
                 experiment_id: number
                 recalculation_id: string | null
-                trigger?: 'manual' | 'experiment_launch' | 'experiment_stop' | 'experiment_update'
+                trigger?:
+                    | 'manual'
+                    | 'cold_run'
+                    | 'stale_refresh'
+                    | 'auto_refresh'
+                    | 'config_change'
+                    | 'experiment_launch'
+                    | 'experiment_stop'
+                    | 'experiment_update'
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
@@ -2490,15 +2501,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsFilterApplied: ({ props }) => {
             posthog.capture('web analytics filter applied', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsFilterRemoved: ({ props }) => {
             posthog.capture('web analytics filter removed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsDateRangeChanged: ({ props }) => {
             posthog.capture('web analytics date range changed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsCompareToggled: ({ props }) => {
             posthog.capture('web analytics compare toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
@@ -2517,6 +2532,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {

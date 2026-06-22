@@ -340,6 +340,36 @@ async def finalize_desc_sort_incremental_value(
         await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
+async def advance_xmin_state(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+) -> None:
+    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+
+    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
+    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
+    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
+    wraparound-unsafe for xmin.
+    """
+    if (
+        not schema.is_xmin
+        or resource.xmin_ceiling_xid is None
+        or resource.xmin_ceiling_xid8 is None
+        or resource.xmin_num_wraparound is None
+    ):
+        return
+
+    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    await database_sync_to_async_pool(schema.update_xmin_state)(
+        ceiling_xid=resource.xmin_ceiling_xid,
+        ceiling_xid8=resource.xmin_ceiling_xid8,
+        num_wraparound=resource.xmin_num_wraparound,
+    )
+
+
 async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
     if await cdp_producer.should_produce_table():
         await cdp_producer.clear_s3_chunks()

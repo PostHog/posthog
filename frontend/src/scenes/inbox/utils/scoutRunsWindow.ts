@@ -168,6 +168,28 @@ export function deriveRunOutcome(run: SignalScoutRunSummary, now: Date): ScoutRu
     return 'unknown'
 }
 
+/** The run-history filter chips on the scout detail surface. */
+export type ScoutRunFilter = 'all' | 'emitted' | 'quiet' | 'failed'
+
+/**
+ * Whether a run belongs under a given filter chip. Emitted/Quiet split completed runs by
+ * whether they wrote findings; Failed is any failed/cancelled run. There is no server-side
+ * `status` filter yet (api gap 1), so the detail view filters its window client-side.
+ */
+export function runMatchesFilter(run: SignalScoutRunSummary, filter: ScoutRunFilter): boolean {
+    const status = normalizeRunStatus(run.status)
+    switch (filter) {
+        case 'all':
+            return true
+        case 'emitted':
+            return (run.emitted_count ?? 0) > 0
+        case 'quiet':
+            return status === 'completed' && (run.emitted_count ?? 0) === 0
+        case 'failed':
+            return status === 'failed'
+    }
+}
+
 export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): string {
     switch (deriveRunOutcome(run, now)) {
         case 'emitted': {

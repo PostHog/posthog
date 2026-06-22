@@ -5,8 +5,8 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     get_sandbox_for_repository,

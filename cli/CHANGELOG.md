@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.7.30 — 2026-06-22
+
+### Patch changes
+
+- [d51a877525](https://github.com/PostHog/posthog/commit/d51a8775252d4fd4e35f389e4960a5f23726e429) Handle Git worktrees and packed refs when detecting repository info — Thanks @hpouillot!
+
+## 0.7.29 — 2026-06-19
+
+### Patch changes
+
+- [8c030733b1](https://github.com/PostHog/posthog/commit/8c030733b14ad4281505634ab7c1a21e4128ff51) Quiet agent API discovery commands — Thanks @cvolzer3!
+
+## 0.7.28 — 2026-06-18
+
+### Patch changes
+
+- [f0bb5426d5](https://github.com/PostHog/posthog/commit/f0bb5426d51601a7e39c4d3bcadbe592962ab980) Remove the `posthog-cli api` experimental opt-in and skip unavailable generated tools without warning noise. — Thanks @cvolzer3!
+
 ## 0.7.27 — 2026-06-18
 
 ### Patch changes

@@ -291,6 +291,17 @@ describe('vercel log drain template', () => {
         expect(props.proxy_user_agent).toBeUndefined()
     })
 
+    it.each([
+        ['default (no override)', {}, false],
+        ['explicit anonymous', { person_processing: 'anonymous' }, false],
+        ['identified', { person_processing: 'identified' }, true],
+    ])('person_processing %s emits $process_person_profile=%s', async (_name, inputs, expected) => {
+        const response = await tester.invoke(inputs, { request: createVercelRequest(vercelLogDrain) })
+
+        expect(response.error).toBeUndefined()
+        expect(response.capturedPostHogEvents[0].properties.$process_person_profile).toBe(expected)
+    })
+
     it('should handle logs with null message without crashing', async () => {
         const { message, ...logWithoutMessage } = vercelLogDrain
         const log = { ...logWithoutMessage, message: null }
