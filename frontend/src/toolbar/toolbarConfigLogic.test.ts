@@ -905,6 +905,26 @@ describe('toolbar toolbarConfigLogic', () => {
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect(logic.values.accessToken).toBe('access-token')
         })
+
+        it('does not throw when a customer fetch wrapper resolves to undefined', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            // A site-level `window.fetch` wrapper that returns `undefined` instead of a Response
+            // used to crash the OAuth chain with "Cannot read properties of undefined (reading 'status')".
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve(undefined))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            // Normalized into a synthetic failed response so callers can degrade gracefully.
+            expect(response).toBeInstanceOf(Response)
+            expect(response.ok).toBe(false)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
     })
 
     describe('authorization code extraction and hash cleanup', () => {

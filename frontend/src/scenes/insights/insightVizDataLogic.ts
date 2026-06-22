@@ -68,6 +68,7 @@ import {
     getFormulas,
     getGoalLines,
     getInterval,
+    getLegendPosition,
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
@@ -230,14 +231,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, for the TRENDS and TIME_TO_CONVERT viz modes.
-                if (
-                    isFunnelsQuery(q) &&
-                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] &&
-                    (q.funnelsFilter?.funnelVizType === FunnelVizType.Trends ||
-                        q.funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert)
-                ) {
-                    return true
+                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
+                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                    return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false
             },
@@ -292,6 +289,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
+        legendPosition: [(s) => [s.querySource], (q) => (q ? getLegendPosition(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showPercentagesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowPercentagesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],

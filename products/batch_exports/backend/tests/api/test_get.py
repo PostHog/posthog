@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.tests.api.fixtures import create_organization
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok, get_batch_export
 
@@ -183,22 +184,16 @@ def test_serialization_of_destination_config(client: HttpClient, temporal, organ
         },
     }
 
-    batch_export_data = {
-        "name": "my-export",
-        "destination": destination_data,
-        "interval": "day",
-        "timezone": "UTC",
-    }
+    # Created via the ORM to exercise an inline-credential (legacy) Postgres export, which can no
+    # longer be created through the API now that new Postgres exports require an integration.
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.POSTGRES,
+        config=destination_data["config"],
+    )
+    batch_export = BatchExport.objects.create(name="my-export", team=team, destination=destination, interval="day")
 
     client.force_login(user)
-
-    response = create_batch_export_ok(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    response = get_batch_export(client, team.pk, response["id"])
+    response = get_batch_export(client, team.pk, batch_export.id)
     assert response.status_code == status.HTTP_200_OK, response.json()
 
     batch_export = response.json()

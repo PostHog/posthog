@@ -449,3 +449,43 @@ class SplitPersonResponse(_message.Message):
     splits: _containers.RepeatedCompositeFieldContainer[SplitResult]
 
     def __init__(self, splits: _Optional[_Iterable[_Union[SplitResult, _Mapping]]] = ...) -> None: ...
+
+class SetPersonDistinctIdVersionFloorRequest(_message.Message):
+    __slots__ = ("team_id", "distinct_id", "min_version")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    distinct_id: str
+    min_version: int
+
+    def __init__(
+        self, team_id: _Optional[int] = ..., distinct_id: _Optional[str] = ..., min_version: _Optional[int] = ...
+    ) -> None: ...
+
+class SetPersonDistinctIdVersionFloorResponse(_message.Message):
+    __slots__ = ("person",)
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    person: Person
+
+    def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
+
+class SetPersonVersionFloorRequest(_message.Message):
+    __slots__ = ("team_id", "person_id", "min_version")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    person_id: int
+    min_version: int
+
+    def __init__(
+        self, team_id: _Optional[int] = ..., person_id: _Optional[int] = ..., min_version: _Optional[int] = ...
+    ) -> None: ...
+
+class SetPersonVersionFloorResponse(_message.Message):
+    __slots__ = ("updated",)
+    UPDATED_FIELD_NUMBER: _ClassVar[int]
+    updated: bool
+
+    def __init__(self, updated: bool = ...) -> None: ...

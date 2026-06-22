@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
@@ -45,6 +45,14 @@ from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+
+PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
+    "clickhouse": ClickHousePrinter,
+    "postgres": PostgresPrinter,
+    "duckdb": DuckDBPrinter,
+    "mysql": MySQLPrinter,
+    "hogql": HogQLPrinter,
+}
 
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
@@ -122,6 +130,7 @@ def prepare_ast_for_printing(
                 team=context.team,
                 user=context.user,
                 timings=context.timings,
+                bypass_warehouse_access_control=context.bypass_warehouse_access_control,
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
@@ -166,7 +175,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect in ("postgres", "duckdb", "mysql"):
+    if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
@@ -282,46 +291,17 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer: BasePrinter
         printer_stack = cast(list[ast.AST], stack or [])
 
-        match dialect:
-            case "clickhouse":
-                printer = ClickHousePrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "postgres":
-                printer = PostgresPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "duckdb":
-                printer = DuckDBPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "mysql":
-                printer = MySQLPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "hogql":
-                printer = HogQLPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case _:
-                raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
+        printer_class = PRINTER_CLASSES.get(dialect)
+        if printer_class is None:
+            raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
+
+        printer = printer_class(
+            context=context,
+            stack=printer_stack,
+            settings=settings,
+            pretty=pretty,
+        )
 
         return printer.visit(node)

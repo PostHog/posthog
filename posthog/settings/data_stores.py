@@ -572,10 +572,19 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
-# Dedicated Redis for ai-gateway HyperCache reads
-AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
+# Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
+# sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
+# published where the gateway reads it — zero config for the agent-platform e2e
+# (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
+AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
+# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
+# except in local dev where it defaults to the gateway's local listen addr
+# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
 
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service

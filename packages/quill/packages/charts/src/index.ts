@@ -16,6 +16,11 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { TimeSeriesComboChart } from './charts/TimeSeriesComboChart/TimeSeriesComboChart'
+export type {
+    TimeSeriesComboChartConfig,
+    TimeSeriesComboChartProps,
+} from './charts/TimeSeriesComboChart/TimeSeriesComboChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
 export { MetricCard } from './components/MetricCard/MetricCard'
@@ -73,6 +78,7 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
 export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
+export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {
@@ -98,6 +104,7 @@ export type {
     TooltipConfig,
     TooltipContext,
     ValueDomain,
+    YAxis,
     YAxisScale,
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'
@@ -107,7 +114,7 @@ export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/th
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
-export { DefaultTooltip } from './overlays/DefaultTooltip'
+export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
 export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 

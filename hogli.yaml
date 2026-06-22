@@ -1041,7 +1041,7 @@ environment:
         description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
-        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
+        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate by default unless POSTHOG_DEV_SANDBOX=0)'
         hidden: true
     dev:sandbox:selftest:
         bin_script: dev-sandbox-selftest
@@ -1070,4 +1070,16 @@ environment:
     inject_mcp_intents:
         bin_script: inject_mcp_intents.py
         description: 'Used when developing MCP Analytics locally and trying to load some intents'
+        hidden: true
+    dev:sandbox:shims:selftest:
+        bin_script: dev-sandbox-shims-selftest
+        description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
+        hidden: true
+    setup:gateway:e2e:
+        bin_script: setup-gateway-e2e
+        description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true
+    dev:open:when:ready:
+        bin_script: dev-open-when-ready
+        description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
         hidden: true

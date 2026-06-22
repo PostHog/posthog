@@ -139,6 +139,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
+ */
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
+        ),
+})
+
+/**
  * Copy an experiment into another project in the same organization as a new draft.
  */
 export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
@@ -224,13 +244,22 @@ export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
 export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .object({
         trigger: zod
-            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .enum([
+                'manual',
+                'cold_run',
+                'stale_refresh',
+                'auto_refresh',
+                'config_change',
+                'experiment_launch',
+                'experiment_stop',
+                'experiment_update',
+            ])
             .describe(
-                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

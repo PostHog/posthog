@@ -144,14 +144,51 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
 
+            # Visual Review auto-commits a snapshot baseline after human review and CI
+            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # the `playwright_tests` aggregator treats the resulting skip as success. Key
+            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # so it fires even when the PR also carries real code changes.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
             - name: Decide whether to run Playwright
               id: decide
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
+                  IS_BASELINE_ONLY: ${{ steps.baseline_push.outputs.result }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
+                  if [[ "$IS_BASELINE_ONLY" == "true" ]]; then
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  elif [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -297,11 +334,23 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-e2e-playwright.yml
                   token: ${{ github.token }}
+
+            # This job checks out the PR head (not the merge ref), so it can't use
+            # the ./.github/actions/pnpm-install local action — an un-rebased head
+            # may not contain it. Cache the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            - name: Get pnpm store path
+              id: pnpm-store
+              shell: bash
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             # Workaround for SIGABRT (exit 134) raised after all tests pass.
             # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
@@ -357,6 +406,13 @@ jobs:
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}

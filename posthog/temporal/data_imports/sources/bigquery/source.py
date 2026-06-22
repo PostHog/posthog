@@ -50,6 +50,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
             "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            # Raised from `bigquery_client` when `service_account.Credentials.from_service_account_info`
+            # parses the uploaded key file's `private_key`. A truncated or corrupted PEM body (wrong
+            # padding, stray characters, copy-paste damage) makes the `cryptography` backend reject it
+            # as a `ValueError: Unable to load PEM file. ... InvalidData(InvalidPadding)`. The key can't
+            # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
+            # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
+            "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -68,6 +75,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # BigQuery raises this 400 BadRequest when it can't compile a view it's importing, e.g.
+            # "Invalid table-valued function EXTERNAL_QUERY; failed to parse view '<dataset>.<view>'".
+            # For a federated EXTERNAL_QUERY view this means the upstream schema drifted away from the
+            # view definition — a column the view selects was renamed or dropped in the source database
+            # ("prepare statement failed. Error: ERROR:  column \"x\" does not exist"). It's a
+            # deterministic mismatch between the customer's view and their data; retrying can't recover
+            # it — they must fix the view definition or restore the column. The "permission denied for
+            # table" / "Access Denied:" keys only cover federation ACL failures, so this slips through
+            # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
+            # than the volatile view/column names.
+            "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as
@@ -85,6 +103,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` when the table being
+            # synced no longer exists at sync time — it was deleted or renamed in BigQuery (common with
+            # dbt-managed datasets) after schema discovery selected it. The google exception stringifies
+            # as "... Not found: Table <project>:<dataset>.<table>", which the "was not found in
+            # location" key (dataset-region 404s) doesn't cover, so it slips through and retries forever.
+            # Retrying within the sync's window can't recover a missing table; the user must restore or
+            # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
+            # wording rather than the volatile table id.
+            "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
@@ -106,6 +133,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # proxy). Authentication can't succeed until the key file is fixed, so retrying just
             # hammers the endpoint and spams error tracking.
             BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at an ngrok tunnel that's offline:
+            # google-auth POSTs the token request and gets back ngrok's HTML error page instead of
+            # an OAuth JSON response, so it raises a `RefreshError` carrying that page. Google's real
+            # token endpoint is never fronted by ngrok, so this is a misconfigured `token_uri` — the
+            # user must fix their key file; retrying can't recover. Matched on ngrok's stable
+            # offline-endpoint code rather than the volatile tunnel subdomain in the page.
+            "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by

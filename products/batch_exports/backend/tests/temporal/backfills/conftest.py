@@ -13,9 +13,20 @@ async def wait_for_workflows(
     temporal_client: temporalio.client.Client,
     schedule_id: str,
     expected_count: int,
+    assert_exact: bool = True,
     timeout: int = 60,
 ) -> list[temporalio.client.WorkflowExecution]:
-    """Wait for workflows to be queryable and return them."""
+    """Wait for workflows to be queryable and return them.
+
+    Arguments:
+        temporal_client: A Temporal client to be used to check for workflows.
+        schedule_id: The schedule whose workflows we are looking for.
+        expected_count: Wait for this number of workflows.
+        assert_exact: Whether to assert that the exact expected_count of
+            workflows is availale. Set this to False if any number of workflows
+            past expected_count is expected rather than an exact match.
+        timeout: Wait for at most this amount of seconds.
+    """
     query = f'TemporalScheduledById="{schedule_id}" order by StartTime asc'
     workflows: list[temporalio.client.WorkflowExecution] = []
     elapsed = 0.0
@@ -25,7 +36,7 @@ async def wait_for_workflows(
         if elapsed > timeout:
             raise TimeoutError(
                 f"Timed-out waiting for workflows for schedule {schedule_id} to be query-able. "
-                f"Found {len(workflows)} workflows, expected {expected_count}"
+                f"Found {len(workflows)} workflows, expected at least {expected_count}"
             )
 
         await asyncio.sleep(delay)
@@ -33,7 +44,9 @@ async def wait_for_workflows(
         delay = min(delay * 2, 5)
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
 
-    assert len(workflows) == expected_count
+    if assert_exact:
+        assert len(workflows) == expected_count
+
     return workflows
 
 

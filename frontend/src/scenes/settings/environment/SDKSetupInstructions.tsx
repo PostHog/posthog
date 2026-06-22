@@ -39,9 +39,9 @@ import {
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
-import { JS_WEB_SNIPPETS } from 'scenes/onboarding/sdks/shared/jsWebSnippets'
+import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
+import { OnboardingDocsContentWrapper } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'scenes/onboarding/shared/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
