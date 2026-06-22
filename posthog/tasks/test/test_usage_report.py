@@ -4287,9 +4287,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         task = Task.objects.create(
             team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        SignalReportTask.objects.create(
-            team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-        )
+        SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
         TaskRun.objects.create(
             team=team,
             task=task,

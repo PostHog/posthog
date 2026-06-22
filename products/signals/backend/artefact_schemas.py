@@ -6,9 +6,11 @@ are parsed into these models once, at the boundaries — `parse_artefact_content
 and for reads that consume stored rows — and everything in between passes the typed model
 around; the model helpers derive a row's type from the content model's class. The module is
 kept deliberately dependency-light so models, views, and temporal code can all import it without
-pulling in the report-research / sandbox machinery — its non-pydantic imports are leaf DTOs that
-carry no such weight: the cross-product `RepoSelectionResult` (`logic.repo_selection.types`) and the
-generated `posthog.schema.RelevantCommit` (reused as the single source of truth for commit shape).
+pulling in the report-research / sandbox machinery — its only non-pydantic import is a leaf DTO that
+carries no such weight: the cross-product `RepoSelectionResult` (`logic.repo_selection.types`).
+`RelevantCommit` is defined here rather than reused from the generated `posthog.schema`: importing
+that module drags ~1s of generated pydantic onto every process's `django.setup()` path, since this
+module loads with the signals models (see docs/internal/django-startup-time.md).
 
 Reads of legacy rows that predate these schemas stay tolerant (parse failures are skipped or
 degraded, never raised to users).
@@ -21,9 +23,7 @@ from collections.abc import Mapping
 from enum import Enum
 from typing import Any, cast
 
-from pydantic import BaseModel, Field, RootModel, ValidationError, field_validator, model_validator
-
-from posthog.schema import RelevantCommit
+from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 
@@ -159,6 +159,18 @@ class SafetyJudgment(BaseModel):
     explanation: str | None = Field(
         default=None, description="Why the report was judged unsafe; null/omitted when safe."
     )
+
+
+class RelevantCommit(BaseModel):
+    """A commit attributed to a suggested reviewer. Shape mirrors the generated
+    `posthog.schema.RelevantCommit` exactly so the two stay interchangeable on the wire — defined
+    here to keep this module off the heavy `posthog.schema` import path (see module docstring)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+    sha: str
+    url: str
 
 
 class SuggestedReviewerEntry(BaseModel):

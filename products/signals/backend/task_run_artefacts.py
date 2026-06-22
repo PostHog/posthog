@@ -107,9 +107,10 @@ def record_implementation_task(
     the task. Shared by auto-start and the manual start-task API.
     """
     SignalReportTask.objects.get_or_create(
+        team_id=team_id,
         report_id=report_id,
         task_id=task_id,
-        defaults={"team_id": team_id, "relationship": TASK_RUN_TYPE_IMPLEMENTATION},
+        defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
     return append_task_run_artefact(
         team_id=team_id,
