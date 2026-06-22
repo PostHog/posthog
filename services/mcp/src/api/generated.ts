@@ -17760,6 +17760,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Optional comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -20547,6 +20548,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -20631,6 +20633,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -35452,6 +35455,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -45404,6 +45408,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Optional comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;

@@ -385,6 +385,7 @@ export interface ExperimentBasicApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -708,6 +709,7 @@ export interface ExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -808,6 +810,7 @@ export interface PatchedExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -847,6 +850,7 @@ export interface EndExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -1027,6 +1031,7 @@ export interface ShipVariantApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
