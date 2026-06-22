@@ -174,7 +174,9 @@ def _fetch_page(
         raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
 
     if not response.ok:
-        logger.error(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
+        # 404 is expected and handled during the list_profiles fan-out (a list deleted mid-sync).
+        log = logger.warning if response.status_code == 404 else logger.error
+        log(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
 
     return response.json()
@@ -186,9 +188,7 @@ def _iter_list_ids(session: requests.Session, headers: dict[str, str], logger: F
     while True:
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
-            list_id = item.get("id")
-            if list_id is not None:
-                yield list_id
+            yield item["id"]
 
         next_url = data.get("links", {}).get("next")
         if not next_url:
@@ -236,7 +236,7 @@ def _get_list_profile_rows(
                 next_url = data.get("links", {}).get("next")
 
                 for item in items:
-                    batcher.batch({"list_id": list_id, "profile_id": item.get("id")})
+                    batcher.batch({"list_id": list_id, "profile_id": item["id"]})
 
                     if batcher.should_yield():
                         yield batcher.get_table()
