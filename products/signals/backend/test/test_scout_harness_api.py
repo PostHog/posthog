@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
@@ -23,11 +27,13 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def _authenticate_as_scout(test: APIBaseTest) -> None:
@@ -60,6 +66,8 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
 
 
 def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="scout run",
@@ -73,8 +81,11 @@ def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
     return task_run
 
 
-def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, **overrides) -> SignalScoutRun:
+def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) -> SignalScoutRun:
     """Build a SignalScoutRun bridge row whose TaskRun is in the given status."""
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    if task_run_status is None:
+        task_run_status = TaskRun.Status.IN_PROGRESS
     config, _ = SignalScoutConfig.objects.get_or_create(
         team=team, skill_name="signals-scout-general", defaults={"emit": True}
     )
@@ -156,6 +167,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(errors.id)]
 
     def test_list_surfaces_error_and_failure_reason_for_failed_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
         TaskRun.objects.filter(id=run.task_run_id).update(error_message="boom: sandbox died\nstack line 2")
         response = self.client.get(self._list_url())
@@ -165,6 +177,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["failure_reason"] == "boom: sandbox died"
 
     def test_retrieve_returns_bridge_projection(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
@@ -435,6 +448,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         mock_emit.assert_not_called()
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -551,10 +565,10 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert str(row.created_by_run_id) == str(run.id)
 
-    def test_remember_rejects_run_id_from_another_team(self) -> None:
+    def test_remember_drops_run_id_from_another_team(self) -> None:
         # A run UUID from another team must not create cross-team lineage on this
-        # team's memory row — the agent's MCP token is team-scoped, but `run_id`
-        # is a free body field and previously had no validation.
+        # team's memory row — but lineage is best-effort, so the write still lands
+        # with `created_by_run_id` left null rather than being rejected.
         other = Team.objects.create(organization=self.organization, name="Other")
         other_run = _make_run(other)
         response = self.client.post(
@@ -562,20 +576,21 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
             data={"key": "k1", "content": "v", "run_id": str(other_run.id)},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json().get("attr") == "run_id"
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.created_by_run_id is None
 
-    def test_remember_rejects_unknown_run_id(self) -> None:
-        # A well-formed UUID that doesn't reference any run row should also bounce —
-        # don't let a typo silently produce orphan lineage on the memory table.
+    def test_remember_drops_unknown_run_id(self) -> None:
+        # A well-formed UUID that doesn't reference any run row is dropped (no orphan
+        # lineage), but the memory write itself must never be lost over it.
         response = self.client.post(
             self._list_url(),
             data={"key": "k1", "content": "v", "run_id": "00000000-0000-0000-0000-000000000000"},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json().get("attr") == "run_id"
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.created_by_run_id is None
 
     def test_remember_rejects_malformed_run_id(self) -> None:
         # UUIDField in the serializer rejects non-UUID strings before the view runs.
@@ -852,6 +867,74 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _sync_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
+
+    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+        canonical_names = {c.name for c in discover_canonical_skills()}
+        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        companion_names = canonical_names - scout_names
+        assert scout_names, "expected canonical signals-scout-* skills on disk"
+        assert "authoring-signals-scouts" in companion_names
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Only scouts get configs — companion skills (authoring-signals-scouts) are seeded
+        # into the team's LLMSkill namespace below but never materialize a scout config.
+        assert {c["skill_name"] for c in body} == scout_names
+        assert [c["skill_name"] for c in body] == sorted(scout_names)
+        assert all(c["enabled"] is True for c in body)
+        assert all(c["emit"] is True for c in body)
+        assert all(c["run_interval_minutes"] == 180 for c in body)
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        # Every canonical skill — fleet and companions — was seeded into the team's
+        # LLMSkill namespace.
+        assert (
+            set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
+            == canonical_names
+        )
+
+    def test_sync_rejects_read_only_scope(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scoped_teams=[self.team.id],
+            scopes=["signal_scout:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(self._sync_url(), HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
+
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+        first = self.client.post(self._sync_url())
+        assert first.status_code == status.HTTP_200_OK
+        fleet_size = len(first.json())
+
+        # Tune one config the way a user would, then sync again.
+        tuned = SignalScoutConfig.objects.filter(team=self.team).order_by("skill_name").first()
+        assert tuned is not None
+        tuned.enabled = False
+        tuned.save(update_fields=["enabled"])
+
+        second = self.client.post(self._sync_url())
+
+        assert second.status_code == status.HTTP_200_OK
+        assert len(second.json()) == fleet_size
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
+        tuned.refresh_from_db()
+        assert tuned.enabled is False, "sync must not reset existing configs"
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not

@@ -101,6 +101,31 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         verbose_name_plural = "Duckgres servers"
 
 
+class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team membership of an org's Duckgres warehouse.
+
+    A DuckgresServer is org-scoped and can host many teams (1->n). This model
+    records which teams live in a given server, and is the home for any future
+    team-specific server config.
+    """
+
+    server = models.ForeignKey(
+        "posthog.DuckgresServer",
+        on_delete=models.CASCADE,
+        related_name="teams",
+    )
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server_team",
+    )
+
+    class Meta:
+        db_table = "posthog_duckgresserverteam"
+        verbose_name = "Duckgres server team"
+        verbose_name_plural = "Duckgres server teams"
+
+
 class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Per-team enablement of DuckLake warehouse backfills.
 
@@ -117,6 +142,13 @@ class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     enabled = models.BooleanField(
         default=True,
         help_text="Whether warehouse backfills are enabled for this team",
+    )
+    table_suffix = models.CharField(
+        max_length=63,
+        null=True,
+        blank=True,
+        help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
+        "User-supplied; falls back to the shared tables when unset.",
     )
 
     class Meta:

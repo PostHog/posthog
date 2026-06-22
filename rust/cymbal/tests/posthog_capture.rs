@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{body::Body, http::Request};
 use common_redis::MockRedisClient;
-use cymbal::{app_context::AppContext, config::Config, router::get_router};
+use cymbal::{app_context::AppContext, modes::processing::ProcessingConfig, router::get_router};
 use httpmock::prelude::*;
 use mockall::predicate;
 use serde_json::json;
@@ -45,8 +45,8 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         .await
         .expect("posthog init");
 
-    let mut config = Config::init_with_defaults().unwrap();
-    config.object_storage_bucket = STORAGE_BUCKET.to_string();
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.object_storage_bucket = STORAGE_BUCKET.to_string();
 
     let mut s3_client = MockS3Client::new();
     s3_client

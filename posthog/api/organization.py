@@ -40,12 +40,15 @@ from posthog.permissions import (
     CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
 )
+from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.tasks.tasks import delete_organization_data_and_notify_task
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -351,6 +354,12 @@ class OrganizationSerializer(
         return super().to_representation(instance)
 
 
+class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the organization admins were notified."
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
@@ -391,6 +400,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 update_permissions.append(PremiumMultiorganizationPermission())
 
             return update_permissions
+
+        # Any org member may ask an admin to enable PostHog AI — enabling still requires admin.
+        if self.action == "request_ai_access":
+            return [
+                permission()
+                for permission in [permissions.IsAuthenticated, APIScopePermission, OrganizationMemberPermissions]
+            ]
 
         # We don't override for other actions
         raise NotImplementedError()
@@ -566,3 +582,30 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
+
+    @extend_schema(request=None, responses={200: OrganizationAIAccessRequestResponseSerializer})
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="request_ai_access",
+        throttle_classes=[PostHogAIAccessRequestUserThrottle, PostHogAIAccessRequestIPThrottle],
+    )
+    def request_ai_access(self, request: Request, **kwargs) -> Response:
+        """Notify organization admins that a member is requesting PostHog AI be enabled."""
+        organization = self.organization
+        user = cast(User, request.user)
+
+        # Nothing to request if PostHog AI is already enabled for the org.
+        if organization.is_ai_data_processing_approved:
+            raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
+
+        # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
+        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
+        if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
+
+        send_posthog_ai_access_request.delay(
+            organization_id=str(organization.id),
+            requesting_user_id=user.id,
+        )
+        return Response({"success": True})
