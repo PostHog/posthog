@@ -592,6 +592,10 @@ class _LogsAttributesResponseSerializer(serializers.Serializer):
 class _LogAttributeValueSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Attribute value (used as the identifier).")
     name = serializers.CharField(help_text="Display name — currently identical to `id`.")
+    count = serializers.IntegerField(
+        required=False,
+        help_text="Number of log records with this attribute value, scoped to the current date range, service, and resource filters.",
+    )
 
 
 class _LogsValuesResponseSerializer(serializers.Serializer):

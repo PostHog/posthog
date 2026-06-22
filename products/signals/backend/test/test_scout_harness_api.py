@@ -27,7 +27,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
@@ -867,6 +867,74 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _sync_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
+
+    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+        canonical_names = {c.name for c in discover_canonical_skills()}
+        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        companion_names = canonical_names - scout_names
+        assert scout_names, "expected canonical signals-scout-* skills on disk"
+        assert "authoring-signals-scouts" in companion_names
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Only scouts get configs — companion skills (authoring-signals-scouts) are seeded
+        # into the team's LLMSkill namespace below but never materialize a scout config.
+        assert {c["skill_name"] for c in body} == scout_names
+        assert [c["skill_name"] for c in body] == sorted(scout_names)
+        assert all(c["enabled"] is True for c in body)
+        assert all(c["emit"] is True for c in body)
+        assert all(c["run_interval_minutes"] == 180 for c in body)
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        # Every canonical skill — fleet and companions — was seeded into the team's
+        # LLMSkill namespace.
+        assert (
+            set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
+            == canonical_names
+        )
+
+    def test_sync_rejects_read_only_scope(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read only",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scoped_teams=[self.team.id],
+            scopes=["signal_scout:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(self._sync_url(), HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
+
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+        first = self.client.post(self._sync_url())
+        assert first.status_code == status.HTTP_200_OK
+        fleet_size = len(first.json())
+
+        # Tune one config the way a user would, then sync again.
+        tuned = SignalScoutConfig.objects.filter(team=self.team).order_by("skill_name").first()
+        assert tuned is not None
+        tuned.enabled = False
+        tuned.save(update_fields=["enabled"])
+
+        second = self.client.post(self._sync_url())
+
+        assert second.status_code == status.HTTP_200_OK
+        assert len(second.json()) == fleet_size
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
+        tuned.refresh_from_db()
+        assert tuned.enabled is False, "sync must not reset existing configs"
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not
