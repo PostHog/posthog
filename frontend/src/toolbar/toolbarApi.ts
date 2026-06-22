@@ -1,6 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 
