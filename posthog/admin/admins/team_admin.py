@@ -5,7 +5,6 @@ import uuid
 import asyncio
 import hashlib
 import tempfile
-import dataclasses
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib import parse
@@ -36,7 +35,7 @@ from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
@@ -51,20 +50,15 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
 from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
 from products.replay.backend.models.exported_recording import ExportedRecording
+from products.replay.backend.services.export_recording import ReplayActivityContext, trigger_recording_export
 
 logger = get_logger()
 
 # Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
 MAX_CREDIT_USD = Decimal("1000000")
-
-
-@dataclasses.dataclass(frozen=True)
-class ReplayActivityContext(ActivityContextBase):
-    reason: str
 
 
 class TeamAdminForm(ModelForm):
@@ -804,45 +798,13 @@ class TeamAdmin(admin.ModelAdmin):
             triggered_by=request.user.email,
         )
 
-        export_record = ExportedRecording.objects.create(
-            team=team,
-            session_id=session_id,
-            reason=reason,
-            created_by=request.user,
-        )
-
         try:
-            temporal = sync_connect()
-            workflow_input = ExportRecordingInput(exported_recording_id=export_record.id)
-            workflow_id = f"export-recording-{export_record.id}-{uuid.uuid4()}"
-
-            asyncio.run(
-                temporal.start_workflow(
-                    "export-recording",
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
-                )
-            )
-
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
+            export_record = trigger_recording_export(
+                team=team,
+                session_id=session_id,
+                reason=reason,
                 user=request.user,
                 was_impersonated=False,
-                item_id=session_id,
-                scope="Replay",
-                activity="exported",
-                detail=Detail(
-                    name=f"Session replay {session_id}",
-                    short_id=session_id,
-                    type="admin_export",
-                    context=ReplayActivityContext(reason=reason),
-                ),
             )
 
             messages.success(

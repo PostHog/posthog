@@ -28,12 +28,19 @@ export interface ImpersonationTicketContext {
     region?: Region
 }
 
-function adminLoginUrlForTicket(context: ImpersonationTicketContext): string | null {
-    if (!context.region) {
-        return null
-    }
-    const domain = CLOUD_HOSTNAMES[context.region]
-    return `https://${domain}/admin/posthog/user/?q=${encodeURIComponent(context.email)}`
+export interface AdminLoginUrl {
+    region: Region
+    url: string
+}
+
+// When a ticket's region is unknown (e.g. tickets opened from a Slack channel
+// carry no app URL to infer it from), fall back to offering a lookup in each
+// production cloud region rather than no link at all.
+const ADMIN_LOOKUP_REGIONS: Region[] = [Region.US, Region.EU]
+
+function adminLoginUrlForRegion(region: Region, email: string): string {
+    const domain = CLOUD_HOSTNAMES[region]
+    return `https://${domain}/admin/posthog/user/?q=${encodeURIComponent(email)}`
 }
 
 export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
@@ -107,13 +114,17 @@ export const impersonationNoticeLogic = kea<impersonationNoticeLogicType>([
     selectors({
         isReadOnly: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated_read_only ?? true],
         isImpersonated: [(s) => [s.user], (user: UserType | null): boolean => user?.is_impersonated ?? false],
-        adminLoginUrl: [
+        adminLoginUrls: [
             (s) => [s.ticketContext],
-            (ticketContext: ImpersonationTicketContext | null): string | null => {
+            (ticketContext: ImpersonationTicketContext | null): AdminLoginUrl[] => {
                 if (!ticketContext?.email) {
-                    return null
+                    return []
                 }
-                return adminLoginUrlForTicket(ticketContext)
+                const regions = ticketContext.region ? [ticketContext.region] : ADMIN_LOOKUP_REGIONS
+                return regions.map((region) => ({
+                    region,
+                    url: adminLoginUrlForRegion(region, ticketContext.email),
+                }))
             },
         ],
         isSessionExpired: [(s) => [s.expiredSessionInfo], (info: ExpiredSessionInfo | null): boolean => info !== null],

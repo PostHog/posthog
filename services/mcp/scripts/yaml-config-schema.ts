@@ -65,6 +65,14 @@ export const ToolConfigSchema = z
                          */
                         optional: z.boolean().optional(),
                         /**
+                         * When true, strip the optionality the Orval body schema applies
+                         * to PATCH fields, so the param is required in the tool schema.
+                         * Use when the backend serializer requires the field even though
+                         * the endpoint is a PATCH (drf-spectacular marks every PATCH body
+                         * field optional). Mutually exclusive with `optional`.
+                         */
+                        required: z.boolean().optional(),
+                        /**
                          * State manager key to resolve the param from when omitted.
                          * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
                          */
@@ -90,6 +98,9 @@ export const ToolConfigSchema = z
                     })
                     .refine((data) => !(data.optional && !data.fallback), {
                         message: 'optional requires a fallback key to resolve the value from state',
+                    })
+                    .refine((data) => !(data.optional && data.required), {
+                        message: 'optional and required are mutually exclusive',
                     })
                     .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
                         message:

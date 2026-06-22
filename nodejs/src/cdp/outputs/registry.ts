@@ -1,5 +1,6 @@
-import { APP_METRICS_OUTPUT, HOG_INVOCATION_RESULTS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../../ingestion/common/outputs'
-import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
+import { APP_METRICS_OUTPUT, HOG_INVOCATION_RESULTS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
+import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+
 import {
     BATCH_HOGFLOW_REQUESTS_OUTPUT,
     PRECALCULATED_PERSON_PROPERTIES_OUTPUT,

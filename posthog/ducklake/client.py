@@ -12,6 +12,8 @@ from posthog.ducklake.common import get_duckgres_config_for_org, is_dev_mode, sa
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
 
+    from posthog.models.team.team import Team
+
 
 @dataclass
 class DuckLakeQueryResult:
@@ -64,7 +66,9 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     conn.execute(sql)
 
 
-def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str, dict[str, object], str]:
+def compile_hogql_to_ducklake_sql(
+    team_id: int, query: HogQLQuery, *, team: Team | None = None
+) -> tuple[str, dict[str, object], str]:
     """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
 
     Returns ``(postgres_sql, values, hogql_pretty)``. The ``values`` dict holds
@@ -75,8 +79,14 @@ def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str,
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
+    from posthog.hogql.variables import replace_variables
+
+    from posthog.models.team.team import Team
 
     parsed = parse_select(query.query)
+    if query.variables:
+        team = team or Team.objects.get(pk=team_id)
+        parsed = replace_variables(parsed, list(query.variables.values()), team)
     # Separate context for the Postgres print — the HogQL round-trip below shouldn't
     # contribute to ``postgres_context.values``.
     postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
@@ -94,6 +104,7 @@ def execute_ducklake_query(
     sql: str | None = None,
     query: HogQLQuery | None = None,
     organization_id: str | None = None,
+    team: Team | None = None,
 ) -> DuckLakeQueryResult:
     """Execute a query against a team's duckgres server.
 
@@ -101,7 +112,8 @@ def execute_ducklake_query(
     Postgres-dialect SQL). Exactly one of `sql` or `query` must be provided.
 
     Pass organization_id to skip the Team→Organization lookup when org
-    context is already available from the caller.
+    context is already available from the caller. Pass team to skip the
+    Team lookup used for variable substitution.
     """
     if sql and query:
         raise ValueError("Provide either sql or query, not both")
@@ -111,7 +123,7 @@ def execute_ducklake_query(
     hogql_pretty: str | None = None
     values: dict[str, object] = {}
     if query:
-        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query)
+        sql, values, hogql_pretty = compile_hogql_to_ducklake_sql(team_id, query, team=team)
 
     assert sql is not None
 
