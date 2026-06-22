@@ -169,6 +169,15 @@ Pipelining (measured against Postgres, not visible in Phase A/B/C):
 > The current staged pipeline in `src/lib.rs` (`kafka_reader_loop`/`processor_loop`/`writer_loop`)
 > is a partial version of this — it still reads one-at-a-time and stores offsets on read; closing
 > those two gaps (batched reads + inflight offset manager) is the remaining work.
+>
+> **Measured (iter3):** moving serde off the reader into the processors (point 2's parallel parse)
+> is NEUTRAL — staged_c4 moved only ~+2% in both read- and write-bound regimes (within noise). The
+> e2e ceiling (~8500 ev/s) is **recv-bound** — the single `rdkafka` broker thread — not parse-bound,
+> matching the prod profile. So parse-parallelism (point 2) does not help here, and batched reads
+> (point 1) won't either while recv is the cap. Highest-value remaining steps: **(4) the inflight
+> offset manager** (correctness — stops the on-read offset loss), and for *throughput*,
+> **parallelizing recv across multiple consumers / partition-subsets** (the only way to lift the
+> recv cap). Re-evaluate points 1-2 only after recv is parallelized.
 
 - ✅ **P1. Write concurrency — reverted, then re-introduced once the regime was right.** First
   attempt regressed ~25-35% against a local Postgres (writes ~1ms, no latency to hide). Prod
@@ -206,6 +215,13 @@ baseline; everything worth keeping lands here and is pushed.
 - **Cache contention is negligible on the read path.** `quick_cache` shards internally by key hash
   and we split into 3 per-record-type subcaches; `contains_key` takes a read lock. Per-team
   sharding would help locality/eviction fairness, not lock contention.
+- **The staged e2e ceiling (~8500 ev/s at staged_c4) is recv-bound, not parse-bound.** iter3 moved
+  JSON parsing off the single reader into the N processors; read-bound (e2e@1) and write-bound
+  (e2e@173) staged_c4 both moved only ~+2% (within noise). The cap is the single `rdkafka` recv
+  path (one broker thread), empirically matching the prod profile — so reader-side CPU tricks
+  (parse-parallelism, batched reads) cannot lift it. The only throughput lever that can:
+  parallelize recv across multiple consumers / partition-subsets. Reader micro-opts are low-value
+  until then.
 
 ### Iteration history (compact)
 
@@ -217,6 +233,12 @@ baseline; everything worth keeping lands here and is pushed.
   compiled into the benches, so it can't move `staged_c4`/dedup. Tests/clippy green; pipeline and
   e2e staged/legacy ratio (~1.33×) unchanged. Kept on zero-risk enablement grounds, not a
   throughput delta. (`ef179605`)
+- **iter3 — REVERTED.** Parse-parallelism: reader fans raw bytes (recv + lz4 + `to_vec`) and the N
+  processors do serde + team-filter + dedup, to spread the heavy ~14 KB/event parse across cores.
+  staged_c4 e2e@1 8405→8584 (+2.1%), e2e@173 8543→8716 (+2.0%) — both within noise, under the 5%
+  bar; pipeline deterministic unchanged. Reverted: neutral, and it adds a per-event 14 KB copy.
+  Yielded the key finding above — the e2e cap is recv-bound, not parse-bound — which redirects the
+  focus away from reader-CPU work toward the inflight offset manager and multi-consumer recv.
 
 ## The benchmarks
 
