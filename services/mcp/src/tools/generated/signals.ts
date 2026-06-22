@@ -370,6 +370,25 @@ const signalsScoutConfigList = (): ToolBase<
     },
 })
 
+const SignalsScoutConfigSyncSchema = z.object({})
+
+const signalsScoutConfigSync = (): ToolBase<
+    typeof SignalsScoutConfigSyncSchema,
+    WithPostHogUrl<Schemas.SignalScoutConfig[]>
+> => ({
+    name: 'signals-scout-config-sync',
+    schema: SignalsScoutConfigSyncSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigSyncSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalScoutConfig[]>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/sync/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutConfigUpdateSchema = SignalsScoutConfigUpdateParams.omit({ project_id: true }).extend(
     SignalsScoutConfigUpdateBody.shape
 )
@@ -637,6 +656,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-list': signalsScoutConfigList,
+    'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,

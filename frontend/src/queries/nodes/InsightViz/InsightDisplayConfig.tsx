@@ -248,7 +248,25 @@ export function InsightDisplayConfig(): JSX.Element {
                                   ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                   ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                                   ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
-                                  ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                                  ...(supportsPercentStackView
+                                      ? [
+                                            {
+                                                label: () => (
+                                                    <PercentStackViewFilter
+                                                        // On a pie chart the percentage is rendered through the
+                                                        // series value labels, so it has no effect while those
+                                                        // labels are hidden.
+                                                        disabledReason={
+                                                            display === ChartDisplayType.ActionsPie &&
+                                                            showValuesOnSeries === false
+                                                                ? "Enable 'Show values on series' to use this option"
+                                                                : undefined
+                                                        }
+                                                    />
+                                                ),
+                                            },
+                                        ]
+                                      : []),
                                   ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                   ...(hasLegend || showFunnelLegendConfig
                                       ? [{ label: () => <ShowLegendFilter /> }]

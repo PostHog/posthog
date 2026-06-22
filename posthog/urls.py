@@ -105,7 +105,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     """
     import json
 
-    from products.tasks.backend.webhooks import get_github_webhook_secret, verify_github_signature
+    from products.tasks.backend.facade.webhooks import get_github_webhook_secret, verify_github_signature
 
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -131,7 +131,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return dispatch_github_event(request, event_type, payload)
 
     if event_type == "pull_request":
-        from products.tasks.backend.webhooks import handle_pull_request_event
+        from products.tasks.backend.facade.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
 

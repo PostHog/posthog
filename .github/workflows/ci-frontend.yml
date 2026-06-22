@@ -31,8 +31,12 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            # AND the broad filter with `exclude` (below): a PR that touches only
+            # the Node-only agent-platform services/packages must not trigger
+            # frontend CI — they have their own suite (ci-agents.yml) and are
+            # excluded from jest (frontend/jest.config.ts) and the bundle.
+            frontend: ${{ (steps.filter.outputs.frontend || 'true') == 'true' && (steps.exclude.outputs.outside_non_frontend_ts || 'true') == 'true' }}
+            frontend_code: ${{ (steps.filter.outputs.frontend_code || 'true') == 'true' && (steps.exclude.outputs.outside_non_frontend_ts || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -107,6 +111,29 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+
+            # Dirs that match the broad `frontend` rules above but aren't frontend
+            # code — Node-only TS that has its own suite (ci-agents.yml) and isn't in
+            # jest or the bundle. Appending a plain `!...` negation to the rules above
+            # wouldn't help: dorny's default `some` quantifier OR-matches predicates,
+            # so the broad `products/**/*.ts` rule still matches and the negation is
+            # neutralized (same gotcha documented in
+            # ci-migrations-service-separation-check.yml). A separate step is required
+            # because `predicate-quantifier` is step-level: with `every`, this filter
+            # is true only when some changed file lives OUTSIDE every excluded dir.
+            # AND-ed into the outputs above so a PR touching only these dirs skips
+            # frontend CI. To exclude another non-frontend dir, add a `!` line below —
+            # the outputs reference this one filter, so they don't need to change.
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: |
+                      outside_non_frontend_ts:
+                        - '!products/agent_platform/services/**'
+                        - '!products/agent_platform/packages/**'
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
