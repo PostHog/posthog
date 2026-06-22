@@ -299,5 +299,36 @@ describe('FunnelLineChart', () => {
                 }
             }
         )
+
+        it.each([
+            { showAnnotations: undefined, expectsBadges: true },
+            { showAnnotations: true, expectsBadges: true },
+            { showAnnotations: false, expectsBadges: false },
+        ])(
+            'respects the showAnnotations funnels filter (showAnnotations=$showAnnotations)',
+            async ({ showAnnotations, expectsBadges }) => {
+                renderInsight({
+                    query: buildFunnelsQuery({ funnelsFilter: { showAnnotations } }),
+                    mocks: {
+                        annotations: [
+                            buildAnnotation({
+                                scope: AnnotationScope.Project,
+                                content: 'Hedgehog spotted',
+                                date_marker: '2024-06-12T12:00:00Z',
+                            }),
+                        ],
+                    },
+                })
+
+                if (expectsBadges) {
+                    await waitFor(() => {
+                        expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
+                    })
+                } else {
+                    await screen.findByRole('img', { name: /chart with/i })
+                    expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+                }
+            }
+        )
     })
 })
