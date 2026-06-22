@@ -143,11 +143,40 @@ jobs:
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - Dockerfile
-                      # Snapshot baselines auto-committed by Visual Review. Counted so the
-                      # decide step below can skip a bot's snapshots-only push.
-                      snapshots:
-                        - 'frontend/snapshots.yml'
-                        - 'playwright/snapshots.yml'
+
+            # Visual Review auto-commits a snapshot baseline after human review and CI
+            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # the `playwright_tests` aggregator treats the resulting skip as success. Key
+            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # so it fires even when the PR also carries real code changes.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
 
             - name: Decide whether to run Playwright
               id: decide
@@ -155,17 +184,9 @@ jobs:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
-                  # Visual Review auto-commits a snapshot baseline after human review and
-                  # CI approval. Re-running the ~25-min E2E stack for that bot push is pure
-                  # waste; the `playwright_tests` aggregator treats the skip as success.
-                  IS_BOT_SNAPSHOTS_ONLY: >-
-                      ${{ github.event_name == 'pull_request'
-                          && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
-                          && fromJSON(steps.changes.outputs.snapshots_count || '0') > 0
-                          && fromJSON(steps.changes.outputs.snapshots_count || '0')
-                             == fromJSON(steps.changes.outputs.shouldRun_count || '0') }}
+                  IS_BASELINE_ONLY: ${{ steps.baseline_push.outputs.result }}
               run: |
-                  if [[ "$IS_BOT_SNAPSHOTS_ONLY" == "true" ]]; then
+                  if [[ "$IS_BASELINE_ONLY" == "true" ]]; then
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
                   elif [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
