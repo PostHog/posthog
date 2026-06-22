@@ -7,7 +7,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import Extractor
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLExtractor
+from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -19,9 +19,10 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared
-# evaluate_with_detector. Trends-only in v1, but the dispatch no longer hardcodes the kind.
+# evaluate_with_detector. Funnels stay threshold-only (no native time series to score).
 DETECTOR_EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
+    NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
 }
 
 
