@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -24,10 +24,7 @@ def _make_response(json_body: dict[str, Any] | None = None) -> Response:
 
 class TestZendeskValidateCredentials:
     def _config(self) -> ZendeskSourceConfig:
-        return cast(
-            ZendeskSourceConfig,
-            ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com"),
-        )
+        return ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
 
     @patch("posthog.temporal.data_imports.sources.zendesk.source.validate_credentials", return_value=False)
     def test_rejected_credentials_message_names_each_credential(self, _mock_validate) -> None:
