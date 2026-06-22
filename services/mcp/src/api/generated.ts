@@ -19591,6 +19591,7 @@ export namespace Schemas {
      * * `trial_limit_reached` - Trial evaluation limit reached
      * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
+     * * `no_default_model` - No default model available for the selected provider
      */
     export type StatusReasonEnum = typeof StatusReasonEnum[keyof typeof StatusReasonEnum];
 
@@ -19599,6 +19600,7 @@ export namespace Schemas {
       TrialLimitReached: 'trial_limit_reached',
       ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
+      NoDefaultModel: 'no_default_model',
     } as const;
 
     /**
