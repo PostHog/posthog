@@ -2,13 +2,16 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-topics'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { ASYNC_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
+import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
@@ -22,9 +25,6 @@ import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~
 import { PluginEvent } from '~/plugin-scaffold'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Person, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { normalizeEvent, normalizeProcessPerson } from '~/utils/event'
-import { UUIDT } from '~/utils/utils'
 
 describe('createProcessPersonsStep', () => {
     let hub: Hub

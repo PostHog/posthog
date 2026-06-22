@@ -1,12 +1,12 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 
-import { HogFlow } from '~/schema/hogflow'
-import { UUIDT } from '~/utils/utils'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'

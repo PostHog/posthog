@@ -5,13 +5,13 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { fetch } from '~/utils/request'
-import { logger } from '../../../utils/logger'
+import { fetch } from '~/common/utils/request'
+import { logger } from '~/common/utils/logger'
 import { Hub } from '../../../types'
-import { createHub } from '../../../utils/db/hub'
+import { createHub } from '~/common/utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
@@ -27,8 +27,8 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-execu
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
+jest.mock('~/common/utils/request', () => {
+    const original = jest.requireActual('~/common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {

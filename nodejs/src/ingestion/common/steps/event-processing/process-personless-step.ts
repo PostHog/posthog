@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { buildIntegerMatcher } from '~/config/config'
+import { buildIntegerMatcher } from '~/common/config/config'
+import { normalizeProcessPerson } from '~/common/utils/event'
 import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
 import {
     hasInsertedPersonlessDistinctId,
@@ -13,7 +14,6 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
-import { normalizeProcessPerson } from '~/utils/event'
 
 export type ProcessPersonlessInput = {
     normalizedEvent: PluginEvent

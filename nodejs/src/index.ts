@@ -1,7 +1,8 @@
 // NOTE: Keep these as ~ imports as we can validate the build output this way
 import { PluginServerMode } from '~/common/config'
+import { defaultConfig } from '~/common/config/config'
 import { initTracing } from '~/common/tracing/otel'
-import { defaultConfig } from '~/config/config'
+import { initSuperProperties } from '~/common/utils/posthog'
 import { PluginServer } from '~/server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
@@ -12,7 +13,6 @@ import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
 import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
-import { initSuperProperties } from '~/utils/posthog'
 
 function createServer(): NodeServer {
     switch (defaultConfig.PLUGIN_SERVER_MODE) {

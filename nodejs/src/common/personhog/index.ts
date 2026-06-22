@@ -1,7 +1,7 @@
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { logger } from '~/common/utils/logger'
 import { PersonHogConfig } from '~/ingestion/config'
-import { logger } from '~/utils/logger'
 
 import { PersonHogClient, parseRolloutTeamIds } from './client'
 import { PersonHogGroupRepository } from './personhog-group-repository'

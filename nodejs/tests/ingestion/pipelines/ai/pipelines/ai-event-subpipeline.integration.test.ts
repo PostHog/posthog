@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { newPipelineBuilder } from '~/ingestion/framework/builders'
@@ -20,7 +21,6 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
 
 const team = createTestTeam()
 const message = createTestMessage()

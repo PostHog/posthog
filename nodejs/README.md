@@ -33,7 +33,7 @@ pnpm jest tests/path/to.test.ts  # single file
 
 On pull requests, CI runs only the tests for the area you changed. The boundary guard (`bin/check-ingestion-boundaries.mjs`) proves `cdp` and `ingestion` are isolated — they share only `src/common` — so a change confined to one side can safely skip the other side's tests:
 
-- only `src/ingestion/**` (or `tests/ingestion/**`, `tests/worker/**`) changed → ingestion tests
+- only `src/ingestion/**` or `tests/ingestion/**` changed → ingestion tests
 - only `src/cdp/**` changed → cdp tests
 - anything in `src/common/**`, config, cross-cutting paths, or both sides → the full suite
 

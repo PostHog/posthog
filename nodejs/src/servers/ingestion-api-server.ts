@@ -2,6 +2,12 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
@@ -10,6 +16,15 @@ import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createIngestionProducerRegistry } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
@@ -27,7 +42,6 @@ import {
 } from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 
-import { initializePrometheusLabels } from '../api/router'
 import {
     HogTransformerService,
     HogTransformerServiceConfig,
@@ -36,8 +50,6 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
@@ -68,15 +80,6 @@ import {
     PluginServerService,
     RedisPool,
 } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { EventIngestionRestrictionManagerComponent } from '../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
-import { GeoIPService } from '../utils/geoip'
-import { logger } from '../utils/logger'
-import { PromiseScheduler } from '../utils/promise-scheduler'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type IngestionApiServerConfig = BaseServerConfig &

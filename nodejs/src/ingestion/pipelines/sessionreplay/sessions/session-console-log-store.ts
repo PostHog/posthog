@@ -1,8 +1,8 @@
 import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
 import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { SessionBatchMetrics } from './metrics'
 

@@ -11,6 +11,7 @@ import {
     PersonsOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -20,7 +21,6 @@ import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/bui
 import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { TeamManager } from '~/utils/team-manager'
 
 export interface AiEventSubpipelineInput {
     message: Message

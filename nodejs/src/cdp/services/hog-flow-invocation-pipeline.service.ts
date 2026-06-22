@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { RedisV2 } from '../../common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/services/keyed-rate-limiter.service'
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterRateLimited } from '../consumers/metrics'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, LogEntry, MinimalAppMetric } from '../types'

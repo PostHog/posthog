@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { VMState } from '@posthog/hogvm'
 
-import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
-import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,

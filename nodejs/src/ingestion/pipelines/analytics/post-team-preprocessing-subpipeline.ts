@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
@@ -23,8 +25,6 @@ import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/ana
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 
 export interface PostTeamPreprocessingSubpipelineInput {
     message: Message

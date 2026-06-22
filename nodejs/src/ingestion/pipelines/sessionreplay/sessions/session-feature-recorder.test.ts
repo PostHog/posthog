@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
 
-jest.mock('~/config/config', () => ({
+jest.mock('~/common/config/config', () => ({
     defaultConfig: {
         SESSION_RECORDING_FEATURES_ENABLED: true,
         SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 100,

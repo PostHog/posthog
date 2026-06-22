@@ -131,14 +131,14 @@ jobs:
                     set -f # changed-file names have no globs; disable expansion for the word-split loop
                     for f in $NODEJS_FILES; do
                       case "$f" in
-                        nodejs/src/ingestion/*|nodejs/tests/ingestion/*|nodejs/tests/worker/*) ing=1 ;;
+                        nodejs/src/ingestion/*|nodejs/tests/ingestion/*) ing=1 ;;
                         nodejs/src/cdp/*) cdp=1 ;;
                         *) other=1 ;;
                       esac
                     done
                     set +f
                     if [ "$other" = "0" ] && [ "$ing" = "1" ] && [ "$cdp" = "0" ]; then
-                      patterns='(src/ingestion/|tests/ingestion/|tests/worker/)'
+                      patterns='(src/ingestion/|tests/ingestion/)'
                     elif [ "$other" = "0" ] && [ "$cdp" = "1" ] && [ "$ing" = "0" ]; then
                       patterns='(src/cdp/)'
                       run_e2e=false

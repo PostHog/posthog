@@ -1,4 +1,9 @@
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
@@ -12,18 +17,13 @@ import {
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
     KafkaDownstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
-import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
-import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**

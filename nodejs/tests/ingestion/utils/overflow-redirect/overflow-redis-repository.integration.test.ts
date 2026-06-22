@@ -1,6 +1,6 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { RedisOverflowRepository, redisKey } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 describe('RedisOverflowRepository (integration)', () => {
     let hub: Hub

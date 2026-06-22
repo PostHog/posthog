@@ -6,6 +6,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -18,6 +19,15 @@ import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, Perso
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
@@ -32,17 +42,7 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '~/ingestion/pipelines/analytics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { logger } from '~/utils/logger'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 
 import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'

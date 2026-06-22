@@ -1,4 +1,3 @@
-import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
@@ -8,8 +7,10 @@ import {
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '../config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,

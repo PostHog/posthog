@@ -2,10 +2,10 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 /**
  * Helper function to copy and extend headers from a Kafka message

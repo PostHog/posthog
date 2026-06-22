@@ -19,20 +19,20 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { KafkaProducerWrapper } from '../../src/kafka/producer'
-import { HogFlow } from '../../src/schema/hogflow'
 import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
-import { UUIDT } from '../../src/utils/utils'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
@@ -52,7 +52,7 @@ import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =

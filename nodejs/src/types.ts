@@ -7,6 +7,10 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { GeoIPService } from '~/common/utils/geoip'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
 import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
@@ -26,10 +30,6 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
-import { PostgresRouter } from './utils/db/postgres'
-import { GeoIPService } from './utils/geoip'
-import { PubSub } from './utils/pubsub'
-import { TeamManager } from './utils/team-manager'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
