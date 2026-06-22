@@ -488,10 +488,7 @@ class EndpointExecutionService(PydanticModelMixin):
                     )
                 except ConcurrencyLimitExceeded:
                     raise
-                except Exception as e:
-                    # Don't fall back to a heavier inline retry on a guardrail trip — execute() classifies it.
-                    if _is_query_guardrail_error(e):
-                        raise
+                except Exception:
                     # Already logged/captured/signaled inside the materialized path. Serve the
                     # request from the original query instead of failing — stale tables and
                     # series drift self-heal on the next materialization run.
@@ -503,10 +500,7 @@ class EndpointExecutionService(PydanticModelMixin):
                         endpoint, data, version_obj, version_obj.query.copy(), debug=debug
                     )
                     execution_type = "ducklake"
-                except Exception as e:
-                    # Same as the materialized path: a guardrail trip shouldn't fall back to inline.
-                    if _is_query_guardrail_error(e):
-                        raise
+                except Exception:
                     logger.warning(
                         "DuckLake execution failed, falling back to inline",
                         endpoint_name=endpoint.name,
