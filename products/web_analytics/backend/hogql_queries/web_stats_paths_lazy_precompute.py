@@ -15,6 +15,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+
 import structlog
 from prometheus_client import Counter, Histogram
 
@@ -38,7 +40,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
-    MIRROR_PATHKEY_ENABLED,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
     ceil_utc_day,
@@ -706,9 +707,10 @@ def execute_lazy_precomputed_read(
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
 
         # Best-effort dual-write: mirror these jobs' rows into the colocated pathkey
-        # table for A/B read comparison. After the read so it never adds latency to
-        # the user's response; swallows its own errors.
-        if MIRROR_PATHKEY_ENABLED:
+        # table for A/B read comparison. Narrowly scoped to the allowlisted teams
+        # (default: Cloud project 2) so only they pay the extra mirror write. After
+        # the read so it never adds latency to the user's response; swallows errors.
+        if team_id in settings.WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS:
             mirror_jobs_to_pathkey(team_id=team_id, job_ids=job_ids)
 
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)

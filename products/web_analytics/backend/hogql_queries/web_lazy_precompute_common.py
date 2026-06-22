@@ -28,8 +28,6 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 
 from posthog import redis
 from posthog.models import Team
-from posthog.settings.utils import get_from_env
-from posthog.utils import str_to_bool
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -157,12 +155,6 @@ SESSION_FORWARD_PAD_MINUTES = 24 * 60
 # Org-level rollout flag — same one the frontend uses to show the "Allow
 # precompute" toggle.
 ORG_FEATURE_FLAG_KEY = "web-analytics-precompute-toggle"
-
-# Kill-switch for the temporary dual-write of PATHS precompute rows into the
-# colocated `web_stats_paths_preaggregated_pathkey` table (PR #64948). On by
-# default; set WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY=0 to stop the mirror copies
-# without a code change. Removable once the A/B read comparison concludes.
-MIRROR_PATHKEY_ENABLED = get_from_env("WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY", True, type_cast=str_to_bool)
 
 
 class LazyPrecomputeIneligible(Exception):
