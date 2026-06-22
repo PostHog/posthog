@@ -5,12 +5,14 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.auth.exceptions import RefreshError
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BigQueryCredentialsRejectedError,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
@@ -130,6 +132,37 @@ def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, i
         assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
     else:
         assert error_message in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_rejected",
+    [
+        # An `invalid_grant` RefreshError means Google rejected the service-account grant (rotated
+        # key, deleted account). `get_columns` must surface a clear message instead of the tuple repr.
+        (
+            "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+            BigQueryCredentialsRejectedError,
+            True,
+        ),
+        # Transient/other RefreshErrors carry their own diagnoses and must propagate unchanged.
+        ("('Failed to retrieve token', {'error': 'internal_failure'})", RefreshError, False),
+    ],
+)
+def test_bigquery_get_columns_refresh_error_handling(error_message, expected_type, is_rejected):
+    """`invalid_grant` RefreshErrors are wrapped as `BigQueryCredentialsRejectedError`; others propagate."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = RefreshError(error_message)
+
+    with pytest.raises(expected_type) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert isinstance(exc_info.value, BigQueryCredentialsRejectedError) == is_rejected
+    if is_rejected:
+        # The wizard shows this str() directly, and it must keep the `invalid_grant` marker so the
+        # sync schema-discovery path still recognises it as non-retryable.
+        assert "invalid_grant" in str(exc_info.value)
+        assert "rejected by Google" in str(exc_info.value)
+        assert any(key in str(exc_info.value) for key in BigQuerySource().get_non_retryable_errors())
 
 
 @pytest.mark.parametrize(
@@ -406,6 +439,27 @@ def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Offline ngrok tunnel — the subdomain varies but the stable error code does not.
+        "RefreshError: <!DOCTYPE html> <html> ... "
+        "<noscript>The endpoint tetrarchical-coercibly-norine.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
+        # Different tunnel subdomain — the match must not rely on the volatile host part.
+        "RefreshError: <!DOCTYPE html> <html> ... "
+        "<noscript>The endpoint other-tunnel-name.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
+    ],
+)
+def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
+    """A service account whose `token_uri` points at an offline ngrok tunnel makes google-auth
+    raise a `RefreshError` carrying ngrok's HTML error page — a misconfigured key the user must
+    fix, so the sync must be disabled rather than retried forever."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Offline token_uri endpoint error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
@@ -658,6 +712,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # Federated EXTERNAL_QUERY view whose upstream schema drifted — a column the view selects was
+        # renamed/dropped in the source database, so BigQuery can't compile the view.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=us-central1: Invalid table-valued function EXTERNAL_QUERY; failed to parse "
+                "view 'analytics.SurveyResponse'\nFailed to get query schema from PostgreSQL server, "
+                'prepare statement failed. Error: ERROR:  column "participantId" does not exist'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_unparseable_view(observed_error):
+    """A view whose definition no longer matches the underlying data (e.g. a federated query
+    references a dropped column) can't be recovered by retrying — the user must fix the view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(
@@ -822,3 +898,37 @@ def test_bigquery_billing_not_enabled_is_non_retryable():
     assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
     # Mirror the substring match used by `update_external_data_job_model`.
     assert billing_key in internal_error
+
+
+def test_bigquery_cdc_staleness_is_non_retryable():
+    """A CDC table whose pending upserts are staler than its max_staleness can't be read via the
+    Storage Read API (it never applies CDC changes), so the read fails as an InvalidArgument.
+    Retrying within the sync's window can't recover it — the apply happens on BigQuery's schedule —
+    so it must be recognised as non-retryable instead of hammering the Read API every attempt."""
+    error_msg = str(
+        InvalidArgument(
+            "request failed: The table has un-applied upsert data that is not fresh enough to meet "
+            "table's max_staleness."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "CDC max_staleness read failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # A genuine config error about max_staleness must not be swallowed by the freshness key.
+        "400 Invalid value for max_staleness: must be a valid INTERVAL",
+        # Transient server errors must stay retryable.
+        "503 Service unavailable, please retry",
+    ],
+)
+def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert "un-applied upsert data that is not fresh enough" not in other_error
+    assert not any(key in other_error for key in non_retryable_errors)

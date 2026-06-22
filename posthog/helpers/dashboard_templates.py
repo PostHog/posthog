@@ -683,7 +683,9 @@ def create_dashboard_from_template(
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
     template = DashboardTemplate.objects.filter(
-        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        Q(team_id=dashboard.team_id)
+        | Q(scope=DashboardTemplate.Scope.GLOBAL)
+        | Q(scope=DashboardTemplate.Scope.ORGANIZATION, team__organization_id=dashboard.team.organization_id),
         template_name=template_key,
     ).first()
     if not template:

@@ -9,7 +9,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -61,6 +61,88 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             start_interval_index_filter=start_interval_index_filter,
             selected_breakdown_value=selected_breakdown_value,
         )
+
+    def apply_sampling(self, base_query: ast.SelectQuery) -> None:
+        select_from = base_query.select_from
+        if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
+            if self.query.samplingFactor is None or not isinstance(self.query.samplingFactor, float):
+                return
+            for arm, entity in zip(select_from.table.select_queries(), [self.start_event, self.return_event]):
+                if entity.type == EntityType.DATA_WAREHOUSE:
+                    continue
+                arm_from = arm.select_from if isinstance(arm, ast.SelectQuery) else None
+                if arm_from is not None:
+                    arm_from.sample = ast.SampleExpr(
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+                    )
+            return
+
+        super().apply_sampling(base_query)
+
+    def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
+        select_from = base_query.select_from
+        if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
+            # Variant path: breakdown_value is resolved inside each UNION ALL arm and
+            # surfaced by build_base_query_dwh. The parent implementation appends
+            # events.*-referencing exprs to this outer query, where only the
+            # retention_events union is in scope, so it must not run here.
+            return
+
+        super().apply_breakdown(base_query)
+
+    def _breakdown_extract_targets_events_table(self) -> bool:
+        # event / event_metadata breakdowns hardcode events.properties.* and cannot be
+        # resolved against a data-warehouse-table arm. person / group / cohort /
+        # data_warehouse_person_property go via joins or a constant, and hogql is
+        # user-authored (it may legitimately reference the DWH table's own columns), so
+        # those are left to resolve normally.
+        breakdown_filter = self.query.breakdownFilter
+        if breakdown_filter is None:
+            return False
+        breakdown_type = (
+            breakdown_filter.breakdowns[0].type if breakdown_filter.breakdowns else breakdown_filter.breakdown_type
+        )
+        return breakdown_type in ("event", "event_metadata", None)
+
+    def _dwh_breakdown_value_arm_expr(
+        self,
+        entity: RetentionEntity,
+        breakdown_extract: ast.Expr,
+        timestamp_field: ast.Expr,
+        query_kind: Literal["start", "return"],
+    ) -> ast.Expr:
+        # An events-table-rooted extract can't be resolved against a data-warehouse-table
+        # arm; fall back to the empty bucket so the query still prints. The events arm (if
+        # any) supplies the real value, surfaced by the outer max().
+        if entity.type == EntityType.DATA_WAREHOUSE and self._breakdown_extract_targets_events_table():
+            return ast.Constant(value="")
+
+        if self.is_first_ever_occurrence:
+            # First-ever buckets each actor by the breakdown value on their earliest START
+            # event, resolved here via argMinIf(..., start_entity_expr_no_props). The events
+            # return arm can only do that when it shares the events source with the start
+            # entity. When the start entity is a DWH table, start_entity_expr_no_props
+            # collapses to a truthy constant, so on the events return arm argMinIf would
+            # instead read the actor's earliest RETURN event's value. Degrade to the empty
+            # bucket — the start (DWH) arm already emits "", so the outer max() yields "".
+            if (
+                query_kind == "return"
+                and self.start_event.type == EntityType.DATA_WAREHOUSE
+                and self._breakdown_extract_targets_events_table()
+            ):
+                return ast.Constant(value="")
+            # Bucket each actor by the breakdown value on their earliest start event.
+            return parse_expr(
+                "argMinIf({breakdown}, {timestamp}, {entity})",
+                {
+                    "breakdown": breakdown_extract,
+                    "timestamp": timestamp_field,
+                    "entity": self.start_entity_expr_no_props,
+                },
+            )
+
+        # Recurring / first-time-matching: per-row value; the arm groups by it.
+        return breakdown_extract
 
     # Nested fixed-interval query with data warehouse support.
     # Intended as a drop-in replacement for the legacy query while we verify
@@ -173,10 +255,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         if retention_value_expr:
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
 
+        group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
+        if has_breakdown_filter(self.query.breakdownFilter):
+            if self.is_first_ever_occurrence:
+                # Each arm resolves the same single per-actor value; max() collapses the
+                # UNION rows deterministically and lets a real value win over the
+                # empty-bucket fallback on a data-warehouse-mixed series.
+                select_fields.append(ast.Alias(alias="breakdown_value", expr=parse_expr("max(breakdown_value)")))
+            else:
+                # Per-value rows from the arms; carry the value as a grouping key so the
+                # per-value cohort partitioning survives the outer aggregation.
+                select_fields.append(ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["breakdown_value"])))
+                group_by_fields.append(ast.Field(chain=["breakdown_value"]))
+
         base_query = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
-            group_by=[ast.Field(chain=["actor_id"])],
+            group_by=group_by_fields,
             having=ast.And(
                 exprs=[
                     (
@@ -302,11 +397,28 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ]
             )
 
+        group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
+
+        breakdown_extract = self.breakdown_extract_expr_for_query()
+        if breakdown_extract is not None:
+            select_fields.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=self._dwh_breakdown_value_arm_expr(entity, breakdown_extract, timestamp_field, query_kind),
+                )
+            )
+            # Recurring / first-time-matching mirrors the legacy per-value cohort
+            # semantics: grouping each arm by breakdown_value filters its start and
+            # return aggregations to events carrying that value. First-ever resolves a
+            # single per-actor value (argMinIf), so it stays grouped by actor_id only.
+            if not self.is_first_ever_occurrence:
+                group_by_fields.append(ast.Field(chain=["breakdown_value"]))
+
         return ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
             where=where_expr,
-            group_by=[ast.Field(chain=["actor_id"])],
+            group_by=group_by_fields,
         )
 
     def _first_time_start_event_timestamps_expr(self, entity: RetentionEntity) -> ast.Expr:

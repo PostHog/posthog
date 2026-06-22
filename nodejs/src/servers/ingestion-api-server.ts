@@ -1,7 +1,31 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { ProducerName } from '~/common/outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createIngestionProducerRegistry } from '~/common/outputs/registry'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -14,14 +38,6 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from '../ingestion/analytics/joined-ingestion-pipeline'
-import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
@@ -31,8 +47,6 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -43,12 +57,6 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
-import { createOkContext } from '../ingestion/pipelines/helpers'
-import { TopHog } from '../ingestion/tophog'
 import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'
@@ -69,13 +77,6 @@ import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
-import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type IngestionApiServerConfig = BaseServerConfig &
@@ -129,6 +130,11 @@ const batchErrors = new Counter({
 const batchCapacityRejections = new Counter({
     name: 'ingestion_api_batch_capacity_rejections_total',
     help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
+})
+
+const batchesInFlight = new Gauge({
+    name: 'ingestion_api_batches_in_flight',
+    help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
 })
 
 /**
@@ -367,6 +373,7 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
@@ -413,6 +420,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
+        // Tracks whether this batch was accepted, so the `finally` only
+        // decrements the in-flight gauge for batches that incremented it.
+        let inFlight = false
+
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
@@ -444,6 +455,11 @@ export class IngestionApiServer implements NodeServer {
                 }
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
+
+            // Batch accepted into the pipeline — it now occupies a concurrent
+            // slot until processing completes below.
+            batchesInFlight.inc()
+            inFlight = true
 
             let result = await this.joinedPipeline.next()
             while (result !== null) {
@@ -478,6 +494,10 @@ export class IngestionApiServer implements NodeServer {
                 void this.stop(error)
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
+        } finally {
+            if (inFlight) {
+                batchesInFlight.dec()
+            }
         }
     }
 

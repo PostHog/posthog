@@ -440,7 +440,6 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: 'pnpm'
             - name: Install API CLI dependencies
               run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
             - name: Build API CLI release bundle
@@ -526,7 +525,6 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: 'pnpm'
             - name: Install API CLI dependencies
               run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
             - name: Build API CLI release bundle

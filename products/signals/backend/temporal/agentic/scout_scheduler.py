@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import structlog
 import temporalio
@@ -10,7 +11,12 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
-from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.temporal import metrics
+
+if TYPE_CHECKING:
+    # Type-only: importing the harness runner at module load would close the cycle
+    # runner -> temporal.agentic -> scout_coordinator -> scout_scheduler -> runner.
+    from products.signals.backend.scout_harness.runner import RunResult
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +60,11 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     workflow sees a `status='failed'` outcome. This matches the spec's "fail safe and
     silent" rule: a bad run does not retry blindly.
     """
+    # Deferred to break the runner <-> temporal import cycle (see the TYPE_CHECKING note
+    # above): importing the runner at module load leaves RunResult undefined when runner
+    # is the import entry point. Imported here at call time, after both modules are loaded.
+    from products.signals.backend.scout_harness.runner import arun_signals_scout  # noqa: PLC0415
+
     async with Heartbeater():
         result = await arun_signals_scout(
             team_id=input.team_id,
@@ -61,6 +72,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             skill_version=input.skill_version,
             repository=input.repository,
         )
+    metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",
         team_id=input.team_id,

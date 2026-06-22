@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from products.customer_analytics.backend.max_tools import UpsertAccountNotebookTool, UpsertAccountTool
+from products.customer_analytics.backend.facade.max_tools import UpsertAccountNotebookTool, UpsertAccountTool
 
 from ee.hogai.chat_agent.executables import ChatAgentExecutable, ChatAgentToolsExecutable
 from ee.hogai.tools.todo_write import TodoWriteExample

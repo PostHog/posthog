@@ -1,10 +1,12 @@
 import {
+    AggregationAxisFormat,
+    defaultAggregationAxisFormatForDisplay,
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
 } from 'scenes/insights/aggregationAxisFormat'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 
 describe('formatAggregationAxisValue', () => {
     const formatTestcases = [
@@ -69,6 +71,26 @@ describe('formatAggregationAxisValue', () => {
                 )
             ).toEqual(testcase.expected)
         })
+    })
+})
+
+describe('defaultAggregationAxisFormatForDisplay', () => {
+    const cases: { display: ChartDisplayType; expected: AggregationAxisFormat | undefined }[] = [
+        { display: ChartDisplayType.Metric, expected: 'short' },
+        { display: ChartDisplayType.BoldNumber, expected: undefined },
+        { display: ChartDisplayType.ActionsLineGraph, expected: undefined },
+        { display: ChartDisplayType.ActionsPie, expected: undefined },
+    ]
+
+    cases.forEach(({ display, expected }) => {
+        it(`returns ${String(expected)} for ${display}`, () => {
+            expect(defaultAggregationAxisFormatForDisplay(display)).toEqual(expected)
+        })
+    })
+
+    it('returns undefined when no display is set', () => {
+        expect(defaultAggregationAxisFormatForDisplay(null)).toBeUndefined()
+        expect(defaultAggregationAxisFormatForDisplay(undefined)).toBeUndefined()
     })
 })
 
