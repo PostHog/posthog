@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.http import HttpResponse
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1117,13 +1118,10 @@ _METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.pos
 
 
 class TestScoutHarnessMetadataAPI(APIBaseTest):
-    """Scout metadata endpoint: enrollment, the alpha banner, and the enforced run limits, all
-    resolved from the `signals-scout` flag payload so the UI shows the throttle dispatch applies."""
-
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/metadata/current/"
 
-    def _get(self, payload: dict | None):
+    def _get(self, payload: dict | None) -> HttpResponse:
         # The endpoint reads the flag payload via team_limits; stub it so enrollment + caps are
         # deterministic without depending on the live flag.
         with patch(_METADATA_PAYLOAD_PATH, return_value=payload):
@@ -1141,9 +1139,20 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "runs_remaining_today",
         }
 
-    def test_enrolled_reflects_guaranteed_team_ids(self) -> None:
-        assert self._get({"guaranteed_team_ids": [self.team.id]}).json()["enrolled"] is True
-        assert self._get({"guaranteed_team_ids": [self.team.id + 1]}).json()["enrolled"] is False
+    @parameterized.expand([("listed", True), ("not_listed", False)])
+    def test_enrolled_reflects_guaranteed_team_ids(self, _name: str, listed: bool) -> None:
+        team_id = self.team.id if listed else self.team.id + 1
+        assert self._get({"guaranteed_team_ids": [team_id]}).json()["enrolled"] is listed
+
+    def test_falls_back_to_suppressed_metadata_when_flag_unavailable(self) -> None:
+        # Flag service down → `_read_flag_payload` returns None: enrollment falls back to the
+        # gated allowlist (which this fresh team isn't on), the banner is suppressed, and the caps
+        # default to the code constants. The endpoint must stay up and fail closed, not error.
+        body = self._get(None).json()
+        assert body["enrolled"] is False
+        assert body["banner_message"] is None
+        assert body["limits"]["max_runs_per_tick"] == MAX_RUNS_PER_TEAM_PER_TICK
+        assert body["limits"]["max_runs_per_day"] is None
 
     def test_banner_message_surfaced_from_payload(self) -> None:
         body = self._get(
