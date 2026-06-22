@@ -487,12 +487,6 @@ def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
         trace_id = extra.get("trace_id")
         if trace_id:
             parts.append(f"Trace: `{_escape_mrkdwn(str(trace_id)[:12])}…`")
-    elif source_product == "error_tracking":
-        fingerprint = extra.get("fingerprint")
-        if fingerprint:
-            text = str(fingerprint)
-            short = text if len(text) <= 14 else text[:14] + "…"
-            parts.append(f"Fingerprint: `{_escape_mrkdwn(short)}`")
     elif source_product == "session_replay":
         if extra.get("problem_type"):
             parts.append(f"Problem: {_escape_mrkdwn(str(extra['problem_type']).replace('_', ' '))}")
@@ -505,13 +499,9 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
     source_type = str(signal.get("source_type") or "")
     raw_extra = signal.get("extra")
     extra = raw_extra if isinstance(raw_extra, dict) else {}
-    try:
-        weight = float(signal.get("weight") or 0.0)
-    except (TypeError, ValueError):
-        weight = 0.0
 
     source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type, extra))
-    header_line = f"*{source_line}*  ·  Weight: {weight:.1f}"
+    header_line = f"*{source_line}*"
     blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
 
     content = (signal.get("content") or "").strip()
