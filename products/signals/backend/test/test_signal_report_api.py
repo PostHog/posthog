@@ -2,11 +2,13 @@ import json
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -18,7 +20,9 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task, TaskRun
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -506,7 +510,9 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def _create_implementation_task_with_run(
         self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
-    ) -> tuple[Task, TaskRun]:
+    ) -> "tuple[Task, TaskRun]":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="Implementation task",
@@ -573,6 +579,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] is None
 
     def test_implementation_pr_url_uses_latest_task_run(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
         task = Task.objects.create(
             team=self.team,
@@ -992,13 +1000,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 None,
                 "free-form note",
             ),
-            # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
             (
-                "suppress_accepts_arbitrary_reason",
-                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+                "suppress_with_other_reason",
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "edge case"},
                 SignalReport.Status.SUPPRESSED,
-                "some_brand_new_code",
-                None,
+                "other",
+                "edge case",
             ),
             (
                 "snooze_with_reason_and_note",
@@ -1082,6 +1089,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             (
                 "oversized_dismissal_note",
                 {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001},
+            ),
+            # Reason codes are now constrained to the canonical inbox set, so invented codes are rejected.
+            (
+                "non_canonical_dismissal_reason",
+                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
             ),
         ]
     )
@@ -1305,3 +1317,125 @@ class TestAvailableReviewersAPI(APIBaseTest):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
+
+
+class TestSignalReportBulkStateAPI(APIBaseTest):
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    def _post(self, body: dict):
+        return self.client.post(self._bulk_url(), data=json.dumps(body), content_type="application/json")
+
+    def test_bulk_suppress_transitions_all_reports(self):
+        reports = [self._create_report() for _ in range(3)]
+        ids = [str(r.id) for r in reports]
+
+        response = self._post({"ids": ids, "state": "suppressed", "dismissal_reason": "wontfix_intentional"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 3
+        assert body["skipped_count"] == 0
+        assert body["failed_count"] == 0
+        assert body["not_found_count"] == 0
+        # Results are in request order, each carrying the post-transition status.
+        assert [row["id"] for row in body["results"]] == ids
+        assert all(row["outcome"] == "transitioned" for row in body["results"])
+        assert all(row["status"] == SignalReport.Status.SUPPRESSED for row in body["results"])
+
+        for report in reports:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.SUPPRESSED
+            artefacts = SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            )
+            assert artefacts.count() == 1
+            assert json.loads(artefacts.get().content)["reason"] == "wontfix_intentional"
+
+    def test_bulk_skips_disallowed_transitions_but_processes_the_rest(self):
+        ready = self._create_report(report_status=SignalReport.Status.READY)
+        # POTENTIAL -> POTENTIAL is not an allowed transition, so it comes back as `skipped`.
+        already_potential = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+
+        response = self._post({"ids": [str(ready.id), str(already_potential.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["skipped_count"] == 1
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(ready.id)] == "transitioned"
+        assert outcomes[str(already_potential.id)] == "skipped"
+
+        ready.refresh_from_db()
+        assert ready.status == SignalReport.Status.POTENTIAL
+
+    def test_bulk_reports_not_found_for_unknown_and_other_team_ids(self):
+        mine = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_teams_report = self._create_report(team=other_team)
+        missing_id = "00000000-0000-0000-0000-000000000000"
+
+        response = self._post({"ids": [str(mine.id), str(other_teams_report.id), missing_id], "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["not_found_count"] == 2
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(mine.id)] == "transitioned"
+        # Another team's report is invisible (IDOR boundary) — reported as not_found, never touched.
+        assert outcomes[str(other_teams_report.id)] == "not_found"
+        assert outcomes[missing_id] == "not_found"
+
+        other_teams_report.refresh_from_db()
+        assert other_teams_report.status == SignalReport.Status.READY
+
+    def test_bulk_deduplicates_ids_preserving_order(self):
+        first = self._create_report()
+        second = self._create_report()
+        ids = [str(first.id), str(second.id), str(first.id)]
+
+        response = self._post({"ids": ids, "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [row["id"] for row in body["results"]] == [str(first.id), str(second.id)]
+        assert body["transitioned_count"] == 2
+
+    def test_bulk_restore_reaches_suppressed_reports(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        report.status_before_suppression = SignalReport.Status.READY
+        report.save(update_fields=["status_before_suppression"])
+
+        response = self._post({"ids": [str(report.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["transitioned_count"] == 1
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("empty_ids", {"ids": [], "state": "suppressed"}),
+            ("missing_ids", {"state": "suppressed"}),
+            ("too_many_ids", {"ids": [f"00000000-0000-0000-0000-{i:012d}" for i in range(101)], "state": "suppressed"}),
+            (
+                "invalid_reason",
+                {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
+            ),
+            ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
+            ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
+        ]
+    )
+    def test_bulk_rejects_invalid_requests(self, _name, body):
+        response = self._post(body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
