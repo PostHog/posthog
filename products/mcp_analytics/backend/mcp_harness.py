@@ -66,7 +66,12 @@ def harness_label_sql(token_col: str = "h") -> str:
     (or an argMax of it) — pass the alias, not the token expression itself.
     Surface-specific entries are listed before the generic prefix matches so
     `find`-style first-match precedence matches the frontend registry order.
+
+    `token_col` is interpolated into SQL, so it must be a bare identifier — never
+    request input. The guard makes that impossible to violate by accident.
     """
+    if not token_col.isidentifier():
+        raise ValueError(f"token_col must be a SQL identifier, got {token_col!r}")
     return f"""multiIf(
         {token_col} = 'claude-code claude-desktop', 'Claude Desktop',
         {token_col} = 'claude-code claude-vscode', 'Claude Code (VS Code)',
