@@ -27,7 +27,7 @@ import {
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
-const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
+export const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
     debug: 'bg-muted',
     info: 'bg-brand-blue',
