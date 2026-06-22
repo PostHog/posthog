@@ -821,6 +821,36 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test.each([
+                ['negative value', -1, 5],
+                ['value larger than max', 10, 3],
+                ['negative max', 2, -5],
+                ['fractional out-of-range value', 7.5, 2],
+                ['zero max with positive value', 3, 0],
+            ])('progress rating does not throw for malformed data: %s', (_label, value, max) => {
+                // these previously produced a negative Array length and threw RangeError
+                expect(() =>
+                    transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'progress',
+                                    style: { bar: 'rating' },
+                                    max,
+                                    value,
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).not.toThrow()
+            })
+
             test('open keyboard custom event', () => {
                 expect(
                     transformEventToWeb({
