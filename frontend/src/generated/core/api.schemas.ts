@@ -2695,6 +2695,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+/**
+ * Payload for publishing a freeform canvas's React source via the agent.
+ */
+export interface PatchedCanvasPublishApi {
+    code?: string
+    prompt?: string
+    name?: string
+}
+
 export interface ContextGenerationApi {
     /**
      * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
