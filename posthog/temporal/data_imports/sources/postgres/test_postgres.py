@@ -2111,7 +2111,9 @@ class TestPostgresSchemaDiscovery:
 
         cursor = connection.cursor.return_value.__enter__.return_value
         executed_queries = [
-            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+            call.args[0]
+            for call in cursor.execute.call_args_list
+            if "SELECT version()" not in str(call.args[0]) and "statement_timeout" not in str(call.args[0])
         ]
         first_query = executed_queries[0]
         second_query = executed_queries[1]
@@ -2205,7 +2207,9 @@ class TestPostgresSchemaDiscovery:
 
         cursor = connection.cursor.return_value.__enter__.return_value
         executed_queries = [
-            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+            call.args[0]
+            for call in cursor.execute.call_args_list
+            if "SELECT version()" not in str(call.args[0]) and "statement_timeout" not in str(call.args[0])
         ]
         first_query = executed_queries[0]
         second_query = executed_queries[1]
@@ -4062,7 +4066,15 @@ class TestGetTable:
             dj_cursor.execute("CREATE TABLE test_schemas_from_conn_timeout (id INTEGER PRIMARY KEY, name TEXT)")
 
         conn = _RecordingConnection(django_connection)
-        discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
+        try:
+            discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
+        finally:
+            # `_schemas_from_conn` issues a session-level `SET statement_timeout` (production opens and
+            # closes its own connection, so the GUC is discarded with it). Here it runs against the shared
+            # `django_connection`, which Postgres does not reset on transaction rollback — clear it so the
+            # raised timeout can't leak onto subsequent tests reusing the connection.
+            with django_connection.cursor() as dj_cursor:
+                dj_cursor.execute("RESET statement_timeout")
 
         assert "test_schemas_from_conn_timeout" in discovered
         assert {col[0] for col in discovered["test_schemas_from_conn_timeout"].columns} >= {"id", "name"}
