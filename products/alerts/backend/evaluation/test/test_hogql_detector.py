@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import HogQLAlertConfig
+
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor
+from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, extract_hogql_detector_series
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
@@ -75,3 +77,13 @@ def test_picks_numeric_column_and_labels_by_its_name():
     assert result.series[0].label == "value"
     evaluation = evaluate_with_detector(result, ZSCORE)
     assert evaluation.value == 100.0
+
+
+def test_extract_hogql_detector_series_is_alert_less():
+    # The simulation reuses the alert-less builder directly (no AlertConfiguration).
+    config = HogQLAlertConfig(type="HogQLAlertConfig", evaluation="last_row")
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None)
+        result = extract_hogql_detector_series(MagicMock(), MagicMock(), config, ZSCORE, user=None)
+    assert len(result.series[0].points) == 32
+    assert evaluate_with_detector(result, ZSCORE).value == 100.0

@@ -686,14 +686,22 @@ class AlertSimulateSerializer(serializers.Serializer):
     )
     series_index = serializers.IntegerField(
         default=0,
-        help_text="Zero-based index of the series to analyze.",
+        help_text="Zero-based index of the series to analyze (trends insights only).",
     )
     date_from = serializers.CharField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
-        "If not provided, uses the detector's minimum required samples.",
+        "If not provided, uses the detector's minimum required samples. Trends insights only — a SQL "
+        "query's own rows are the series.",
+    )
+    config = AlertConfigField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Per-insight-kind alert config. For SQL insights, selects the evaluated column and "
+        "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
 
     def validate_insight(self, value):
@@ -983,6 +991,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detector_config = serializer.validated_data["detector_config"]
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
+        config = serializer.validated_data.get("config")
 
         try:
             result = simulate_detector_on_insight(
@@ -992,6 +1001,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 series_index=series_index,
                 date_from=date_from,
                 user=cast(User, request.user),
+                config=config,
             )
         except (ValueError, IndexError) as e:
             raise ValidationError(str(e))

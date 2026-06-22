@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
+from posthog.schema import HogQLAlertConfig, IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -25,6 +25,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.evaluation.hogql import extract_hogql_detector_series
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -202,8 +203,13 @@ def simulate_detector_on_insight(
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
+    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
+
+    ``config`` carries the per-kind alert config — used by SQL insights to pick the evaluated column
+    and read direction (last_row/first_row); ignored by trends (which use ``series_index``).
+    """
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
@@ -214,17 +220,23 @@ def simulate_detector_on_insight(
     if kind in WRAPPER_NODE_KINDS:
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
-    if kind != NodeKind.TRENDS_QUERY:
-        raise ValueError("Only TrendsQuery insights are supported for simulation.")
 
-    trends_query = TrendsQuery.model_validate(query)
     # Read-only simulation runs outside the alert-check activity, so tag its query directly.
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
-    result = extract_detector_series(
-        insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from, user=user
-    )
-    interval_value = trends_query.interval.value if trends_query.interval else None
+
+    if kind == NodeKind.TRENDS_QUERY:
+        trends_query = TrendsQuery.model_validate(query)
+        result = extract_detector_series(
+            insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from, user=user
+        )
+        interval_value = trends_query.interval.value if trends_query.interval else None
+    elif kind == NodeKind.HOG_QL_QUERY:
+        hogql_config = HogQLAlertConfig.model_validate(config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
+        result = extract_hogql_detector_series(insight, team, hogql_config, detector_config, user=user)
+        interval_value = None
+    else:
+        raise ValueError("Only TrendsQuery and HogQLQuery insights are supported for simulation.")
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that

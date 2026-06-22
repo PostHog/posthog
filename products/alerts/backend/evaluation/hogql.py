@@ -145,14 +145,70 @@ class HogQLExtractor:
         return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
 
-class HogQLDetectorExtractor:
-    """Detector-path extractor for SQL/HogQL insights: builds the full ordered value series the
-    anomaly detector scores, then ``evaluate_with_detector`` (shared, kind-agnostic) scores it.
+def extract_hogql_detector_series(
+    insight: Insight,
+    team: Any,
+    config: HogQLAlertConfig,
+    detector_config: dict[str, Any],
+    *,
+    user: Any = None,
+) -> ExtractionResult:
+    """Build the full ordered value series an anomaly detector scores from a SQL/HogQL insight.
 
-    Unlike trends, a SQL query is self-contained — its rows *are* the history, so there's no wider
-    lookback window to refetch; the alert author's query must return enough rows for the detector's
-    window. Only ``last_row``/``first_row`` apply: ``any_row`` rows are unrelated entities, not a time
-    axis, so scoring change across them is meaningless.
+    Shared by the alert-check extractor and the read-only simulation. Unlike trends, a SQL query is
+    self-contained — its rows *are* the history, so there's no wider lookback window to refetch; the
+    query must return enough rows for the detector's window. Only ``last_row``/``first_row`` apply:
+    ``any_row`` rows are unrelated entities, not a time axis, so scoring change across them is
+    meaningless. Too few rows to fill the window yields an empty series (uncomputed); an empty result
+    yields an empty series flagged ``empty_query_result`` (the metric is genuinely 0).
+    """
+    if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
+        raise AlertExtractionError(
+            "Anomaly detection isn't supported for any-row SQL alerts — its rows are unrelated "
+            "entities, not a time series. Use last-row or first-row evaluation."
+        )
+
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user=user,
+        analytics_props={"source": EventSource.ALERT},
+    )
+    rows = calculation_result.result
+    if rows is None:
+        raise RuntimeError(f"No results found for insight with id = {insight.id}")
+    if not isinstance(rows, list):
+        raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    if len(rows) == 0:
+        return ExtractionResult(
+            series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
+        )
+
+    column_names = (
+        [str(c) for c in calculation_result.columns] if isinstance(calculation_result.columns, list) else None
+    )
+    value_index = _resolve_value_column_index(config.column, column_names, rows)
+    # The series is the value column across every row, oldest->newest so the detector scores the
+    # latest point against its history. first_row results are newest-first, so reverse them.
+    ordered = list(reversed(rows)) if config.evaluation == HogQLAlertEvaluation.FIRST_ROW else rows
+    values = [_numeric_cell(row, value_index, position=f"row {i + 1}") for i, row in enumerate(ordered)]
+
+    # Too few points to score → report uncomputed (None), mirroring the trends detector's
+    # "rows exist but are too short" path (empty series with empty_query_result False).
+    if len(values) < _compute_min_samples_for_detector(detector_config) + 1:
+        return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+
+    series_label = column_names[value_index] if column_names and value_index < len(column_names) else "result"
+    points = [SeriesPoint(date=None, value=v) for v in values]
+    single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
+    return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+
+
+class HogQLDetectorExtractor:
+    """Detector-path extractor for SQL/HogQL insights — thin alert adapter over
+    ``extract_hogql_detector_series`` (which the read-only simulation also uses), mirroring how
+    ``TrendsDetectorExtractor`` wraps ``extract_detector_series``.
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
@@ -160,47 +216,7 @@ class HogQLDetectorExtractor:
         if not detector_config:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = HogQLAlertConfig.model_validate(alert.config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
-        if config.evaluation == HogQLAlertEvaluation.ANY_ROW:
-            raise AlertExtractionError(
-                "Anomaly detection isn't supported for any-row SQL alerts — its rows are unrelated "
-                "entities, not a time series. Use last-row or first-row evaluation."
-            )
-
-        calculation_result = calculate_for_query_based_insight(
-            insight,
-            team=alert.team,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            user=alert.created_by,
-            analytics_props={"source": EventSource.ALERT},
-        )
-        rows = calculation_result.result
-        if rows is None:
-            raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
-        if not isinstance(rows, list):
-            raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
-        if len(rows) == 0:
-            return ExtractionResult(
-                series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
-            )
-
-        column_names = (
-            [str(c) for c in calculation_result.columns] if isinstance(calculation_result.columns, list) else None
-        )
-        value_index = _resolve_value_column_index(config.column, column_names, rows)
-        # The series is the value column across every row, oldest->newest so the detector scores the
-        # latest point against its history. first_row results are newest-first, so reverse them.
-        ordered = list(reversed(rows)) if config.evaluation == HogQLAlertEvaluation.FIRST_ROW else rows
-        values = [_numeric_cell(row, value_index, position=f"row {i + 1}") for i, row in enumerate(ordered)]
-
-        # Too few points to score → report uncomputed (None), mirroring the trends detector's
-        # "rows exist but are too short" path (empty series with empty_query_result False).
-        if len(values) < _compute_min_samples_for_detector(detector_config) + 1:
-            return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
-
-        series_label = column_names[value_index] if column_names and value_index < len(column_names) else "result"
-        points = [SeriesPoint(date=None, value=v) for v in values]
-        single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
-        return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+        return extract_hogql_detector_series(insight, alert.team, config, detector_config, user=alert.created_by)
 
 
 def _resolve_value_column_index(configured: str | None, column_names: list[str] | None, rows: list) -> int:
