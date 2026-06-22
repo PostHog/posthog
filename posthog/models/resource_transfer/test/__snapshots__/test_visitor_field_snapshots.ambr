@@ -205,6 +205,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
     'description',
+    'excluded_variants',
     'exposure_criteria',
     'filters',
     'metrics',
