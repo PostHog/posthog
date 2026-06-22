@@ -3429,10 +3429,41 @@ def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: st
     }
 
 
+def _create_unique_s3_integration(
+    *,
+    team_id: int,
+    kind: str,
+    name: str,
+    config: dict[str, Any],
+    sensitive_config: dict[str, str],
+    created_by: "User | None",
+) -> Integration:
+    """Create an S3-family integration, rejecting a name already taken for this team and kind.
+
+    `name` is the user-facing identifier, so it must be unique — we create rather than upsert, so
+    re-using a name is a 400 instead of silently overwriting an existing credential set. Rotating
+    credentials is therefore delete-and-recreate (the viewset is create-only; there is no update).
+    """
+    if Integration.objects.filter(team_id=team_id, kind=kind, integration_id=name).exists():
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+    try:
+        return Integration.objects.create(
+            team_id=team_id,
+            kind=kind,
+            integration_id=name,
+            config=config,
+            sensitive_config=sensitive_config,
+            created_by=created_by,
+        )
+    except IntegrityError:
+        # Lost the race against a concurrent create with the same name; the unique constraint held.
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+
+
 class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
-    Holds only credentials. bucket, region, prefix and other export-specific settings stay on the
+    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
     batch export destination config, so one credential can be reused across many buckets/regions —
     and, in future, by Redshift COPY-mode exports that stage to S3.
 
@@ -3502,26 +3533,14 @@ class AwsS3Integration:
 
         # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
-        # TODO: consider a hybrid identifier `f"{account_id}-{name}"` instead of bare `name`. It would
-        # match the rest of the codebase (most integrations derive integration_id from a real property
-        # of the connection) and stay meaningful, while `name` still disambiguates multiple credential
-        # sets for the same AWS account (bare account_id would collide under update_or_create).
-        integration, _ = Integration.objects.update_or_create(
+        return _create_unique_s3_integration(
             team_id=team_id,
             kind=Integration.IntegrationKind.AWS_S3.value,
-            integration_id=name,
-            defaults={
-                "config": {"name": name, "aws_account_id": account_id},
-                "sensitive_config": _build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
-                "created_by": created_by,
-            },
+            name=name,
+            config={"name": name, "aws_account_id": account_id},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
 
 
 class S3CompatibleIntegration:
@@ -3576,22 +3595,14 @@ class S3CompatibleIntegration:
         if not allowed:
             raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
 
-        integration, _ = Integration.objects.update_or_create(
+        return _create_unique_s3_integration(
             team_id=team_id,
             kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
-            integration_id=name,
-            defaults={
-                "config": {"name": name, "endpoint_url": endpoint_url},
-                "sensitive_config": _build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
-                "created_by": created_by,
-            },
+            name=name,
+            config={"name": name, "endpoint_url": endpoint_url},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
 
 
 class StripeIntegration:

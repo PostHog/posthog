@@ -2016,6 +2016,23 @@ class TestAwsS3IntegrationModel(BaseTest):
                 aws_secret_access_key="secret",
             )
 
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_integration_from_config_rejects_duplicate_name(self, mock_validate):
+        AwsS3Integration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-aws",
+            aws_access_key_id="AKIAEXAMPLE",
+            aws_secret_access_key="secret",
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'prod-aws' already exists"):
+            AwsS3Integration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-aws",
+                aws_access_key_id="AKIAOTHER",
+                aws_secret_access_key="other-secret",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
+
     @patch("boto3.client")
     def test_validate_credentials_returns_account_id(self, mock_boto_client):
         mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
@@ -2076,6 +2093,24 @@ class TestS3CompatibleIntegrationModel(BaseTest):
                 aws_access_key_id="key",
                 aws_secret_access_key="secret",
             )
+
+    def test_integration_from_config_rejects_duplicate_name(self):
+        S3CompatibleIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="my-r2",
+            endpoint_url="https://account.r2.cloudflarestorage.com",
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'my-r2' already exists"):
+            S3CompatibleIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="my-r2",
+                endpoint_url="https://other.r2.cloudflarestorage.com",
+                aws_access_key_id="key2",
+                aws_secret_access_key="secret2",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="my-r2").count() == 1
 
     # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
     @override_settings(FORCE_URL_VALIDATION=True)

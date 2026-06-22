@@ -626,6 +626,22 @@ class TestAwsS3Integration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "AWS credentials are not valid" in response.json()["detail"]
 
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "aws-s3",
+            "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
+
     @pytest.mark.parametrize(
         "invalid_config,expected_error_message",
         [
@@ -691,6 +707,26 @@ class TestS3CompatibleIntegration:
         assert integration.integration_id == "my-r2"
         assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
         assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "s3-compatible",
+            "config": {
+                "name": "my-r2",
+                "endpoint_url": "https://account.r2.cloudflarestorage.com",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "secret",
+            },
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'my-r2' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="my-r2").count() == 1
 
     # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
     @override_settings(FORCE_URL_VALIDATION=True)
