@@ -2,10 +2,12 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.urls import handler500
 
 
 class TestUrls(APIBaseTest):
@@ -72,6 +74,35 @@ class TestUrls(APIBaseTest):
         response = self.client.get(request_path, follow=False)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], expected_location)
+
+    def test_handler500_renders_the_service_error_page(self):
+        request = RequestFactory().get("/")
+        response = handler500(request)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn(b"service-error", response.content)
+
+    def test_handler500_does_not_touch_session(self):
+        # During a DB/PgBouncer outage the session store is dead and any access to it raises
+        # `'SessionStore' object has no attribute '_session_cache'`. The 500 handler must render
+        # without running session-touching context processors, so this must still return a clean
+        # 500 with the real error page rather than re-raising inside the handler.
+        request = RequestFactory().get("/")
+
+        class _DeadSession:
+            def __getattr__(self, name: str):
+                raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
+
+            def __contains__(self, key):
+                raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
+
+            def get(self, *args, **kwargs):
+                raise AttributeError("'SessionStore' object has no attribute '_session_cache'")
+
+        request.session = _DeadSession()  # type: ignore[attr-defined]
+
+        response = handler500(request)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn(b"service-error", response.content)
 
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]

@@ -149,10 +149,19 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: request
+    Context: request (no context processors)
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request}, request))
+    # Put `request` in the context dict so the template can read `request.csp_nonce`, but do NOT
+    # pass it as the second `render()` argument — that builds a RequestContext and runs the
+    # context processors (auth, impersonation), which access `request.user` and load the session.
+    # During a DB/PgBouncer outage that session load fails, raising a misleading error from inside
+    # the 500 handler and masking the real exception. Fall back to a bare response if anything else
+    # in the render touches a dead connection.
+    try:
+        return HttpResponseServerError(template.render({"request": request}))
+    except Exception:
+        return HttpResponseServerError("<h1>Server Error (500)</h1>", content_type="text/html")
 
 
 @ensure_csrf_cookie
