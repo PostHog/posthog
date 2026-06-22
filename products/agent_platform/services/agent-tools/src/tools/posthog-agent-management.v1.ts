@@ -3,11 +3,12 @@
  * surface the concierge needs to inspect any agent (its own
  * application, other team agents, their revisions, sessions, logs).
  *
- * All tools share the credential-broker auth path (`_posthog-api.ts`):
- * the connected user's `posthog_api` bearer authenticates every call.
- * If the broker doesn't have a credential, every tool fails the same
- * way with `posthog_credentials_unavailable` and the agent.md
- * degradation rules kick in.
+ * All tools share the identity auth path (`_posthog-api.ts`): each declares a
+ * posthog `requires.provider` and resolves the connected user's bearer via
+ * `ctx.identity.resolve('posthog')` (trigger-edge seed or per-asker link).
+ * An unlinked asker yields a uniform `auth_required` result (the dispatch
+ * wrapper relays the link); an unavailable identity fails with
+ * `posthog_credentials_unavailable` and the agent.md degradation rules kick in.
  *
  * Tool ids mirror the MCP catalog (e.g. `@posthog/agent-applications-list`
  * matches `agent-applications-list` in `services/mcp/definitions/agent_platform.yaml`)
@@ -114,7 +115,7 @@ export const posthogAgentApplicationsListV1 = defineNativeTool({
         include_archived: Type.Optional(Type.Boolean({ description: 'Include archived agents (default false).' })),
     }),
     returns: Type.Object({ results: Type.Array(AgentApplicationSchema) }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const data = await callPosthogApi<ListResponse<AgentApplication>>(ctx, {
@@ -132,7 +133,7 @@ export const posthogAgentApplicationsRetrieveV1 = defineNativeTool({
         'Get the full record of one agent application by slug or id. Returns its name, description, current live_revision, archived state. Use as step 1 of inspecting any agent.',
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: AgentApplicationSchema,
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -166,7 +167,7 @@ export const posthogAgentApplicationsRevisionsListV1 = defineNativeTool({
         "List every revision of one agent in chronological order — draft, ready, live, archived. Use to see the agent's edit history or to find a specific revision to inspect.",
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: Type.Object({ results: Type.Array(RevisionSchema) }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -188,7 +189,7 @@ export const posthogAgentApplicationsRevisionsRetrieveV1 = defineNativeTool({
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
     returns: RevisionSchema,
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -213,7 +214,7 @@ export const posthogAgentApplicationsRevisionsSystemPromptV1 = defineNativeTool(
         framework_prompt_version: Type.Number(),
         system_prompt: Type.String(),
     }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -248,7 +249,7 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
         bundle_sha256: Type.Union([Type.String(), Type.Null()]),
         files: Type.Array(ManifestFileSchema),
     }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -269,7 +270,7 @@ export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeToo
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
     returns: Type.Record(Type.String(), Type.Unknown()),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -296,7 +297,7 @@ export const posthogAgentApplicationsRevisionsSlackManifestV1 = defineNativeTool
         events_url: Type.Union([Type.String(), Type.Null()]),
         interactivity_url: Type.Union([Type.String(), Type.Null()]),
     }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -343,7 +344,7 @@ export const posthogAgentApplicationsSessionsListV1 = defineNativeTool({
         next: Type.Optional(Type.Union([Type.String(), Type.Null()])),
         results: Type.Array(SessionSummarySchema),
     }),
-    requires: { integrations: [], scopes: ['agent_session:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agent_session:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -365,7 +366,7 @@ export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
         session_id: Type.String({ description: 'Session UUID.' }),
     }),
     returns: Type.Record(Type.String(), Type.Unknown()),
-    requires: { integrations: [], scopes: ['agent_session:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agent_session:read'] } },
     cost_hint: 'medium',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -402,7 +403,7 @@ export const posthogAgentApplicationsCreateV1 = defineNativeTool({
         ),
     }),
     returns: AgentApplicationSchema,
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         return callPosthogApi(ctx, {
@@ -429,7 +430,7 @@ export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
         description: Type.Optional(Type.String()),
     }),
     returns: AgentApplicationSchema,
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -468,7 +469,7 @@ export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
         ),
     }),
     returns: RevisionSchema,
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -494,7 +495,7 @@ export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
         source_revision_id: Type.String({ description: 'Revision UUID to clone bundle + spec from.' }),
     }),
     returns: Type.Object({ revision: RevisionSchema, source_revision_id: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -520,7 +521,7 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
         }),
     }),
     returns: RevisionSchema,
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -548,7 +549,7 @@ export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool
         content: Type.String({ description: 'Full system prompt body.' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), bytes: Type.Number() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -578,7 +579,7 @@ export const posthogAgentApplicationsRevisionsSkillsUpdateV1 = defineNativeTool(
         ),
     }),
     returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -603,7 +604,7 @@ export const posthogAgentApplicationsRevisionsSkillsDestroyV1 = defineNativeTool
         skill_id: Type.String({ description: 'Skill slug.' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), skill_id: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -633,7 +634,7 @@ export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
         source: Type.String({ description: 'TypeScript source.' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), tool_id: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -658,7 +659,7 @@ export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool(
         tool_id: Type.String({ description: 'Tool slug.' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), tool_id: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -688,7 +689,7 @@ export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
         errors: Type.Array(Type.Record(Type.String(), Type.Unknown())),
         resolved_natives: Type.Optional(Type.Array(Type.String())),
     }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -714,7 +715,7 @@ export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
         bundle_sha256: Type.String(),
         revision: RevisionSchema,
     }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -735,7 +736,7 @@ export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
         revision_id: Type.String({ description: 'Revision UUID (must be `state=ready`).' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), state: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -756,7 +757,7 @@ export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
         revision_id: Type.String({ description: 'Revision UUID to archive.' }),
     }),
     returns: Type.Object({ ok: Type.Boolean(), state: Type.String() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -791,7 +792,7 @@ export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
         'List every encrypted_env key set on an agent, with `is_set` per row. Does NOT return the values — those are encrypted at rest and never read back through this surface. Use to audit which secrets the agent has configured before freeze + promote.',
     args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: Type.Object({ keys: Type.Array(EnvKeyRowSchema) }),
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -812,7 +813,7 @@ export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
         key: Type.String({ description: 'Env key to probe, e.g. `SLACK_BOT_TOKEN`.' }),
     }),
     returns: EnvKeyRowSchema,
-    requires: { integrations: [], scopes: ['agents:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:read'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -836,7 +837,7 @@ export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
         }),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { integrations: [], scopes: ['agents:write'] },
+    requires: { provider: { id: 'posthog', scopes: ['agents:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)
@@ -860,7 +861,7 @@ export const posthogAgentApplicationsSessionLogsV1 = defineNativeTool({
     returns: Type.Object({
         events: Type.Array(Type.Record(Type.String(), Type.Unknown())),
     }),
-    requires: { integrations: [], scopes: ['agent_session:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['agent_session:read'] } },
     cost_hint: 'medium',
     async run(args, ctx) {
         const id = await resolveApplicationId(ctx, args)

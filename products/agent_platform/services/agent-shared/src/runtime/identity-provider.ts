@@ -49,10 +49,16 @@ export interface IdentityResolveInput {
 
 export interface IdentityProvider {
     readonly id: string
-    /** Broker key tools/MCPs resolve ('posthog_api', 'github', 'dogs', …). */
+    /** Broker key tools/MCPs resolve ('posthog_api', 'github', 'dogs', …). Also
+     *  the key `createToolIdentity` consults for a trigger-edge seed credential
+     *  before falling to the persistent linked-credential store. */
     readonly credentialTarget: string
     /** True only for a provider that proves the linker's identity (stamps `subject`). */
     readonly establishesIdentity: boolean
+    /** `principal` = act as the asking user (per-asker link or trigger-edge seed).
+     *  `agent` = one author-linked credential shared by the whole agent — a marked
+     *  seam, `resolve()` throws `agent_binding_not_implemented` until it lands. */
+    readonly binding: 'principal' | 'agent'
     initiate(input: IdentityInitiateInput): Promise<IdentityInitiateResult>
     complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult>
     /** Usable credential for a linked principal, refreshed if stale; null if unlinked. */

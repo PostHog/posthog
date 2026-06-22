@@ -15,9 +15,36 @@ import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore, LinkedCredential, PutLinkedCredentialInput } from './identity-credential-store'
 import type { CreateLinkStateInput, IdentityLinkStateStore, LinkState } from './identity-link-state-store'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
-import { PostHogAuthProvider } from './posthog-identity-provider'
+import { PostHogAuthProvider, SeedOnlyPostHogProvider } from './posthog-identity-provider'
 
 const BASE = 'https://ph.test'
+
+describe('posthog provider credential target', () => {
+    it('PostHogAuthProvider resolves under the broker target `posthog_api`', () => {
+        const p = new PostHogAuthProvider({
+            config: {
+                id: 'posthog',
+                authorizeUrl: `${BASE}/oauth/authorize/`,
+                tokenUrl: `${BASE}/oauth/token/`,
+                clientId: 'c',
+            },
+            links: {} as IdentityLinkStateStore,
+            credentials: {} as IdentityCredentialStore,
+            http: {} as HttpFetcher,
+        })
+        expect(p.credentialTarget).toBe('posthog_api')
+    })
+
+    it('SeedOnlyPostHogProvider surfaces the seed target + host but cannot link', async () => {
+        const p = new SeedOnlyPostHogProvider('posthog', BASE)
+        expect(p.credentialTarget).toBe('posthog_api')
+        expect(p.allowedHosts()).toEqual(['ph.test'])
+        expect(await p.resolve({ agentUserId: 'au', teamId: 1, applicationId: 'a', scopes: [] })).toBeNull()
+        await expect(
+            p.initiate({ agentUserId: 'au', teamId: 1, applicationId: 'a', scopes: [], redirectUri: 'x' })
+        ).rejects.toThrow('link_unavailable_no_oauth_app')
+    })
+})
 
 // Scripted IdP: token exchange returns a bearer; userinfo returns a fixed sub.
 function scriptedHttp(sub: string): HttpFetcher {
@@ -112,6 +139,9 @@ class MemCredStore implements IdentityCredentialStore {
             }
         }
         return null
+    }
+    async getAgentScoped(): Promise<LinkedCredential | null> {
+        throw new Error('agent_binding_not_implemented')
     }
     async revoke(): Promise<void> {}
     async remove(): Promise<void> {}

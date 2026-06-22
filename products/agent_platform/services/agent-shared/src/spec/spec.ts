@@ -347,9 +347,9 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         id: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
-        // Provider ids (from spec.identity_providers[]) needing a linked
-        // per-principal credential; a missing link gates into auth_required.
-        requires_identities: z.array(z.string()).default([]),
+        // Native tools declare their credential provider intrinsically (the tool
+        // definition's `requires.provider`), so the spec ref carries no identity
+        // field — the runtime reads it from the registry.
     }),
     z.object({
         kind: z.literal('custom'),
@@ -357,7 +357,10 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         path: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
-        requires_identities: z.array(z.string()).default([]),
+        // The single identity provider (id from spec.identity_providers[]) this
+        // custom tool acts as. Unlinked → the dispatch wrapper relays an
+        // auth_required link. One provider per tool by design.
+        requires_identity: z.string().optional(),
     }),
     // NOTE: the registry-pin shape `{ kind: 'custom_template', from_template,
     // alias, version }` is a *draft-only* authoring shape, validated by the
@@ -462,80 +465,85 @@ export const McpToolEntrySchema = z.union([
  * in favour of a single flat shape — `agent-as-mcp-server.md` will re-add it
  * when a concrete consumer lands.
  */
-export const McpRefSchema = z.object({
-    /**
-     * Stable id within the spec. Tool-name prefix at runtime —
-     * `<id>__<toolName>` is what the model sees so it can tell which MCP
-     * a tool came from. Must be unique across `spec.mcps[]`.
-     */
-    id: z.string().min(1),
-    url: z.string().url(),
-    auth: z
-        .object({
-            /** Team-level integration credential (shared across the team). */
-            integration: z.string().optional(),
-            /** Per-principal identity provider: stamps the linked user's bearer,
-             *  gates into auth_required if unlinked. Vs the team-wide `integration`. */
-            provider: z.string().optional(),
-        })
-        .optional(),
-    /**
-     * Per-MCP secret names. Resolved at session start through the same
-     * encrypted-env path as the agent's main `spec.secrets`. The runner
-     * substitutes `${name}` placeholders in the URL + auth headers before
-     * opening the client; the plaintext never leaves the runner process.
-     */
-    secrets: z.array(z.string()).default([]),
-    /**
-     * Author-supplied request headers stamped on every outgoing MCP request.
-     * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
-     * the plaintext value before opening the MCP client, so the secret never
-     * leaves the runner process. Same substitution shape as
-     * `@posthog/http-request`'s `headers` — the parallel is intentional so
-     * authors can use the same mental model for "bring my own bearer token"
-     * against either a typed MCP catalog or a raw HTTP API.
-     *
-     * Use this for the bring-your-own-token case (paste a PAT once, reference
-     * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
-     * managed OAuth tokens, use `auth.integration` instead; integration-
-     * stamped headers compose with author-supplied headers — explicit
-     * author entries win on duplicate keys, matching `http-request`'s
-     * "caller-set values are not silently overwritten" rule.
-     */
-    headers: z.record(z.string(), z.string()).optional(),
-    /**
-     * Per-tool selection AND approval gating. Bare string is a passthrough
-     * (gates inclusion, no approval); object form carries
-     * `requires_approval` + `approval_policy`. Omitted / empty = expose
-     * every tool the server lists. Replaces the earlier `allowlist[]`
-     * field (PR 7 hard-break — no production specs used it).
-     *
-     * Names must be unique within the array. A duplicate would be a
-     * silent first-match-wins footgun — e.g. an author who appends a
-     * gated copy of an already-listed bare-string entry would see the
-     * gated version ignored. Better to reject at parse time.
-     */
-    tools: z
-        .array(McpToolEntrySchema)
-        .optional()
-        .refine(
-            (entries) => {
-                if (!entries) {
-                    return true
-                }
-                const seen = new Set<string>()
-                for (const e of entries) {
-                    const name = typeof e === 'string' ? e : e.name
-                    if (seen.has(name)) {
-                        return false
+export const McpRefSchema = z
+    .object({
+        /**
+         * Stable id within the spec. Tool-name prefix at runtime —
+         * `<id>__<toolName>` is what the model sees so it can tell which MCP
+         * a tool came from. Must be unique across `spec.mcps[]`.
+         */
+        id: z.string().min(1),
+        url: z.string().url(),
+        auth: z
+            .object({
+                /** Team-level integration credential (shared across the team). */
+                integration: z.string().optional(),
+                /** Per-principal identity provider: stamps the linked user's bearer,
+                 *  gates into auth_required if unlinked. Vs the team-wide `integration`. */
+                provider: z.string().optional(),
+            })
+            .optional(),
+        /**
+         * Per-MCP secret names. Resolved at session start through the same
+         * encrypted-env path as the agent's main `spec.secrets`. The runner
+         * substitutes `${name}` placeholders in the URL + auth headers before
+         * opening the client; the plaintext never leaves the runner process.
+         */
+        secrets: z.array(z.string()).default([]),
+        /**
+         * Author-supplied request headers stamped on every outgoing MCP request.
+         * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
+         * the plaintext value before opening the MCP client, so the secret never
+         * leaves the runner process. Same substitution shape as
+         * `@posthog/http-request`'s `headers` — the parallel is intentional so
+         * authors can use the same mental model for "bring my own bearer token"
+         * against either a typed MCP catalog or a raw HTTP API.
+         *
+         * Use this for the bring-your-own-token case (paste a PAT once, reference
+         * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
+         * managed OAuth tokens, use `auth.integration` instead; integration-
+         * stamped headers compose with author-supplied headers — explicit
+         * author entries win on duplicate keys, matching `http-request`'s
+         * "caller-set values are not silently overwritten" rule.
+         */
+        headers: z.record(z.string(), z.string()).optional(),
+        /**
+         * Per-tool selection AND approval gating. Bare string is a passthrough
+         * (gates inclusion, no approval); object form carries
+         * `requires_approval` + `approval_policy`. Omitted / empty = expose
+         * every tool the server lists. Replaces the earlier `allowlist[]`
+         * field (PR 7 hard-break — no production specs used it).
+         *
+         * Names must be unique within the array. A duplicate would be a
+         * silent first-match-wins footgun — e.g. an author who appends a
+         * gated copy of an already-listed bare-string entry would see the
+         * gated version ignored. Better to reject at parse time.
+         */
+        tools: z
+            .array(McpToolEntrySchema)
+            .optional()
+            .refine(
+                (entries) => {
+                    if (!entries) {
+                        return true
                     }
-                    seen.add(name)
-                }
-                return true
-            },
-            { message: 'mcps[].tools[] entries must have unique names' }
-        ),
-})
+                    const seen = new Set<string>()
+                    for (const e of entries) {
+                        const name = typeof e === 'string' ? e : e.name
+                        if (seen.has(name)) {
+                            return false
+                        }
+                        seen.add(name)
+                    }
+                    return true
+                },
+                { message: 'mcps[].tools[] entries must have unique names' }
+            ),
+    })
+    .refine((m) => !(m.auth?.integration && m.auth?.provider), {
+        message: 'mcps[].auth cannot set both integration (team-wide) and provider (per-asker)',
+        path: ['auth'],
+    })
 
 export const SkillRefSchema = z.object({
     id: z.string(),
@@ -703,6 +711,10 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
         kind: z.literal('posthog'),
         id: z.string().min(1).default('posthog'),
         scopes: z.array(z.string()).default([]),
+        /** Who the credential acts as — `principal` (per-asker, default) or
+         *  `agent` (one author-linked credential shared by the whole agent).
+         *  `agent` is not yet implemented at runtime (resolve throws). */
+        binding: z.enum(['principal', 'agent']).default('principal'),
         /** Backend-injected on promote (the provisioned OAuthApplication's
          *  client_id). Author never sets it; absent until the agent is promoted. */
         client_id: z.string().optional(),
@@ -710,6 +722,7 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('oauth2'),
         id: z.string().min(1),
+        binding: z.enum(['principal', 'agent']).default('principal'),
         authorize_url: z.string().url(),
         token_url: z.string().url(),
         client_id: z.string().min(1),

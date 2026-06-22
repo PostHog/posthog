@@ -134,6 +134,10 @@ export interface BuildAppOpts {
     identityCredentials?: IdentityCredentialStore
     identityLinks?: IdentityLinkStateStore
     envEncryption?: EncryptedFields
+    /** PostHog API base — the `{kind:posthog}` provider builds its OAuth
+     *  endpoints from this in the link callback. Without it the callback can't
+     *  rebuild the posthog provider ("Unknown provider"). */
+    posthogApiBaseUrl?: string
 }
 
 /** Minimal self-contained HTML for the OAuth callback result page. */
@@ -234,6 +238,7 @@ export function buildApp(opts: BuildAppOpts): Express {
                 credentials: identityCredentials,
                 http,
                 secret: (name) => env[name],
+                posthogBaseUrl: opts.posthogApiBaseUrl,
             })
             const provider = registry.get(providerId)
             if (!provider) {

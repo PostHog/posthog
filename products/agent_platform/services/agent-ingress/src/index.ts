@@ -142,6 +142,7 @@ async function main(): Promise<void> {
         identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
         identityLinks: new PgIdentityLinkStateStore(agentDb),
         envEncryption: encryption,
+        posthogApiBaseUrl: config.posthogApiBaseUrl,
         http,
     })
     app.listen(config.port, () => {

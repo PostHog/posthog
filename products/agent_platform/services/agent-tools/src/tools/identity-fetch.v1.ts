@@ -24,7 +24,7 @@ export const identityFetchV1 = defineNativeTool({
         status: Type.Optional(Type.Number()),
         body: Type.Optional(Type.Unknown()),
     }),
-    requires: { scopes: ['web:fetch'] },
+    requires: {},
     cost_hint: 'medium',
     async run(args, ctx) {
         if (!ctx.identity) {

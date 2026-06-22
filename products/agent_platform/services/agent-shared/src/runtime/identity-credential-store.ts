@@ -4,10 +4,12 @@
  * auth"). One row per (agent_user, provider), encrypted at rest with the same
  * Fernet-keyed `EncryptedFields` as the session-credential broker.
  *
- * This is the SOURCE of truth (long-lived, revocable). At turn start the runner
- * resolves the current author's links from here and copies them into the
- * ephemeral per-session `CredentialBroker` that tools read — so the hot path is
- * unchanged and tokens get a tight session-scoped lifetime.
+ * This is the SOURCE of truth (long-lived, revocable). At tool-call time the
+ * runner resolves the current asker's link from here via `ctx.identity.resolve`
+ * (see `createToolIdentity`); a trigger-edge bearer (e.g. PostHog Code passing a
+ * posthog token) is the alternative source, held in the per-session
+ * `CredentialBroker` and consulted first by the resolver. Tokens never leave
+ * the runner process beyond the outbound API call.
  *
  * Backed by `agent_identity_credential` (Django-owned schema; see
  * backend/migrations/0007 + test-reset.ts SCHEMA_SQL).
@@ -57,6 +59,14 @@ export interface IdentityCredentialStore {
     put(input: PutLinkedCredentialInput): Promise<void>
     /** Active credential for (agent_user, provider); null if absent or revoked. */
     get(agentUserId: string, provider: string): Promise<LinkedCredential | null>
+    /**
+     * AGENT BINDING SEAM — the single app-scoped credential shared by every asker
+     * of a `binding: 'agent'` provider (no agent_user). Not implemented: throws
+     * `agent_binding_not_implemented`. When this lands it needs an app-scoped row
+     * shape (nullable `agent_user_id`) and a precedence rule: a per-user
+     * (principal) link always wins over the shared credential.
+     */
+    getAgentScoped(applicationId: string, provider: string): Promise<LinkedCredential | null>
     /**
      * The proven external subject for an agent_user — from whichever active link
      * established identity (the one provider that stamps `subject`). Null when
@@ -125,6 +135,13 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
                 input.subject ?? null,
             ]
         )
+    }
+
+    // AGENT BINDING SEAM — see interface. App-scoped shared credentials aren't
+    // stored yet (the table is keyed by agent_user_id NOT NULL); throw loudly so
+    // a `binding: 'agent'` provider can never silently resolve to nothing.
+    async getAgentScoped(_applicationId: string, _provider: string): Promise<LinkedCredential | null> {
+        throw new Error('agent_binding_not_implemented')
     }
 
     async getEstablishedSubject(agentUserId: string): Promise<string | null> {

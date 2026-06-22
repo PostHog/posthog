@@ -45,7 +45,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
-import { HttpFetcher, IntegrationCredentials, McpRef, secretHostMatches } from '@posthog/agent-shared'
+import {
+    HttpFetcher,
+    type IdentityResolution,
+    IntegrationCredentials,
+    McpRef,
+    secretHostMatches,
+} from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
 export interface RemoteMcpTool {
@@ -97,6 +103,23 @@ export interface McpOpenFailure {
      *  forwarded to the chat UI or the model's view of the world. The agent
      *  owner reads this via `log_entries` on the session detail page. */
     devReason: string
+    /** Set when the open failed because the asker hasn't linked the MCP's
+     *  `auth.provider` identity yet. The model relays this so the user can
+     *  connect (vs a dead "temporarily unavailable"). Safe to surface — it's a
+     *  per-asker authorize link, not a secret. */
+    authorizeUrl?: string
+}
+
+/** Thrown by `resolveTarget` when an `auth.provider` MCP can't open because the
+ *  asker is unlinked. Carries the authorize URL so `openMcpClients` can surface
+ *  it as a relayable link rather than an opaque "unavailable". */
+class McpIdentityLinkRequiredError extends Error {
+    constructor(
+        readonly provider: string,
+        readonly authorizeUrl: string
+    ) {
+        super(`mcp_identity_link_required: ${provider}`)
+    }
 }
 
 /**
@@ -112,13 +135,18 @@ export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     if (
         msg.includes('mcp_secret_') ||
         msg.includes('mcp_integration_') ||
+        msg.includes('mcp_identity_') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
         msg.includes(' 401') ||
         msg.includes(' 403') ||
         msg.includes('forbidden') ||
         msg.includes('invalid api key') ||
-        msg.includes('invalid token')
+        msg.includes('invalid token') ||
+        // A linked grant missing a scope the resource server requires is an
+        // authorization failure — reconnecting (with the updated scope set) is
+        // the fix, so it must land in `auth` to trigger the reconnect offer.
+        msg.includes('scope')
     ) {
         return 'auth'
     }
@@ -194,6 +222,19 @@ export interface OpenMcpClientsDeps {
      */
     integrationHostValidator?: IntegrationHostValidator
     /**
+     * Per-asker identity resolver (from `buildAskerIdentity`). Resolves a
+     * `ref.auth.provider` to the asker's bearer, same posture as
+     * `auth.integration` (https + the resolver's own host allowlist). Absent →
+     * any `auth.provider` ref is refused at open time.
+     */
+    identity?: {
+        resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+        /** Force a reconnect link for an already-linked provider — used when the
+         *  resolved bearer is rejected at open (e.g. missing scope). See
+         *  `openMcpClients`'s failure handling. */
+        relink?(provider: string): Promise<string | null>
+    }
+    /**
      * Dev-only bearer attached to `kind: external` MCP requests when the
      * ref has no `auth.integration` of its own (`ref.auth` wins if set).
      * Bridges the local-dev auth gap until external-MCP credentials are
@@ -261,7 +302,16 @@ export async function openMcpClients(
         const err = r.reason instanceof Error ? r.reason : new Error(String(r.reason))
         const ref = refs[i]
         const category = categorizeMcpOpenError(err)
-        failures.push({ ref, category, devReason: err.message })
+        let authorizeUrl = err instanceof McpIdentityLinkRequiredError ? err.authorizeUrl : undefined
+        // Reconnect path: an `auth.provider` MCP that resolved a bearer but was
+        // rejected at open (a revoked or under-scoped linked grant) surfaces as
+        // an `auth` failure WITHOUT a link. Offer a fresh authorize URL so the
+        // asker can re-authorize, instead of a dead "unavailable" the agent
+        // can't act on. A never-linked asker already carries the URL above.
+        if (!authorizeUrl && category === 'auth' && ref.auth?.provider && deps.identity?.relink) {
+            authorizeUrl = (await deps.identity.relink(ref.auth.provider)) ?? undefined
+        }
+        failures.push({ ref, category, devReason: err.message, authorizeUrl })
         log('warn', 'mcp.open.failed', { prefix: ref.id, category, devReason: err.message })
     }
 
@@ -321,6 +371,10 @@ async function openOne(ref: McpRef, deps: OpenOneDeps): Promise<OpenedMcp> {
     }
 }
 
+function isLoopbackHost(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
+}
+
 async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
@@ -372,6 +426,38 @@ async function resolveTarget(
             throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
         }
         headers['Authorization'] = `Bearer ${cred.access_token}`
+    } else if (ref.auth?.provider) {
+        if (!deps.identity) {
+            throw new Error(`mcp_identity_not_wired: ${ref.auth.provider}`)
+        }
+        const res = await deps.identity.resolve(ref.auth.provider)
+        if (res.kind === 'link_required') {
+            throw new McpIdentityLinkRequiredError(ref.auth.provider, res.authorizeUrl)
+        }
+        if (res.kind === 'unavailable') {
+            throw new Error(`mcp_identity_unavailable: ${ref.auth.provider} (${res.reason})`)
+        }
+        const parsed = new URL(url)
+        // Loopback is the local-dev affordance: the PostHog MCP runs on a
+        // different localhost port than the API the OAuth endpoints (and thus
+        // `allowedHosts`) derive from, and http is fine to a loopback host that
+        // can't be an exfiltration target. Non-loopback keeps the strict gate:
+        // https + the bearer's own host allowlist.
+        const loopback = isLoopbackHost(parsed.hostname)
+        if (!loopback && parsed.protocol !== 'https:') {
+            throw new Error(`mcp_identity_unsafe_scheme: ${ref.auth.provider} → ${parsed.protocol}`)
+        }
+        if (!loopback && !res.allowedHosts.includes(parsed.host)) {
+            throw new Error(`mcp_identity_host_not_allowed: ${ref.auth.provider} → ${parsed.host}`)
+        }
+        const token =
+            res.credential.kind === 'oauth_bearer' || res.credential.kind === 'posthog_bearer'
+                ? res.credential.token
+                : undefined
+        if (!token) {
+            throw new Error(`mcp_identity_not_bearer: ${ref.auth.provider}`)
+        }
+        headers['Authorization'] = `Bearer ${token}`
     } else if (deps.devMcpBearerToken) {
         // Dev-only fallback. The bundle declared no integration auth, but
         // the operator wired a global dev bearer (their PAT, typically) so

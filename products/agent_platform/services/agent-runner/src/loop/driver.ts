@@ -49,12 +49,10 @@ import {
     AssistantMessageRecord,
     BundleStore,
     buildSystemPrompt,
-    agentUserIdForPrincipal,
-    buildIdentityRegistry,
+    buildAskerIdentity,
     ConversationMessage,
     CredentialBroker,
     createLogger,
-    createToolIdentity,
     FRAMEWORK_PROMPT_VERSION,
     GatewayClient,
     generationSpanId,
@@ -257,7 +255,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // through the slack-post-message tool.
     const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
-        unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
+        unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
+            id: f.ref.id,
+            category: f.category,
+            authorizeUrl: f.authorizeUrl,
+        })),
         slackReplyRelay: slackReply !== null,
     })
     const bus: SessionEventBus = deps.bus
@@ -417,29 +419,17 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         // can post) owner != asker, so identity-gated tools fail closed there
         // rather than act as the owner on a participant's behalf (T1).
         let identity: ToolContext['identity']
-        if (deps.identityCredentials && deps.identityLinks && rev.spec.identity_providers.length > 0) {
-            const registry = buildIdentityRegistry(rev.spec.identity_providers, {
-                links: deps.identityLinks,
+        if (deps.identityCredentials && deps.identityLinks) {
+            identity = await buildAskerIdentity(rev, session, {
                 credentials: deps.identityCredentials,
+                links: deps.identityLinks,
+                identities: deps.identities,
+                credentialBroker: deps.credentialBroker,
                 http: deps.http,
                 secret: (name) => deps.secrets[name],
-                posthogBaseUrl: deps.posthogApiBaseUrl,
-            })
-            const slackTrigger = rev.spec.triggers.find((t) => t.type === 'slack')
-            const sharedSession = slackTrigger?.type === 'slack' && slackTrigger.config.allow_workspace_participants
-            const agentUserId = await agentUserIdForPrincipal(session.principal, {
-                identities: deps.identities,
-                applicationId: rev.application_id,
-                teamId: session.team_id,
-            })
-            const base = deps.linkRedirectBaseUrl ?? 'https://agents.posthog.com'
-            identity = createToolIdentity({
-                registry,
-                agentUserId,
-                teamId: session.team_id,
-                applicationId: rev.application_id,
-                redirectUriFor: (p) => `${base}/link/${p}/callback`,
-                unavailableReason: sharedSession ? 'shared_session_unsupported' : undefined,
+                posthogApiBaseUrl: deps.posthogApiBaseUrl,
+                linkRedirectBaseUrl: deps.linkRedirectBaseUrl,
+                log,
             })
         }
         const toolDeps: AgentToolDeps = {

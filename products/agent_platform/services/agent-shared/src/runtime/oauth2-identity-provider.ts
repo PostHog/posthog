@@ -24,6 +24,8 @@ export interface Oauth2ProviderConfig {
     id: string
     /** Broker key; defaults to `id`. */
     credentialTarget?: string
+    /** Who the credential acts as. Default `principal`. See `IdentityProvider.binding`. */
+    binding?: 'principal' | 'agent'
     authorizeUrl: string
     tokenUrl: string
     clientId: string
@@ -68,6 +70,10 @@ export class Oauth2AuthProvider implements IdentityProvider {
 
     get credentialTarget(): string {
         return this.deps.config.credentialTarget ?? this.deps.config.id
+    }
+
+    get binding(): 'principal' | 'agent' {
+        return this.deps.config.binding ?? 'principal'
     }
 
     allowedHosts(): string[] {
@@ -149,7 +155,12 @@ export class Oauth2AuthProvider implements IdentityProvider {
     }
 
     async resolve(input: IdentityResolveInput): Promise<Credential | null> {
-        const linked = await this.deps.credentials.get(input.agentUserId, this.id)
+        // `agent` binding resolves one app-scoped credential shared by every
+        // asker; `getAgentScoped` is a marked seam that throws until it lands.
+        const linked =
+            this.binding === 'agent'
+                ? await this.deps.credentials.getAgentScoped(input.applicationId, this.id)
+                : await this.deps.credentials.get(input.agentUserId, this.id)
         if (!linked) {
             return null
         }

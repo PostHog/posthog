@@ -26,6 +26,7 @@ import {
     AgentSession,
     AnalyticsSink,
     ApprovalStore,
+    buildAskerIdentity,
     BundleStore,
     categorize,
     createLogger,
@@ -482,12 +483,30 @@ export class Worker {
             // a sandbox-pool slot; the order is otherwise unobservable.
             let mcpFailures: Awaited<ReturnType<typeof openMcpClients>>['failures'] = []
             if (rev.spec.mcps.length > 0) {
+                // Build the per-asker resolver only when an MCP needs it (auth.provider),
+                // so the common auth.integration / secret path pays nothing.
+                const mcpNeedsIdentity = rev.spec.mcps.some((m) => m.auth?.provider)
+                const mcpIdentity =
+                    mcpNeedsIdentity && this.deps.identityCredentials && this.deps.identityLinks
+                        ? await buildAskerIdentity(rev, session, {
+                              credentials: this.deps.identityCredentials,
+                              links: this.deps.identityLinks,
+                              identities: this.deps.identities,
+                              credentialBroker: this.deps.credentialBroker,
+                              http: this.deps.http,
+                              secret: (name) => secrets[name],
+                              posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                              linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
+                              log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
+                          })
+                        : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
                     integrations,
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     integrationHostValidator: this.deps.integrationHostValidator,
+                    identity: mcpIdentity,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                     http: this.deps.http,

@@ -81,6 +81,7 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
             const config: IdentityProviderConfig = {
                 kind: 'oauth2',
                 id: 'dogs',
+                binding: 'principal',
                 authorize_url: dog.authorizeUrl,
                 token_url: dog.tokenUrl,
                 client_id: 'dogs-client',
@@ -174,6 +175,7 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
             const config: IdentityProviderConfig = {
                 kind: 'oauth2',
                 id: 'dogs',
+                binding: 'principal',
                 authorize_url: dog.authorizeUrl,
                 token_url: dog.tokenUrl,
                 client_id: 'dogs-client',
