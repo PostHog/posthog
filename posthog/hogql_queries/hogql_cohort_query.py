@@ -1355,8 +1355,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         For cohorts whose top-level group is a flat AND/OR of non-negated person properties
         (all backed by precalculated_person_properties), the parent would produce N separate
         subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full table and
-        the set operations materialise large intermediate results — the source of the 139 GiB
-        OOM seen in production.
+        the set operations materialise large intermediate results — a common source of OOMs
+        for large cohorts with many person-property conditions.
 
         When the cohort qualifies, we instead do one scan and count matching conditions per
         person, keeping peak memory proportional to the number of distinct persons rather than
