@@ -1,3 +1,7 @@
+from products.conversations.backend.temporal.coordinator import (
+    SupportReplyCoordinatorWorkflow,
+    collect_eligible_tickets_activity,
+)
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     build_context_activity,
@@ -10,6 +14,7 @@ from products.conversations.backend.temporal.pipeline import (
 
 WORKFLOWS = [
     SupportReplyWorkflow,
+    SupportReplyCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
@@ -19,4 +24,5 @@ ACTIVITIES = [
     draft_activity,
     validate_activity,
     persist_reply_activity,
+    collect_eligible_tickets_activity,
 ]
