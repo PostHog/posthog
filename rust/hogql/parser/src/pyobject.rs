@@ -15,6 +15,7 @@ pub struct Converter<'py> {
     ast_module: Bound<'py, PyModule>,
     exposed_error: Bound<'py, PyAny>,
     syntax_error: Bound<'py, PyAny>,
+    parsing_error: Bound<'py, PyAny>,
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
     /// Python builtin `int` class. Mirrors `PyEmitter::cls_int`; cached so big-int literals don't pay `py.eval_bound("int", ...)` per call.
@@ -27,6 +28,7 @@ impl<'py> Converter<'py> {
         let errors_module = py.import_bound("posthog.hogql.errors")?;
         let exposed_error = errors_module.getattr("ExposedHogQLError")?;
         let syntax_error = errors_module.getattr("SyntaxError")?;
+        let parsing_error = errors_module.getattr("ParsingError")?;
         let arith_op_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_op_enum = ast_module.getattr("CompareOperationOp")?;
         let cls_int = py.import_bound("builtins")?.getattr("int")?;
@@ -35,13 +37,14 @@ impl<'py> Converter<'py> {
             ast_module,
             exposed_error,
             syntax_error,
+            parsing_error,
             arith_op_enum,
             compare_op_enum,
             cls_int,
         })
     }
 
-    /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` if the parser returned an error envelope.
+    /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` / `ParsingError` if the parser returned an error envelope.
     pub fn convert_root(&self, value: &Value) -> PyResult<PyObject> {
         self.convert(value)
     }
@@ -211,6 +214,7 @@ impl<'py> Converter<'py> {
 
         let cls = match error_type {
             "SyntaxError" => &self.syntax_error,
+            "ParsingError" => &self.parsing_error,
             _ => &self.exposed_error,
         };
 

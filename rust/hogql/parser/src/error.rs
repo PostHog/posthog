@@ -28,6 +28,12 @@ pub struct ParseError {
 pub enum ErrorKind {
     Syntax,
     NotImplemented,
+    /// An internal problem in the parser layer. Maps to the `ParsingError`
+    /// envelope type, which `pyobject::Converter` raises as
+    /// `posthog.hogql.errors.ParsingError` — matching the C++ parser's
+    /// `ParsingError` class. Emitted by the standalone
+    /// `parse_string_literal_text` entry point on empty input.
+    Parsing,
 }
 
 impl ErrorKind {
@@ -35,6 +41,7 @@ impl ErrorKind {
         match self {
             ErrorKind::Syntax => "SyntaxError",
             ErrorKind::NotImplemented => "NotImplementedError",
+            ErrorKind::Parsing => "ParsingError",
         }
     }
 }
@@ -56,6 +63,16 @@ impl ParseError {
             start,
             end,
             kind: ErrorKind::NotImplemented,
+            fatal: false,
+        }
+    }
+
+    pub fn parsing(message: impl Into<String>, start: usize, end: usize) -> Self {
+        Self {
+            message: message.into(),
+            start,
+            end,
+            kind: ErrorKind::Parsing,
             fatal: false,
         }
     }
