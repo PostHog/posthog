@@ -439,6 +439,10 @@ pub struct FlagDetailsMetadata {
     pub version: i32,
     pub description: Option<String>,
     pub payload: Option<Value>,
+    /// True if the flag has at least one non-deleted linked experiment. SDKs use this to
+    /// decide whether to keep all $feature_flag_called event properties or send a minimal event.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -489,6 +493,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+                has_experiment: flag.has_experiment,
             },
             conditions: if detailed_analysis {
                 Some(Self::build_condition_analysis(
@@ -519,6 +524,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: None,
+                has_experiment: flag.has_experiment,
             },
             conditions: None,
         }
@@ -1037,6 +1043,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(json!({"key": "value"})),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1060,6 +1067,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: None,
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1083,6 +1091,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(Value::Null),
+                    has_experiment: false,
                 },
                 conditions: None,
             },

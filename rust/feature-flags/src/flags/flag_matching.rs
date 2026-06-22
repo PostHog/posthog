@@ -1176,6 +1176,10 @@ impl FeatureFlagMatcher {
                 let stub = FeatureFlag {
                     id: snapshot.id,
                     key: snapshot.key,
+                    // Panic fallback can't compute experiment linkage; default to true so SDKs
+                    // over-preserve $feature_flag_called properties rather than risk stripping
+                    // experiment-exposure data, matching the PG-fallback default.
+                    has_experiment: true,
                     active: true,
                     version: snapshot.version,
                     filters: FlagFilters::default(),

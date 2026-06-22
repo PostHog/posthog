@@ -10155,6 +10155,31 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
     @pytest.mark.ee
+    @parameterized.expand([("with_experiment", True), ("without_experiment", False)])
+    def test_has_experiment_survives_cache_round_trip(self, _name: str, has_experiment: bool):
+        from products.feature_flags.backend.models.feature_flag import (
+            get_feature_flags_for_team_in_cache,
+            set_feature_flags_for_team_in_cache,
+        )
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="round-trip-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+        if has_experiment:
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        set_feature_flags_for_team_in_cache(self.team.project_id)
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
+
+        assert cached_flags is not None
+        cached_flag = next(f for f in cached_flags if f.key == "round-trip-flag")
+        # The cached value is read back without a per-flag experiment query.
+        self.assertEqual(cached_flag._has_experiment, has_experiment)
+
+    @pytest.mark.ee
     def test_evaluation_contexts_cache_invalidation(self):
         from products.feature_flags.backend.models.feature_flag import (
             get_feature_flags_for_team_in_cache,

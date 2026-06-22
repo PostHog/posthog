@@ -28,7 +28,7 @@ from typing import Any, Union, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -50,6 +50,7 @@ from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from products.cohorts.backend.models.util import get_nested_cohort_ids
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -576,7 +577,7 @@ def _get_flags_response_for_local_evaluation_batch(
     query each regardless of team count), then iterates the materialized flag
     list with itertools.groupby to process one team at a time.
     """
-    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
     if not teams:
         return {}
@@ -611,7 +612,8 @@ def _get_flags_response_for_local_evaluation_batch(
                 "flag_evaluation_contexts__evaluation_context__name",
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
-            )
+            ),
+            has_experiment_agg=Exists(Experiment.objects.filter(feature_flag_id=OuterRef("pk"), deleted=False)),
         )
         .order_by("team_id", "key")
     )
@@ -619,6 +621,7 @@ def _get_flags_response_for_local_evaluation_batch(
     referenced_cohort_ids: set[int] = set()
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
+        flag._has_experiment = flag.has_experiment_agg
         referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
 
     # Load only the referenced cohorts and resolve nested dependencies
@@ -699,7 +702,7 @@ def _get_flags_response_for_local_evaluation_batch(
                 else:
                     feature_flag.filters = filters
 
-                flags_data.append(MinimalFeatureFlagSerializer(feature_flag, context={}).data)
+                flags_data.append(EvaluationFeatureFlagSerializer(feature_flag, context={}).data)
 
                 if include_cohorts:
                     for cohort_id in cohort_ids:
@@ -938,6 +941,19 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
     from products.feature_flags.backend.tasks import update_team_flags_cache
 
     # Defer task execution until after the transaction commits
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
+
+
+@receiver(post_save, sender=Experiment)
+@receiver(post_delete, sender=Experiment)
+def experiment_changed(sender, instance: "Experiment", **kwargs):
+    # A flag's local-eval `has_experiment` depends on whether it has any non-deleted
+    # linked experiment, so experiment changes must refresh the linked flag's team cache.
+    # Fires on every save by design, mirroring feature_flag_changed: Experiment rows are
+    # only written on user-driven lifecycle/edit operations (no high-churn periodic path
+    # touches them), so an update_fields gate isn't warranted here.
+    from products.feature_flags.backend.tasks import update_team_flags_cache
+
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
 
 

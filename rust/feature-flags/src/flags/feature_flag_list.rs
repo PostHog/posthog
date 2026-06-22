@@ -194,6 +194,11 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
+                        // The PG fallback query doesn't compute experiment linkage. Default to
+                        // true so SDKs keep all $feature_flag_called properties during this rare,
+                        // transient cache-miss fallback — over-preserving wastes bytes, whereas
+                        // defaulting to false could strip experiment-exposure data we can't recover.
+                        has_experiment: true,
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -638,6 +643,7 @@ mod tests {
             team_id: 123,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,
@@ -1208,6 +1214,7 @@ mod tests {
             team_id: 1,
             name: None,
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
@@ -1321,6 +1328,7 @@ mod tests {
             team_id: 123,
             name: Some("Serialization Test".to_string()),
             key: "serialize_test".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,

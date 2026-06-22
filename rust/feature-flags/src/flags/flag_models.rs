@@ -280,6 +280,23 @@ pub struct FeatureFlag {
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bucketing_identifier: Option<String>,
+    /// True if the flag has at least one non-deleted linked experiment. Surfaced to
+    /// SDKs via FlagDetailsMetadata so they can decide whether to keep or strip
+    /// $feature_flag_called event properties.
+    ///
+    /// Defaults to `true` (rather than the usual `#[serde(default)]` bool false) so cache
+    /// entries written by older Django without the field over-preserve properties instead of
+    /// stripping them. A spurious `true` only wastes bytes; a spurious `false` would strip
+    /// unrecoverable experiment-exposure data. This matches the `true` defaults on the PG
+    /// fallback and panic-fallback paths.
+    #[serde(default = "default_has_experiment")]
+    pub has_experiment: bool,
+}
+
+/// Default for `FeatureFlag::has_experiment` when absent from a cache payload. See the field
+/// doc for why this is `true` rather than `false`.
+fn default_has_experiment() -> bool {
+    true
 }
 
 impl FeatureFlag {

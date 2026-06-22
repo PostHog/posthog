@@ -7,7 +7,7 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest
 from django.utils import timezone
@@ -28,6 +28,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.experiments.backend.models.experiment import Experiment
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -659,7 +660,8 @@ def get_feature_flags(
             "flag_evaluation_contexts__evaluation_context__name",
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
-        )
+        ),
+        has_experiment_agg=Exists(Experiment.objects.filter(feature_flag_id=OuterRef("pk"), deleted=False)),
     )
 
     all_feature_flags = list(qs)
@@ -674,6 +676,7 @@ def get_feature_flags(
         except AttributeError:
             # evaluation_tag_names_agg field missing from aggregation query
             _flag._evaluation_tag_names = None
+        _flag._has_experiment = _flag.has_experiment_agg
 
     return all_feature_flags
 
@@ -688,9 +691,9 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     Returns:
         List of serialized flag dictionaries
     """
-    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
-    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    serialized_data = EvaluationFeatureFlagSerializer(flags, many=True).data
     return list(serialized_data)
 
 
@@ -747,10 +750,11 @@ def _feature_flag_model_field_names() -> frozenset[str]:
 def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
     """Reconstruct a FeatureFlag from one cached payload entry.
 
-    The cache payload comes from MinimalFeatureFlagSerializer, which emits
-    SerializerMethodFields (e.g. `evaluation_contexts`) that are not model fields.
-    Keep only real model fields so unknown extras are ignored rather than crashing
-    the FeatureFlag(**...) constructor; known extras are then assigned onto the instance.
+    The cache payload comes from EvaluationFeatureFlagSerializer, which emits
+    SerializerMethodFields (e.g. `evaluation_contexts`, `has_experiment`) that are not
+    model fields. Keep only real model fields so unknown extras are ignored rather than
+    crashing the FeatureFlag(**...) constructor; known extras are then assigned onto the
+    instance.
     """
     model_field_names = _feature_flag_model_field_names()
     model_fields = {key: value for key, value in entry.items() if key in model_field_names}
@@ -760,6 +764,8 @@ def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
     # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
     # written before the rename.
     flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
+    # Preserve has_experiment so a cache-read flag answers without a per-flag experiment query.
+    flag._has_experiment = entry.get("has_experiment")
     return flag
 
 
