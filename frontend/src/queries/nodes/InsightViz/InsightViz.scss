@@ -145,6 +145,10 @@
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
     }
+
+    .WebTile--short-chart .InsightVizDisplay {
+        --insight-viz-min-height: 18rem;
+    }
 }
 
 .RevenueAnalyticsDashboard {

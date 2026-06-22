@@ -39,6 +39,10 @@
         },
         {
             "kind": "native",
+            "id": "@posthog/agent-applications-spec-schema"
+        },
+        {
+            "kind": "native",
             "id": "@posthog/agent-applications-retrieve"
         },
         {
