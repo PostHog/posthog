@@ -60,7 +60,22 @@ def enabled_scout_count(team_id: int, *, exclude_skill: str | None = None) -> in
     return queryset.count()
 
 
-def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[str] | None, int | None]:
+def _resolve_skill_list(layers: list[dict], key: str) -> set[str] | None:
+    """First layer carrying a valid `list[str]` for `key` wins; absent/malformed falls through.
+
+    Returns `None` when no layer has a valid value — "key not set" — distinct from an empty
+    set, which a caller could pass to mean "list explicitly empty".
+    """
+    for layer in layers:
+        raw = layer.get(key)
+        if isinstance(raw, list) and all(isinstance(s, str) for s in raw):
+            return {str(s) for s in raw}
+    return None
+
+
+def _resolve_seed_posture(
+    seed_config_layers: list[dict] | None,
+) -> tuple[set[str] | None, set[str] | None, int | None]:
     """Resolve the seed posture across ordered config layers, most-specific first.
 
     Each field is resolved independently: the first layer carrying a VALID value for that key
@@ -69,20 +84,19 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
     doesn't silently drop the fleet default (e.g. a team passing `enabled_skills` as a string
     still inherits the fleet allowlist rather than enabling everything).
 
-    Returns `(enabled_skills, enabled_interval_minutes)`:
+    Returns `(enabled_skills, disabled_skills, enabled_interval_minutes)`:
     - `enabled_skills`: allowlist of canonical scouts that auto-enable on seed; the rest register
       disabled. `None` (no valid layer) means "no allowlist" — every scout enables, historical.
+    - `disabled_skills`: denylist of canonical scouts forced to seed disabled, a veto that wins
+      over the allowlist. `None` means "no denylist". Lets a launch run the whole fleet except a
+      named scout or two without having to spell out an allowlist of everything else.
     - `enabled_interval_minutes`: cadence stamped on the auto-enabled rows, validated against the
       model's 10–43200 bounds; `None` keeps the model default.
     """
     layers = [layer for layer in (seed_config_layers or []) if isinstance(layer, dict)]
 
-    enabled_skills: set[str] | None = None
-    for layer in layers:
-        raw_skills = layer.get("enabled_skills")
-        if isinstance(raw_skills, list) and all(isinstance(s, str) for s in raw_skills):
-            enabled_skills = {str(s) for s in raw_skills}
-            break
+    enabled_skills = _resolve_skill_list(layers, "enabled_skills")
+    disabled_skills = _resolve_skill_list(layers, "disabled_skills")
 
     enabled_interval: int | None = None
     for layer in layers:
@@ -95,7 +109,7 @@ def _resolve_seed_posture(seed_config_layers: list[dict] | None) -> tuple[set[st
             enabled_interval = raw_interval
             break
 
-    return enabled_skills, enabled_interval
+    return enabled_skills, disabled_skills, enabled_interval
 
 
 def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None = None) -> set[str]:
@@ -110,10 +124,13 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
     override, then the fleet `default_team_config`); `_resolve_seed_posture` resolves them per key.
     When an `enabled_skills` allowlist is in force, only those **canonical** (harness-seeded)
     scouts auto-enable (at `enabled_interval_minutes` if set) and the rest register disabled — the
-    launch posture (e.g. general-only, once a day). Hand-authored **custom** scouts are never gated
-    by the allowlist: "author a skill, get a scout" still auto-enables them, so a launch team's own
-    scout isn't silently muted. With no allowlist, every scout enables at the model-default
-    schedule. Either way, a scout disabled at seed stays visible and tunable but adds no spend.
+    launch posture (e.g. general-only, once a day). A `disabled_skills` denylist is the inverse: it
+    forces the named canonical scouts to seed disabled, a veto that wins over the allowlist — so a
+    launch can run the whole fleet except a scout or two without spelling out an allowlist of
+    everything else. Hand-authored **custom** scouts are governed by neither list: "author a skill,
+    get a scout" still auto-enables them, so a launch team's own scout isn't silently muted. With
+    no allowlist or denylist, every scout enables at the model-default schedule. Either way, a
+    scout disabled at seed stays visible and tunable but adds no spend.
 
     Posture only shapes rows at creation (forward-only) — existing configs are never re-stamped,
     so flipping the flag later doesn't disturb teams already seeded, and a user enabling a scout
@@ -124,7 +141,7 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
     (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
     per-tick caps still bound.
     """
-    enabled_skills, enabled_interval = _resolve_seed_posture(seed_config_layers)
+    enabled_skills, disabled_skills, enabled_interval = _resolve_seed_posture(seed_config_layers)
     rows = list(
         LLMSkill.objects.filter(
             team_id=team_id,
@@ -158,19 +175,22 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
     enabled = enabled_scout_count(team_id)
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
-        # A canonical scout is gated by the allowlist (when one is set); a custom scout never is.
-        # The explicit `is not None` keeps the membership check well-typed (mypy can't carry the
-        # narrowing through `gated`).
-        gated = enabled_skills is not None and name in canonical_names
-        in_allowlist = (not gated) or (enabled_skills is not None and name in enabled_skills)
-        seed_enabled = in_allowlist and not at_cap
+        # Only canonical scouts are governed by the allowlist/denylist; a custom scout always
+        # auto-enables. The explicit `is not None` checks keep the membership tests well-typed
+        # (mypy can't carry the narrowing through the boolean intermediates).
+        is_canonical = name in canonical_names
+        # Allowlist: when set, a canonical scout must be listed to seed enabled.
+        in_allowlist = (not is_canonical) or enabled_skills is None or name in enabled_skills
+        # Denylist: a listed canonical scout seeds disabled — a veto over the allowlist.
+        denied = is_canonical and disabled_skills is not None and name in disabled_skills
+        seed_enabled = in_allowlist and not denied and not at_cap
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
-        # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
-        # enabled now or stays disabled for the user to switch on later — so a specialist a user
-        # toggles on runs at the daily launch cadence, not the 3h model default. Custom scouts
-        # keep the model default so a user's own scout isn't forced onto the fleet's schedule.
-        if gated and enabled_interval is not None:
+        # The launch cadence is stamped on every canonical scout — whether it seeds enabled now or
+        # stays disabled for the user to switch on later — so a specialist a user toggles on runs
+        # at the daily launch cadence, not the 3h model default. Custom scouts keep the model
+        # default so a user's own scout isn't forced onto the fleet's schedule.
+        if is_canonical and enabled_interval is not None:
             defaults["run_interval_minutes"] = enabled_interval
 
         # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
@@ -180,7 +200,7 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
             continue
         if seed_enabled:
             enabled += 1
-        elif in_allowlist and at_cap:
+        elif in_allowlist and not denied and at_cap:
             logger.info(
                 "signals_scout: enabled-scout cap reached, auto-registered config disabled",
                 team_id=team_id,

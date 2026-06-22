@@ -701,6 +701,45 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
             [("signals-scout-general", True), ("signals-scout-general-copy", True)],
             {"signals-scout-general": True, "signals-scout-general-copy": True},
         ),
+        # A denylist with no allowlist → every canonical scout enables EXCEPT the denied one (the
+        # "run the whole fleet except a scout or two" launch case).
+        (
+            {"disabled_skills": ["signals-scout-surveys"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True, "signals-scout-surveys": False},
+        ),
+        # The denylist vetoes the allowlist: a scout in both lists seeds disabled.
+        (
+            {
+                "enabled_skills": ["signals-scout-general", "signals-scout-error-tracking"],
+                "disabled_skills": ["signals-scout-error-tracking"],
+            },
+            None,
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": False},
+        ),
+        # The denylist governs canonical scouts only — a custom scout is never muted by it.
+        (
+            {"disabled_skills": ["signals-scout-custom"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-custom", False)],
+            {"signals-scout-general": True, "signals-scout-custom": True},
+        ),
+        # A per-team denylist override beats the fleet default (per-key fallback, like the allowlist).
+        (
+            {"disabled_skills": ["signals-scout-error-tracking"]},
+            {"disabled_skills": ["signals-scout-surveys"]},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True, "signals-scout-surveys": False},
+        ),
+        # A malformed per-team denylist falls back to the fleet denylist, not "no denylist".
+        (
+            {"disabled_skills": ["signals-scout-surveys"]},
+            {"disabled_skills": "signals-scout-surveys"},
+            [("signals-scout-general", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-surveys": False},
+        ),
     ],
 )
 async def test_seed_posture_enabled_map(ateam, default_cfg, team_cfg, skills, expected_enabled):
