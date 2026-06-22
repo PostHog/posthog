@@ -798,29 +798,10 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
-            test('progress rating', () => {
-                expect(
-                    transformEventToWeb({
-                        type: 2,
-                        data: {
-                            wireframes: [
-                                {
-                                    id: 12365,
-                                    width: 100,
-                                    height: 30,
-                                    type: 'input',
-                                    inputType: 'progress',
-                                    style: { bar: 'rating' },
-                                    max: '12',
-                                    value: '6.5',
-                                },
-                            ],
-                        },
-                        timestamp: 1,
-                    })
-                ).toMatchSnapshot()
-            })
-
+            // Keep these malformed-data cases before the 'progress rating' full-snapshot test below.
+            // Each transformEventToWeb full snapshot resets the shared global id sequence, so the
+            // reset inside 'progress rating' absorbs the ids these cases consume and keeps the
+            // downstream incremental-snapshot tests (keyboard/add/update) stable.
             test.each([
                 ['negative value', -1, 5],
                 ['value larger than max', 10, 3],
@@ -858,6 +839,29 @@ describe('replay/transform', () => {
                 expect(telemetry.captureException).not.toHaveBeenCalled()
                 // a successful transform replaces the mobile node with a web document
                 expect(result).toMatchObject({ type: 2, data: { node: expect.any(Object) } })
+            })
+
+            test('progress rating', () => {
+                expect(
+                    transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'progress',
+                                    style: { bar: 'rating' },
+                                    max: '12',
+                                    value: '6.5',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
             })
 
             test('open keyboard custom event', () => {
