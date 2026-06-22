@@ -161,6 +161,35 @@ def test_status_for_leaves_matching_bucket_untouched(mock_request: MagicMock) ->
 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_status_for_refuses_to_reconcile_on_org_mismatch(mock_request: MagicMock) -> None:
+    # A status whose org_id disagrees with the requested org must never overwrite
+    # this tenant's bucket — that would redirect backfill to another org's bucket.
+    org = Organization.objects.create(name="Org")
+    DuckgresServer.objects.create(
+        organization_id=org.id,
+        host="h",
+        port=5432,
+        database="ducklake",
+        username="root",
+        password="pw",
+        bucket="posthog-duckling-mine-mw-prod-us",
+    )
+    mock_request.return_value = Response(
+        {
+            "org_id": "00000000-0000-0000-0000-000000000000",
+            "state": "ready",
+            "bucket": "posthog-duckling-other-mw-prod-us",
+        },
+        status=200,
+    )
+
+    managed_warehouse.status_for(org.id)
+
+    assert DuckgresServer.objects.get(organization_id=org.id).bucket == "posthog-duckling-mine-mw-prod-us"
+
+
+@pytest.mark.django_db
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
 def test_status_for_without_bucket_leaves_row_alone(mock_request: MagicMock) -> None:
     # External data stores / pre-backfill ducklings report no bucket — don't blank it.
     org = Organization.objects.create(name="Org")

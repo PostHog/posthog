@@ -228,7 +228,10 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # bucket convention (EU, where it raises NotImplementedError).
     returned_bucket = body.get("bucket")
     if returned_bucket:
-        bucket, bucket_region = returned_bucket, "us-east-1"
+        # Take the region from the response too when present, so a future CP that
+        # provisions outside us-east-1 isn't silently mis-recorded; us-east-1 is
+        # the fallback for today's responses, which omit it.
+        bucket, bucket_region = returned_bucket, body.get("bucket_region") or "us-east-1"
     else:
         try:
             bucket, bucket_region = derive_duckling_bucket(str(organization_id))
@@ -279,18 +282,33 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
     bucket differs (no fetch, no create). A DB hiccup is swallowed — it must
     never fail the status read it piggybacks on.
     """
+    # Defense-in-depth: the request is per-org (the URL carries the org id), but
+    # only write back when the response's own org_id agrees with the one we asked
+    # about. A mismatch (CP bug, misrouted proxy) must never let one tenant's
+    # status overwrite another's bucket mapping — that would redirect backfill
+    # reads/writes to the wrong S3 bucket.
+    response_org = body.get("org_id")
+    if response_org is not None and str(response_org) != str(organization_id):
+        logger.warning(
+            "Refusing to reconcile DuckgresServer bucket: status org_id mismatch",
+            requested_organization_id=str(organization_id),
+            response_org_id=str(response_org),
+        )
+        return
+
     bucket = body.get("bucket")
     if not bucket:
         # External data stores / not-yet-backfilled ducklings report no bucket —
         # nothing authoritative to copy.
         return
+    bucket_region = body.get("bucket_region") or "us-east-1"
     try:
         from posthog.ducklake.models import DuckgresServer  # noqa: PLC0415
 
         updated = (
             DuckgresServer.objects.filter(organization_id=organization_id)
             .exclude(bucket=bucket)
-            .update(bucket=bucket, bucket_region="us-east-1")
+            .update(bucket=bucket, bucket_region=bucket_region)
         )
         if updated:
             logger.info(

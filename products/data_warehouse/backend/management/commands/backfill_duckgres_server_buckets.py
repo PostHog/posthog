@@ -113,9 +113,7 @@ class Command(BaseCommand):
 
         verb = "updated" if live else "would update"
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Done: {verb} {updated}, unchanged {unchanged}, skipped {skipped} of {total}."
-            )
+            self.style.SUCCESS(f"Done: {verb} {updated}, unchanged {unchanged}, skipped {skipped} of {total}.")
         )
         if not live and updated:
             self.stdout.write("Re-run with --live-run to apply.")
