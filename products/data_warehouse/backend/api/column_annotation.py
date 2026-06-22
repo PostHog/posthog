@@ -100,12 +100,17 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
             queryset = queryset.filter(table_id=table_id)
         return queryset.order_by(self.ordering)
 
-    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        # The team-scoped table field stops cross-team PKs, but not a table the user is explicitly
-        # denied within this team. Object-level editor access is required before annotating it.
-        table = serializer.validated_data["table"]
+    def _require_table_editor_access(self, table: DataWarehouseTable) -> None:
+        # `WarehouseColumnAnnotation` isn't itself an RBAC resource, so its writes inherit the target
+        # table's object-level access: the queryset only filters by *readable* tables, and the endpoint
+        # scope only checks general warehouse-table write access. Editing or deleting an annotation must
+        # therefore re-check editor access on the specific table — both create/update (which can point at
+        # a denied table) and destroy (which can target a view-only table).
         if not self.user_access_control.check_access_level_for_object(table, required_level="editor"):
             raise PermissionDenied("You do not have permission to annotate this warehouse table.")
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_table_editor_access(serializer.validated_data["table"])
         serializer.save(
             team_id=self.team_id,
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
@@ -116,10 +121,12 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         # A PATCH/PUT can re-point the annotation at a different (same-team) table the user is denied,
         # so re-check editor access on the resolved target table — falling back to the current one.
         annotation = cast(WarehouseColumnAnnotation, serializer.instance)
-        table = serializer.validated_data.get("table") or annotation.table
-        if not self.user_access_control.check_access_level_for_object(table, required_level="editor"):
-            raise PermissionDenied("You do not have permission to annotate this warehouse table.")
+        self._require_table_editor_access(serializer.validated_data.get("table") or annotation.table)
         serializer.save(
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             is_user_edited=True,
         )
+
+    def perform_destroy(self, instance: WarehouseColumnAnnotation) -> None:
+        self._require_table_editor_access(instance.table)
+        instance.delete()

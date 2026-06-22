@@ -188,3 +188,38 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
 
         annotation.refresh_from_db()
         assert annotation.table_id == allowed_table.id
+
+    def test_cannot_delete_annotation_on_view_only_table(self):
+        # A user who can only view a table (so its annotations are readable) must not be able to delete
+        # them — destroy requires editor access on the annotation's table.
+        annotation = WarehouseColumnAnnotation.objects.for_team(self.team.pk).create(
+            team=self.team,
+            table=self.table,
+            column_name="amount",
+            description="charge amount in cents",
+            description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+        )
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        member = self._create_user("member@posthog.com")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        # Viewer access on this table: the annotation is readable, but not deletable.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.table.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+
+        self.client.force_login(member)
+        response = self.client.delete(self._url(f"{annotation.id}/"))
+        assert response.status_code == 403, getattr(response, "data", response.status_code)
+        assert WarehouseColumnAnnotation.objects.for_team(self.team.pk).filter(id=annotation.id).exists()
