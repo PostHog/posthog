@@ -940,7 +940,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "MCPHarnessBreakdownQuery":
-        from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+        from products.mcp_analytics.backend.facade.queries import MCPHarnessBreakdownQueryRunner
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
