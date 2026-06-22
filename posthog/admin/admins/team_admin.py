@@ -376,6 +376,8 @@ class TeamAdmin(admin.ModelAdmin):
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["GET", "POST"])
 
         fields: dict[str, Any] = {}
 
