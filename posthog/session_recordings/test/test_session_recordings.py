@@ -28,6 +28,7 @@ from rest_framework import status
 from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -1373,6 +1374,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Verify the error was called multiple times and we get 503
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @parameterized.expand(
+        [
+            ("at_capacity", ClickHouseAtCapacity, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("query_timeout", ClickHouseQueryTimeOut, status.HTTP_504_GATEWAY_TIMEOUT),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded, status.HTTP_504_GATEWAY_TIMEOUT),
+        ]
+    )
+    def test_snapshots_transient_clickhouse_errors_return_retryable_status(self, _name, exception_cls, expected_status):
+        # Transient ClickHouse failures must surface as their own retryable status (not a generic 500)
+        # so the player can recover and we don't report them to error tracking as code regressions.
+        with patch(
+            "posthog.session_recordings.session_recording_api.list_blocks",
+            side_effect=exception_cls(),
+        ):
+            session_id = str(uuid7())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+            assert response.status_code == expected_status
+
+    def test_snapshots_unexpected_error_returns_500(self):
+        # Genuinely unexpected errors should still surface as a 500 so they remain visible.
+        with patch(
+            "posthog.session_recordings.session_recording_api.list_blocks",
+            side_effect=ValueError("boom"),
+        ):
+            session_id = str(uuid7())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+            assert response.json() == {"error": "An unexpected error has occurred. Please try again later."}
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

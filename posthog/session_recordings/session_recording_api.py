@@ -71,7 +71,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
@@ -1432,6 +1432,19 @@ class SessionRecordingViewSet(
                 },
                 status=status.HTTP_410_GONE,
             )
+        except exceptions.APIException:
+            # Transient ClickHouse capacity/timeout failures surface as APIExceptions carrying their
+            # own retryable status (e.g. ClickHouseAtCapacity -> 503, ClickHouseQueryTimeOut -> 504).
+            # Let DRF render them so the player can recover gracefully instead of collapsing every
+            # transient blip into a generic 500 that floods error tracking.
+            raise
+        except CH_TRANSIENT_ERRORS:
+            # Transient ClickHouse infrastructure errors raised directly (not wrapped into an
+            # APIException) — surface as a retryable 503 rather than a generic 500.
+            return Response(
+                {"error": "ClickHouse over capacity. Please retry"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -1442,19 +1455,10 @@ class SessionRecordingViewSet(
                     "$exception_fingerprint": f"session_recording_api.snapshots.{e.__class__.__name__}",
                 },
             )
-            is_ch_error = isinstance(e, CHQueryErrorCannotScheduleTask)
-
-            message = (
-                "ClickHouse over capacity. Please retry"
-                if is_ch_error
-                else "An unexpected error has occurred. Please try again later."
+            return Response(
+                {"error": "An unexpected error has occurred. Please try again later."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-            response_status = (
-                status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-            return Response({"error": message}, status=response_status)
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
