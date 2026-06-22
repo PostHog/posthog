@@ -1598,9 +1598,12 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
     results: list[KnowledgeSearchResult] = []
     total_chars = 0
     for c in chunks:
-        if total_chars + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
+        # Account for the "\n\n" separator the caller joins chunks with, so the
+        # assembled text honors the cap precisely (no mid-sentence slice downstream).
+        separator = 2 if results else 0
+        if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
             break
-        total_chars += len(c.content)
+        total_chars += separator + len(c.content)
         results.append(
             KnowledgeSearchResult(
                 chunk_id=c.id,

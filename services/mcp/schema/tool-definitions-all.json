@@ -1233,6 +1233,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-sources-partial-update": {
+        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Only the fields you pass are changed.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Update business knowledge source",
+        "title": "Update business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-retrieve": {
         "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
         "category": "Business knowledge",

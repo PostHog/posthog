@@ -50,6 +50,11 @@
                     "description": "How often to auto-refresh this source in the background. Defaults to \"manual\" (no auto-refresh).",
                     "type": "string",
                     "enum": ["manual", "1h", "6h", "24h", "7d"]
+                },
+                "always_include": {
+                    "default": false,
+                    "description": "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "url"]

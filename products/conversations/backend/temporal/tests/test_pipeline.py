@@ -450,6 +450,9 @@ async def test_always_on_context_plumbed_to_draft(
     workflow_input,
     sample_chunk_ids,
 ):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
     mock_build.return_value = BuildContextOutput(
         ticket_context="ticket text",
         ticket_title="Help",
@@ -457,14 +460,17 @@ async def test_always_on_context_plumbed_to_draft(
     )
     mock_refine.return_value = RefineQueriesOutput(queries=["test query"])
     mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
-    mock_draft.return_value = DraftOutput(reply="Hi!", citations=[], confidence=0.95, sources=[])
-    mock_validate.return_value = ValidateOutput(grounded=True, confidence=0.95, missing=[])
+    mock_draft.return_value = DraftOutput(
+        reply="Hi!",
+        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+        confidence=0.95,
+    )
+    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.95, confidence=0.95, missing=[])
 
-    from temporalio.testing import WorkflowEnvironment
-
-    async with await WorkflowEnvironment.start_local() as env:
-        async with env.client.worker(
-            task_queue="test",
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
@@ -479,12 +485,8 @@ async def test_always_on_context_plumbed_to_draft(
                 SupportReplyWorkflow.run,
                 workflow_input,
                 id="test-always-on",
-                task_queue="test",
+                task_queue="test-queue",
             )
 
-    # Verify always_on_context was passed to _draft_async
-    draft_call_kwargs = mock_draft.call_args
-    assert (
-        draft_call_kwargs[0][5] == "Be friendly and professional."
-        or draft_call_kwargs.kwargs.get("always_on_context") == "Be friendly and professional."
-    )
+    # always_on_context is the 6th positional arg to _draft_async
+    assert mock_draft.call_args[0][5] == "Be friendly and professional."
