@@ -19,6 +19,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -28,7 +29,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    CohortType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -49,6 +57,12 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -142,6 +156,7 @@ export function Cohorts(): JSX.Element {
                                         ])
                                     }
                                     tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     fullWidth
                                 >
                                     Export important columns for users
@@ -149,6 +164,7 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
                                     fullWidth
                                 >
                                     Export all columns for users
