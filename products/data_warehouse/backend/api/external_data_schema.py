@@ -725,6 +725,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             and sync_type != instance.sync_type
             and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
         ):
+            if is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Monthly sync limit reached. Please increase your billing limit before changing "
+                    "the sync type — a full re-sync would be required."
+                )
             validated_data.setdefault("sync_type_config", instance.sync_type_config)
             validated_data["sync_type_config"]["reset_pipeline"] = True
             if should_sync if should_sync is not None else instance.should_sync:
