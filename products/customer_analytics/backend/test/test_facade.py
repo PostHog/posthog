@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from posthog.models import Organization, User
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.rbac.user_access_control import UserAccessControl
@@ -112,3 +113,161 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         assert count == 2
         assert {r.name for r in rows} == {"First", "Second"}
+
+    # -- External account API (CDP worker) --------------------------------
+
+    def test_get_external_account_returns_verbatim_shape(self):
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-1",
+            _properties=AccountProperties(
+                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+            ).model_dump(mode="json"),
+        )
+        tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
+        TaggedItem.objects.create(tag=tag, account=account)
+
+        result = facade.get_external_account(self.team.id, "acme-1")
+
+        assert isinstance(result, contracts.ExternalAccount)
+        assert result.id == str(account.id)
+        assert result.external_id == "acme-1"
+        assert result.name == "Acme Corp"
+        assert result.tags == ["enterprise"]
+        assert result.properties == account.properties.model_dump(mode="json")
+        assert result.properties["csm"] == {"id": self.user.id, "email": self.user.email}
+
+    def test_get_external_account_missing_and_other_team(self):
+        create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        other_team = Organization.objects.bootstrap(None, name="Other")[2]
+
+        assert facade.get_external_account(self.team.id, "nope") is None
+        assert facade.get_external_account(other_team.id, "acme-1") is None
+
+    def test_update_external_account_not_found_returns_not_found(self):
+        result = facade.update_external_account(
+            self.team.id, "missing", role_assignments={}, tags=None, tags_mode="add"
+        )
+        assert result.account is None
+        assert result.error == contracts.ExternalAccountUpdateError.NOT_FOUND
+
+    def test_update_external_account_assigns_role_and_resolves_email(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+
+        result = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+        )
+
+        assert result.error is None
+        assert result.account is not None
+        assert result.account.properties["csm"] == {"id": self.user.id, "email": self.user.email}
+        account.refresh_from_db()
+        assert account.properties.csm == AccountAssignment(id=self.user.id, email=self.user.email)
+
+    def test_update_external_account_clears_role_with_none(self):
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-1",
+            _properties=AccountProperties(
+                csm=AccountAssignment(id=self.user.id, email=self.user.email),
+            ).model_dump(mode="json"),
+        )
+
+        result = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": None}, tags=None, tags_mode="add"
+        )
+
+        assert result.account is not None
+        assert result.account.properties["csm"] is None
+        account.refresh_from_db()
+        assert account.properties.csm is None
+
+    def test_update_external_account_preserves_unmentioned_properties(self):
+        account = create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-1",
+            _properties=AccountProperties(stripe_customer_id="cus_123").model_dump(mode="json"),
+        )
+
+        facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+        )
+
+        account.refresh_from_db()
+        assert account.properties.stripe_customer_id == "cus_123"
+        assert account.properties.csm == AccountAssignment(id=self.user.id, email=self.user.email)
+
+    def test_update_external_account_rejects_non_member(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        outsider = User.objects.create_and_join(Organization.objects.create(name="Outsiders"), "out@example.com", None)
+
+        result = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": outsider.id}, tags=None, tags_mode="add"
+        )
+
+        assert result.account is None
+        assert result.error == contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION
+        assert result.error_field == "csm"
+        account.refresh_from_db()
+        assert account.properties.csm is None
+
+    def test_update_external_account_invalid_properties(self):
+        create_account(
+            team_id=self.team.id,
+            name="Acme Corp",
+            external_id="acme-1",
+            _properties={"not_a_real_property": "x"},
+        )
+
+        result = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+        )
+
+        assert result.account is None
+        assert result.error == contracts.ExternalAccountUpdateError.INVALID_PROPERTIES
+
+    def test_update_external_account_tag_modes(self):
+        create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+
+        added = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={}, tags=["enterprise"], tags_mode="add"
+        )
+        assert added.account is not None and added.account.tags == ["enterprise"]
+
+        added_more = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={}, tags=["priority"], tags_mode="add"
+        )
+        assert added_more.account is not None and added_more.account.tags == ["enterprise", "priority"]
+
+        replaced = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="set"
+        )
+        assert replaced.account is not None and replaced.account.tags == ["only"]
+
+        removed = facade.update_external_account(
+            self.team.id, "acme-1", role_assignments={}, tags=["only"], tags_mode="remove"
+        )
+        assert removed.account is not None and removed.account.tags == []
+
+    def test_update_external_account_rolls_back_role_when_tags_fail(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+
+        with patch(
+            "products.customer_analytics.backend.facade.api._apply_external_tags",
+            side_effect=Exception("boom"),
+        ):
+            result = facade.update_external_account(
+                self.team.id,
+                "acme-1",
+                role_assignments={"csm": self.user.id},
+                tags=["enterprise"],
+                tags_mode="add",
+            )
+
+        assert result.account is None
+        assert result.error == contracts.ExternalAccountUpdateError.UPDATE_FAILED
+        account.refresh_from_db()
+        assert account.properties.csm is None

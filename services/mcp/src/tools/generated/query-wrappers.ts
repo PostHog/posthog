@@ -1303,6 +1303,21 @@ const AssistantRetentionActorsQuery = z.object({
     source: AssistantRetentionQuery.describe('The source retention insight query whose cohort we are drilling into.'),
 })
 
+const AssistantStickinessActorsQuery = z.object({
+    compare: z
+        .enum(['current', 'previous'])
+        .describe('Whether to pull from the previous period when `compareFilter` is enabled in the source.')
+        .optional(),
+    day: integer.describe(
+        "The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range."
+    ),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    series: integer
+        .describe('0-based index of the series to drill into when the source has multiple series. Defaults to 0.')
+        .optional(),
+    source: AssistantStickinessQuery.describe('The source stickiness insight query whose bar we are drilling into.'),
+})
+
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
@@ -1403,6 +1418,16 @@ const QueryRetentionActorsSchema = AssistantRetentionActorsQuery.extend({
         ),
 })
 
+const QueryStickinessActorsSchema = AssistantStickinessActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1484,6 +1509,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
     'query-retention-actors': createQueryWrapper({
         name: 'query-retention-actors',
         schema: QueryRetentionActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-stickiness-actors': createQueryWrapper({
+        name: 'query-stickiness-actors',
+        schema: QueryStickinessActorsSchema,
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
