@@ -376,6 +376,24 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     )
 
 
+def raise_if_flag_has_dependents(flag: FeatureFlag, action: str = "disable") -> None:
+    """Raise ValidationError if any active flags depend on *flag*.
+
+    Centralises the format-and-raise logic so every caller (flag serializer,
+    experiment service, bulk-delete) stays in sync automatically.
+    """
+    dependent_flags = find_dependent_flags(flag)
+    if not dependent_flags:
+        return
+    names = ", ".join(f"{f.key} (ID: {f.id})" for f in dependent_flags[:5])
+    if len(dependent_flags) > 5:
+        names += f", and {len(dependent_flags) - 5} more"
+    raise exceptions.ValidationError(
+        f"Cannot {action} this feature flag because other flags depend on it: {names}. "
+        "Please update or disable the dependent flags first."
+    )
+
+
 def find_dependent_flags_batch(
     flags_to_check: list[FeatureFlag],
 ) -> dict[int, list[FeatureFlag]]:
@@ -1717,15 +1735,7 @@ class FeatureFlagSerializer(
                 )
 
             # Check for other flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
-            if dependent_flags:
-                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
-                if len(dependent_flags) > 5:
-                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
-                raise exceptions.ValidationError(
-                    f"Cannot delete this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
-                    f"Please update or delete the dependent flags first."
-                )
+            raise_if_flag_has_dependents(instance, action="delete")
 
             # Check if flag is used in session replay settings
             if Team.objects.filter(
@@ -1763,16 +1773,7 @@ class FeatureFlagSerializer(
 
         # Check for dependency conflicts when disabling a flag
         if "active" in validated_data and validated_data["active"] is False and instance.active is True:
-            # Check for other flags that depend on this flag
-            dependent_flags = self._find_dependent_flags(instance)
-            if dependent_flags:
-                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
-                if len(dependent_flags) > 5:
-                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
-                raise exceptions.ValidationError(
-                    f"Cannot disable this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
-                    f"Please update or disable the dependent flags first."
-                )
+            raise_if_flag_has_dependents(instance)
 
         # Check for dependency conflicts when enabling a flag
         if "active" in validated_data and validated_data["active"] is True and instance.active is False:
@@ -1978,10 +1979,6 @@ class FeatureFlagSerializer(
             and original_flag[field] != getattr(current_instance, field)
             and validated_data[field] != getattr(current_instance, field)
         ]
-
-    def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
-        """Find all active flags that depend on the given flag."""
-        return find_dependent_flags(flag_to_check)
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""

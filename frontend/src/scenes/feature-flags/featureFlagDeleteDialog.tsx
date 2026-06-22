@@ -5,13 +5,18 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
 
+import { DependentFlag } from './featureFlagLogic'
+
 interface FeatureFlagDeleteBlocker {
     kind: string
     name: string
     url?: string
 }
 
-export function getFeatureFlagDeleteBlockers(featureFlag: Partial<FeatureFlagType>): FeatureFlagDeleteBlocker[] {
+export function getFeatureFlagDeleteBlockers(
+    featureFlag: Partial<FeatureFlagType>,
+    dependentFlags: DependentFlag[] = []
+): FeatureFlagDeleteBlocker[] {
     const blockers: FeatureFlagDeleteBlocker[] = []
     for (const feature of featureFlag.features || []) {
         blockers.push({
@@ -35,6 +40,13 @@ export function getFeatureFlagDeleteBlockers(featureFlag: Partial<FeatureFlagTyp
             url: urls.settings('project-replay'),
         })
     }
+    for (const flag of dependentFlags) {
+        blockers.push({
+            kind: 'Feature flag',
+            name: flag.name || flag.key,
+            url: urls.featureFlag(flag.id),
+        })
+    }
     return blockers
 }
 
@@ -42,8 +54,12 @@ export function getFeatureFlagDeleteBlockers(featureFlag: Partial<FeatureFlagTyp
  * Opens the delete confirmation dialog for a feature flag. If linked resources block deletion,
  * shows what's blocking it — with direct links — instead of the confirmation.
  */
-export function openFeatureFlagDeleteDialog(featureFlag: Partial<FeatureFlagType>, onDelete: () => void): void {
-    const blockers = getFeatureFlagDeleteBlockers(featureFlag)
+export function openFeatureFlagDeleteDialog(
+    featureFlag: Partial<FeatureFlagType>,
+    onDelete: () => void,
+    dependentFlags: DependentFlag[] = []
+): void {
+    const blockers = getFeatureFlagDeleteBlockers(featureFlag, dependentFlags)
 
     if (blockers.length > 0) {
         LemonDialog.open({

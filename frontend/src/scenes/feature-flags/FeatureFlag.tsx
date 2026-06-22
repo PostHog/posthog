@@ -112,6 +112,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -394,8 +395,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         if (featureFlag.deleted) {
                                             restoreFeatureFlag(featureFlag)
                                         } else {
-                                            openFeatureFlagDeleteDialog(featureFlag, () =>
-                                                deleteFeatureFlag(featureFlag)
+                                            openFeatureFlagDeleteDialog(
+                                                featureFlag,
+                                                () => deleteFeatureFlag(featureFlag),
+                                                dependentFlags
                                             )
                                         }
                                     }}
@@ -497,8 +500,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    openFeatureFlagDeleteDialog(featureFlag, () =>
-                                                        deleteFeatureFlag(featureFlag)
+                                                    openFeatureFlagDeleteDialog(
+                                                        featureFlag,
+                                                        () => deleteFeatureFlag(featureFlag),
+                                                        dependentFlags
                                                     )
                                                 }
                                             }}
