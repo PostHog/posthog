@@ -3,6 +3,7 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
@@ -158,6 +159,34 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         empty_names = {r["name"] for r in empty_results}
         self.assertEqual(all_names, empty_names, "Empty value filter should return same values as no filter")
         self.assertEqual(set(all_names), {"info", "DEBUG", "PING", "more", "error"})
+
+    @parameterized.expand(
+        [
+            ("level", "log"),
+            ("service.name", "resource"),
+        ]
+    )
+    def test_log_values_query_returns_counts(self, key, attribute_type):
+        """Each value carries a positive integer count, and results are ordered most-observed first."""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": key,
+            "attribute_type": attribute_type,
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        self.assertGreater(len(results), 0, f"Expected at least one {key} value")
+
+        for result in results:
+            self.assertIsInstance(result["count"], int, f"count missing/non-int for {result['name']}")
+            self.assertGreater(result["count"], 0, f"count should be positive for {result['name']}")
+
+        counts = [r["count"] for r in results]
+        self.assertEqual(counts, sorted(counts, reverse=True), "Values should be ordered by count descending")
 
     def test_log_attributes_search_values_off_by_default(self):
         """Searching with `search_values` unset should match attribute keys only."""
