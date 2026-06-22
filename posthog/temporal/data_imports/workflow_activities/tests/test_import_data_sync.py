@@ -1,5 +1,6 @@
 import uuid
 import contextlib
+from datetime import datetime
 
 import pytest
 from unittest import mock
@@ -11,6 +12,8 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 class _FakeAsyncCM:
@@ -40,6 +43,7 @@ def _patched_activity(source_mock):
 
     schema = mock.MagicMock()
     schema.should_use_incremental_field = False
+    schema.row_filters = None
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -106,3 +110,76 @@ async def test_retryable_setup_error_is_reraised():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_not_awaited()
+
+
+def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
+    schema = mock.MagicMock()
+    schema.should_use_incremental_field = True
+    schema.is_incremental = is_incremental
+    schema.incremental_field_type = IncrementalFieldType.Timestamp
+    schema.incremental_field_lookback_seconds = lookback_seconds
+    schema.incremental_field_earliest_value = None
+    schema.row_filters = None
+    schema.sync_type_config = {
+        "incremental_field_last_value": "2026-06-14T15:33:31.802833",
+        "incremental_field_type": "timestamp",
+    }
+    return schema
+
+
+@contextlib.contextmanager
+def _patched_activity_reaching_run(source_mock, schema):
+    model = mock.MagicMock()
+    model.pipeline.source_type = "MongoDB"
+    model.pipeline.job_inputs = {}
+    model.folder_path = mock.Mock(return_value="dataset")
+
+    with (
+        mock.patch.object(module, "tag_queries"),
+        mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "Heartbeater", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "setup_row_tracking", new=mock.AsyncMock()),
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(return_value=model)),
+        mock.patch.object(module, "_get_external_data_schema", new=mock.AsyncMock(return_value=schema)),
+        mock.patch.object(module, "ExternalDataSourceType", return_value="MongoDB"),
+        mock.patch.object(module, "bind_job_context"),
+        mock.patch.object(module, "trim_source_job_inputs", new=mock.AsyncMock()),
+        mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
+        mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
+        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)),
+    ):
+        yield
+
+
+def _inputs_no_reset() -> ImportDataActivityInputs:
+    return ImportDataActivityInputs(
+        team_id=1,
+        schema_id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        run_id=str(uuid.uuid4()),
+        reset_pipeline=False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "is_incremental,expected_last_value",
+    [
+        (True, datetime(2026, 6, 14, 14, 33, 31, 802833)),
+        (False, datetime(2026, 6, 14, 15, 33, 31, 802833)),
+    ],
+)
+async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_incremental, expected_last_value):
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=is_incremental, lookback_seconds=3600)
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.db_incremental_field_last_value == expected_last_value
+    assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"

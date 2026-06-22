@@ -87,6 +87,9 @@ const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSch
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/setup/`,
@@ -140,6 +143,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -154,6 +160,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -204,6 +213,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -218,6 +230,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -276,6 +291,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -290,6 +308,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
@@ -322,6 +343,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -336,6 +360,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -368,6 +395,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -382,6 +412,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.row_filters !== undefined) {
+            body['row_filters'] = params.row_filters
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -487,6 +520,9 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.access_method !== undefined) {
             body['access_method'] = params.access_method
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
@@ -524,6 +560,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
@@ -564,6 +603,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
@@ -643,6 +685,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -668,6 +713,9 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
         if (params.created_via !== undefined) {
             body['created_via'] = params.created_via
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
@@ -689,6 +737,9 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
             body['created_via'] = params.created_via
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -744,6 +795,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs

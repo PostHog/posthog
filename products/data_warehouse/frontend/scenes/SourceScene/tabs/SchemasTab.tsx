@@ -388,7 +388,10 @@ function ManagedSchemaTable({
                                         )}
                                     </div>
                                 }
-                                description={schema.table?.name ? <code>{schema.table.name}</code> : undefined}
+                                description={((): JSX.Element | undefined => {
+                                    const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    return tableName ? <code>{tableName}</code> : undefined
+                                })()}
                             />
                         )
                     },

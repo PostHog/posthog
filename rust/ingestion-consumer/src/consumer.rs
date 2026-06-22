@@ -165,6 +165,10 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_batches.is_empty() {
+            // Consumer-level concurrency: how many Kafka batches are being
+            // processed in parallel, bounded by `max_in_flight_batches`.
+            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_batches.len() as f64);
+
             if accepting_new_batches && in_flight_batches.len() < self.max_in_flight_batches {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {

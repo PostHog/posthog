@@ -4,7 +4,8 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.core.cache import cache
+from django.db import IntegrityError, models, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -30,6 +31,7 @@ from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -43,6 +45,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -63,6 +66,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
@@ -99,6 +103,14 @@ from products.tasks.backend.models import TaskRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+# `available_reviewers` returns every eligible org member in a single unpaginated payload.
+# Org membership is tiny in practice, so even the biggest
+# org today serialises to well under 100 KB. If an org ever exceeds this threshold we want a
+# signal that it's time to add real pagination, rather than silently truncating the list (the
+# old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
+REVIEWER_PAGINATION_THRESHOLD = 1200
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -186,9 +198,41 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
+    def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
+        return (
+            source_product == SignalSourceConfig.SourceProduct.SIGNALS_SCOUT
+            and source_type == SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE
+        )
+
+    def _config_team_id(self, source_product: str | None, source_type: str | None) -> int:
+        # The scout source config is a project-level singleton: the scout fleet canonicalizes
+        # child environments to the parent team, and the emit preflight gates on the parent
+        # team's row (see scout_harness/views.py `_canonical_team_id` and tools/emit.py). Writing
+        # it to the canonical team keeps the inbox toggle and the emit gate on the same row from
+        # any environment. All other sources stay environment-scoped.
+        if self._is_scout_source(source_product, source_type):
+            return self.team.parent_team_id or self.team_id
+        return self.team_id
+
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
+        # (parent) team while every other source stays scoped to the URL environment, so the
+        # toggle reads and updates the same project-level row the emit gate checks.
+        canonical_team_id = self.team.parent_team_id or self.team_id
+        scout_source = Q(
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+        )
+        return queryset.filter(
+            (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
+        )
+
     def perform_create(self, serializer):
+        team_id = self._config_team_id(
+            serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
+        )
         try:
-            instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
+            instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -235,6 +279,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
+
+        # The source keys are the row's identity and decide its canonical team_id on create
+        # (`_config_team_id`); retagging them in place would strand the row on the wrong team —
+        # e.g. a child-environment row retagged to the scout source would stay on the child team,
+        # hidden by the read filter while the emit gate checks the parent. There is no legitimate
+        # reason to change a config's source identity, so reject it rather than re-deriving team_id.
+        for field in ("source_product", "source_type"):
+            new_value = serializer.validated_data.get(field)
+            if new_value is not None and new_value != getattr(instance, field):
+                raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
+
         try:
             instance = serializer.save()
         except IntegrityError:
@@ -322,6 +377,41 @@ SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
 # Upper bound on how far a snooze can push out re-promotion. Generous enough for any
 # realistic snooze, but bounded so a caller can't effectively block a report forever.
 SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
+# Upper bound on how many reports a single bulk transition may touch. Keeps one call
+# from fanning out into an unbounded write; callers page through larger sets.
+SIGNAL_REPORT_BULK_STATE_MAX_IDS = 100
+
+# Canonical dismissal reason codes, mirrored from the inbox UI source of truth at
+# frontend/src/scenes/inbox/utils/dismissalReasons.ts (itself a port of desktop's
+# packages/shared/src/dismissal-reasons.ts). Constraining the API to these values keeps
+# agent-supplied reasons rendering as labelled chips in the inbox instead of raw,
+# unrecognised codes. Keep the values (and order) in sync with that file.
+SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
+    ("already_fixed", "Already fixed"),
+    ("report_unclear", "Report is unclear to me"),
+    ("analysis_wrong", "Agent's analysis is wrong"),
+    ("wontfix_intentional", "Won't fix - intentional behavior"),
+    ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
+    ("other", "Something else…"),
+]
+
+_DISMISSAL_REASON_HELP_TEXT = (
+    "Optional canonical reason code for the dismissal. Must be one of: already_fixed, "
+    "report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match "
+    "the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' "
+    "is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if "
+    "the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code."
+)
+
+
+class SignalReportBulkStateOutcome(models.TextChoices):
+    """Per-id result of a bulk state transition. Mirrors the single-report responses:
+    `transitioned` ~ 200, `skipped` ~ 409 (transition not allowed), `failed` ~ 400."""
+
+    TRANSITIONED = "transitioned", "transitioned"
+    SKIPPED = "skipped", "skipped"
+    FAILED = "failed", "failed"
+    NOT_FOUND = "not_found", "not_found"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -332,13 +422,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "or 'potential' to snooze/reopen it for later review."
         ),
     )
-    dismissal_reason = serializers.CharField(
+    dismissal_reason = serializers.ChoiceField(
         required=False,
-        allow_blank=True,
-        help_text=(
-            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). "
-            "The set of reason codes is owned by the caller and is not validated server-side."
-        ),
+        choices=SIGNAL_REPORT_DISMISSAL_REASON_CHOICES,
+        help_text=_DISMISSAL_REASON_HELP_TEXT,
     )
     dismissal_note = serializers.CharField(
         required=False,
@@ -356,6 +443,56 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Omit to let the report re-enter the pipeline on the next matching signal."
         ),
     )
+
+
+class SignalReportBulkStateRequestSerializer(SignalReportStateRequestSerializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=SIGNAL_REPORT_BULK_STATE_MAX_IDS,
+        help_text=(
+            "Report ids to transition to `state` in one call (1–"
+            f"{SIGNAL_REPORT_BULK_STATE_MAX_IDS}). Duplicates are de-duplicated; each id is "
+            "processed independently so one disallowed transition does not block the rest. "
+            "`dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id."
+        ),
+    )
+
+
+class SignalReportBulkStateResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report id this result refers to.")
+    # CharField (not ChoiceField) on purpose: this is a server-generated response value, so it
+    # needs no input validation, and a ChoiceField named `outcome` would collide with another
+    # product's `OutcomeEnum` in the shared OpenAPI schema. Values come from SignalReportBulkStateOutcome.
+    outcome = serializers.CharField(
+        help_text=(
+            "One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. "
+            "skipped: the transition was not allowed from the report's current status (a 409 on the "
+            "single-report endpoint). failed: the request data was invalid for this report. not_found: no "
+            "report with this id is visible to you."
+        ),
+    )
+    status = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The report's status after the transition. Present only when outcome is 'transitioned'.",
+    )
+    detail = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).",
+    )
+
+
+class SignalReportBulkStateResponseSerializer(serializers.Serializer):
+    results = SignalReportBulkStateResultSerializer(
+        many=True,
+        help_text="One result per requested id, in request order (after de-duplication).",
+    )
+    transitioned_count = serializers.IntegerField(help_text="Number of reports whose state was changed.")
+    skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
+    failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
+    not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
 @extend_schema_view(
@@ -398,6 +535,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
+        qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
@@ -432,10 +570,19 @@ class SignalReportViewSet(
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
-    # loads its evidence. Mutating-by-ID actions (delete, reingest) are deliberately
-    # NOT here, so a suppressed report stays unreachable for those and keeps returning
-    # 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "retrieve", "signals"})
+    # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
+    # can reach suppressed reports too. Mutating-by-ID actions (delete, reingest) are
+    # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
+    # returning 404 — matching the existing contract.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals"})
+
+    # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
+    # (transitioned needs none — its `status` already says where the report landed).
+    _BULK_STATE_OUTCOME_DETAIL = {
+        SignalReportBulkStateOutcome.SKIPPED: "This transition is not allowed from the report's current status.",
+        SignalReportBulkStateOutcome.FAILED: "The request data was invalid for this report.",
+        SignalReportBulkStateOutcome.NOT_FOUND: "No report with this id is visible to you.",
+    }
 
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
@@ -566,6 +713,34 @@ class SignalReportViewSet(
             )
 
         return queryset.filter(priority_rank__in=values)
+
+    def _apply_signal_report_actionability_filter(self, queryset):
+        # Filters on the `latest_actionability_value` annotation (the actionability
+        # choice from the latest actionability_judgment artefact), which must be
+        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
+        # tab passes the two actionable values, the staff-only Not-actionable tab
+        # passes `not_actionable`. Reports without an actionability judgment
+        # (annotation is NULL) are excluded when this filter is set. Absent or empty
+        # param leaves the list unchanged; an unrecognized value is a 400.
+        actionability_filter = self.request.query_params.get("actionability")
+        if not actionability_filter:
+            return queryset
+
+        values = [a.strip() for a in actionability_filter.split(",") if a.strip()]
+        if not values:
+            return queryset
+
+        allowed = {choice.value for choice in ActionabilityChoice}
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {
+                    "actionability": f"Invalid actionability value(s): {', '.join(sorted(set(invalid)))}. "
+                    f"Allowed: {', '.join(sorted(allowed))}."
+                }
+            )
+
+        return queryset.filter(latest_actionability_value__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
@@ -720,7 +895,7 @@ class SignalReportViewSet(
             name = part[1:] if descending else part
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
-                return self._default_signal_report_ordering_clauses
+                continue
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses
@@ -876,36 +1051,65 @@ class SignalReportViewSet(
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
-        login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
-        query = (request.query_params.get("query") or "").strip().lower()
+        with tracer.start_as_current_span("signals.available_reviewers") as span:
+            login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
+            query = (request.query_params.get("query") or "").strip().lower()
 
-        users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
+            users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
 
-        filtered_users = [
-            (user_uuid, user)
-            for user_uuid, user in users_by_uuid.items()
-            if not query
-            or query in f"{user.first_name} {user.last_name}".strip().lower()
-            or query in (user.email or "").lower()
-        ]
+            candidate_count = len(users_by_uuid)
+            span.set_attribute("signals.available_reviewers.candidate_count", candidate_count)
 
-        reviewers = {
-            user_uuid: {
-                "name": f"{user.first_name} {user.last_name}".strip(),
-                "email": user.email or "",
+            # The full candidate list is returned unpaginated. If an org grows past the threshold,
+            # report it (non-blocking) so we know to add pagination before the payload gets large.
+            # `capture_exception` logs an exception and is not deduplicated, so we throttle to at
+            # most one report per org per day via the cache — otherwise a >threshold org would log
+            # on every popover open. (The span's candidate_count attribute is recorded every request
+            # regardless, if a metric-based alert is preferred later.)
+            if (
+                not query
+                and candidate_count > REVIEWER_PAGINATION_THRESHOLD
+                and cache.add(f"signals:available_reviewers_over_threshold:{self.team.id}", True, 60 * 60 * 24)
+            ):
+                capture_exception(
+                    Exception(
+                        f"available_reviewers exceeded pagination threshold: {candidate_count} "
+                        f"candidates > {REVIEWER_PAGINATION_THRESHOLD}; this endpoint should be paginated."
+                    ),
+                    additional_properties={
+                        "team_id": self.team.id,
+                        "candidate_count": candidate_count,
+                        "threshold": REVIEWER_PAGINATION_THRESHOLD,
+                    },
+                )
+
+            filtered_users = [
+                (user_uuid, user)
+                for user_uuid, user in users_by_uuid.items()
+                if not query
+                or query in f"{user.first_name} {user.last_name}".strip().lower()
+                or query in (user.email or "").lower()
+            ]
+
+            reviewers = {
+                user_uuid: {
+                    "name": f"{user.first_name} {user.last_name}".strip(),
+                    "email": user.email or "",
+                }
+                for user_uuid, user in sorted(
+                    filtered_users,
+                    key=lambda item: (
+                        (item[1].first_name or "").lower(),
+                        (item[1].last_name or "").lower(),
+                        (item[1].email or "").lower(),
+                        item[0],
+                    ),
+                )
             }
-            for user_uuid, user in sorted(
-                filtered_users,
-                key=lambda item: (
-                    (item[1].first_name or "").lower(),
-                    (item[1].last_name or "").lower(),
-                    (item[1].email or "").lower(),
-                    item[0],
-                ),
-            )[:100]
-        }
 
-        return Response(reviewers)
+            span.set_attribute("signals.available_reviewers.result_count", len(reviewers))
+
+            return Response(reviewers)
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
@@ -964,7 +1168,7 @@ class SignalReportViewSet(
         Body: {
             "state": "suppressed" | "potential",
             # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
-            "dismissal_reason": "<any string code, owned by the caller>",
+            "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
             # Optional, only honored for state == "potential":
             "snooze_for": <number of additional signals before re-promotion>,
@@ -976,30 +1180,65 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        target = data["state"]
-        dismissal_reason = data.get("dismissal_reason")
-        dismissal_note = data.get("dismissal_note")
+        outcome = self._transition_report_state(
+            report,
+            target=data["state"],
+            dismissal_reason=data.get("dismissal_reason"),
+            dismissal_note=data.get("dismissal_note"),
+            snooze_for=data.get("snooze_for"),
+        )
 
-        # Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
-        # `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
-        # internal pipeline concern and must never be reachable from this public API surface, so it is
-        # passed explicitly rather than splatting caller-supplied kwargs.
-        snooze_for = data.get("snooze_for") if target == "potential" else None
-
-        try:
-            updated_fields = report.transition_to(SignalReport.Status(target), snooze_for=snooze_for)
-        except InvalidStatusTransition as e:
-            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+        if outcome == SignalReportBulkStateOutcome.SKIPPED:
             return Response(
                 {"error": "Invalid state transition for this report."},
                 status=status.HTTP_409_CONFLICT,
             )
-        except (ValueError, TypeError) as e:
-            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+        if outcome == SignalReportBulkStateOutcome.FAILED:
             return Response(
                 {"error": "Invalid data for state transition."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    def _transition_report_state(
+        self,
+        report: SignalReport,
+        *,
+        target: str,
+        dismissal_reason: str | None,
+        dismissal_note: str | None,
+        snooze_for: int | None,
+    ) -> "SignalReportBulkStateOutcome":
+        """
+        Apply one report state transition (plus optional dismissal artefact) and return a
+        compact outcome. Shared by the single `state` action and the bulk `bulk_state` action
+        so both honour the same restore/snooze semantics and transition guards. Expected
+        invalid transitions are returned as outcomes (never raised) so a bulk run can record a
+        per-id result and keep going.
+
+        Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
+        `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
+        internal pipeline concern and must never be reachable from this public API surface, so it is
+        passed explicitly rather than splatting caller-supplied kwargs.
+        """
+        # "potential" on a suppressed report means "restore" (un-archive): return it to the state it
+        # held before suppression when that was a researched, user-visible report, instead of always
+        # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
+        target_status = SignalReport.Status(target)
+        if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+            target_status = report.restore_target_status()
+
+        effective_snooze_for = snooze_for if target == "potential" else None
+
+        try:
+            updated_fields = report.transition_to(target_status, snooze_for=effective_snooze_for)
+        except InvalidStatusTransition as e:
+            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+            return SignalReportBulkStateOutcome.SKIPPED
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+            return SignalReportBulkStateOutcome.FAILED
 
         with transaction.atomic():
             report.save(update_fields=updated_fields)
@@ -1008,14 +1247,15 @@ class SignalReportViewSet(
             # and so multiple dismissals (with different rationales) can stack over time.
             # Captured for both suppress and snooze (transition to potential) flows.
             if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
-                user = request.user
+                user = self.request.user
+                is_authenticated = getattr(user, "is_authenticated", False)
+                # getattr (not direct attribute access) so the AnonymousUser branch type-checks.
+                user_uuid = getattr(user, "uuid", None) if is_authenticated else None
                 artefact_content = {
                     "reason": dismissal_reason,
                     "note": dismissal_note,
-                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
-                    "user_uuid": str(user.uuid)
-                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
-                    else None,
+                    "user_id": getattr(user, "id", None) if is_authenticated else None,
+                    "user_uuid": str(user_uuid) if user_uuid else None,
                 }
                 SignalReportArtefact.objects.create(
                     team=self.team,
@@ -1023,13 +1263,87 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
-                # get_object() evaluated the dismissal prefetch before this artefact
-                # existed; drop the stale cache so the response serializer re-reads the
+                # The dismissal prefetch may have been evaluated before this artefact
+                # existed; drop the stale cache so a follow-up serializer re-reads the
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
-        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+        return SignalReportBulkStateOutcome.TRANSITIONED
+
+    @extend_schema(
+        request=SignalReportBulkStateRequestSerializer,
+        responses={200: SignalReportBulkStateResponseSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["task:write"])
+    def bulk_state(self, request, **kwargs):
+        """
+        Transition many reports to a new state in one call.
+
+        Each id is processed independently: a report whose transition isn't allowed from its
+        current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+        rest still go through. Returns one result per requested id (in request order, after
+        de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+        inspect `results` / the counts to see what happened.
+        """
+        serializer = SignalReportBulkStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        target = data["state"]
+        dismissal_reason = data.get("dismissal_reason")
+        dismissal_note = data.get("dismissal_note")
+        snooze_for = data.get("snooze_for")
+
+        # De-duplicate while preserving request order so the response lines up with what was asked.
+        ordered_ids: list[str] = []
+        seen: set[str] = set()
+        for raw_id in data["ids"]:
+            key = str(raw_id)
+            if key not in seen:
+                seen.add(key)
+                ordered_ids.append(key)
+
+        # One team-scoped fetch for every requested report. get_queryset() scopes to the team and
+        # excludes deleted reports; suppressed reports are reachable because bulk_state is in
+        # _SUPPRESSED_VISIBLE_ACTIONS, so bulk restore (state='potential') works too.
+        reports_by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ordered_ids)}
+
+        results: list[dict] = []
+        counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkStateOutcome}
+        for report_id in ordered_ids:
+            report = reports_by_id.get(report_id)
+            if report is None:
+                outcome = SignalReportBulkStateOutcome.NOT_FOUND
+                report_status = None
+            else:
+                outcome = self._transition_report_state(
+                    report,
+                    target=target,
+                    dismissal_reason=dismissal_reason,
+                    dismissal_note=dismissal_note,
+                    snooze_for=snooze_for,
+                )
+                report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+            results.append(
+                {
+                    "id": report_id,
+                    "outcome": outcome.value,
+                    "status": report_status,
+                    "detail": self._BULK_STATE_OUTCOME_DETAIL.get(outcome),
+                }
+            )
+            counts[outcome.value] += 1
+
+        return Response(
+            {
+                "results": results,
+                "transitioned_count": counts[SignalReportBulkStateOutcome.TRANSITIONED.value],
+                "skipped_count": counts[SignalReportBulkStateOutcome.SKIPPED.value],
+                "failed_count": counts[SignalReportBulkStateOutcome.FAILED.value],
+                "not_found_count": counts[SignalReportBulkStateOutcome.NOT_FOUND.value],
+            }
+        )
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])

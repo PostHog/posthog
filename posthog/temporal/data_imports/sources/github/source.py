@@ -108,9 +108,6 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
             "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
-            # The OAuth source has no GitHub account selected, so there's no integration to mint a
-            # token from. A config problem — retrying never resolves it; the user must reconnect.
-            "Missing GitHub integration ID": "No GitHub account is connected to this source. Please reconnect your GitHub account.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
             "GITHUB_APP_CLIENT_ID is not configured": "The GitHub App is not configured on this PostHog instance. Please contact support.",
@@ -121,6 +118,18 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             # "Failed to refresh installation token" prefix would also swallow transient 5xx/429
             # refresh failures, which must stay retryable.
             'Failed to refresh installation token: {"message":"Not Found"': "Your GitHub App installation could not be found. It may have been uninstalled or had its access revoked. Please reconnect your GitHub account.",
+            # GitHub suspends an App installation (org owner action, or GitHub itself) and returns
+            # a 403 "This installation has been suspended" when minting a token. The custom
+            # GitHubIntegrationError message isn't a requests "403 Client Error" string, so it
+            # falls through the status-text keys above. Retrying can't unsuspend it.
+            "This installation has been suspended": "Your GitHub App installation has been suspended. Re-enable it from your GitHub organization's installed GitHub Apps settings, then reconnect your GitHub account.",
+            # Deterministic credential/config errors from _get_access_token and OAuthMixin.
+            # These never resolve on retry — the source needs reconfiguring or reconnecting.
+            "Missing GitHub integration ID": "No GitHub account is connected. Please reconnect your GitHub account.",
+            "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
+            "GitHub access token not found": "GitHub OAuth access token is missing. Please reconnect your GitHub account.",
+            "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
+            "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:

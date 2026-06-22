@@ -62,7 +62,6 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -230,7 +229,7 @@ const ExperimentsTable = ({
                                         No-code
                                     </LemonTag>
                                 )}
-                                {isLegacyExperiment(experiment) && (
+                                {experiment.is_legacy && (
                                     <Tooltip
                                         title="This experiment uses the legacy engine, so some features and improvements may be missing."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
@@ -279,7 +278,7 @@ const ExperimentsTable = ({
             key: 'remaining_time',
             width: 80,
             render: function Render(_, experiment: Experiment) {
-                const remainingDays = experiment.parameters?.recommended_running_time
+                const remainingDays = experiment.running_time_calculation?.recommended_running_time
                 const daysElapsed = experiment.start_date
                     ? dayjs().diff(dayjs(experiment.start_date), 'day')
                     : undefined
@@ -387,7 +386,7 @@ const ExperimentsTable = ({
                                     size="small"
                                     fullWidth
                                     disabledReason={
-                                        isLegacyExperiment(experiment)
+                                        experiment.is_legacy
                                             ? 'Not supported for experiments using legacy metrics. Please recreate the experiment manually.'
                                             : undefined
                                     }
@@ -400,7 +399,7 @@ const ExperimentsTable = ({
                                         size="small"
                                         fullWidth
                                         disabledReason={
-                                            isLegacyExperiment(experiment)
+                                            experiment.is_legacy
                                                 ? 'Copying is not supported for experiments using legacy metrics.'
                                                 : undefined
                                         }

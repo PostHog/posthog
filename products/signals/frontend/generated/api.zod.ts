@@ -29,7 +29,7 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -47,10 +47,20 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze\/reopen it for later review.\n\n\* `suppressed` - suppressed\n\* `potential` - potential"
         ),
     dismissal_reason: zod
-        .string()
+        .enum([
+            'already_fixed',
+            'report_unclear',
+            'analysis_wrong',
+            'wontfix_intentional',
+            'wontfix_irrelevant',
+            'other',
+        ])
+        .describe(
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `other` - Something else…"
+        )
         .optional()
         .describe(
-            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side."
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -64,6 +74,65 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+        ),
+})
+
+/**
+ * Transition many reports to a new state in one call.
+ *
+ * Each id is processed independently: a report whose transition isn't allowed from its
+ * current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+ * rest still go through. Returns one result per requested id (in request order, after
+ * de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+ * inspect `results` / the counts to see what happened.
+ */
+export const signalsReportsBulkStateCreateBodyDismissalNoteMax = 4000
+
+export const signalsReportsBulkStateCreateBodySnoozeForMax = 100000
+
+export const signalsReportsBulkStateCreateBodyIdsMax = 100
+
+export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
+    state: zod
+        .enum(['suppressed', 'potential'])
+        .describe('\* `suppressed` - suppressed\n\* `potential` - potential')
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze\/reopen it for later review.\n\n\* `suppressed` - suppressed\n\* `potential` - potential"
+        ),
+    dismissal_reason: zod
+        .enum([
+            'already_fixed',
+            'report_unclear',
+            'analysis_wrong',
+            'wontfix_intentional',
+            'wontfix_irrelevant',
+            'other',
+        ])
+        .describe(
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `other` - Something else…"
+        )
+        .optional()
+        .describe(
+            "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `other` - Something else…"
+        ),
+    dismissal_note: zod
+        .string()
+        .max(signalsReportsBulkStateCreateBodyDismissalNoteMax)
+        .optional()
+        .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+    snooze_for: zod
+        .number()
+        .min(1)
+        .max(signalsReportsBulkStateCreateBodySnoozeForMax)
+        .optional()
+        .describe(
+            "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+        ),
+    ids: zod
+        .array(zod.uuid())
+        .max(signalsReportsBulkStateCreateBodyIdsMax)
+        .describe(
+            'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.'
         ),
 })
 
@@ -96,7 +165,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 60 (hourly).'),
+            .describe('Minutes between runs (10–43200). Defaults to 180 (every 3 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -249,7 +318,7 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left null), not rejected, so the memory write is never lost."
             ),
     })
     .describe('Request body for `remember`.')
@@ -280,9 +349,11 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'signals_scout',
             'logs',
             'health_checks',
+            'endpoints',
+            'replay_vision',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision'
         ),
     source_type: zod
         .enum([
@@ -296,9 +367,12 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'cross_source_issue',
             'alert_state_change',
             'health_issue',
+            'endpoint_execution_failed',
+            'endpoint_breakdown_limit_exceeded',
+            'scanner_finding',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -318,9 +392,11 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'signals_scout',
             'logs',
             'health_checks',
+            'endpoints',
+            'replay_vision',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision'
         ),
     source_type: zod
         .enum([
@@ -334,9 +410,12 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'cross_source_issue',
             'alert_state_change',
             'health_issue',
+            'endpoint_execution_failed',
+            'endpoint_breakdown_limit_exceeded',
+            'scanner_finding',
         ])
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -356,10 +435,12 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'signals_scout',
             'logs',
             'health_checks',
+            'endpoints',
+            'replay_vision',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision'
         ),
     source_type: zod
         .enum([
@@ -373,10 +454,13 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'cross_source_issue',
             'alert_state_change',
             'health_issue',
+            'endpoint_execution_failed',
+            'endpoint_breakdown_limit_exceeded',
+            'scanner_finding',
         ])
         .optional()
         .describe(
-            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue'
+            '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation` - Evaluation\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
