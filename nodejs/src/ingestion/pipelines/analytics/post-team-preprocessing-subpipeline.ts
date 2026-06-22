@@ -9,6 +9,7 @@ import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filt
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
+    createDedupeFeatureFlagCalledStep,
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createValidateEventMetadataStep,
@@ -20,6 +21,7 @@ import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-p
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
+import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
@@ -44,6 +46,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
+    featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
@@ -62,6 +65,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        featureFlagCalledDedupService,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -94,6 +98,10 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .pipeBatch(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            // Drop redundant $feature_flag_called events (keep-first Redis claim).
+            // Must run after cookieless (keys on the final distinct_id) and before
+            // person prefetch so duplicates skip person processing and the CH write.
+            .pipeBatch(createDedupeFeatureFlagCalledStep(featureFlagCalledDedupService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs.
             // Prefetch is fire-and-forget (best-effort cache warming), so retry here would be a
             // no-op — transient persons-Postgres failures are swallowed inside prefetchPersons so

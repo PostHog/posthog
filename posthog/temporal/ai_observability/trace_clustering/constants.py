@@ -10,8 +10,11 @@ DEFAULT_MAX_SAMPLES = 1500
 DEFAULT_MIN_K = 2
 DEFAULT_MAX_K = 10
 
-# Minimum traces required for clustering
-MIN_TRACES_FOR_CLUSTERING = 20
+# Minimum items required for clustering, checked per analysis level over the
+# lookback window (~1 week). A team qualifies for trace clustering with >= this
+# many traces, and independently for generation clustering with >= this many
+# generations.
+MIN_TRACES_FOR_CLUSTERING = 1000
 
 # Coordinator concurrency settings
 DEFAULT_MAX_CONCURRENT_TEAMS = 4  # Max teams to process in parallel

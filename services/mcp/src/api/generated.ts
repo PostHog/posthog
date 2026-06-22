@@ -9204,6 +9204,11 @@ export namespace Schemas {
       snapshots: ApproveSnapshotInput[];
     }
 
+    export interface ArchiveExperiment {
+      /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
+      disable_feature_flag?: boolean;
+    }
+
     export interface Artifact {
       id: string;
       content_hash: string;
@@ -11547,8 +11552,12 @@ export namespace Schemas {
       excluded_properties?: string;
       /** Tag names to filter by. Flags carrying at least one of these tags match. */
       tags?: string[];
+      /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+      excluded_tags?: string[];
       /** When true, only matches flags with at least one evaluation context. */
       has_evaluation_contexts?: boolean;
+      /** Filter by archived state. When omitted, archived flags are excluded. */
+      archived?: boolean;
     }
 
     export interface BulkDeleteRequest {
@@ -22116,6 +22125,8 @@ export namespace Schemas {
       filters?: FeatureFlagFilters;
       deleted?: boolean;
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       readonly created_by: UserBasic;
       created_at?: string;
       /** @nullable */
@@ -22615,6 +22626,8 @@ export namespace Schemas {
       filters?: FeatureFlagFiltersSchema;
       /** Whether the feature flag is active. */
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -22657,7 +22670,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+      /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
@@ -35727,6 +35740,8 @@ export namespace Schemas {
       filters?: FeatureFlagFiltersSchema;
       /** Whether the feature flag is active. */
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -45622,7 +45637,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
+         * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
          * @minimum 10
          * @maximum 43200
          */
@@ -58235,6 +58250,10 @@ export namespace Schemas {
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived;
+    /**
      * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string;
@@ -58246,6 +58265,10 @@ export namespace Schemas {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string;
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string;
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -58274,6 +58297,14 @@ export namespace Schemas {
 
     export const FeatureFlagsListActive = {
       Stale: 'STALE',
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListArchived = typeof FeatureFlagsListArchived[keyof typeof FeatureFlagsListArchived];
+
+
+    export const FeatureFlagsListArchived = {
       False: 'false',
       True: 'true',
     } as const;
