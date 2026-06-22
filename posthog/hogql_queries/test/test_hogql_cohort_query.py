@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, HogQLRealtimeCohortQuery
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -969,12 +971,6 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("countif(", query_str.lower())
         self.assertIn("greaterOrEquals", query_str)
 
-        # The merged query should check for at least 1 match using countIf
-        self.assertIn("countif", query_str.lower())
-
-        # Single-scan optimization: no UNION DISTINCT even for non-mergeable properties
-        self.assertNotIn("UNION DISTINCT", query_str)
-
     def test_or_group_with_nested_single_property_groups_merges(self) -> None:
         """
         Test that nested OR groups with single properties get merged.
@@ -1635,131 +1631,133 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should NOT use INTERSECT since all properties merged into one
         self.assertNotIn("INTERSECT DISTINCT", query_str)
 
-    def test_cross_condition_and_single_scan(self) -> None:
-        """AND of person properties with different keys emits one scan, not INTERSECT DISTINCT."""
-        cohort_filters = {
-            "type": "AND",
-            "values": [
+    @parameterized.expand(
+        [
+            (
+                # AND of 3 person properties with different keys → single scan, threshold = N (3)
+                "cross_condition_and",
                 {
                     "type": "AND",
                     "values": [
                         {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@posthog.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash_email_001",
-                        },
-                        {
-                            "key": "plan",
-                            "type": "person",
-                            "value": "enterprise",
-                            "negation": False,
-                            "operator": "exact",
-                            "conditionHash": "hash_plan_002",
-                        },
-                        {
-                            "key": "country",
-                            "type": "person",
-                            "value": "US",
-                            "negation": False,
-                            "operator": "exact",
-                            "conditionHash": "hash_country_003",
-                        },
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_email_001",
+                                },
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": "enterprise",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_plan_002",
+                                },
+                                {
+                                    "key": "country",
+                                    "type": "person",
+                                    "value": "US",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_country_003",
+                                },
+                            ],
+                        }
                     ],
-                }
-            ],
-        }
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Cross-Condition AND", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
-
-        # Single scan: no INTERSECT DISTINCT
-        self.assertNotIn("INTERSECT DISTINCT", query_str)
-        self.assertNotIn("UNION DISTINCT", query_str)
-        # All conditions in one IN clause
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-        # AND semantics: all 3 must match
-        self.assertIn("countif(", query_str.lower())
-        self.assertIn("equals(countif(", query_str.lower())
-
-    def test_cross_condition_or_single_scan(self) -> None:
-        """OR of person properties with different keys emits one scan, not UNION DISTINCT."""
-        cohort_filters = {
-            "type": "OR",
-            "values": [
+                },
+                [
+                    "in(precalculated_person_properties.condition,",
+                    "greaterorequals(countif(equals(latest_matches, 1)), 3)",
+                ],
+                ["intersect distinct", "union distinct"],
+            ),
+            (
+                # OR of 2 person properties with different keys → single scan, threshold = 1
+                "cross_condition_or",
                 {
                     "type": "OR",
                     "values": [
                         {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@posthog.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "hash_email_or_001",
-                        },
-                        {
-                            "key": "plan",
-                            "type": "person",
-                            "value": "enterprise",
-                            "negation": False,
-                            "operator": "exact",
-                            "conditionHash": "hash_plan_or_002",
-                        },
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "hash_email_or_001",
+                                },
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": "enterprise",
+                                    "negation": False,
+                                    "operator": "exact",
+                                    "conditionHash": "hash_plan_or_002",
+                                },
+                            ],
+                        }
                     ],
-                }
-            ],
-        }
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Cross-Condition OR", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
-
-        self.assertNotIn("UNION DISTINCT", query_str)
-        self.assertNotIn("INTERSECT DISTINCT", query_str)
-        self.assertIn("in(precalculated_person_properties.condition,", query_str.lower())
-        # OR semantics: threshold is greaterOrEquals(..., 1)
-        self.assertIn("greaterOrEquals", query_str)
-
-    def test_mixed_behavioral_and_person_falls_through(self) -> None:
-        """Mixed behavioral + person property cohort still uses multi-subquery path."""
-        cohort_filters = {
-            "type": "AND",
-            "values": [
+                },
+                [
+                    "in(precalculated_person_properties.condition,",
+                    "greaterorequals(countif(equals(latest_matches, 1)), 1)",
+                ],
+                ["intersect distinct", "union distinct"],
+            ),
+            (
+                # Mixed behavioral + person property → falls through to multi-subquery path
+                "mixed_behavioral_and_person_falls_through",
                 {
                     "type": "AND",
                     "values": [
                         {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": False,
-                            "event_type": "events",
-                            "time_value": 7,
-                            "time_interval": "day",
-                            "conditionHash": "behavioral_hash_001",
-                        },
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "@posthog.com",
-                            "negation": False,
-                            "operator": "icontains",
-                            "conditionHash": "person_hash_001",
-                        },
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "events",
+                                    "time_value": 7,
+                                    "time_interval": "day",
+                                    "conditionHash": "behavioral_hash_001",
+                                },
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "@posthog.com",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                    "conditionHash": "person_hash_001",
+                                },
+                            ],
+                        }
                     ],
-                }
-            ],
-        }
-        cohort = Cohort.objects.create(
-            team=self.team, name="Test Mixed Falls Through", filters={"properties": cohort_filters}
-        )
-        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+                },
+                ["intersect distinct", "precalculated_events", "precalculated_person_properties"],
+                [],
+            ),
+        ]
+    )
+    def test_single_scan_optimization(
+        self,
+        name: str,
+        cohort_filters: dict,
+        expected_present: list[str],
+        expected_absent: list[str],
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name=f"Test {name}", filters={"properties": cohort_filters})
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
 
-        # Mixed: falls through to multi-subquery path
-        self.assertIn("INTERSECT DISTINCT", query_str)
-        self.assertIn("precalculated_events", query_str)
-        self.assertIn("precalculated_person_properties", query_str)
+        for substring in expected_present:
+            self.assertIn(substring, query_str)
+        for substring in expected_absent:
+            self.assertNotIn(substring, query_str)
