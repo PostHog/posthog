@@ -23362,6 +23362,17 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
+    }
+
     /**
      * * `line` - line
      * * `symbol` - symbol
