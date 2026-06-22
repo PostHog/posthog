@@ -234,8 +234,15 @@ def extract_hogql_detector_series(
 
     # Too few points to score → report uncomputed (None), mirroring the trends detector's
     # "rows exist but are too short" path (empty series with empty_query_result False).
-    if len(values) < _compute_min_samples_for_detector(detector_config) + 1:
+    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    if len(values) < min_samples:
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
+
+    # Score only the most recent window the detector needs (current stays last). A SQL query can
+    # return a large result, and detectors like KNN/LOF/OCSVM train on every point handed in — so
+    # without this bound a big result set would make alert workers train on tens of thousands of
+    # points each check. The trends path bounds the same way via its date-range fetch.
+    values = values[-min_samples:]
 
     points = [SeriesPoint(date=None, value=v) for v in values]
     single = ComparableSeries(

@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import HogQLAlertConfig
 
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
@@ -46,6 +48,16 @@ def test_scores_the_latest_value(latest, expect_anomaly):
     assert bool(evaluation.breaches) is expect_anomaly
     if expect_anomaly:
         assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
+
+
+def test_large_result_is_bounded_to_the_detector_window():
+    # A big SQL result must not train the detector on every point — only the most recent window
+    # it needs (the latest point is preserved as "current"), so workers can't be made to score
+    # tens of thousands of points each check.
+    expected = _compute_min_samples_for_detector(ZSCORE) + 1
+    result = _extract([float(i % 5) for i in range(500)] + [999.0])  # 501 rows
+    assert len(result.series[0].points) == expected
+    assert result.series[0].points[-1].value == 999.0
 
 
 def test_last_row_truncation_guard_rejects_a_capped_result():
