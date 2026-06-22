@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.logic.code_workstreams.grouping import DEFAULT_BASE_BRANCHES
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.code_workstreams.activities.github_resolution import (
     TeamIntegrationResolver,
@@ -21,10 +22,6 @@ from products.tasks.backend.temporal.code_workstreams.constants import (
     ACTIVITY_WINDOW,
     MAX_BRANCH_QUERIES_PER_TEAM_PER_CYCLE,
 )
-
-# A run that sits on a base branch never represents its own PR, and querying `head=owner:main`
-# returns unrelated PRs. Mirrors DEFAULT_BASE_BRANCHES in logic/code_workstreams/grouping.py.
-_SKIP_BRANCHES = frozenset({"main", "master"})
 
 
 @dataclass
@@ -38,9 +35,9 @@ class _BranchCandidate:
 @dataclass
 class DiscoverBranchPrsInput:
     team_id: int
-    # PR urls already harvested from output.pr_url this cycle; discovery skips these.
+    # PR urls already found this cycle; discovery skips these.
     known_pr_urls: list[str]
-    # How many more PRs we may add before hitting MAX_PRS_PER_TEAM_PER_CYCLE.
+    # Remaining capacity before hitting MAX_PRS_PER_TEAM_PER_CYCLE.
     budget: int
 
 
@@ -63,15 +60,15 @@ def discover_branch_prs(input: DiscoverBranchPrsInput) -> DiscoverBranchPrsOutpu
 def _collect_branch_candidates(team_id: int) -> list[_BranchCandidate]:
     """Recent runs with a branch and a repository, deduped by (repo, branch), capped per cycle.
 
-    This is the branch analogue of load_pr_urls' output.pr_url harvest: the durable fact a run
-    leaves behind is the branch it pushed, even when no pr_url was ever recorded.
+    The branch analogue of load_pr_urls' output.pr_url harvest: a run's branch is durable even
+    when no pr_url was recorded. Base branches are excluded — they never head a task's own PR.
     """
     cutoff = timezone.now() - ACTIVITY_WINDOW
     runs = (
         TaskRun.objects.filter(team_id=team_id, updated_at__gte=cutoff)
         .exclude(branch__isnull=True)
         .exclude(branch="")
-        .exclude(branch__in=list(_SKIP_BRANCHES))
+        .exclude(branch__in=list(DEFAULT_BASE_BRANCHES))
         .select_related("task")
         .order_by("-updated_at")
     )
@@ -129,13 +126,12 @@ def discover_branch_prs_for_team(
                 )
             integration = integrations[cache_key]
         except ObjectDoesNotExist:
-            # Permanent failure: cache None so other candidates sharing this (deleted) integration
-            # don't each re-run the failing DB lookup.
+            # Cache None so other candidates sharing this integration don't re-run the failing lookup.
             activity.logger.warning("code_workstreams_discover_integration_missing", repository=candidate.repository)
             integrations[cache_key] = None
             continue
         except (GitHubIntegrationError, requests.RequestException) as e:
-            # A token-refresh failure for one candidate must not abort the whole activity.
+            # Token-refresh failure; skip this candidate rather than aborting the activity.
             activity.logger.warning(
                 "code_workstreams_discover_integration_unavailable", repository=candidate.repository, error=str(e)
             )

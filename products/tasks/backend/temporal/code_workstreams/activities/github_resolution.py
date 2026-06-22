@@ -11,10 +11,8 @@ from products.tasks.backend.models import Task
 class TeamIntegrationResolver:
     """Resolve the GitHub integration ids to use for a task's PR lookups.
 
-    Order: the task's own configured integration, else the team's default GitHub integration,
-    else the task creator's personal GitHub integration. Both the ``output.pr_url`` harvest
-    (``load_pr_urls``) and branch discovery (``discover_branch_prs``) need this, so it lives in
-    one place to stay in sync. Lookups are cached per team/creator for the life of one activity.
+    Order: the task's own integration, else the team default, else the task creator's personal
+    integration. Shared by ``load_pr_urls`` and ``discover_branch_prs`` to keep resolution in sync.
     """
 
     def __init__(self, team_id: int) -> None:
@@ -46,8 +44,7 @@ def resolve_github_integration(
 ) -> GitHubIntegrationBase | None:
     """Instantiate the GitHub integration for the given ids, refreshing an expired token.
 
-    Raises ``ObjectDoesNotExist`` if the id no longer resolves, and may raise on a failed token
-    refresh; callers treat both as "skip this PR/branch" rather than aborting the cycle.
+    Raises ``ObjectDoesNotExist`` if the id no longer resolves; may also raise on token-refresh failure.
     """
     if github_integration_id is not None:
         integration = GitHubIntegration(Integration.objects.get(id=github_integration_id))

@@ -64,9 +64,8 @@ class EvaluateTeamCodeWorkstreamsWorkflow(PostHogWorkflow):
 
         prs = list(pr_urls.prs)
 
-        # Branch discovery surfaces PRs whose run never recorded an output.pr_url (timed-out runs,
-        # late/manual PRs, PRs the agent didn't report). It calls GitHub, so it gets its own
-        # heartbeated activity rather than blocking the cheap DB-only load step.
+        # Branch discovery surfaces PRs whose run never wrote output.pr_url. It calls GitHub, so it
+        # runs as its own heartbeated activity rather than blocking the DB-only load step.
         budget = MAX_PRS_PER_TEAM_PER_CYCLE - len(prs)
         if budget > 0:
             discovered: DiscoverBranchPrsOutput = await workflow.execute_activity(

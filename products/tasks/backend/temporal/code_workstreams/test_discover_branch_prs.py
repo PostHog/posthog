@@ -121,16 +121,12 @@ def test_zero_budget_makes_no_github_calls(activity_environment):
 @pytest.mark.django_db(transaction=True)
 def test_collect_candidates_dedupes_repo_branch_and_skips_base_and_repoless():
     team = _make_team()
-    # Two runs on the same (repo, branch) ⇒ one candidate, one future GitHub call.
+    # Same (repo, branch) twice, plus a case-only repo variant — all one candidate.
     _run_on_branch(team, "acme/widgets", "posthog-code/feature-x")
     _run_on_branch(team, "acme/widgets", "posthog-code/feature-x")
-    # Case-insensitive repo dedupe.
     _run_on_branch(team, "AcMe/Widgets", "posthog-code/feature-x")
-    # A base branch is never a task's own PR.
-    _run_on_branch(team, "acme/widgets", "main")
-    # A run with no repository can't be scoped to a repo.
-    _run_on_branch(team, None, "posthog-code/feature-y")
-    # A distinct feature branch is its own candidate.
+    _run_on_branch(team, "acme/widgets", "main")  # base branch: skipped
+    _run_on_branch(team, None, "posthog-code/feature-y")  # no repo: skipped
     _run_on_branch(team, "acme/widgets", "posthog-code/feature-z")
 
     candidates = _collect_branch_candidates(team.id)
@@ -146,7 +142,7 @@ def test_collect_candidates_dedupes_repo_branch_and_skips_base_and_repoless():
 def test_collect_candidates_requires_an_integration():
     org = Organization.objects.create(name=f"NoIntOrg-{random.randint(1, 99999)}")
     team = Team.objects.create(organization=org, name=f"NoIntTeam-{random.randint(1, 99999)}")
-    # No team/user/task integration ⇒ nothing to authenticate with ⇒ no candidate.
+    # No integration to authenticate with ⇒ no candidate.
     _run_on_branch(team, "acme/widgets", "posthog-code/feature-x")
 
     assert _collect_branch_candidates(team.id) == []

@@ -706,14 +706,11 @@ class GitHubIntegrationBase:
         return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
-        """Return the HTML URLs of pull requests whose head is ``branch`` in ``repository``.
+        """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
 
-        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Uses
-        ``GET /repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=all`` so a run that pushed
-        a branch but never recorded a ``pr_url`` can still be linked to its PR. The head filter is
-        scoped to the queried repo via the installation token, so the result is inherently trusted
-        (no arbitrary-URL trust, unlike a user-supplied ``output.pr_url``). Best-effort: returns an
-        empty list on a missing/ambiguous repo, a non-200, or any error.
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
+        from the installation token's own API call, so they are inherently trusted — not
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
