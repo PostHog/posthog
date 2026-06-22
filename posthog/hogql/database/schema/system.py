@@ -651,6 +651,7 @@ file_system: PostgresTable = PostgresTable(
         "href": StringDatabaseField(name="href", nullable=True),
         "meta": StringJSONDatabaseField(name="meta", nullable=True),
         "surface": StringDatabaseField(name="surface", nullable=True),
+        "shortcut": BooleanDatabaseField(name="shortcut", nullable=True),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
     },

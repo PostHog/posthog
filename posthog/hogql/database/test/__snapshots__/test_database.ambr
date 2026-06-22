@@ -5573,6 +5573,16 @@
                   "table": null,
                   "type": "string"
               },
+              "shortcut": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "shortcut",
+                  "id": null,
+                  "name": "shortcut",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -13687,6 +13697,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "shortcut": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "shortcut",
+                  "id": null,
+                  "name": "shortcut",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
               },
               "created_at": {
                   "chain": null,
