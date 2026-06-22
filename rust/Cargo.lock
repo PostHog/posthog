@@ -7804,7 +7804,6 @@ dependencies = [
  "personhog-proto",
  "quick_cache",
  "rand 0.8.5",
- "rdkafka",
  "regex",
  "rstest",
  "serde",

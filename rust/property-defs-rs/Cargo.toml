@@ -36,23 +36,6 @@ regex.workspace = true
 tokio-stream = { version = "0.1", features = ["net"] }
 metrics-util = { workspace = true }
 rstest = "0.26"
-rdkafka = { workspace = true }
-
-[[bench]]
-name = "end_to_end"
-harness = false
-
-[[bench]]
-name = "pipeline"
-harness = false
-
-[[bench]]
-name = "cache_contention"
-harness = false
-
-[[bench]]
-name = "pipeline_scaling"
-harness = false
 
 [lints]
 workspace = true

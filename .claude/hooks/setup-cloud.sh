@@ -23,10 +23,4 @@ uv sync 2>/dev/null
 # Root-only install: linting tools + husky, skips full workspace
 pnpm install --frozen-lockfile --filter=. 2>/dev/null
 
-# Bring up a local PostgreSQL so the Rust integration tests (sqlx::test) can run, since
-# Docker/compose isn't available in the web container.
-if [ -x .claude/hooks/setup-postgres.sh ]; then
-    .claude/hooks/setup-postgres.sh
-fi
-
 exit 0
