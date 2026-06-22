@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -278,6 +278,21 @@ export const groupLogic = kea<groupLogicType>([
         hasRevenueData: [
             (s) => [s.effectiveMRR, s.effectiveLifetimeValue],
             (mrr, ltv): boolean => mrr.value !== null || ltv.value !== null,
+        ],
+        backTo: [
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex, router.selectors.searchParams],
+            (aggregationLabel, groupTypeIndex, searchParams): Breadcrumb => {
+                const backUrl = searchParams.backUrl as string | undefined
+                const backName = searchParams.backName as string | undefined
+                if (backUrl) {
+                    return { key: 'group-back', name: backName || 'Back', path: backUrl }
+                }
+                return {
+                    key: 'groups',
+                    name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
+                    path: urls.groups(groupTypeIndex),
+                }
+            },
         ],
         breadcrumbs: [
             (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
