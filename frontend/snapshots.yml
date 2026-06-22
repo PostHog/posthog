@@ -909,13 +909,13 @@ snapshots:
     components-hogcharts-timeserieslinechart--drag-to-zoom--light:
         hash: v1.k794b7964.7d8de1c664f78dad36682304cd25c746266b6fb509d28bcaf2d8ae629a808284.eGlPABfqYjC1-H2VGiv5lJxfPOXP5U2fpK2cr7CtOT4
     components-hogcharts-timeserieslinechart--dual-y-axis--dark:
-        hash: v1.k794b7964.9dd0eaaa2cc7cb1f24435e4ef698026fdff68203f5f47458aae13f44d1f5a728.q1wTd45_ueu_x_Zse6xADTOqGZ08WtEMo0EVf1th-Ws
+        hash: v1.k794b7964.08f3d6c5cfb18f6016608aa4dbb7cd6fe9e47edebb0f0348a7efb3ac9b260069.P2j41Bw733-VMbNmMBsHVdIkG289MsmHhk_m0tU7BWo
     components-hogcharts-timeserieslinechart--dual-y-axis--light:
-        hash: v1.k794b7964.74c876ccaa5fec4e36be5caab089532d26162d4cc8e5d0462331cbfb9b945b07.P2nBmV3pHVf81hjDjOYyrU5VnlwdRy-VAn19v7huY2A
+        hash: v1.k794b7964.1f138ad789223e20e6ce5a44a606eef88a656cc6e6f1a9b97509d41097924487.ahlyjBbCBI_xNK_wpzuGHu7ggQpeg9TEWbuK2JfankM
     components-hogcharts-timeserieslinechart--dual-y-axis-mixed-scales--dark:
-        hash: v1.k794b7964.29818ddbe1b02235c664d60287f532df226476a1397e5fd338462b91cb8b1a43.Gb-KIUMh9HExDL0NOX4gpVcDQKhglUXmBLo_CKKV4Ik
+        hash: v1.k794b7964.f707dca453892b302d4fb7d9de170e8fc06724d15b279058e7abb8ca2da86223.njpHnoZg1z2SZ9s-p-V14hb6U_GmOGvjJYjEqsAHVwg
     components-hogcharts-timeserieslinechart--dual-y-axis-mixed-scales--light:
-        hash: v1.k794b7964.3fe1803ae3e039ead859da938fdef88300ab6ff08254757da777556a499636ff.Ne7zpBUPko3GyNTT5tmSZqQeKABJyVdObd1Sz2V_Cj0
+        hash: v1.k794b7964.beaba679099c68a2741f10fd75af0ce911c82fbb7bd6facd4991fabf21d0f70d.PCyv0DEoo5ZDgud3iDg7VCZlyy1-3P7KVM6YIuqGkdw
     components-hogcharts-timeserieslinechart--moving-average--dark:
         hash: v1.k794b7964.e332e9beb6b72bee51ab22b8078273883dabe8cd97163f6005a44367378fa8f7.H_JLql_NFDi4zX-Gn0svc0N_NewsyAhqaII4UGIXykg
     components-hogcharts-timeserieslinechart--moving-average--light:
@@ -4600,6 +4600,14 @@ snapshots:
         hash: v1.k794b7964.33000cd287cce76314b2d6a8005a0ed406396a50f43e18656a2ec8d33d33cc2b.rxsuAyw0uMSA4ouh1IhJClwrFxRGgOuKSvA5gpLxKk0
     scenes-app-ai-observability-trace--without-content--light:
         hash: v1.k794b7964.925af22228dd96b4c1bef5ccd9db87cacdbb8a9d9764f6845dbcf28cd510b73c._WVyYZM7SRur33YhrFxOYMN0NurSDNzWONIuDn5bsMw
+    scenes-app-aigateway--empty--dark:
+        hash: v1.k794b7964.9e5467f2092ba267f9bfb8adcdffe0d3b31cd6554e2cb65319f32602df9edb0c.FUdZ9vdoxd21tqhGoU2u8tvq-qQdlZkhh8jX8YhZs5U
+    scenes-app-aigateway--empty--light:
+        hash: v1.k794b7964.42ff5abd4d63a1a7c26347fcdc4873bd91c15018908d2be8a2e4a78995b37a79.72TfxeANzlgea6StJz9ARJesnyXRS9SBJhYTn9cClzk
+    scenes-app-aigateway--page--dark:
+        hash: v1.k794b7964.9e5467f2092ba267f9bfb8adcdffe0d3b31cd6554e2cb65319f32602df9edb0c.MKNf_pxiMAM_Oc88m0gAsJiwpde3Milvp7tNfGJKaLI
+    scenes-app-aigateway--page--light:
+        hash: v1.k794b7964.c75e47361d88cbc6bccf1080ec6ded4af7989ba6b9e0421e98e5d19e9ee8f70d.vGGS5YUSdED2wefcOe-Fs-UJQx9jzSXaJo6Qwk20vC4
     scenes-app-annotations--annotations--dark:
         hash: v1.k794b7964.839aa1c77337bde89878542d449c58c1080ddc767ff1c52ba73dc06683d5f797.VhGpyYpvz4Xkk8Kd7Y-_xPXGjLQ7lj_BXLfuTP5KSC4
     scenes-app-annotations--annotations--light:
