@@ -33,6 +33,58 @@ ANY_ROW_MAX_ROWS = 50
 # the head, which truncation never touches, so it has no such limit — use it (with a DESC ORDER BY)
 # for queries that would otherwise return too many rows.
 LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
+_DEFAULT_HOGQL_CONFIG = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
+
+
+def hogql_config_or_default(raw: dict | None) -> HogQLAlertConfig:
+    """Validate a stored SQL alert config, defaulting an absent one to last-row evaluation."""
+    return HogQLAlertConfig.model_validate(raw or _DEFAULT_HOGQL_CONFIG)
+
+
+def _calculate_rows_and_columns(insight: Insight, team: Any, *, user: Any) -> tuple[list, list[str] | None]:
+    """Run a SQL insight and return (rows, column_names) — the fetch-and-validate prologue shared by
+    the threshold and detector extractors. A ``None`` result means the query layer swallowed an error
+    (raise to avoid a misfire, matching trends); a non-list result is a malformed shape.
+    """
+    calculation_result = calculate_for_query_based_insight(
+        insight,
+        team=team,
+        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user=user,
+        analytics_props={"source": EventSource.ALERT},
+    )
+    rows = calculation_result.result
+    if rows is None:
+        raise RuntimeError(f"No results found for insight with id = {insight.id}")
+    if not isinstance(rows, list):
+        raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
+    column_names = [str(c) for c in columns] if columns else None
+    return rows, column_names
+
+
+def _check_row_caps(rows: list, evaluation: HogQLAlertEvaluation) -> None:
+    """Fail loud on a result the evaluation mode can't trust. last_row reads the tail, which HogQL's
+    hard cap can silently truncate (so the last row might not be the real one); any_row would skip a
+    breaching row past its cap. first_row reads the head (truncation-immune), so it has no cap. Shared
+    by the threshold and detector extractors so the guard can't drift between them.
+    """
+    if evaluation == HogQLAlertEvaluation.ANY_ROW and len(rows) > ANY_ROW_MAX_ROWS:
+        raise AlertExtractionError(
+            f"Any-row SQL alerts evaluate at most {ANY_ROW_MAX_ROWS} rows, but the query returned "
+            f"{len(rows)} — add a LIMIT or aggregate the query."
+        )
+    if evaluation == HogQLAlertEvaluation.LAST_ROW and len(rows) >= LAST_ROW_MAX_ROWS:
+        raise AlertExtractionError(
+            f"Last-row SQL alerts can't trust a result of {len(rows)}+ rows — it may be truncated, so "
+            "the last row might not be the real one. Add ORDER BY ... LIMIT, aggregate, or use first-row "
+            "evaluation with a newest-first ordering."
+        )
+
+
+def _value_column_label(column_names: list[str] | None, value_index: int) -> str:
+    """Name the evaluated value column, falling back to 'result' when there's no column metadata."""
+    return column_names[value_index] if column_names and value_index < len(column_names) else "result"
 
 
 class HogQLExtractor:
@@ -64,23 +116,10 @@ class HogQLExtractor:
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
         # ``query`` is unused (Protocol signature): the extractor recomputes via the insight.
         condition = AlertCondition.model_validate(alert.condition)
-        config = HogQLAlertConfig.model_validate(alert.config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
+        config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        calculation_result = calculate_for_query_based_insight(
-            insight,
-            team=alert.team,
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            user=None,
-            analytics_props={"source": EventSource.ALERT},
-        )
-        rows = calculation_result.result
-        # ``None`` (vs an empty list) means the query layer swallowed an error — raise to avoid a
-        # misfire, matching the trends extractor's handling of a None result.
-        if rows is None:
-            raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
-        if not isinstance(rows, list):
-            raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+        rows, column_names = _calculate_rows_and_columns(insight, alert.team, user=None)
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
             # bound can still breach.
@@ -92,24 +131,10 @@ class HogQLExtractor:
                 empty_query_result=True,
             )
 
-        # Row caps are checked before column resolution so an oversized result gets the clearer
-        # "too many rows" error rather than a column-resolution one. last_row reads the tail, which
-        # a truncated result destroys, so fail loud at the hard cap; first_row reads the head and is
-        # unaffected, so it has no cap.
-        if evaluation == HogQLAlertEvaluation.ANY_ROW and len(rows) > ANY_ROW_MAX_ROWS:
-            raise AlertExtractionError(
-                f"Any-row SQL alerts evaluate at most {ANY_ROW_MAX_ROWS} rows, but the query returned "
-                f"{len(rows)} — add a LIMIT or aggregate the query."
-            )
-        if evaluation == HogQLAlertEvaluation.LAST_ROW and len(rows) >= LAST_ROW_MAX_ROWS:
-            raise AlertExtractionError(
-                f"Last-row SQL alerts can't trust a result of {len(rows)}+ rows — it may be truncated, so "
-                "the last row might not be the real one. Add ORDER BY ... LIMIT, aggregate, or use first-row "
-                "evaluation with a newest-first ordering."
-            )
+        # Checked before column resolution so an oversized result gets the clearer "too many rows"
+        # error rather than a column-resolution one.
+        _check_row_caps(rows, evaluation)
 
-        columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
-        column_names = [str(c) for c in columns] if columns else None
         value_index = _resolve_value_column_index(config.column, column_names, rows)
 
         if evaluation == HogQLAlertEvaluation.ANY_ROW:
@@ -140,8 +165,9 @@ class HogQLExtractor:
             raise AlertExtractionError("Relative alerts on SQL insights need at least two rows (current and previous).")
 
         points = [SeriesPoint(date=None, value=v) for v in values]
-        series_label = column_names[value_index] if column_names and value_index < len(column_names) else "result"
-        single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
+        single = ComparableSeries(
+            label=_value_column_label(column_names, value_index), points=points, current_index=len(points) - 1
+        )
         return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
 
@@ -168,40 +194,36 @@ def extract_hogql_detector_series(
             "entities, not a time series. Use last-row or first-row evaluation."
         )
 
-    calculation_result = calculate_for_query_based_insight(
-        insight,
-        team=team,
-        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-        user=user,
-        analytics_props={"source": EventSource.ALERT},
-    )
-    rows = calculation_result.result
-    if rows is None:
-        raise RuntimeError(f"No results found for insight with id = {insight.id}")
-    if not isinstance(rows, list):
-        raise AlertExtractionError(f"SQL alert query returned an unexpected result shape ({type(rows).__name__}).")
+    rows, column_names = _calculate_rows_and_columns(insight, team, user=user)
     if len(rows) == 0:
         return ExtractionResult(
             series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False, empty_query_result=True
         )
+    # last_row scores the tail as the current value, so the same truncation guard the threshold path
+    # enforces applies here — a tail truncated at HogQL's hard cap would score the wrong "current" row.
+    _check_row_caps(rows, config.evaluation)
 
-    column_names = (
-        [str(c) for c in calculation_result.columns] if isinstance(calculation_result.columns, list) else None
-    )
     value_index = _resolve_value_column_index(config.column, column_names, rows)
     # The series is the value column across every row, oldest->newest so the detector scores the
     # latest point against its history. first_row results are newest-first, so reverse them.
-    ordered = list(reversed(rows)) if config.evaluation == HogQLAlertEvaluation.FIRST_ROW else rows
-    values = [_numeric_cell(row, value_index, position=f"row {i + 1}") for i, row in enumerate(ordered)]
+    from_head = config.evaluation == HogQLAlertEvaluation.FIRST_ROW
+    ordered = list(reversed(rows)) if from_head else rows
+    # position reports the original result-row number (not the reversed index) for clear error text.
+    n = len(rows)
+    values = [
+        _numeric_cell(row, value_index, position=f"row {n - i if from_head else i + 1}")
+        for i, row in enumerate(ordered)
+    ]
 
     # Too few points to score → report uncomputed (None), mirroring the trends detector's
     # "rows exist but are too short" path (empty series with empty_query_result False).
     if len(values) < _compute_min_samples_for_detector(detector_config) + 1:
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
-    series_label = column_names[value_index] if column_names and value_index < len(column_names) else "result"
     points = [SeriesPoint(date=None, value=v) for v in values]
-    single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
+    single = ComparableSeries(
+        label=_value_column_label(column_names, value_index), points=points, current_index=len(points) - 1
+    )
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
 
@@ -215,7 +237,7 @@ class HogQLDetectorExtractor:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
-        config = HogQLAlertConfig.model_validate(alert.config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
+        config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(insight, alert.team, config, detector_config, user=alert.created_by)
 
 

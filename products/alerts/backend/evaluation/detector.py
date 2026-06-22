@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import HogQLAlertConfig, IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
+from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -25,7 +25,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
-from products.alerts.backend.evaluation.hogql import extract_hogql_detector_series
+from products.alerts.backend.evaluation.hogql import extract_hogql_detector_series, hogql_config_or_default
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -232,8 +232,9 @@ def simulate_detector_on_insight(
         )
         interval_value = trends_query.interval.value if trends_query.interval else None
     elif kind == NodeKind.HOG_QL_QUERY:
-        hogql_config = HogQLAlertConfig.model_validate(config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
-        result = extract_hogql_detector_series(insight, team, hogql_config, detector_config, user=user)
+        result = extract_hogql_detector_series(
+            insight, team, hogql_config_or_default(config), detector_config, user=user
+        )
         interval_value = None
     else:
         raise ValueError("Only TrendsQuery and HogQLQuery insights are supported for simulation.")

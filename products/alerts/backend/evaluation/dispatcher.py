@@ -46,7 +46,7 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
-    If ``detector_config`` is set, routes through the anomaly-detector registry (trends-only in v1);
+    If ``detector_config`` is set, routes through the anomaly-detector registry (trends + SQL/HogQL);
     each detector extractor shares the ``ComparableSeries`` contract, so the dispatch shape mirrors
     the threshold path. Otherwise the extractor normalizes the query result into an
     ``ExtractionResult`` and the comparator evaluates it against the threshold.

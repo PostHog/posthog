@@ -5,7 +5,11 @@ from posthog.schema import HogQLAlertConfig
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, extract_hogql_detector_series
+from products.alerts.backend.evaluation.hogql import (
+    LAST_ROW_MAX_ROWS,
+    HogQLDetectorExtractor,
+    extract_hogql_detector_series,
+)
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
@@ -29,18 +33,26 @@ def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
         return HogQLDetectorExtractor().extract(_alert(rows_config, detector_config), MagicMock(), MagicMock())
 
 
-def test_detects_anomalous_last_value():
-    result = _extract([*STABLE_HISTORY, 100.0])
-    evaluation = evaluate_with_detector(result, ZSCORE)
-    assert evaluation.value == 100.0
-    assert evaluation.breaches and "Anomaly detected" in evaluation.breaches[0]
+@pytest.mark.parametrize(
+    "latest,expect_anomaly",
+    [
+        (100.0, True),  # a spike far outside the stable baseline fires
+        (1.1, False),  # a value within the baseline range does not
+    ],
+)
+def test_scores_the_latest_value(latest, expect_anomaly):
+    evaluation = evaluate_with_detector(_extract([*STABLE_HISTORY, latest]), ZSCORE)
+    assert evaluation.value == latest
+    assert bool(evaluation.breaches) is expect_anomaly
+    if expect_anomaly:
+        assert "Anomaly detected" in evaluation.breaches[0]
 
 
-def test_no_anomaly_when_latest_is_in_range():
-    result = _extract([*STABLE_HISTORY, 1.1])
-    evaluation = evaluate_with_detector(result, ZSCORE)
-    assert evaluation.value == 1.1
-    assert evaluation.breaches == []
+def test_last_row_truncation_guard_rejects_a_capped_result():
+    # last_row scores the tail; a result at HogQL's hard cap may be truncated, so the detector path
+    # must fail loud just like the threshold extractor rather than score a wrong "current" row.
+    with pytest.raises(AlertExtractionError, match="may be truncated"):
+        _extract([[1.0]] * LAST_ROW_MAX_ROWS, columns=["value"])
 
 
 def test_first_row_reverses_so_the_head_is_current():

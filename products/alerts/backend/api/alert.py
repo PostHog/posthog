@@ -41,6 +41,7 @@ from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -1003,7 +1004,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, request.user),
                 config=config,
             )
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")
