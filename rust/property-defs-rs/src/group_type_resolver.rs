@@ -168,17 +168,15 @@ impl GroupTypeResolver {
     }
 
     // True if we recently confirmed personhog has no mapping for this key and that record is
-    // still fresh. Stale records are evicted so the next sighting re-queries personhog.
+    // still fresh. A stale record reads as a miss; it's left for the next confirmed-absent
+    // insert to overwrite (or capacity eviction to reclaim) rather than removed here, which
+    // would race with a concurrent fresh insert under the staged pipeline's parallel resolvers.
     fn is_negatively_cached(&self, key: &str) -> bool {
         if self.negative_ttl.is_zero() {
             return false;
         }
         match self.negative_cache.get(key) {
-            Some(inserted) if inserted.elapsed() < self.negative_ttl => true,
-            Some(_) => {
-                self.negative_cache.remove(key);
-                false
-            }
+            Some(inserted) => inserted.elapsed() < self.negative_ttl,
             None => false,
         }
     }

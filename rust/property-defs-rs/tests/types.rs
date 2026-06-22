@@ -24,6 +24,16 @@ fn test_date_flooring(#[case] period_secs: i64) {
     assert!(now - rounded < chrono::Duration::seconds(period_secs));
 }
 
+#[rstest]
+#[case(0)] // disabled
+#[case(-1)] // negative, also disabled
+fn test_non_positive_floor_disables_flooring(#[case] period_secs: i64) {
+    // A non-positive period must not panic (chrono errors on a zero/negative rounding
+    // duration); flooring is disabled and the real timestamp is returned unchanged.
+    let now = Utc::now();
+    assert_eq!(floor_last_seen(now, period_secs), now);
+}
+
 #[test]
 fn test_default_floor_is_daily() {
     use chrono::Timelike;

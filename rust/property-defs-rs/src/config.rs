@@ -91,12 +91,6 @@ pub struct Config {
     #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "86400")]
     pub eventdef_last_seen_floor_secs: i64,
 
-    // Benchmark/testing aid: sleep this many ms after each batch write to model a slow
-    // production Postgres (~170ms). 0 in prod. Lets the end-to-end benchmark exercise the
-    // write-latency regime where write concurrency matters, on a fast local DB.
-    #[envconfig(default = "0")]
-    pub write_artificial_latency_ms: u64,
-
     // Do everything except actually write to the DB
     #[envconfig(default = "true")]
     pub skip_writes: bool,

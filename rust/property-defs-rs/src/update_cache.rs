@@ -79,12 +79,6 @@ impl Cache {
         self.propdefs.is_empty() && self.eventdefs.is_empty() && self.eventprops.is_empty()
     }
 
-    // Number of internal RwLock-guarded shards per subcache (quick_cache defaults to
-    // available_parallelism() * 4). Exposed for contention analysis.
-    pub fn num_shards(&self) -> usize {
-        self.eventprops.num_shards()
-    }
-
     pub fn contains_key(&self, key: &Update) -> bool {
         let (found, label) = match key {
             Update::Event(_) => (self.eventdefs.contains_key(key), "eventdefs"),

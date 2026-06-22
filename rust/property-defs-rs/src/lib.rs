@@ -367,6 +367,7 @@ pub async fn processor_loop(
             config.eventdef_last_seen_floor_secs,
         );
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
+        metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
 
         for update in updates {
             if cache.contains_key(&update) {

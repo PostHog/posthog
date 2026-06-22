@@ -556,10 +556,14 @@ impl Hash for GroupType {
 // fewer redundant writes and a staler-by-up-to-`period` last_seen_at. Default: 1 day.
 pub const DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS: i64 = 86400;
 
-// Floor `now` to the start of the current `period_secs` window. Unwrap is safe here
-// because the duration is positive, non-zero, and smaller than time since epoch.
+// Floor `now` to the start of the current `period_secs` window. A non-positive period
+// disables flooring (the real timestamp is used), which also sidesteps chrono's
+// zero-duration rounding error; any other rounding failure falls back to `now`.
 pub fn floor_last_seen(now: DateTime<Utc>, period_secs: i64) -> DateTime<Utc> {
-    floor_datetime(now, Duration::seconds(period_secs)).unwrap()
+    if period_secs <= 0 {
+        return now;
+    }
+    floor_datetime(now, Duration::seconds(period_secs)).unwrap_or(now)
 }
 
 pub fn get_floored_last_seen() -> DateTime<Utc> {
