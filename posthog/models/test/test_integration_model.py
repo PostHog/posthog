@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 
 import requests
@@ -2072,6 +2073,18 @@ class TestS3CompatibleIntegrationModel(BaseTest):
                 team_id=self.team.pk,
                 name="my-r2",
                 endpoint_url="",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret",
+            )
+
+    # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_integration_from_config_rejects_internal_endpoint(self):
+        with pytest.raises(S3CredentialIntegrationError, match="Invalid endpoint URL"):
+            S3CompatibleIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="my-r2",
+                endpoint_url="https://169.254.169.254",
                 aws_access_key_id="key",
                 aws_secret_access_key="secret",
             )

@@ -3412,19 +3412,6 @@ class S3CredentialIntegrationError(Exception):
     pass
 
 
-# Credentials shared by every S3-family integration (AWS S3, S3-compatible, and future kinds such as
-# a first-class GCS-via-S3 integration). The handler classes stay flat — matching the other
-# integration handlers in this module — and compose these helpers rather than sharing a base class.
-#
-# The `aws_` prefix applies even to non-AWS (S3-compatible) providers: these are AWS Signature V4
-# credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also match
-# boto3's kwargs and the existing S3-family batch export config fields, so they pass through unchanged.
-#
-# Only the credentials live in `sensitive_config`; bucket, region, prefix and other export-specific
-# settings stay on the batch export destination config, so one credential can be reused across many
-# buckets/regions — and, in future, by Redshift COPY-mode exports that stage to S3.
-
-
 def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
     try:
         return (
@@ -3445,7 +3432,11 @@ def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: st
 class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
-    Holds only credentials. Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+    Holds only credentials. bucket, region, prefix and other export-specific settings stay on the
+    batch export destination config, so one credential can be reused across many buckets/regions —
+    and, in future, by Redshift COPY-mode exports that stage to S3.
+
+    Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
     integration must never be pointed at an arbitrary endpoint (SSRF boundary).
     """
 
@@ -3534,14 +3525,21 @@ class AwsS3Integration:
 
 
 class S3CompatibleIntegration:
-    """An S3-compatible storage integration (MinIO, Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
+    """An S3-compatible storage integration (Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
 
     Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
-    since credentials are bound to a specific S3-compatible provider. Callers must SSRF-validate
-    `endpoint_url` before calling `integration_from_config` (see `IntegrationSerializer.create`).
+    since credentials are bound to a specific S3-compatible provider. `integration_from_config`
+    SSRF-validates `endpoint_url`, so callers don't have to.
+
+    bucket, region, prefix and other export-specific settings stay on the batch export destination
+    config, so one credential can be reused across many buckets/regions.
     """
 
     integration: Integration
+    # The `aws_` prefix applies even to these non-AWS providers: they are AWS Signature V4
+    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
+    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass
+    # through unchanged.
     aws_access_key_id: str
     aws_secret_access_key: str
     endpoint_url: str
@@ -3572,6 +3570,11 @@ class S3CompatibleIntegration:
             raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
         if not endpoint_url:
             raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+
+        # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
+        allowed, error = is_url_allowed(endpoint_url)
+        if not allowed:
+            raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
 
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,

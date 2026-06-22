@@ -597,16 +597,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             ):
                 raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be strings")
 
-            # SSRF protection — the credentials must not be testable against an attacker-controlled
-            # endpoint. Mirrors the postgresql branch and the batch export serializer.
-            from products.batch_exports.backend.api.batch_export import resolve_and_validate_url
-
             try:
-                resolve_and_validate_url(endpoint_url)
-            except ValueError:
-                raise ValidationError(f"Invalid endpoint URL: '{endpoint_url}'")
-
-            try:
+                # SSRF validation of `endpoint_url` happens inside `integration_from_config`.
                 instance = S3CompatibleIntegration.integration_from_config(
                     team_id=team_id,
                     name=name,

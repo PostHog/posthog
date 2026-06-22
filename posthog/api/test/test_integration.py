@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings as django_settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
@@ -691,6 +692,8 @@ class TestS3CompatibleIntegration:
         assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
         assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
 
+    # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
+    @override_settings(FORCE_URL_VALIDATION=True)
     def test_create_rejects_invalid_endpoint_url(self, client: HttpClient):
         client.force_login(self.user)
 
@@ -700,7 +703,7 @@ class TestS3CompatibleIntegration:
                 "kind": "s3-compatible",
                 "config": {
                     "name": "bad",
-                    "endpoint_url": "not-a-valid-url",
+                    "endpoint_url": "https://169.254.169.254",
                     "aws_access_key_id": "key",
                     "aws_secret_access_key": "secret",
                 },
