@@ -1357,18 +1357,12 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         operator = prop_group.type
         hashes: list[str] = []
         for value in prop_group.values:
-            prop: Optional[Property] = None
             if isinstance(value, Property):
                 prop = value
-            elif isinstance(value, PropertyGroup):
-                if len(value.values) == 1 and isinstance(value.values[0], Property):
-                    prop = value.values[0]
-                else:
-                    return None
+            elif len(value.values) == 1 and isinstance(value.values[0], Property):
+                prop = value.values[0]
             else:
-                return None
-
-            if prop is None:
+                # Nested group with multiple or non-Property children → not a flat person-property group.
                 return None
 
             # Must be a non-negated person property with a conditionHash
