@@ -146,6 +146,7 @@ def list_is_legacy_annotation() -> Case:
         output_field=BooleanField(),
     )
 
+
 PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
 
 
