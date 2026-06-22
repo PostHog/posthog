@@ -135,4 +135,27 @@ describe('signAwsRequest', () => {
 
         expect(headers.Host).toBe('kinesis.eu-central-1.amazonaws.com')
     })
+
+    // Regression guard: a malformed percent-encoded query segment (e.g.
+    // `?metric=p95%tile` or a bare `%`) used to crash `decodeURIComponent`
+    // and let a URIError bubble out of `signAwsRequest`, failing the entire
+    // fetch attempt instead of producing a signature. Kinesis doesn't carry
+    // query strings, but the canonical-query-string code is general-purpose
+    // and ships with SQS / EventBridge ambitions.
+    it('does not throw on malformed percent-encoded query strings', () => {
+        expect(() =>
+            signAwsRequest({
+                method: 'GET',
+                url: 'https://kinesis.us-east-1.amazonaws.com/?metric=p95%tile&ok=hello%20world&bad=%',
+                body: '',
+                credentials: {
+                    service: 'kinesis',
+                    region: 'us-east-1',
+                    access_key_id: 'AKIDEXAMPLE',
+                    secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+                },
+                now: fixedNow,
+            })
+        ).not.toThrow()
+    })
 })

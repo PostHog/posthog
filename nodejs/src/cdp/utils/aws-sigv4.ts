@@ -54,6 +54,20 @@ function awsUriEncode(input: string, encodeSlash: boolean): string {
     return out
 }
 
+// Decode a single percent-encoded query-string segment. Bare `%` or `%X` (no
+// second hex digit) makes `decodeURIComponent` throw URIError; AWS canonical
+// encoding still needs to produce *some* string, so we treat malformed input
+// as opaque and re-encode it as-is. Callers must not surface URIError from a
+// signing path — a thrown error here fails the entire fetch instead of letting
+// the upstream return a normal 400.
+function safeDecodeQuerySegment(s: string): string {
+    try {
+        return decodeURIComponent(s)
+    } catch {
+        return s
+    }
+}
+
 function canonicalQueryString(search: string): string {
     if (!search || search === '?') {
         return ''
@@ -66,7 +80,7 @@ function canonicalQueryString(search: string): string {
         const eq = part.indexOf('=')
         const k = eq === -1 ? part : part.slice(0, eq)
         const v = eq === -1 ? '' : part.slice(eq + 1)
-        params.push([awsUriEncode(decodeURIComponent(k), true), awsUriEncode(decodeURIComponent(v), true)])
+        params.push([awsUriEncode(safeDecodeQuerySegment(k), true), awsUriEncode(safeDecodeQuerySegment(v), true)])
     }
     params.sort(([a1, a2], [b1, b2]) => (a1 < b1 ? -1 : a1 > b1 ? 1 : a2 < b2 ? -1 : a2 > b2 ? 1 : 0))
     return params.map(([k, v]) => `${k}=${v}`).join('&')
