@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer = "2026-06-15T08:19:30.103787Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -6015,7 +6015,7 @@ dev = [
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
-    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.4" },
+    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.5" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -6819,7 +6819,7 @@ wheels = [
 [[package]]
 name = "pytest-split"
 version = "0.11.0"
-source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.4#0cbab67a1e9f44424bac896e411cb8a20e7102be" }
+source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.5#f279ad1adc5b9b92be69aefe94a8dae1026fa722" }
 dependencies = [
     { name = "pytest" },
 ]

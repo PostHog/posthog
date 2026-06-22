@@ -197,6 +197,21 @@ jobs:
                   # to the script — see test_optimize_test_durations.py.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+
+                  # Additionally emit nodeid-clean per-segment files for
+                  # --split-granularity=file. The shared .test_durations above is a union
+                  # across every CI job, so a Core file-mode plan scoped to it budgets weight
+                  # for tests that never run in Core (other segments' param variants,
+                  # product-routed files) — that mis-scoping is the imbalance file-mode hit.
+                  # --scope-to-junit trims each file to exactly the nodeids that segment's
+                  # JUnit saw run; the run-set is already in the artifacts, so this adds no
+                  # collection. The union above is untouched (item-mode + turbo-discover still
+                  # read it); these are purely additive, cached per-segment below.
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.core \
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.temporal \
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit
+
                   # Also drop junit_artifacts — ghcommit-action defaults file_pattern
                   # to "." and chokes on leftover download dirs ("read junit_artifacts/:
                   # is a directory"). The commit steps below also pin file_pattern as a
@@ -214,7 +229,9 @@ jobs:
                   # ever touch the newest entry, so each prior day's entry ages out 7 days after
                   # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
                   # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
-                  echo "cache_key=posthog-test-durations-$(date -u +%F)" >> "$GITHUB_OUTPUT"
+                  TODAY=$(date -u +%F)
+                  echo "date=$TODAY" >> "$GITHUB_OUTPUT"
+                  echo "cache_key=posthog-test-durations-$TODAY" >> "$GITHUB_OUTPUT"
                   # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
                   # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
                   # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
@@ -237,6 +254,20 @@ jobs:
               with:
                   path: .test_durations
                   key: ${{ steps.durations-meta.outputs.cache_key }}
+
+            - name: Save per-segment durations to Actions cache
+              # Nodeid-clean per-segment files for --split-granularity=file. ci-backend
+              # restores these by the posthog-test-durations-core- / -temporal- prefixes so a
+              # segment's file-mode plan is scoped to what it actually runs. Same per-day key
+              # shape as the union above; a miss falls back to the union (still correct, just
+              # the pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-test-durations-segment-${{ steps.durations-meta.outputs.date }}
 
             - name: Check for changes
               id: check-changes

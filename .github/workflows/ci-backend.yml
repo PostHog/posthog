@@ -2232,6 +2232,21 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Restore per-segment test durations from cache
+              # File-granularity sharding plans from a per-segment file (.test_durations.core /
+              # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
+              # union file's cross-segment contamination. Restore the newest over the committed
+              # fallbacks; a miss leaves the committed files and a total miss falls back to
+              # scoping the union (the "Run … tests" step omits --split-plan-path when absent).
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-test-durations-segment-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-segment-
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -2301,6 +2316,16 @@ jobs:
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to Core's clean per-segment durations
+                      # (restored from cache / committed fallback) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations's
+                      # cross-segment tests — see AGENTS.md (CI). Only persons-on-events-off,
+                      # non-compat Core matches the .core run-set; POE-on and compat run a
+                      # different/narrower scope, and a cache miss with no committed file all
+                      # fall back to scoping the union.
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
+                      fi
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
@@ -2401,6 +2426,14 @@ jobs:
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to this segment's clean per-segment durations
+                      # (restored from cache / committed fallback) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations —
+                      # see AGENTS.md (CI). A missing file (cache miss, no fallback) is omitted
+                      # and the plugin falls back to scoping the union.
+                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
+                      fi
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
