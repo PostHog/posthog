@@ -1496,6 +1496,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
