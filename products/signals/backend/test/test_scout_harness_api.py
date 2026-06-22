@@ -6,7 +6,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
-from django.http import HttpResponse
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1121,7 +1120,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/metadata/current/"
 
-    def _get(self, payload: dict | None) -> HttpResponse:
+    def _get(self, payload: dict | None):
         # The endpoint reads the flag payload via team_limits; stub it so enrollment + caps are
         # deterministic without depending on the live flag.
         with patch(_METADATA_PAYLOAD_PATH, return_value=payload):
