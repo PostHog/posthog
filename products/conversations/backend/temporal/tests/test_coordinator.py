@@ -64,6 +64,9 @@ class TestCollectEligible:
             ("rollout_off", {"rollout": False}),
         ]
     )
+    # Force the BK-readiness gate on (production default MIN_READY_BK_SOURCES=0 skips it) so the
+    # no_ready_sources case actually exercises the check. A literal patch value injects no arg.
+    @patch(f"{COORD_MODULE}.MIN_READY_BK_SOURCES", 1)
     @patch(f"{COORD_MODULE}._is_rollout_enabled")
     @patch(f"{COORD_MODULE}.has_ready_sources")
     @patch(f"{COORD_MODULE}.Comment")
