@@ -37,6 +37,10 @@ MAX_TICKETS_PER_RUN = 50
 MASTER_FLAG = "product-support-ai-suggestion"
 ROLLOUT_FLAG = "product-support-ai-suggestion-rollout"
 
+# Minimum number of READY BK sources required before the coordinator will draft replies.
+# Set to 0 locally to skip the BK readiness check entirely.
+MIN_READY_BK_SOURCES = 0
+
 
 @dataclass
 class CoordinatorInput:
@@ -99,7 +103,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if not team.organization.is_ai_data_processing_approved:
             continue
 
-        if not has_ready_sources(team.id):
+        if MIN_READY_BK_SOURCES > 0 and not has_ready_sources(team.id):
             continue
 
         candidates.append((team.id, str(ticket.id)))
