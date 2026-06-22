@@ -34,6 +34,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
+    invalid_heatmap_data: 'Invalid heatmap data',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -347,7 +348,7 @@ export function IngestionWarningsView(): JSX.Element {
                                         <>
                                             {type} (
                                             <Link
-                                                to={`https://posthog.com/docs/data#${type
+                                                to={`https://posthog.com/docs/data/ingestion-warnings#${type
                                                     .toLowerCase()
                                                     .replace(',', '')
                                                     .split(' ')
