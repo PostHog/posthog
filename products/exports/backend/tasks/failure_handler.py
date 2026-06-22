@@ -5,7 +5,7 @@ from django.db import OperationalError
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from selenium.common import TimeoutException
+from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
 from posthog.hogql.errors import (
@@ -79,6 +79,12 @@ class ExcelColumnLimitExceeded(Exception):
         )
 
 
+class InvalidExportContext(Exception):
+    """Raised when an export's export_context lacks a renderable target."""
+
+    pass
+
+
 EXCEPTIONS_TO_RETRY = (
     *CH_TRANSIENT_ERRORS,
     OperationalError,
@@ -95,6 +101,7 @@ EXCEPTIONS_TO_RETRY = (
 USER_QUERY_ERRORS = (
     QueryError,
     HogQLSyntaxError,
+    ValidationError,  # DRF validation of the user's query (e.g. a funnel with fewer than two steps)
     ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
     ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
     CHQueryErrorIllegalTypeOfArgument,
@@ -113,12 +120,12 @@ USER_QUERY_ERRORS = (
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
+    InvalidExportContext,
 )
 
 TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
-    TimeoutException,
     PlaywrightTimeoutError,
     ExportCancelled,
 )
@@ -126,12 +133,27 @@ TIMEOUT_ERRORS = (
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
 SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
-TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS)
+# "TimeoutException" kept literally: historical ExportedAsset rows from the retired selenium
+# render path stored that exception name and must still classify as timeouts.
+TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"TimeoutException"}
 
 
 def classify_failure_type(exception: Exception | str) -> str:
-    exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
+    # Live exceptions are classified by actual type, not name: the name sets are derived from
+    # these same tuples, so isinstance has identical coverage while avoiding false positives from
+    # unrelated classes that merely share a name (django/pydantic ValidationError, builtin SyntaxError).
+    if isinstance(exception, Exception):
+        if isinstance(exception, TIMEOUT_ERRORS):
+            return FAILURE_TYPE_TIMEOUT_GENERATION
+        if isinstance(exception, USER_QUERY_ERRORS):
+            return FAILURE_TYPE_USER
+        if isinstance(exception, EXCEPTIONS_TO_RETRY):
+            return FAILURE_TYPE_SYSTEM
+        return FAILURE_TYPE_UNKNOWN
 
+    # Stored exception-class names (historical rows, backfill) only carry the name, so fall back to
+    # name matching. This is best-effort and can't distinguish same-named classes from other packages.
+    exception_type = exception
     if exception_type:
         if exception_type in TIMEOUT_ERROR_NAMES:
             return FAILURE_TYPE_TIMEOUT_GENERATION

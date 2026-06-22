@@ -11,8 +11,6 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from posthog.models.team import Team
-
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CIStatusRollup,
@@ -21,7 +19,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestListItem,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _LIMIT = 1000
 
@@ -34,9 +32,13 @@ _SELECT = f"""
         coalesce(ci.runs, 0) AS runs,
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
-        coalesce(ci.pending, 0) AS pending
+        coalesce(ci.pending, 0) AS pending,
+        coalesce(rp.pushes, 0) AS pushes,
+        coalesce(rp.rerun_cycles, 0) AS rerun_cycles
     FROM __PR_SOURCE__ AS pr
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
+    LEFT JOIN runs_by_pr AS rp
+        ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
     WHERE pr.state = 'open'
         OR pr.merged_at >= {{date_from}}
         OR pr.closed_at >= {{date_from}}
@@ -45,11 +47,9 @@ _SELECT = f"""
 """
 
 
-def query_pull_request_list(*, team: Team, date_from: datetime) -> PullRequestList:
-    sql = f"WITH {_curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", _curated.pr_source())
-    response = _curated.run_query(
-        sql,
-        team=team,
+def query_pull_request_list(*, curated: CuratedGitHubSource, date_from: datetime) -> PullRequestList:
+    response = curated.run(
+        curated.pr_list_rollup_query(_SELECT),
         query_type="engineering_analytics.pull_request_list",
         placeholders={"date_from": ast.Constant(value=date_from)},
     )
@@ -78,6 +78,8 @@ def _map_row(row: tuple) -> PullRequestListItem:
         passing,
         failing,
         pending,
+        pushes,
+        rerun_cycles,
     ) = row
     return PullRequestListItem(
         number=number,
@@ -96,4 +98,7 @@ def _map_row(row: tuple) -> PullRequestListItem:
         open_to_merge_seconds=open_to_merge_seconds,
         labels=list(labels),
         ci=CIStatusRollup(runs=runs, passing=passing, failing=failing, pending=pending),
+        pushes=pushes,
+        rerun_cycles=rerun_cycles,
+        estimated_cost_usd=None,
     )

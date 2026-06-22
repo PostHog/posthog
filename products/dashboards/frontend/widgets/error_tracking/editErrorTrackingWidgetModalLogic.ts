@@ -5,8 +5,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
+import type { ErrorTrackingWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
-import { resolveWidgetFilterTestAccounts, type ErrorTrackingWidgetConfig } from '../../widget_types/configSchemas'
+import { resolveWidgetFilterTestAccounts } from '../../widget_types/widgetConfigShared'
 import {
     widgetEditModalFilterTestAccountsActions,
     widgetEditModalListFieldActions,

@@ -7,6 +7,7 @@ import temporalio
 from pydantic import BaseModel, Field, model_validator
 
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
@@ -114,6 +115,7 @@ class SafetyJudgeOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:

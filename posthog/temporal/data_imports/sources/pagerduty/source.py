@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class PagerDutySource(ResumableSource[PagerDutySourceConfig, PagerDutyResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PAGER_DUTY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="PagerDuty",
             caption="""Enter your PagerDuty REST API key to pull your PagerDuty data into the PostHog Data warehouse.
 

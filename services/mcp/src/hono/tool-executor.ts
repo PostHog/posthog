@@ -1,20 +1,30 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
-import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
+import {
+    buildToolResultPayload,
+    estimateResponseTokens,
+    isToolCallPayload,
+    type ToolResultPayload,
+} from '@/lib/build-tool-result'
 import {
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
     PostHogValidationError,
+    ToolInputValidationError,
     findPostHogPermissionError,
     findRecoverableApiError,
 } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
+import { getPostHogClient } from '@/lib/posthog'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { createRenderUiTool } from '@/tools/render-ui'
+import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackToolCall } from './analytics'
+import { trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -42,21 +52,44 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
+        const tools = this.injectContext(this.buildAdvertisedTools(state))
+
+        void trackToolsList(
+            tools.map((t) => t.name),
+            state
+        )
+
+        return { tools }
+    }
+
+    // Inject the `context` argument into every advertised tool so agents can state
+    // what they're trying to do (`handleToolCall` strips it before validation and
+    // surfaces it as `$mcp_intent` — the same injection `instrument()` does for
+    // SDK-wrapped servers). Guarded: analytics must never break `tools/list`, so
+    // any failure falls back to the un-augmented tools.
+    private injectContext(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+        try {
+            return getPostHogClient().prepareToolList(tools)
+        } catch {
+            return tools
+        }
+    }
+
+    private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
-            return { tools: [this.instructionsBuilder.buildExecToolEntry(state)] }
+            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        const withSqlDescription = filteredTools.map((entry) => {
+        return filteredTools.map((entry) => {
             if (entry.name === 'execute-sql') {
                 return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
             }
             return entry
         })
-
-        return { tools: withSqlDescription }
     }
 
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
@@ -65,8 +98,20 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
+        const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
+        const callParams = { ...params, arguments: args }
+
         if (toolName === 'exec') {
-            return this.callExecTool(params, state)
+            return this.callExecTool(callParams, state, intentMeta)
+        }
+
+        if (toolName === 'render-ui') {
+            // render-ui is only advertised when the flag is on; reject calls otherwise.
+            if (!state.renderUiEnabled) {
+                toolCallsTotal.inc({ tool: toolName, status: 'error' })
+                return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            }
+            return this.callRenderUiTool(callParams, state, intentMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -87,21 +132,46 @@ export class ToolExecutor {
                 handler: (ctx, args) => preBuilt.base.handler(ctx, args),
                 _meta: preBuilt.base._meta,
             },
-            params,
-            state
+            callParams,
+            state,
+            intentMeta
         )
+    }
+
+    // Pull the agent's stated intent off the injected `context` arg and strip it so
+    // tool schemas/handlers never see it (validation is `.strict()` in places). The
+    // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
+    // must never break `tools/call`, so on failure we fall back to the raw args —
+    // safe because `context` is only present when the matching injection succeeded.
+    private extractIntent(
+        toolName: string,
+        rawArgs: Record<string, unknown>
+    ): { intentMeta: ToolCallIntentMeta; args: Record<string, unknown> } {
+        try {
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
+            return {
+                intentMeta: { intent: prepared.intent, intentSource: prepared.intentSource },
+                args: prepared.args ?? rawArgs,
+            }
+        } catch {
+            return { intentMeta: {}, args: rawArgs }
+        }
     }
 
     private async callTool(
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
-        state: ResolvedState
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = tool.schema.safeParse(toolArgs)
+        const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return {
+                content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error) }],
+                isError: true,
+            }
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
@@ -110,7 +180,7 @@ export class ToolExecutor {
         try {
             const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
             const previousContext = isContextSwitch
-                ? await state.reqCtx.getAnalyticsContextSafe(state.context)
+                ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
             const handlerResult = await tool.handler(state.context, validation.data)
@@ -122,66 +192,99 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
             stop({ status: 'success' })
 
-            void trackToolCall(tool.name, Date.now() - startMs, false, state)
+            const duration = Date.now() - startMs
 
+            let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
-                return handlerResult
+                response = handlerResult
+            } else {
+                const hasUiResource = !!tool._meta?.ui?.resourceUri
+                const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
+                const distinctId = needsDistinctId ? state.distinctId : undefined
+
+                response = buildToolResultPayload({
+                    handlerResult,
+                    toolMeta: tool._meta,
+                    toolName: tool.name,
+                    params: validation.data,
+                    suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                    distinctId,
+                })
             }
 
-            const hasUiResource = !!tool._meta?.ui?.resourceUri
-            const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
-            const distinctId = needsDistinctId ? state.distinctId : undefined
+            void trackToolCall(
+                tool.name,
+                duration,
+                false,
+                state,
+                {
+                    input_tokens: estimateTokens(validation.data),
+                    output_tokens: estimateResponseTokens(response),
+                },
+                intentMeta
+            )
 
-            return buildToolResultPayload({
-                handlerResult,
-                toolMeta: tool._meta,
-                toolName: tool.name,
-                params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
-                distinctId,
-            })
+            return response
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
             classifyToolError(error, tool.name)
 
-            void trackToolCall(tool.name, Date.now() - startMs, true, state)
+            void trackToolCall(tool.name, Date.now() - startMs, true, state, undefined, intentMeta)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
     }
 
-    private async callExecTool(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+    private async callExecTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
+    ): Promise<unknown> {
         const execMetrics: ExecMetricState = { innerToolName: undefined }
         const resolved = this.resolveExecTool(state, execMetrics)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = resolved.schema.safeParse(toolArgs)
+        const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return {
+                content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
+                isError: true,
+            }
         }
 
         const startMs = Date.now()
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
+            const duration = Date.now() - startMs
 
-            void trackToolCall('exec', Date.now() - startMs, false, state)
+            const response = isToolCallPayload(handlerResult)
+                ? handlerResult
+                : buildToolResultPayload({
+                      handlerResult,
+                      toolMeta: resolved._meta,
+                      toolName: 'exec',
+                      params: validation.data,
+                      suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                      distinctId: undefined,
+                  })
 
-            if (isToolCallPayload(handlerResult)) {
-                return handlerResult
-            }
+            void trackToolCall(
+                'exec',
+                duration,
+                false,
+                state,
+                {
+                    input_tokens: estimateTokens(validation.data),
+                    output_tokens: estimateResponseTokens(response),
+                },
+                intentMeta
+            )
 
-            return buildToolResultPayload({
-                handlerResult,
-                toolMeta: resolved._meta,
-                toolName: 'exec',
-                params: validation.data,
-                suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
-                distinctId: undefined,
-            })
+            return response
         } catch (error: unknown) {
             const metricTool = execMetrics.innerToolName ?? 'exec'
             if (!execMetrics.innerToolName) {
@@ -189,9 +292,9 @@ export class ToolExecutor {
             }
             classifyToolError(error, metricTool)
 
-            void trackToolCall('exec', Date.now() - startMs, true, state)
+            void trackToolCall('exec', Date.now() - startMs, true, state, undefined, intentMeta)
 
-            const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
@@ -205,15 +308,28 @@ export class ToolExecutor {
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
             execMetrics.innerToolName = toolName
-            const status = properties.success ? 'success' : 'error'
+            const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
-            toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            // Mirror the native path: schema rejections never start a handler, so
+            // they get no duration observation (`callTool` starts its timer only
+            // after validation passes).
+            if (!properties.validation_error) {
+                toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            }
+
+            // Mirror the native path: stamp the inner tool's category so exec-routed
+            // calls share the dashboard's `$mcp_tool_category` grouping dimension.
+            const toolCategory = getToolCategory(toolName)
 
             void (async () => {
-                const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+                const freshContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 await state.reqCtx.trackEvent(
                     AnalyticsEvent.MCP_TOOL_CALL,
-                    { tool_name: toolName, ...properties },
+                    {
+                        tool_name: toolName,
+                        ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                        ...properties,
+                    },
                     freshContext,
                     undefined,
                     state.distinctId
@@ -239,11 +355,52 @@ export class ToolExecutor {
             _meta: execTool._meta,
         }
     }
+
+    private async callRenderUiTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
+    ): Promise<unknown> {
+        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        if (!renderUiTool) {
+            return {
+                content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
+                isError: true,
+            }
+        }
+
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const validation = renderUiTool.schema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+        }
+
+        const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
+        const startMs = Date.now()
+        try {
+            const handlerResult = await renderUiTool.handler(state.context, validation.data)
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
+            stop({ status: 'success' })
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, undefined, intentMeta)
+            // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
+            return handlerResult
+        } catch (error: unknown) {
+            toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
+            stop({ status: 'error' })
+            classifyToolError(error, 'render-ui')
+            void trackToolCall('render-ui', Date.now() - startMs, true, state, undefined, intentMeta)
+            const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
+        }
+    }
 }
 
 function classifyToolError(error: unknown, toolName: string): void {
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         toolErrorsTotal.inc({ tool: toolName, error_type: 'missing_context' })
+    } else if (error instanceof ToolInputValidationError) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
     } else if (findPostHogPermissionError(error)) {
         toolErrorsTotal.inc({ tool: toolName, error_type: 'permission' })
     } else if (error instanceof Error && error.name === 'TimeoutError') {
@@ -252,6 +409,8 @@ function classifyToolError(error: unknown, toolName: string): void {
         const apiError = findRecoverableApiError(error)
         if (apiError instanceof PostHogValidationError) {
             toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
+        } else if (apiError instanceof PostHogApiError && apiError.status === 429) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'rate_limited' })
         } else if (apiError instanceof PostHogApiError && apiError.status >= 500) {
             toolErrorsTotal.inc({ tool: toolName, error_type: 'api_5xx' })
         } else if (apiError instanceof PostHogApiError) {

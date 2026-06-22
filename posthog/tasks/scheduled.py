@@ -13,10 +13,12 @@ from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
+    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
+from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -67,8 +69,13 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
-from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
+from products.conversations.backend.tasks import (
+    flush_pending_email_replies,
+    poll_teams_shared_channels,
+    wake_snoozed_tickets,
+)
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
+from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -78,7 +85,17 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
-from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.reminders.backend.tasks import process_due_reminders
+from products.streamlit_apps.backend.facade.api import (
+    auto_restart_crashed_streamlit_sandboxes,
+    cleanup_deleted_streamlit_app_zips,
+    cleanup_expired_streamlit_oauth_tokens,
+    prune_old_streamlit_app_versions,
+    stop_idle_streamlit_sandboxes,
+)
+from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
+from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -206,6 +223,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="llm-gateway policy cache sync",
     )
 
+    # Gateway credential cache sync - hourly at :10 to stagger from the others
+    sender.add_periodic_task(
+        crontab(hour="*", minute="10"),
+        refresh_gateway_credentials.s(),
+        name="gateway credential cache sync",
+    )
+
+    # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        drain_gateway_credential_last_used_task.s(),
+        name="gateway credential last-used drain",
+    )
+
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
@@ -296,6 +327,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=5 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        report_stuck_heatmap_screenshots.s(),
+        name="report stuck heatmap screenshots",
+        expires_seconds=5 * 60,
+    )
+
     # Auth token cache verification - every 6 hours at minute 40
     # Verifies per-token auth cache entries against the database,
     # deleting stale entries that signal-based invalidation may have missed.
@@ -306,6 +345,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="20"),
+        sweep_web_analytics_achievement_team_tracks.s(),
+        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week
@@ -364,6 +410,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=matview_digest_hour, minute="0"),
         send_matview_failure_digest.s(),
         name="send matview failure digest",
+    )
+
+    # Just after the digest day rolls over (EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC),
+    # when the date-keyed campaign block resets.
+    sender.add_periodic_task(
+        crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
+        send_external_data_failure_digest_catchup.s(),
+        name="send external data failure digest catch-up",
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
@@ -460,6 +514,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        process_due_reminders.s(),
+        name="process due reminders",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
@@ -628,4 +689,49 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Pull ambient messages from MS Teams shared channels (which never push them
+    # over the bot webhook) into the ticket pipeline via Graph messages/delta.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        poll_teams_shared_channels.s(),
+        name="poll teams shared channels",
+    )
+    # Delete expired Streamlit bridge OAuth tokens.
+    sender.add_periodic_task(
+        # Hourly because tokens have a 1-hour TTL and every connect_info
+        # call mints a fresh one.
+        crontab(hour="*", minute="55"),
+        cleanup_expired_streamlit_oauth_tokens.s(),
+        name="cleanup expired streamlit oauth tokens",
+    )
+
+    # Hard-delete S3 zips for Streamlit apps past their soft-delete retention.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="10"),
+        cleanup_deleted_streamlit_app_zips.s(),
+        name="cleanup deleted streamlit app zips",
+    )
+
+    # Stop streamlit sandboxes left idle past their inactivity window.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        stop_idle_streamlit_sandboxes.s(),
+        name="stop idle streamlit sandboxes",
+    )
+
+    # Restart streamlit sandboxes that died on their own (Modal TTL timeout).
+    sender.add_periodic_task(
+        crontab(minute="*"),
+        auto_restart_crashed_streamlit_sandboxes.s(),
+        name="auto restart crashed streamlit sandboxes",
+    )
+
+    # Prune non-active streamlit app versions past their retention window.
+    sender.add_periodic_task(
+        crontab(hour="3", minute="0"),
+        prune_old_streamlit_app_versions.s(),
+        name="prune old streamlit app versions",
     )

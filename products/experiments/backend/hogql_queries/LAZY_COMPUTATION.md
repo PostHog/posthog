@@ -257,7 +257,7 @@ GROUP BY variant
 
 2. **Query hash determines cache sharing**: Different feature flags, variants, or exposure criteria produce different hashes. Each experiment typically has its own lazy-computed data.
 
-3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, older: 60 days). This avoids recomputing frozen historical data. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
+3. **TTL and expiration**: Jobs use variable TTL based on data age (current day: 15 min, yesterday: 1 hour, 2-4 days ago: 18 hours, 5+ days: 60 days). The 2-4 day band stays recomputable so the daily warmer folds in late-arriving exposure events before a window freezes — a frozen window keeps a stale `first_exposure_time` if an earlier exposure event arrives after it was computed. This avoids recomputing genuinely frozen historical data while still re-folding the late-arrival tail. The system ignores jobs expiring within 1 hour to avoid race conditions. ClickHouse TTL automatically deletes expired rows.
 
 4. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
 

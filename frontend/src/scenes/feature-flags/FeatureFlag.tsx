@@ -379,8 +379,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             !featureFlag.can_edit,
                                         'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag':
                                             (featureFlag.features?.length || 0) > 0,
-                                        'This feature flag is linked to an experiment. Delete the experiment to delete this flag':
-                                            (featureFlag.experiment_set?.length || 0) > 0,
+                                        'This feature flag is linked to a running experiment. Stop the experiment to delete this flag':
+                                            featureFlag.experiment_set_metadata?.some((exp) => exp.is_running) || false,
                                         'This feature flag is linked to a survey. Delete the survey to delete this flag':
                                             (featureFlag.surveys?.length || 0) > 0,
                                         'This feature flag is used in session replay settings for recording conditions. Remove it from replay settings to delete this flag':

@@ -1,6 +1,12 @@
 name: Storybook
 on:
     pull_request:
+        # Draft PRs run a narrowed visual-regression matrix (affected stories only);
+        # ready PRs run the full chromium matrix (the merge gate). ready_for_review
+        # re-triggers the full run on the current head when a PR leaves draft. To
+        # force the full matrix on a draft, add the `run-ci-frontend` label —
+        # labeled/unlabeled re-trigger the run so it starts without needing a push.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
     push:
         branches:
@@ -35,6 +41,7 @@ jobs:
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
+                        && steps.exclude.outputs.outside_non_frontend_ts == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
                         && !(github.event_name == 'pull_request'
@@ -61,6 +68,9 @@ jobs:
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
+                        # quill is consumed app-wide via `workspace:*`, so a change here
+                        # alters rendering across the main-app stories — run the suite.
+                        - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
@@ -72,6 +82,29 @@ jobs:
                         - 'products/**/frontend/generated/**'
                       snapshots:
                         - 'frontend/snapshots.yml'
+
+            # The `frontend` filter's `products/**/*.{ts,tsx}` rule matches dirs that
+            # aren't frontend code — Node-only TS (agent-platform services/packages)
+            # with no stories and nothing in the bundle. Appending a plain `!...`
+            # negation to that rule wouldn't help: dorny's default `some` quantifier
+            # OR-matches predicates, so the broad rule still matches and the negation
+            # is neutralized (same gotcha as the output comment above). A separate
+            # step is required because `predicate-quantifier` is step-level: with
+            # `every`, this filter is true only when some changed file lives OUTSIDE
+            # every excluded dir. AND-ed into the `frontend` output so a PR touching
+            # only these dirs skips the visual-regression suite. To exclude another
+            # non-frontend dir, add a `!` line below — the output references this one
+            # filter, so it doesn't need to change.
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: |
+                      outside_non_frontend_ts:
+                        - '!products/agent_platform/services/**'
+                        - '!products/agent_platform/packages/**'
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots
@@ -114,18 +147,36 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            # This job checks out the PR head (not the merge ref), so it can't use
+            # the ./.github/actions/pnpm-install local action — an un-rebased head
+            # may not contain it. Cache the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
                   token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Restore webpack build cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -155,9 +206,9 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
-            # Consumed by the shadow-story-selection job below. Uploaded
-            # separately so the 20-shard visual-regression matrix doesn't pay
-            # to download it.
+            # Consumed by the select-stories job below. Uploaded separately so
+            # the visual-regression matrix doesn't pay to download it on every
+            # shard.
             - name: Upload module-graph artifact
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -171,20 +222,43 @@ jobs:
         name: Create Visual Review run
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+        needs: [changes, build-storybook, select-stories]
+        # always() so vr-setup still runs when select-stories is skipped (ready PRs,
+        # master push, merge_group). Without it, GitHub treats a skipped need as a
+        # skip-cascade and vr-setup wouldn't run when we still want it to.
+        if: |
+            always()
+            && needs.changes.outputs.frontend == 'true'
+            && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
+            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
+            # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
+            # built from the base branch below.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   sparse-checkout: |
                       .nvmrc
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # Build the VR CLI from the base branch, not the PR head. A workflow edit
+            # reaches every open PR immediately (it runs PR-merged-with-base), but a CLI
+            # change only lands on a branch once it rebases — so building from head can
+            # feed an old binary flags this workflow added (e.g. --partial), failing the
+            # run. Pinning to base.ref keeps the CLI in lockstep with the workflow. The
+            # tsconfig rootDir is the parent dir, so the generated types must come along.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
                       products/visual_review/cli
                       products/visual_review/frontend/generated/api.schemas.ts
-                      frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
             - name: Set up Node.js
@@ -194,7 +268,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: create
@@ -206,9 +280,13 @@ jobs:
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
                   VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # Selective storybook runs only render a subset of stories. Without --partial,
+                  # VR would flag every untouched baseline identifier as removed.
+                  VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
                   # Recorded on the run so the VR UI can re-trigger this job via the GitHub API.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
+                  # shellcheck disable=SC2086
                   RUN_ID=$(vr run create \
                     --type storybook \
                     --baseline frontend/snapshots.yml \
@@ -216,17 +294,19 @@ jobs:
                     --commit "$VR_COMMIT" \
                     --pr "$VR_PR" \
                     --purpose "$VR_PURPOSE" \
-                    --token "$VR_TOKEN")
+                    --token "$VR_TOKEN" \
+                    $VR_PARTIAL)
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
-        needs: [changes, build-storybook, vr-setup]
+        needs: [changes, build-storybook, vr-setup, select-stories]
         if: >-
             always()
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
         timeout-minutes: 60
         container:
             image: ghcr.io/posthog/playwright:v1.60.0
@@ -234,10 +314,12 @@ jobs:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # Matrix is built dynamically in the `changes` job: chromium-only on PRs,
-            # chromium + webkit on master pushes. Storybook CI is skipped entirely on
-            # merge_group (the `changes` job gates on event_name != 'merge_group').
-            matrix: ${{ fromJson(needs.changes.outputs.matrix) }}
+            # On draft PRs, select-stories may narrow the matrix to a single chromium
+            # shard running just the affected story files. On ready PRs and master push
+            # it's skipped, so we fall back to changes.outputs.matrix (ready PRs:
+            # full chromium; master push: chromium + webkit).
+            # Storybook CI is skipped entirely on merge_group (changes.if).
+            matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -265,8 +347,8 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -276,7 +358,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -342,13 +424,33 @@ jobs:
               env:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
+                  MODE: ${{ needs.select-stories.outputs.mode }}
+                  AFFECTED_FILES: ${{ needs.select-stories.outputs.affected_files }}
               run: |
-                  pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  if [ "$MODE" = "selective" ]; then
+                      # test-storybook is jest-based; positional path args filter the run to
+                      # only those story files. Single shard, so --shard 1/1 is a no-op.
+                      # shellcheck disable=SC2086
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} -- $AFFECTED_FILES
+                  else
+                      pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  fi
 
-            # Upload snapshots to Visual Review (runs in parallel across shards)
+            # Upload snapshots to Visual Review (runs in parallel across shards).
+            # Build the CLI from the base branch (see vr-setup for the rationale).
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: always() && needs.vr-setup.outputs.run_id != ''
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                  sparse-checkout-cone-mode: false
+
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
@@ -376,7 +478,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [changes, build-storybook]
         if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
-        timeout-minutes: 30
+        timeout-minutes: 45
         container:
             image: ghcr.io/posthog/playwright:v1.60.0
         env:
@@ -405,8 +507,8 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -477,17 +579,36 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [visual-regression, vr-setup]
-        if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
+        # always() so the skipped select-stories job (transitively in the needs
+        # chain on ready PRs) doesn't skip-propagate past the always() jobs above
+        # and leave the VR run uncompleted with its commit status stuck pending.
+        # Legit skips still work: no-VR cases leave run_id empty, and a failed or
+        # cancelled matrix fails the result == 'success' check.
+        if: |
+            always()
+            && needs.vr-setup.outputs.run_id != ''
+            && needs.visual-regression.result == 'success'
         steps:
+            # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
+            # built from the base branch below.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   sparse-checkout: |
                       .nvmrc
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # Build the VR CLI from the base branch, not the PR head (see vr-setup
+            # for the rationale).
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
                       products/visual_review/cli
                       products/visual_review/frontend/generated/api.schemas.ts
-                      frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
             - name: Set up Node.js
@@ -497,7 +618,7 @@ jobs:
                   token: ${{ github.token }}
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only),
@@ -534,6 +655,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
@@ -555,18 +677,29 @@ jobs:
                   status-job: 'Visual regression tests pass'
 
     # Shadow measurement: reports which stories could have rendered differently
-    # given the PR's changed files, using the webpack module graph emitted by
-    # common/storybook/.storybook/main.ts's ModuleGraphPlugin. Does not gate
-    # PRs and does not affect visual-regression selection. Data is used to
-    # evaluate whether real test selection is worth pursuing.
-    shadow-story-selection:
-        name: Shadow story selection
+    # Pick the visual-regression matrix on draft PRs based on which stories the
+    # webpack module graph (emitted by ModuleGraphPlugin) says are affected
+    # by the diff. On ready PRs and master push this job is skipped and
+    # visual-regression falls back to needs.changes.outputs.matrix (the full
+    # suite). The ready-for-review full run is the merge gate — storybook
+    # already skips merge_group entirely (changes.if). The run-ci-frontend
+    # label forces the full matrix on a draft. When selection can't be trusted
+    # on a draft, visual-regression is skipped and deferred to the ready run.
+    select-stories:
+        name: Story selection
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
         if: |
             always() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
+            && github.event.pull_request.draft == true
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            matrix: ${{ steps.classify.outputs.matrix }}
+            should_run: ${{ steps.classify.outputs.should_run }}
+            affected_files: ${{ steps.classify.outputs.affected_files }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -610,11 +743,63 @@ jobs:
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
                   echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
 
+            - name: Build narrowed matrix
+              id: classify
+              env:
+                  SELECT_OUTCOME: ${{ steps.selection.outcome }}
+              run: |
+                  set -euo pipefail
+
+                  # Untrusted selection on a draft skips visual-regression entirely
+                  # (should_run=false gates vr-setup and the test matrix off); the
+                  # ready-for-review full run is the gate. A skipped draft can't
+                  # trade green-by-default for green-by-skipping: drafts can't
+                  # merge, and ready re-runs the full suite. The run-ci-frontend
+                  # label forces the full matrix on a draft.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
+                      echo "::warning::story selector did not produce output; draft skips visual-regression (full run happens on ready for review)"
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  MODE=$(jq -r '.mode' /tmp/selection-result.json)
+                  if [[ "$MODE" != "selective" ]]; then
+                      echo "Selector declined to narrow (mode=$MODE); draft skips visual-regression (full run happens on ready for review)"
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  COUNT=$(jq -r '.affected_story_count' /tmp/selection-result.json)
+                  if [[ "$COUNT" -eq 0 ]]; then
+                      # Selective mode found zero affected stories — skip visual-regression entirely.
+                      echo "mode=selective" >> "$GITHUB_OUTPUT"
+                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                      echo "affected_files=" >> "$GITHUB_OUTPUT"
+                      echo "Selective mode: 0 affected stories, skipping visual-regression"
+                      exit 0
+                  fi
+
+                  # Selective with affected stories: collapse to one chromium shard.
+                  AFFECTED_FILES=$(jq -r '.affected_stories | join(" ")' /tmp/selection-result.json)
+                  echo "mode=selective" >> "$GITHUB_OUTPUT"
+                  echo 'matrix={"include":[{"browser":"chromium","shard":1,"shard_count":1}]}' >> "$GITHUB_OUTPUT"
+                  echo "should_run=true" >> "$GITHUB_OUTPUT"
+                  echo "affected_files=$AFFECTED_FILES" >> "$GITHUB_OUTPUT"
+                  echo "Selective mode: $COUNT affected story files"
+
             - name: Write summary
               if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
-                  CURRENT_SHARDS: 20
+                  CURRENT_SHARDS: 16
                   SHARD_OVERHEAD_MINUTES: 3
               run: |
                   MODE=$(echo "$RESULT" | jq -r '.mode')
@@ -622,9 +807,10 @@ jobs:
 
                   if [ "$MODE" = "selective" ]; then
                       COUNT=$(echo "$RESULT" | jq -r '.affected_story_count')
-                      SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
                       AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
                       TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
+                      # Selected mode collapses to a single chromium shard (see classify step).
+                      SHARDS=1
 
                       SAVED_STORIES=$((TOTAL - COUNT))
                       SAVED_SHARDS=$((CURRENT_SHARDS - SHARDS))
@@ -633,7 +819,7 @@ jobs:
                       SAVED_MINUTES=$((FULL_MINUTES - SELECTIVE_MINUTES))
 
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow story selection
+                  ## Story selection
 
                   | Metric | Full run | Selective | Saved |
                   |---|---|---|---|
@@ -642,19 +828,17 @@ jobs:
                   | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
                   | Est. render time | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$((TOTAL_DUR - AFFECTED_DUR))s** |
 
-                  > Shadow-only — no effect on CI. Predictor: webpack module graph from build-storybook.
+                  > Predictor: webpack module graph from build-storybook. Master push runs the full suite.
                   EOF
-                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
+                      echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, affected: .affected_story_count, total: .total_story_count, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
                   else
                       REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
                       cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow story selection
+                  ## Story selection
 
                   **Full run required:** $REASON
 
                   Total stories: $TOTAL
-
-                  > Shadow-only — no effect on CI.
                   EOF
-                      echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
+                      echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi

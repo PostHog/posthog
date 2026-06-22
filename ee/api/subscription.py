@@ -86,19 +86,21 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
-def _ai_create_gate_reason(organization) -> Optional[str]:
+def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
     if not settings.DEBUG and not is_cloud():
         return "AI subscriptions are only available in PostHog Cloud."
     if not organization.is_ai_data_processing_approved:
         return "Your organization must approve AI data processing before creating AI subscriptions."
+    # Per-user gate so people can self-enable via feature previews (early access) — the flag is
+    # person-based. AI credits and the subscription limit stay org-scoped, enforced separately.
+    # Non-user callers get a synthetic team_<id> distinct_id that never matches → fails closed.
     if not posthoganalytics.feature_enabled(
         SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-        str(organization.id),
-        groups={"organization": str(organization.id)},
+        distinct_id,
         only_evaluate_locally=False,
         send_feature_flag_events=False,
     ):
-        return "AI subscriptions are not enabled for your organization."
+        return "AI subscriptions are not enabled for your account."
     return None
 
 
@@ -286,7 +288,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
-            gate_reason = _ai_create_gate_reason(self.context["get_organization"]())
+            gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
             if gate_reason is not None:
                 raise ValidationError(gate_reason)
 
@@ -514,6 +516,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         Scoped by organization (not user) so gates are stable across a team's
         members. `only_evaluate_locally=False` so we respect server-side cohort
         / property conditions — these checks aren't on a hot path.
+        (`_ai_create_gate_reason` is intentionally person-scoped instead — it
+        backs a per-user early-access opt-in — so don't unify the two.)
         """
         request = self.context.get("request")
         if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):

@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use metrics::histogram;
 use uuid::Uuid;
 
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
-    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_ILLEGAL_DISTINCT_ID,
-    CAPTURE_V1_MAX_EVENT_NAME_LENGTH, CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS,
+    CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
+    CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
+    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
     FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
@@ -18,11 +21,12 @@ use crate::v0_request::DataType;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
+use super::context::Context;
 use crate::router;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
-use crate::v1::sinks::Destination;
+use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
@@ -46,12 +50,18 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
     context.set_batch_metadata(&batch);
 
     let mut events = validate_events(context, batch)?;
+
+    // Nothing left to process — return 200 with per-event drops.
+    if events.iter().all(|ev| ev.result != EventResult::Ok) {
+        return Ok(BatchResponse::build(context, &events));
+    }
 
     crate::v1::quota_limiter_shim::apply_quota_limits(
         &state.quota_limiter,
@@ -82,27 +92,34 @@ pub async fn process_batch(
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
-    // Publish to v1 sink, merge results, build response
+    histogram!(
+        CAPTURE_V1_PROCESSING_DURATION_SECONDS,
+        "path" => context.path,
+    )
+    .record(processing_start.elapsed().as_secs_f64());
+
+    // Serialize (hoisted out of the sink; parallel for large batches), then
+    // publish and merge results before building the response.
     let sink_router = state
         .v1_sink_router
         .as_ref()
         .ok_or_else(|| Error::ServiceUnavailable("v1 sink router not configured".into()))?;
 
-    let event_refs: Vec<&(dyn SinkEvent + Send + Sync)> = events
-        .iter()
-        .filter(|e| SinkEvent::should_publish(*e))
-        .map(|e| {
-            let r: &(dyn SinkEvent + Send + Sync) = e;
-            r
-        })
-        .collect();
+    // serialize_batch consumes the events and hands them back, so we can keep
+    // correlating results to them and build the response.
+    let (mut events, serialized) =
+        serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
 
     let sink_results = sink_router
-        .publish_batch(sink_router.default_sink(), context, &event_refs)
+        .publish_batch(sink_router.default_sink(), context, &serialized.prepared)
         .await
         .map_err(|e| Error::InternalError(e.to_string()))?;
 
-    merge_sink_results(&mut events, &sink_results);
+    // Serialize-step failures and sink results are both per-event SinkResults;
+    // merge them together so serialization drops surface in the response.
+    let mut all_results = serialized.failures;
+    all_results.extend(sink_results);
+    merge_sink_results(&mut events, &all_results);
 
     Ok(BatchResponse::build(context, &events))
 }
@@ -168,20 +185,19 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
     let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
-        let uuid_str = event.uuid();
-        if uuid_str.is_empty() {
+        if event.uuid.is_empty() {
             return Err(Error::MissingEventUuid);
         }
-        let uuid =
-            Uuid::parse_str(uuid_str).map_err(|_| Error::InvalidEventUuid(uuid_str.to_owned()))?;
+        let uuid = Uuid::parse_str(&event.uuid)
+            .map_err(|_| Error::InvalidEventUuid(event.uuid.clone()))?;
         if !seen.insert(uuid) {
-            return Err(Error::DuplicateEventUuid(event.uuid().to_owned()));
+            return Err(Error::DuplicateEventUuid(event.uuid.clone()));
         }
 
         let destination = destination_for_event_name(&event.event);
@@ -223,7 +239,8 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     }
 
     if illegal_distinct_id_count > 0 {
-        metrics::counter!(CAPTURE_V1_ILLEGAL_DISTINCT_ID).increment(illegal_distinct_id_count);
+        metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "person_processing_disabled")
+            .increment(illegal_distinct_id_count);
         crate::ctx_log!(
             Level::INFO,
             context,
@@ -239,7 +256,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
+fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
 
     for event in events.iter() {
@@ -264,11 +281,12 @@ fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
     crate::ctx_log!(Level::WARN, context, "malformed events: {summary}");
 }
 
+/// Expects a pre-trimmed distinct_id (`Event.distinct_id` is trimmed at
+/// deserialization).
 fn is_distinct_id_illegal(distinct_id: &str) -> bool {
-    let trimmed = distinct_id.trim();
     ILLEGAL_DISTINCT_IDS
         .iter()
-        .any(|id| trimmed.eq_ignore_ascii_case(id))
+        .any(|id| distinct_id.eq_ignore_ascii_case(id))
 }
 
 fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
@@ -300,7 +318,7 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
 }
 
 fn normalize_timestamp(
-    context: &Context,
+    context: &RequestContext,
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
@@ -311,6 +329,8 @@ fn normalize_timestamp(
     let adjusted = raw_event_ts - context.clock_skew();
     let now = context.server_received_at;
     if adjusted.signed_duration_since(now).num_milliseconds() > FUTURE_EVENT_HOURS_CUTOFF_MS {
+        metrics::counter!(CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, "reason" => "future_timestamp_clamp")
+            .increment(1);
         return now;
     }
     adjusted
@@ -318,7 +338,7 @@ fn normalize_timestamp(
 
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -348,9 +368,11 @@ fn apply_historical_rerouting(
     }
 }
 
-fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
-    let mut buf = String::with_capacity(128);
-
+fn apply_overflow_stamping(
+    limiter: &OverflowLimiter,
+    ctx: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
     for event in events.iter_mut() {
         if event.destination != Destination::AnalyticsMain {
             continue;
@@ -359,10 +381,9 @@ fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mu
             continue;
         }
 
-        buf.clear();
-        event.partition_key(ctx, &mut buf);
+        let key = event.partition_key(ctx);
 
-        match limiter.is_limited(&buf) {
+        match limiter.is_limited(&key) {
             OverflowLimiterResult::ForceLimited => {
                 event.destination = Destination::Overflow;
                 // Disables person processing AND nulls partition key at sink.
@@ -407,7 +428,7 @@ async fn apply_restrictions(
             distinct_id: Some(&event.event.distinct_id),
             session_id: event.event.session_id.as_deref(),
             event_name: Some(&event.event.event),
-            event_uuid: Some(event.event.uuid()),
+            event_uuid: Some(&event.event.uuid),
             now_ts,
         };
 
@@ -429,23 +450,31 @@ async fn apply_restrictions(
         // the explicit guard makes the invariant ordering-independent.
         if applied.force_overflow() && event.destination == Destination::AnalyticsMain {
             event.destination = Destination::Overflow;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "force_overflow")
+                .increment(1);
         }
         if let Some(topic) = applied.redirect_to_topic() {
             event.destination = Destination::Custom(topic.to_string());
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_topic")
+                .increment(1);
         }
         if applied.redirect_to_dlq() {
             event.destination = Destination::Dlq;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "redirect_to_dlq")
+                .increment(1);
         }
 
         if applied.skip_person_processing() {
             event.force_disable_person_processing = true;
+            metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
+                .increment(1);
         }
     }
 }
 
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -523,7 +552,7 @@ mod tests {
     };
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::analytics::types::{Batch, Event, Options};
-    use crate::v1::sinks::Destination;
+    use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
         wrapped_event_at,
@@ -537,6 +566,18 @@ mod tests {
             capture_internal: None,
             batch: events,
         }
+    }
+
+    /// Build an Event through serde — the production entry point — so the
+    /// trim-at-deserialization invariant on uuid/distinct_id applies.
+    fn deserialized_event(uuid: &str, distinct_id: &str) -> Event {
+        let json = serde_json::json!({
+            "event": "$pageview",
+            "uuid": uuid,
+            "distinct_id": distinct_id,
+            "timestamp": "2026-03-19T14:29:58.123Z",
+        });
+        serde_json::from_str(&json.to_string()).unwrap()
     }
 
     // --- validate_batch ---
@@ -636,6 +677,42 @@ mod tests {
     }
 
     #[test]
+    fn event_whitespace_only_distinct_id_rejected() {
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "   ");
+        assert_eq!(event.distinct_id, "");
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::MissingDistinctId)
+        ));
+    }
+
+    #[test]
+    fn event_padded_distinct_id_ok() {
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  user-42  ");
+        assert_eq!(event.distinct_id, "user-42");
+        assert!(validate_event(&event).is_ok());
+    }
+
+    #[test]
+    fn event_distinct_id_length_checked_after_trim() {
+        let uuid = Uuid::new_v4().to_string();
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE)),
+        );
+        assert!(validate_event(&event).is_ok());
+
+        let event = deserialized_event(
+            &uuid,
+            &format!("  {}  ", "d".repeat(CAPTURE_V1_DISTINCT_ID_MAX_SIZE + 1)),
+        );
+        assert!(matches!(
+            validate_event(&event),
+            Err(Error::DistinctIdTooLarge)
+        ));
+    }
+
+    #[test]
     fn event_illegal_distinct_ids_pass_validation() {
         let illegal_ids = [
             "anonymous",
@@ -656,8 +733,7 @@ mod tests {
             "not_authenticated",
         ];
         for id in illegal_ids {
-            let mut event = valid_event();
-            event.distinct_id = id.to_string();
+            let event = deserialized_event(&Uuid::new_v4().to_string(), id);
             assert!(
                 validate_event(&event).is_ok(),
                 "expected Ok for illegal distinct_id={id:?} (flagging happens in validate_events)"
@@ -733,9 +809,9 @@ mod tests {
             event: "$performance_event".to_string(),
             ..valid_event()
         };
-        let perf_uuid = Uuid::parse_str(perf.uuid()).unwrap();
+        let perf_uuid = Uuid::parse_str(&perf.uuid).unwrap();
         let normal = valid_event();
-        let normal_uuid = Uuid::parse_str(normal.uuid()).unwrap();
+        let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
@@ -795,6 +871,17 @@ mod tests {
             assert!(!normal.force_disable_person_processing, "id={id:?}");
             assert!(normal.details.is_none(), "id={id:?}");
         }
+    }
+
+    #[test]
+    fn validate_events_padded_illegal_distinct_id_still_flagged() {
+        let ctx = test_utils::test_context();
+        let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
+        let batch = valid_batch(vec![event]);
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].force_disable_person_processing);
+        assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
     }
 
     #[test]
@@ -872,15 +959,9 @@ mod tests {
         let ctx = test_utils::test_context();
         let inner_uuid = Uuid::new_v4();
         let padded_uuid = format!("  {}  ", inner_uuid);
-        let batch = Batch {
-            created_at: "2026-03-19T14:30:00.000Z".to_string(),
-            historical_migration: false,
-            capture_internal: None,
-            batch: vec![Event {
-                uuid: padded_uuid,
-                ..valid_event()
-            }],
-        };
+        let event = deserialized_event(&padded_uuid, "user-42");
+        assert_eq!(event.uuid, inner_uuid.to_string());
+        let batch = valid_batch(vec![event]);
         let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
@@ -893,7 +974,7 @@ mod tests {
             properties: raw_obj("[1,2,3]"),
             ..valid_event()
         };
-        let uuid = Uuid::parse_str(bad_event.uuid()).unwrap();
+        let uuid = Uuid::parse_str(&bad_event.uuid).unwrap();
         let batch = Batch {
             created_at: "2026-03-19T14:30:00.000Z".to_string(),
             historical_migration: false,
@@ -914,8 +995,8 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
-        Context {
+    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> RequestContext {
+        RequestContext {
             api_token: "phc_test".to_string(),
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
@@ -925,7 +1006,7 @@ mod tests {
             request_id: Uuid::new_v4(),
             client_timestamp: server_received_at + skew,
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            query: crate::v1::analytics::query::Query::default(),
+            raw_query: None,
             method: axum::http::Method::POST,
             path: CAPTURE_V1_PATH,
             server_received_at,
@@ -1571,7 +1652,7 @@ mod tests {
         GlobalRateLimiter::new_with(MockLimiter::new(keys))
     }
 
-    fn td_context() -> Context {
+    fn td_context() -> RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
@@ -2389,7 +2470,7 @@ mod tests {
         let mut state = test_state.state;
         state.v1_sink_router = None;
 
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![valid_event()]);
 
         let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
@@ -2397,6 +2478,39 @@ mod tests {
             matches!(err, Error::ServiceUnavailable(_)),
             "expected ServiceUnavailable, got: {err:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn process_batch_all_validation_dropped_returns_200_not_402() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let state = test_state.state;
+
+        let mut ctx = test_utils::test_analytics_context();
+        // Every event is invalid — empty name, empty distinct_id, bad timestamp.
+        let batch = valid_batch(vec![
+            Event {
+                event: String::new(),
+                ..valid_event()
+            },
+            Event {
+                distinct_id: String::new(),
+                ..valid_event()
+            },
+            Event {
+                timestamp: "not-a-date".to_string(),
+                ..valid_event()
+            },
+        ]);
+
+        let resp = process_batch(&state, &mut ctx, batch).await.unwrap();
+        assert_eq!(resp.entries().len(), 3);
+        for (_, entry) in resp.entries() {
+            assert_eq!(
+                entry.result,
+                EventResult::Drop,
+                "all-invalid batch must return 200 with per-event drops, not 402"
+            );
+        }
     }
 
     // =========================================================================
@@ -2453,27 +2567,23 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
             wrapped_event("button_clicked", "user-3"),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2490,7 +2600,7 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$pageview", "user-2")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
@@ -2498,23 +2608,19 @@ mod tests {
                 .with_result(EventResult::Warning, Some("person_processing_disabled")),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        assert_eq!(event_refs.len(), 2); // only Ok + Warning are published
+        assert_eq!(serialized.prepared.len(), 2); // only Ok + Warning are published
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2535,30 +2641,26 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
             wrapped_event("$pageview", "user-2")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        assert!(event_refs.is_empty());
+        assert!(serialized.prepared.is_empty());
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2573,24 +2675,20 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events =
+        let events =
             vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);

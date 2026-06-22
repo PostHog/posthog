@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { isMac } from 'lib/utils'
+import { isMac } from 'lib/utils/dom'
 
 import { AppShortcutType, appShortcutLogic } from './appShortcutLogic'
 

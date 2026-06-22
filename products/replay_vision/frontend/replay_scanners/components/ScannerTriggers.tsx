@@ -30,10 +30,12 @@ const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SessionProperties,
 ]
 
-// Recursively renders the bound universal-filter group's values + the add-filter button.
+// Recursively renders the bound universal-filter group's values. The add-filter button only renders on the
+// leaf group (the one holding actual filters); the outer wrapper group just nests, so it shows no button.
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const hasNestedGroup = filterGroup.values.some(isUniversalGroupFilterLike)
 
     return (
         <div className="inline-flex flex-col gap-2">
@@ -52,9 +54,11 @@ function ScannerFilterGroup(): JSX.Element {
                     />
                 )
             )}
-            <div>
-                <UniversalFilters.AddFilterButton title="Add filter" type="secondary" size="xsmall" />
-            </div>
+            {!hasNestedGroup && (
+                <div>
+                    <UniversalFilters.AddFilterButton title="Add filter" type="secondary" size="xsmall" />
+                </div>
+            )}
         </div>
     )
 }

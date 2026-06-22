@@ -79,24 +79,16 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
-    configurationChanged,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
-    configurationChanged: boolean
 }): JSX.Element {
     const destination = batchExportConfigForm.destination
     const definition = destination ? DESTINATIONS[destination] : undefined
 
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
-            {definition && (
-                <definition.Fields
-                    isNew={isNew}
-                    formValues={batchExportConfigForm}
-                    configurationChanged={configurationChanged}
-                />
-            )}
+            {definition && <definition.Fields isNew={isNew} formValues={batchExportConfigForm} />}
         </div>
     )
 }

@@ -3,14 +3,12 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -23,12 +21,6 @@ from posthog.models.oauth import (
 )
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")

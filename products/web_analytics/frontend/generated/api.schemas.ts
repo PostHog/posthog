@@ -9,8 +9,8 @@
  */
 /**
  * * `screenshot` - Screenshot
- * `iframe` - Iframe
- * `recording` - Recording
+ * * `iframe` - Iframe
+ * * `recording` - Recording
  */
 export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
 
@@ -22,8 +22,8 @@ export const HeatmapTypeApi = {
 
 /**
  * * `processing` - Processing
- * `completed` - Completed
- * `failed` - Failed
+ * * `completed` - Completed
+ * * `failed` - Failed
  */
 export type HeatmapScreenshotResponseStatusEnumApi =
     (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
@@ -43,13 +43,13 @@ export interface HeatmapSnapshotMetadataApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -120,16 +120,16 @@ export interface HeatmapScreenshotResponseApi {
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
     target_widths?: unknown
     /** Render mode: 'screenshot', 'iframe', or 'recording'.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
-
-  * `processing` - Processing
-  * `completed` - Completed
-  * `failed` - Failed */
+     *
+     * * `processing` - Processing
+     * * `completed` - Completed
+     * * `failed` - Failed */
     readonly status: HeatmapScreenshotResponseStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
@@ -172,6 +172,8 @@ export interface HeatmapsResponseApi {
     results: HeatmapResponseItemApi[]
     /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
     fold?: HeatmapFoldSummaryApi | null
+    /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+    has_more?: boolean
 }
 
 export interface HeatmapEventItemApi {
@@ -218,13 +220,15 @@ export interface SavedHeatmapRequestApi {
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
      * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
      */
     widths?: number[]
     /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
@@ -251,13 +255,15 @@ export interface PatchedSavedHeatmapRequestApi {
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
      * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
      */
     widths?: number[]
     /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
-
-  * `screenshot` - Screenshot
-  * `iframe` - Iframe
-  * `recording` - Recording */
+     *
+     * * `screenshot` - Screenshot
+     * * `iframe` - Iframe
+     * * `recording` - Recording */
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
@@ -265,11 +271,11 @@ export interface PatchedSavedHeatmapRequestApi {
 
 /**
  * * `Up` - Up
- * `Down` - Down
+ * * `Down` - Down
  */
-export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
+export type WoWChangeDirectionEnumApi = (typeof WoWChangeDirectionEnumApi)[keyof typeof WoWChangeDirectionEnumApi]
 
-export const DirectionEnumApi = {
+export const WoWChangeDirectionEnumApi = {
     Up: 'Up',
     Down: 'Down',
 } as const
@@ -278,10 +284,10 @@ export interface WoWChangeApi {
     /** Absolute percentage change, rounded to nearest integer. */
     percent: number
     /** Direction of the change relative to the prior period.
-
-  * `Up` - Up
-  * `Down` - Down */
-    direction: DirectionEnumApi
+     *
+     * * `Up` - Up
+     * * `Down` - Down */
+    direction: WoWChangeDirectionEnumApi
     /** Hex color indicating whether the change is a positive or negative signal. */
     color: string
     /** Short label, e.g. 'Up 12%'. */
@@ -364,6 +370,124 @@ export interface WeeklyDigestResponseApi {
     dashboard_url: string
 }
 
+export interface AcknowledgeCelebrationRequestApi {
+    /** Track of the celebration being acknowledged. */
+    track_key: string
+    /**
+     * Stage number being acknowledged, 1-5.
+     * @minimum 1
+     * @maximum 5
+     */
+    stage: number
+}
+
+export interface AcknowledgeCelebrationResponseApi {
+    /** True if a matching pending celebration was cleared (idempotent). */
+    acknowledged: boolean
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ */
+export type AchievementDefinitionScopeEnumApi =
+    (typeof AchievementDefinitionScopeEnumApi)[keyof typeof AchievementDefinitionScopeEnumApi]
+
+export const AchievementDefinitionScopeEnumApi = {
+    User: 'user',
+    Team: 'team',
+} as const
+
+export interface AchievementStageApi {
+    /** Stage number within the track, 1-5. */
+    stage: number
+    /** Stage name within the track, e.g. 'On a roll'. */
+    name: string
+    /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+    threshold: number
+}
+
+export interface AchievementDefinitionApi {
+    /** Stable track identifier, e.g. 'streak'. */
+    key: string
+    /** Human-readable track name. */
+    display_name: string
+    /** One-line description of what the track rewards. */
+    description: string
+    /** Whether the track is tracked per user or per team.
+     *
+     * * `user` - user
+     * * `team` - team */
+    scope: AchievementDefinitionScopeEnumApi
+    /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+    is_experiment_track: boolean
+    /** The five stages of this track, in ascending threshold order. */
+    stages: AchievementStageApi[]
+}
+
+export interface AchievementProgressApi {
+    /** Track this progress row belongs to. */
+    track_key: string
+    /** Highest stage unlocked so far, 0-5. */
+    current_stage: number
+    /** Most recently computed progress value for the track. */
+    progress_value: number
+    /**
+     * When the track was last recomputed, or null if it never has been.
+     * @nullable
+     */
+    last_computed_at: string | null
+}
+
+export interface PendingCelebrationApi {
+    /** Track whose stage was newly unlocked. */
+    track_key: string
+    /** Newly unlocked stage number, 1-5. */
+    stage: number
+    /** Name of the unlocked stage, shown in the celebration UI. */
+    stage_name: string
+}
+
+export interface AchievementsListResponseApi {
+    /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+    definitions: AchievementDefinitionApi[]
+    /** The requesting user's progress on per-user tracks. */
+    user_progress: AchievementProgressApi[]
+    /** The team's progress on per-team tracks. */
+    team_progress: AchievementProgressApi[]
+    /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+    pending_celebrations: PendingCelebrationApi[]
+}
+
+/**
+ * * `data` - data
+ * * `recording` - recording
+ */
+export type InteractionKindEnumApi = (typeof InteractionKindEnumApi)[keyof typeof InteractionKindEnumApi]
+
+export const InteractionKindEnumApi = {
+    Data: 'data',
+    Recording: 'recording',
+} as const
+
+export interface RecordInteractionRequestApi {
+    /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+     *
+     * * `data` - data
+     * * `recording` - recording */
+    interaction_kind: InteractionKindEnumApi
+}
+
+export interface RecordInteractionResponseApi {
+    /** True once the interaction has been counted for the user. */
+    recorded: boolean
+}
+
+export interface RecordVisitResponseApi {
+    /** True once today's visit row exists for the user. */
+    recorded: boolean
+}
+
 export interface WebAnalyticsFilterPresetApi {
     readonly id: string
     readonly short_id: string
@@ -412,12 +536,12 @@ export type HeatmapScreenshotsContentRetrieveParams = {
 
 export type HeatmapsListParams = {
     /**
- * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-
-* `unique_visitors` - unique_visitors
-* `total_count` - total_count
- * @minLength 1
- */
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+     *
+     * * `unique_visitors` - unique_visitors
+     * * `total_count` - total_count
+     * @minLength 1
+     */
     aggregation?: HeatmapsListAggregation
     /**
      * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
@@ -443,6 +567,18 @@ export type HeatmapsListParams = {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
@@ -477,12 +613,12 @@ export const HeatmapsListAggregation = {
 
 export type HeatmapsEventsRetrieveParams = {
     /**
- * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
-
-* `unique_visitors` - unique_visitors
-* `total_count` - total_count
- * @minLength 1
- */
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+     *
+     * * `unique_visitors` - unique_visitors
+     * * `total_count` - total_count
+     * @minLength 1
+     */
     aggregation?: HeatmapsEventsRetrieveAggregation
     /**
      * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.

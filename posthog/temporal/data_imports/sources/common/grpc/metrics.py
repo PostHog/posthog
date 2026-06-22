@@ -22,9 +22,8 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Protocol
 
-from temporalio import workflow
-
 import grpc
+from temporalio import workflow
 
 if TYPE_CHECKING:
     from temporalio.common import MetricCounter, MetricHistogram

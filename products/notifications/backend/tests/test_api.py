@@ -68,6 +68,52 @@ class TestNotificationsAPI(BaseTest):
         assert resp.status_code == 200
         assert not NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
 
+    def test_mark_read_org_level_notification(self):
+        org_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=None,
+            notification_type="comment_mention",
+            title="Org-level notification",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{org_event.id}/mark_read/")
+        assert resp.status_code == 200
+        assert NotificationReadState.objects.filter(notification_event=org_event, user=self.user).exists()
+
+    def test_mark_unread_org_level_notification(self):
+        org_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=None,
+            notification_type="comment_mention",
+            title="Org-level notification",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+        NotificationReadState.objects.create(notification_event=org_event, user=self.user)
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{org_event.id}/mark_unread/")
+        assert resp.status_code == 200
+        assert not NotificationReadState.objects.filter(notification_event=org_event, user=self.user).exists()
+
+    def test_mark_read_non_recipient_returns_404(self):
+        other_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=None,
+            notification_type="comment_mention",
+            title="Not for me",
+            body="",
+            target_type="user",
+            target_id="999999",
+            resolved_user_ids=[999999],
+        )
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{other_event.id}/mark_read/")
+        assert resp.status_code == 404
+        assert not NotificationReadState.objects.filter(notification_event=other_event, user=self.user).exists()
+
     def test_mark_all_read(self):
         NotificationEvent.objects.create(
             organization=self.organization,

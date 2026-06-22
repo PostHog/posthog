@@ -55,6 +55,26 @@ pub async fn update_team_in_hypercache(
     Ok(())
 }
 
+/// Write a raw team-token hypercache entry that omits `project_id`, simulating a cache entry
+/// written before that field existed. `verify_token_and_get_team` then deserializes it with
+/// `project_id == None` (via `#[serde(default)]`), which is the only way to exercise the
+/// `project_id_for_team` fallback — the typed `update_team_in_hypercache` always carries the field.
+pub async fn update_team_in_hypercache_without_project_id(
+    client: Arc<dyn RedisClientTrait + Send + Sync>,
+    team: &Team,
+) -> Result<(), Error> {
+    let mut value = serde_json::to_value(team)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("project_id");
+    }
+    let json_string = serde_json::to_string(&value)?;
+    let pickled_bytes =
+        serde_pickle::to_vec(&json_string, Default::default()).expect("Failed to pickle team");
+    let cache_key = team_token_hypercache_key(&team.api_token);
+    client.set_bytes(cache_key, pickled_bytes, None).await?;
+    Ok(())
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {

@@ -12,13 +12,16 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.mixpanel import mixpanel as mp
 from posthog.temporal.data_imports.sources.mixpanel.mixpanel import (
+    MAX_RETRY_AFTER_SECONDS,
     MixpanelResumeConfig,
     MixpanelRetryableError,
     _check_response,
     _export_base,
     _flatten_event,
     _flatten_profile,
+    _parse_retry_after,
     _query_base,
+    _retry_wait,
     _to_date,
     mixpanel_source,
     validate_credentials,
@@ -36,11 +39,17 @@ class FakeResponse:
         json_data: Any = None,
         lines: Optional[list[bytes]] = None,
         text: str = "",
+        headers: Optional[dict[str, str]] = None,
+        error: Optional[BaseException] = None,
     ) -> None:
         self.status_code = status_code
         self._json = json_data
         self._lines = lines or []
         self.text = text
+        self.headers = headers or {}
+        # Raised after the available lines are yielded, to simulate a connection dropped
+        # mid-stream while reading the export body.
+        self._error = error
 
     @property
     def ok(self) -> bool:
@@ -50,7 +59,9 @@ class FakeResponse:
         return self._json
 
     def iter_lines(self):
-        return iter(self._lines)
+        yield from self._lines
+        if self._error is not None:
+            raise self._error
 
     def raise_for_status(self) -> None:
         if not self.ok:
@@ -149,6 +160,76 @@ class TestCheckResponse:
         response = FakeResponse(status_code=200)
         assert _check_response(response, "http://x", LOGGER) is response  # type: ignore[arg-type, comparison-overlap]
 
+    def test_retryable_error_carries_retry_after_header(self) -> None:
+        response = FakeResponse(status_code=429, headers={"Retry-After": "30"})
+        with pytest.raises(MixpanelRetryableError) as exc_info:
+            _check_response(response, "http://x", LOGGER)  # type: ignore[arg-type]
+        assert exc_info.value.retry_after == 30.0
+
+    def test_retryable_error_without_retry_after_header(self) -> None:
+        response = FakeResponse(status_code=503)
+        with pytest.raises(MixpanelRetryableError) as exc_info:
+            _check_response(response, "http://x", LOGGER)  # type: ignore[arg-type]
+        assert exc_info.value.retry_after is None
+
+
+class TestParseRetryAfter:
+    @parameterized.expand(
+        [
+            ("none", None, None),
+            ("empty", "  ", None),
+            ("integer_seconds", "30", 30.0),
+            ("zero_seconds", "0", 0.0),
+            ("float_seconds", "2.5", 2.5),
+            ("negative_seconds", "-5", None),
+            ("garbage", "soon", None),
+        ]
+    )
+    def test_delta_seconds(self, _name: str, value: Optional[str], expected: Optional[float]) -> None:
+        assert _parse_retry_after(value) == expected
+
+    @freeze_time("2024-06-04T00:00:00Z")
+    def test_http_date_in_the_future(self) -> None:
+        assert _parse_retry_after("Tue, 04 Jun 2024 00:00:30 GMT") == 30.0
+
+    @freeze_time("2024-06-04T00:00:00Z")
+    def test_http_date_in_the_past_is_ignored(self) -> None:
+        assert _parse_retry_after("Tue, 04 Jun 2024 00:00:00 GMT") is None
+
+
+class _FakeOutcome:
+    def __init__(self, exc: Optional[BaseException]) -> None:
+        self._exc = exc
+
+    def exception(self) -> Optional[BaseException]:
+        return self._exc
+
+
+class _FakeRetryState:
+    def __init__(self, exc: Optional[BaseException], attempt_number: int = 1) -> None:
+        self.outcome = _FakeOutcome(exc)
+        self.attempt_number = attempt_number
+
+
+class TestRetryWait:
+    def test_prefers_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=5))
+        assert _retry_wait(state) == 5.0  # type: ignore[arg-type]
+
+    def test_caps_large_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=9999))
+        assert _retry_wait(state) == MAX_RETRY_AFTER_SECONDS  # type: ignore[arg-type]
+
+    def test_falls_back_to_exponential_jitter_without_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom"))
+        wait = _retry_wait(state)  # type: ignore[arg-type]
+        assert 0 < wait <= 61
+
+    def test_falls_back_for_non_retryable_exception_type(self) -> None:
+        state = _FakeRetryState(requests.ReadTimeout("slow"))
+        wait = _retry_wait(state)  # type: ignore[arg-type]
+        assert 0 < wait <= 61
+
 
 class TestValidateCredentials:
     @parameterized.expand(
@@ -227,6 +308,73 @@ class TestExportIterator:
         rows = self._run(manager, date(2024, 1, 1), date(2024, 1, 1), [FakeResponse(lines=[])])
         assert rows == []
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+
+class TestExportStreamRetry:
+    def _line(self, insert_id: str) -> bytes:
+        return orjson.dumps({"event": "A", "properties": {"time": 1, "$insert_id": insert_id}})
+
+    def test_retries_day_on_mid_stream_drop(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        incomplete_read = requests.exceptions.ChunkedEncodingError(
+            "Connection broken: IncompleteRead(237 bytes read, 275 more expected)"
+        )
+        failing = FakeResponse(lines=[self._line("i1")], error=incomplete_read)
+        succeeding = FakeResponse(lines=[self._line("i1")])
+        with (
+            patch.object(mp, "_request", side_effect=[failing, succeeding]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            batches = list(
+                mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert [r["$insert_id"] for r in rows] == ["i1"]
+        # The same day is fetched twice; the dropped attempt yields nothing before the retry.
+        assert mock_request.call_count == 2
+        assert {c.kwargs["params"]["from_date"] for c in mock_request.call_args_list} == {"2024-01-01"}
+        mock_sleep.assert_called_once()
+        # Cursor only advances once the day finally completes.
+        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+    def test_gives_up_after_max_attempts(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        responses = [
+            FakeResponse(lines=[], error=requests.exceptions.ChunkedEncodingError("Connection broken"))
+            for _ in range(mp.STREAM_MAX_ATTEMPTS)
+        ]
+        with (
+            patch.object(mp, "_request", side_effect=responses) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(requests.exceptions.ChunkedEncodingError):
+                list(
+                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+                )
+
+        assert mock_request.call_count == mp.STREAM_MAX_ATTEMPTS
+        assert mock_sleep.call_count == mp.STREAM_MAX_ATTEMPTS - 1
+        # The failing day's cursor is never advanced.
+        assert manager.saved == []
+
+    def test_does_not_retry_unrelated_error(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        failing = FakeResponse(lines=[], error=ValueError("malformed payload"))
+        with (
+            patch.object(mp, "_request", side_effect=[failing]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(ValueError):
+                list(
+                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
 
 
 class TestEngageIterator:

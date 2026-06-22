@@ -2,18 +2,19 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType } from '~/types'
 
 import { SourceReleaseTag } from 'products/data_warehouse/frontend/shared/components/SourceReleaseTag'
 import { isManagedSourceTemplate } from 'products/data_warehouse/frontend/utils'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
+import { DELIVERY_TYPE_FILTER_OPTIONS, DeliveryTypeTag } from './DeliveryTypeTag'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionTemplateListLogicProps, hogFunctionTemplateListLogic } from './hogFunctionTemplateListLogic'
 
@@ -47,6 +48,14 @@ export function HogFunctionTemplateList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
+                {props.type === 'destination' && (
+                    <LemonSelect
+                        size="small"
+                        value={filters.deliveryType ?? null}
+                        onChange={(value) => setFilters({ deliveryType: value ?? undefined })}
+                        options={DELIVERY_TYPE_FILTER_OPTIONS}
+                    />
+                )}
                 {extraControls}
             </div>
 
@@ -99,6 +108,17 @@ export function HogFunctionTemplateList({
                         },
                     },
 
+                    ...(props.type === 'destination'
+                        ? [
+                              {
+                                  title: 'Type',
+                                  width: 0,
+                                  render: function RenderDeliveryType(_: any, template: HogFunctionTemplateType) {
+                                      return <DeliveryTypeTag item={template} />
+                                  },
+                              },
+                          ]
+                        : []),
                     {
                         width: 0,
                         render: function Render(_, template) {

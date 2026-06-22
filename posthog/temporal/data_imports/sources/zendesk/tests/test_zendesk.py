@@ -5,7 +5,10 @@ import pytest
 
 from requests import Request, Response
 
-from posthog.temporal.data_imports.sources.zendesk.zendesk import ZendeskTicketsCursorIncrementalPaginator
+from posthog.temporal.data_imports.sources.zendesk.zendesk import (
+    ZendeskTicketsCursorIncrementalPaginator,
+    normalize_subdomain,
+)
 
 
 def _make_response(json_body: dict[str, Any] | None = None) -> Response:
@@ -14,6 +17,29 @@ def _make_response(json_body: dict[str, Any] | None = None) -> Response:
     resp.headers["Content-Type"] = "application/json"
     resp._content = json.dumps(json_body or {}).encode()
     return resp
+
+
+class TestNormalizeSubdomain:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            pytest.param("nibbles", "nibbles", id="bare_subdomain"),
+            pytest.param("nibbles.zendesk.com", "nibbles", id="full_host"),
+            pytest.param("https://nibbles.zendesk.com", "nibbles", id="https_url"),
+            pytest.param("https://nibbles.zendesk.com/", "nibbles", id="https_url_trailing_slash"),
+            pytest.param("http://nibbles.zendesk.com/api/v2", "nibbles", id="url_with_path"),
+            pytest.param("  nibbles.zendesk.com  ", "nibbles", id="whitespace"),
+            pytest.param("nibbles.ZENDESK.com", "nibbles", id="mixed_case_host"),
+            pytest.param("multi-word-team", "multi-word-team", id="hyphenated_subdomain"),
+        ],
+    )
+    def test_collapses_to_subdomain_label(self, raw: str, expected: str) -> None:
+        assert normalize_subdomain(raw) == expected
+
+    def test_full_host_does_not_double_when_building_base_url(self) -> None:
+        # Regression: a pasted full host previously produced "nibbles.zendesk.com.zendesk.com",
+        # whose TLS handshake the Zendesk edge rejects.
+        assert f"https://{normalize_subdomain('nibbles.zendesk.com')}.zendesk.com/" == "https://nibbles.zendesk.com/"
 
 
 class TestZendeskTicketsCursorIncrementalPaginator:

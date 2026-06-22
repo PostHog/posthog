@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import {
     getVariablesFromQuery,
     haveVariablesOrFiltersChanged,

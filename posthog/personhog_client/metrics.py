@@ -32,3 +32,15 @@ PERSONHOG_ERRORS_TOTAL = Counter(
     "Total PersonHog gRPC errors — every failed gRPC attempt",
     labelnames=["method", "client", "error_type"],
 )
+
+PERSONHOG_RETRIES_TOTAL = Counter(
+    "personhog_retries_total",
+    "Total PersonHog gRPC retries before success or exhaustion",
+    labelnames=["method", "client", "error_type"],
+)
+
+PERSONHOG_TERMINAL_ERRORS_TOTAL = Counter(
+    "personhog_terminal_errors_total",
+    "PersonHog gRPC errors after retry exhaustion — the request was not fulfilled",
+    labelnames=["method", "client", "error_type"],
+)

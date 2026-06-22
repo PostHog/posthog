@@ -4,15 +4,15 @@ import { useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart as InsightPieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-import { InsightLogicProps, GraphType } from '~/types'
+import { GraphType, InsightLogicProps } from '~/types'
 
 import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 export interface PieChartProps {
     xData: AxisSeries<string> | null
@@ -21,86 +21,6 @@ export interface PieChartProps {
     presetChartHeight?: boolean
     className?: string
     uniqueKey: string
-}
-
-export interface PieSlice {
-    label: string
-    value: number
-    color: string
-}
-
-const isBreakdownSeries = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>
-): series is AxisBreakdownSeries<number | null> => {
-    return !('column' in series)
-}
-
-const toSliceLabel = (value: unknown): string => {
-    if (value === null || value === undefined || value === '') {
-        return '[No value]'
-    }
-
-    return String(value)
-}
-
-const sumValues = (values: (number | null)[]): number => {
-    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
-}
-
-const getSeriesLabel = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>,
-    index: number
-): string => {
-    if (isBreakdownSeries(series)) {
-        return series.name || `[Series ${index + 1}]`
-    }
-
-    return series.settings?.display?.label || series.column.name
-}
-
-export const buildPieSlices = (
-    xData: AxisSeries<string> | null,
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
-): PieSlice[] => {
-    if (!yData.length) {
-        return []
-    }
-
-    if (yData.some(isBreakdownSeries)) {
-        return yData
-            .map((series, index) => ({
-                label: getSeriesLabel(series, index),
-                value: sumValues(series.data),
-                color: series.settings?.display?.color ?? getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    if (yData.length === 1 && xData && xData.column.name !== 'None') {
-        const totalsByLabel = new Map<string, number>()
-
-        xData.data.forEach((rawLabel, index) => {
-            const label = toSliceLabel(rawLabel)
-            const value = yData[0].data[index] ?? 0
-            totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
-        })
-
-        return Array.from(totalsByLabel.entries())
-            .map(([label, value], index) => ({
-                label,
-                value,
-                color: getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    return yData
-        .map((series, index) => ({
-            label: getSeriesLabel(series, index),
-            value: sumValues(series.data),
-            color: series.settings?.display?.color ?? getSeriesColor(index),
-        }))
-        .filter((slice) => slice.value > 0)
 }
 
 export function PieChart({
@@ -145,6 +65,7 @@ export function PieChart({
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,
+                    renderCount: (value: number) => formatPieSliceCount(value, total, formattingSettings),
                 }}
                 datasets={[
                     {

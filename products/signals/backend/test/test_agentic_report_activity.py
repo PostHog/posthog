@@ -82,6 +82,7 @@ def _build_research_output() -> ReportResearchOutput:
         priority=PriorityAssessment(
             explanation="The regression affects a core onboarding flow and should be addressed quickly.",
             priority=Priority.P1,
+            dollar_value=5000.0,
         ),
     )
 
@@ -303,6 +304,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert priority_content == {
             "priority": "P1",
             "explanation": "The regression affects a core onboarding flow and should be addressed quickly.",
+            "dollar_value": 5000.0,
         }
 
         repo_selection_content = json.loads(artefacts[2].content)
@@ -365,7 +367,7 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
 
     with patch(
-        "products.tasks.backend.services.custom_prompt_multi_turn_runner.MultiTurnSession.start",
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
         AsyncMock(return_value=(session, first_finding)),
     ):
         with pytest.raises(RuntimeError, match="poll_for_turn"):

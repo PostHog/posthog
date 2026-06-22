@@ -554,8 +554,12 @@ class TestDataDeletionRequestAdminEditLock(BaseTest):
     def test_editable_statuses_keep_fields_editable(self, _name, status):
         obj = self._make_request(status)
         readonly = self._readonly_fields(obj)
+        # team_id is immutable once the request exists, so it stays readonly even when editable.
         for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
+            if field == "team_id":
+                self.assertIn(field, readonly)
+            else:
+                self.assertNotIn(field, readonly)
 
     def test_add_view_fields_editable(self):
         readonly = self._readonly_fields(None)
@@ -756,13 +760,42 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.QUEUED)
 
-    def test_verify_view_rejects_non_queued(self):
+    def test_verify_view_rejects_non_verifiable_status(self):
         request = self._queued_request()
         request.status = RequestStatus.APPROVED
         request.save(update_fields=["status"])
         self._call_verify(request)
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.APPROVED)
+
+    def test_verify_view_promotes_failed_when_events_gone(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_failed_when_events_remain(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=3):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_event_removal(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PROPERTY_REMOVAL
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+            self._call_verify(request)
+        counted.assert_not_called()
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
 
     def test_verify_view_rejects_non_clickhouse_team(self):
         request = self._queued_request()
