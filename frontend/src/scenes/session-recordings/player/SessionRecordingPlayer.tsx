@@ -44,6 +44,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         pinned,
         setPinned,
         accessToken,
+        maxSeekFillSources,
         onRecordingDeleted,
         playNextRecording,
     } = props
@@ -62,6 +63,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         pinned,
         setPinned,
         accessToken,
+        maxSeekFillSources,
         onRecordingDeleted,
         playNextRecording,
     }

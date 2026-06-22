@@ -170,6 +170,9 @@ def _export_to_png(
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         page_load_timeout: int = 40
+        # Replays rebuild a full DOM in the renderer; 2x device scale quadruples the framebuffer and OOMs
+        # heavy sessions. The replay branch drops to 1x (a thumbnail doesn't need retina); others keep 2x.
+        device_scale_factor: int = 2
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
@@ -201,6 +204,7 @@ def _export_to_png(
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".replayer-wrapper")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
+            device_scale_factor = 1
 
             logger.info(
                 "exporting_replay",
@@ -255,6 +259,7 @@ def _export_to_png(
                 screenshot_height,
                 max_height_pixels,
                 page_load_timeout,
+                device_scale_factor=device_scale_factor,
             )
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
@@ -372,6 +377,7 @@ def _screenshot_asset_browserless(
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
+    device_scale_factor: int = 2,
 ) -> None:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
@@ -392,7 +398,7 @@ def _screenshot_asset_browserless(
         page = None
         try:
             context = browser.new_context(
-                device_scale_factor=2,
+                device_scale_factor=device_scale_factor,
                 viewport={"width": screenshot_width, "height": screenshot_height},
             )
             page = context.new_page()

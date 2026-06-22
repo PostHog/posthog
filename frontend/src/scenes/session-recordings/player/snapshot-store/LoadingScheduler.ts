@@ -10,6 +10,14 @@ export class LoadingScheduler {
     private seekRangeEnd: number | null = null
     private seekRangeStart: number | null = null
 
+    // Bounds how many sources a seek fills in each direction from the target before giving up to a
+    // best-effort frame, instead of materialising the whole recording (default: unbounded). The headless
+    // image-export player sets this — loading a large keyframe-poor session OOMs the renderer.
+    private readonly maxSeekFillSources: number
+    constructor(options: { maxSeekFillSources?: number } = {}) {
+        this.maxSeekFillSources = options.maxSeekFillSources ?? Infinity
+    }
+
     seekTo(targetTimestamp: number, targetWindowId?: number): void {
         this.mode = { kind: 'seek', targetTimestamp, targetWindowId }
         this.seekRangeEnd = null
@@ -110,9 +118,10 @@ export class LoadingScheduler {
 
         // Step 4: No FullSnapshot found yet, search backward.
         // Loop through ranges to skip over already-loaded sections.
+        const backwardFloor = Math.max(0, targetIndex - this.maxSeekFillSources)
         let currentStart = this.seekRangeStart ?? targetIndex
-        while (currentStart > 0) {
-            const searchStart = Math.max(0, currentStart - batchSize)
+        while (currentStart > backwardFloor) {
+            const searchStart = Math.max(backwardFloor, currentStart - batchSize)
             const searchEnd = currentStart - 1
 
             const backwardIndices = store.getUnloadedIndicesInRange(searchStart, searchEnd)
@@ -126,7 +135,7 @@ export class LoadingScheduler {
             // All sources in this range are loaded — advance past them
             currentStart = searchStart
         }
-        this.seekRangeStart = 0
+        this.seekRangeStart = backwardFloor
 
         // Step 5: Backward search exhausted — no FullSnapshot exists at or before
         // the target, so playback there can only start from one after it (the
@@ -137,10 +146,8 @@ export class LoadingScheduler {
             .fullSnapshotsAfter(targetTs)
             .some((fs) => targetWindowId === undefined || fs.windowId === targetWindowId)
         if (!hasRecoveryCandidate) {
-            const forwardIndices = store.getUnloadedIndicesInRange(
-                (this.seekRangeEnd ?? targetIndex) + 1,
-                store.sourceCount - 1
-            )
+            const forwardCeil = Math.min(store.sourceCount - 1, targetIndex + this.maxSeekFillSources)
+            const forwardIndices = store.getUnloadedIndicesInRange((this.seekRangeEnd ?? targetIndex) + 1, forwardCeil)
             if (forwardIndices.length > 0) {
                 const batch = this.truncateToContiguous(forwardIndices.slice(0, batchSize))
                 this.seekRangeEnd = Math.max(this.seekRangeEnd ?? 0, batch[batch.length - 1])

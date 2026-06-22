@@ -33,6 +33,8 @@ export interface SnapshotLogicProps {
     // allows disabling polling for new sources in tests
     blobV2PollingDisabled?: boolean
     accessToken?: string
+    // Export seek-fill cap; see ExporterRecordingScene for the rationale. Undefined outside exports.
+    maxSeekFillSources?: number
 }
 
 // Reactivity note (#53893): `cache.store` (SnapshotStore) and `cache.scheduler`
@@ -558,10 +560,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions, cache, props }) => {
         cache.playerActive = true
         cache.store = new SnapshotStore()
-        cache.scheduler = new LoadingScheduler()
+        cache.scheduler = new LoadingScheduler({ maxSeekFillSources: props.maxSeekFillSources })
         actions.storeUpdated()
 
         cache.disposables.add(() => {

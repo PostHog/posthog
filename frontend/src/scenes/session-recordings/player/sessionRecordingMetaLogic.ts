@@ -18,16 +18,20 @@ export interface SessionRecordingMetaLogicProps {
     blobV2PollingDisabled?: boolean
     playerKey?: string
     accessToken?: string
+    // Forwarded to snapshotDataLogic so the export seek-fill cap survives regardless of which builder
+    // mounts that (sessionRecordingId-keyed) logic first. See sessionRecordingDataCoordinatorLogic.
+    maxSeekFillSources?: number
 }
 
 export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingMetaLogic', key]),
     props({} as SessionRecordingMetaLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(({ sessionRecordingId, blobV2PollingDisabled }: SessionRecordingMetaLogicProps) => {
+    connect(({ sessionRecordingId, blobV2PollingDisabled, maxSeekFillSources }: SessionRecordingMetaLogicProps) => {
         const snapshotLogic = snapshotDataLogic({
             sessionRecordingId,
             blobV2PollingDisabled,
+            maxSeekFillSources,
         })
         const registryLogic = windowIdRegistryLogic({ sessionRecordingId })
         return {

@@ -109,6 +109,20 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content == b"image_data"
             assert self.exported_asset.content_location is None
 
+    def test_replay_export_renders_at_lower_device_scale_than_insight(self, *args: Any) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(self.exported_asset)  # insight asset from setup
+        assert image_exporter._screenshot_asset_browserless.call_args.kwargs["device_scale_factor"] == 2
+
+        recording_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"session_recording_id": "abc-123", "timestamp": 8000},
+        )
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            image_exporter.export_image(recording_asset)
+        assert image_exporter._screenshot_asset_browserless.call_args.kwargs["device_scale_factor"] == 1
+
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(
         self, mocked_uuidt: Any, *args: Any
@@ -772,6 +786,32 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    @parameterized.expand([("retina", 2), ("single", 1)])
+    def test_device_scale_factor_is_passed_to_browser_context(self, _name: str, device_scale: int) -> None:
+        page = MagicMock()
+        # Stop right after the context is created so we can assert how it was built.
+        page.goto.side_effect = PlaywrightTimeoutError("stop after context creation")
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with (
+            patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=sync_playwright_cm),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception"),
+        ):
+            with self.assertRaises(PlaywrightTimeoutError):
+                image_exporter._screenshot_asset_browserless(
+                    "p", "u", 800, ".replayer-wrapper", device_scale_factor=device_scale
+                )
+
+        assert browser.new_context.call_args.kwargs["device_scale_factor"] == device_scale
 
 
 class TestDimensionHelpers(SimpleTestCase):

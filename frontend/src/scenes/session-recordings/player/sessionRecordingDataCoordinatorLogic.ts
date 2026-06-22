@@ -41,6 +41,8 @@ export interface SessionRecordingDataCoordinatorLogicProps {
     blobV2PollingDisabled?: boolean
     playerKey?: string
     accessToken?: string
+    // Export seek-fill cap; see ExporterRecordingScene for the rationale. Undefined outside exports.
+    maxSeekFillSources?: number
 }
 
 // For a short window after a recording starts it may still be ingesting, so a missing full
@@ -59,11 +61,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataCoordinatorLogic', key]),
     props({} as SessionRecordingDataCoordinatorLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(({ sessionRecordingId, blobV2PollingDisabled, accessToken }: SessionRecordingDataCoordinatorLogicProps) => {
+    connect((props: SessionRecordingDataCoordinatorLogicProps) => {
+        const { sessionRecordingId, blobV2PollingDisabled, accessToken, maxSeekFillSources } = props
         const metaLogic = sessionRecordingMetaLogic({
             sessionRecordingId,
             blobV2PollingDisabled,
             accessToken,
+            maxSeekFillSources,
         })
         const eventsLogic = sessionEventsDataLogic({
             sessionRecordingId,
@@ -77,6 +81,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             sessionRecordingId,
             blobV2PollingDisabled,
             accessToken,
+            maxSeekFillSources,
         })
         return {
             actions: [

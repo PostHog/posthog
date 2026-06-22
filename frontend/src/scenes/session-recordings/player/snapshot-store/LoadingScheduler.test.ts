@@ -54,7 +54,49 @@ function createLoadedStore(
     return store
 }
 
+function driveSeekToCompletion(scheduler: LoadingScheduler, store: SnapshotStore, batchSize: number = 10): number {
+    let totalLoaded = 0
+    for (let i = 0; i < 2000; i++) {
+        const batch = scheduler.getNextBatch(store, batchSize)
+        if (!batch || batch.sourceIndices.length === 0) {
+            break
+        }
+        for (const idx of batch.sourceIndices) {
+            store.markLoaded(idx, [makeSnapshot(tsForMinute(idx))])
+        }
+        totalLoaded += batch.sourceIndices.length
+        // Stop once the seek resolves or gives up — we only want to measure the seek's own fill.
+        if (!scheduler.isSeeking) {
+            break
+        }
+    }
+    return totalLoaded
+}
+
 describe('LoadingScheduler', () => {
+    describe('bounded seek fill', () => {
+        // A keyframe-poor recording: no FullSnapshot anywhere, so a seek to the middle can't find one
+        // and falls into the backward (step 4) then forward (step 5) search.
+        it('uncapped scheduler loads essentially the whole recording (interactive playback unchanged)', () => {
+            const store = createLoadedStore(300, [], [])
+            const scheduler = new LoadingScheduler()
+            scheduler.seekTo(tsForMinute(150))
+
+            expect(driveSeekToCompletion(scheduler, store)).toBeGreaterThan(250)
+        })
+
+        it('caps the seek fill instead of loading the whole recording when maxSeekFillSources is set', () => {
+            const store = createLoadedStore(300, [], [])
+            const scheduler = new LoadingScheduler({ maxSeekFillSources: 30 })
+            scheduler.seekTo(tsForMinute(150))
+
+            const loaded = driveSeekToCompletion(scheduler, store)
+            // ~window (11) + 30 back + 30 forward — bounded, never the whole 300.
+            expect(loaded).toBeGreaterThan(0)
+            expect(loaded).toBeLessThan(120)
+        })
+    })
+
     describe('buffer ahead', () => {
         it('starts in buffer_ahead mode', () => {
             const scheduler = new LoadingScheduler()
