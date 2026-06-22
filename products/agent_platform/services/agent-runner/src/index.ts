@@ -28,8 +28,11 @@ import {
     DirectHttpClient,
     EncryptedEnvSecretResolver,
     EncryptedFields,
+    createMetricsServer,
+    handleMetricsRequest,
     HttpClient,
     HttpGatewayClient,
+    initMetrics,
     installProcessHandlers,
     isDev,
     KafkaLogSink,
@@ -68,6 +71,13 @@ const log = createLogger('agent-runner')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
+
+    // Prometheus: register Node process defaults. Prod runs a dedicated scrape
+    // server on its own port (independent of /healthz). Dev mounts /metrics on
+    // the health server instead (see below) — three services on one host can't
+    // all bind the same dedicated port.
+    initMetrics({ service: 'agent-runner' })
+    const metricsServer = isDev() ? null : createMetricsServer({ port: config.metricsPort, log })
 
     // Fail-fast prod guard for the dev-only bearer attached to auth-less
     // external MCP refs. Prod must route auth via integrations or the
@@ -349,7 +359,12 @@ async function main(): Promise<void> {
     // path, so GET /healthz is the only thing on a port — 200 while running,
     // 503 once draining so k8s pulls a shutting-down pod out promptly.
     let healthy = true
+    const devMetrics = isDev()
     const healthServer = createServer((req, res) => {
+        // Dev: /metrics rides the health port (no dedicated scrape server).
+        if (devMetrics && handleMetricsRequest(req, res, log)) {
+            return
+        }
         if (req.url === '/healthz') {
             res.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' })
             res.end(JSON.stringify({ ok: healthy }))
@@ -364,6 +379,7 @@ async function main(): Promise<void> {
         log.info({ sig }, 'shutdown signal received — suspending in-flight sessions')
         healthy = false
         healthServer.close()
+        metricsServer?.close()
         void worker.stop()
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'))

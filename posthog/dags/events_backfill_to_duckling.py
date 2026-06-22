@@ -1473,8 +1473,15 @@ def register_files_with_duckling(
 
         context.log.info(f"Registering {len(files)} file(s) with DuckLake from {s3_glob}")
         for s3_path in files:
+            # allow_missing tolerates columns the live ingestion path added to the
+            # duckling table via schema evolution but the backfill export doesn't carry.
+            # Safe because the export SELECT is a fixed column set — a missing critical
+            # column (team_id/uuid/timestamp) would only arise from an export bug, not
+            # normal operation, and would surface as NULL-filled rows in downstream reads.
             conn.execute(
-                psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
                     psql.Literal(alias),
                     psql.Literal(s3_path),
                 )
@@ -1738,8 +1745,11 @@ def register_persons_files_with_duckling(
 
         context.log.info(f"Registering {len(files)} persons file(s) with DuckLake from {s3_glob}")
         for s3_path in files:
+            # See the events registration site for the allow_missing rationale.
             conn.execute(
-                psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog', allow_missing => true)"
+                ).format(
                     psql.Literal(alias),
                     psql.Literal(s3_path),
                 )
