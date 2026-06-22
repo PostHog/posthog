@@ -428,6 +428,7 @@ describe('HogWatcher', () => {
             await watcher.observeResults([result])
 
             expect((await watcher.getPersistedState(hogFlow.id)).state).toEqual(HogWatcherState.forcefully_disabled)
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
         })
 
         it('does not disable results without a terminal error', async () => {
