@@ -1101,7 +1101,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         required=False,
         min_value=10,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
+        help_text="Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:

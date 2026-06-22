@@ -250,7 +250,7 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
     config = await database_sync_to_async(SignalScoutConfig.all_teams.get)(team=ateam, skill_name="signals-scout-foo")
     assert config.enabled is True
-    assert config.run_interval_minutes == 180
+    assert config.run_interval_minutes == 1440
     assert config.emit is True
     # Never-run row is immediately due, so it's dispatched this tick.
     assert [(p.team_id, p.skill_name) for p in planned] == [(ateam.id, "signals-scout-foo")]
@@ -771,8 +771,10 @@ async def test_seed_enabled_interval_validates_bounds(ateam, interval, expected)
 @pytest.mark.django_db
 async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
     # Option B: a canonical scout that seeds DISABLED under the allowlist still gets the launch
-    # cadence stamped, so when the user later toggles it on it runs at the daily cadence, not the
-    # 3h model default. general is allowlisted (enabled); error-tracking is gated (disabled).
+    # cadence stamped, so when the user later toggles it on it runs at the flag cadence, not the
+    # model default. The launch cadence here (720) is deliberately distinct from the 1440 model
+    # default so the assertion proves the flag value was stamped, not the fallback. general is
+    # allowlisted (enabled); error-tracking is gated (disabled).
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
 
@@ -781,7 +783,7 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
             "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
             "default_team_config": {
                 "enabled_skills": ["signals-scout-general"],
-                "enabled_interval_minutes": 1440,
+                "enabled_interval_minutes": 720,
             },
         }
 
@@ -794,9 +796,10 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
             for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
         }
     )()
-    assert rows["signals-scout-general"] == (True, 1440)
-    # Disabled, but already on the daily cadence — so enabling it later doesn't run it every 3h.
-    assert rows["signals-scout-error-tracking"] == (False, 1440)
+    assert rows["signals-scout-general"] == (True, 720)
+    # Disabled, but already on the flag cadence — so enabling it later doesn't fall back to the
+    # 1440 model default.
+    assert rows["signals-scout-error-tracking"] == (False, 720)
 
 
 # ── Per-team daily run budget (max_runs_per_day) ──────────────────────────────────
