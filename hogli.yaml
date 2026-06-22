@@ -1079,3 +1079,7 @@ environment:
         bin_script: setup-gateway-e2e
         description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
         hidden: true
+    is:frontend:affected:
+        bin_script: is-frontend-affected
+        description: 'CI gate: is any changed file in the frontend TS project graph? (skips frontend CI for Node-only product workspaces)'
+        hidden: true
