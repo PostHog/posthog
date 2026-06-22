@@ -9,6 +9,7 @@ describe('createFeatureFlagCalledDedupRedisConnectionConfig', () => {
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
         POSTHOG_REDIS_PASSWORD: '',
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         REDIS_URL: 'redis://localhost:6379',
     }
 
@@ -34,6 +35,7 @@ describe('createFeatureFlagCalledDedupRedisConnectionConfig', () => {
 
     it('falls back to REDIS_URL only when neither dedup nor ingestion hosts are set', () => {
         expect(createFeatureFlagCalledDedupRedisConnectionConfig(base)).toEqual({
+            // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
             url: 'redis://localhost:6379',
             name: 'ff-called-dedup-redis',
         })
