@@ -25,6 +25,7 @@ import {
     createModalSandboxTerminator,
     initMetrics,
     installProcessHandlers,
+    isDev,
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
@@ -49,11 +50,14 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentJanitorConfig()
 
-    // Prometheus: Node process defaults + the dedicated scrape server. The
+    // Prometheus: Node process defaults. Prod runs a dedicated scrape server; the
     // sweep/cron metrics below let an alert catch a wedged singleton (rate of
-    // *_runs_total → 0); the queue-depth gauge is sampled once per tick.
+    // *_runs_total → 0). Dev mounts /metrics on the request port inside
+    // buildJanitorApp (no dedicated port — three services on one host collide).
     initMetrics({ service: 'agent-janitor' })
-    createMetricsServer({ port: config.metricsPort, log })
+    if (!isDev()) {
+        createMetricsServer({ port: config.metricsPort, log })
+    }
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fails closed at config-load in prod). Endpoint is optional:
