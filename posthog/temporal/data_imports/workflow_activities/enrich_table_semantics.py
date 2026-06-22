@@ -14,6 +14,7 @@ never touched, and the whole activity is idempotent — a table that already has
 skipped, so it effectively enriches once on first sync.
 """
 
+import re
 import json
 import uuid
 import dataclasses
@@ -41,6 +42,19 @@ ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
 ENRICHMENT_MODEL = "claude-haiku-4-5"
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _collapse_untrusted(text: str) -> str:
+    """Collapse whitespace (incl. control chars) in source-derived identifiers/comments.
+
+    Column names, data types, foreign-key identifiers, and native comments come from the connected
+    source database. Collapsing runs of whitespace onto a single line stops a crafted value from
+    breaking out into a fake heading or list item in the prompt; the prompt's framing already tells
+    the model to treat these as untrusted data rather than instructions.
+    """
+    return _WHITESPACE_RE.sub(" ", text).strip()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,11 +99,15 @@ def build_enrichment_prompt(
     column_lines = []
     for column in columns:
         nullable = " nullable" if column.get("is_nullable") else ""
-        existing = f" — already described as: {column['description']}" if column.get("description") else ""
-        column_lines.append(f"- {column['name']} ({column.get('data_type', 'unknown')}{nullable}){existing}")
+        described = column.get("description")
+        existing = f" — already described as: {_collapse_untrusted(described)}" if described else ""
+        name = _collapse_untrusted(column["name"])
+        data_type = _collapse_untrusted(column.get("data_type", "unknown"))
+        column_lines.append(f"- {name} ({data_type}{nullable}){existing}")
 
     fk_lines = [
-        f"- {fk['column']} → {fk['target_table']}.{fk['target_column']}"
+        f"- {_collapse_untrusted(fk['column'])} → "
+        f"{_collapse_untrusted(fk['target_table'])}.{_collapse_untrusted(fk.get('target_column', ''))}"
         for fk in foreign_keys
         if fk.get("column") and fk.get("target_table")
     ]

@@ -619,7 +619,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             for fk in foreign_keys:
                 if not (fk.get("column") and fk.get("target_table") and fk.get("target_column")):
                     continue
-                lines.append(f"- {fk['column']} → {fk['target_table']}.{fk['target_column']}")
+                # FK identifiers come from the source DB and are untrusted (see _sanitize_semantic_text):
+                # a quoted identifier could carry newlines or instruction-like text. Sanitize before rendering.
+                column = _sanitize_semantic_text(fk["column"])
+                target_table = _sanitize_semantic_text(fk["target_table"])
+                target_column = _sanitize_semantic_text(fk["target_column"])
+                lines.append(f"- {column} → {target_table}.{target_column}")
 
         if semantics.get("description") or column_descriptions:
             lines.append("")
