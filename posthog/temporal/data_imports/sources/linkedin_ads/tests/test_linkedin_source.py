@@ -43,6 +43,17 @@ class TestLinkedInAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "LinkedIn Ads app not configured",
+            "NotImplementedError: LinkedIn Ads app not configured",
+        ],
+    )
+    def test_app_not_configured_is_non_retryable(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")

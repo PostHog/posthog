@@ -47,6 +47,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # or expired refresh token). The only fix is the user re-authorizing, so stop retrying. The
             # message is already user-facing, so map it to itself (None).
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.": None,
+            # Raised by `oauth_config_for_kind` when the LinkedIn OAuth app credentials aren't set on
+            # this PostHog instance, so a token refresh can't proceed. This is an instance-side config
+            # gap the user can't fix, and retrying can't make the credentials appear — stop syncing and
+            # surface a clear message instead of looping until the activity's max attempts.
+            "LinkedIn Ads app not configured": "LinkedIn Ads isn't fully configured on this PostHog instance yet, so PostHog can't refresh your access token. Please contact PostHog support.",
             # LinkedIn rejects a non-numeric Account ID with a 400 whose message names the offending
             # key value (volatile) followed by this stable type-coercion phrase. The account id is a
             # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
