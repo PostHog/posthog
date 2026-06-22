@@ -175,6 +175,29 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         shared = next(row for row in response.json()["results"] if row["key"] == "shared")
         self.assertEqual(shared["team_id"], self.team_2.id)
 
+    def test_keys_deduplicates_team_ids_preserving_priority(self):
+        # team_1 repeated at the end must not override its first-seen priority over team_2.
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&team_ids={self.team_1.id}"
+        )
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_1.id)
+
+    def test_keys_search_picks_representative_matching_search(self):
+        # Same key in both teams, but only the lower-priority team's name matches the search term.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="billing-flag", name="Alpha")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="billing-flag", name="SearchTarget")
+
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=SearchTarget"
+        )
+
+        rows = response.json()["results"]
+        self.assertEqual([row["key"] for row in rows], ["billing-flag"])
+        self.assertEqual(rows[0]["team_id"], self.team_2.id)
+        self.assertEqual(rows[0]["name"], "SearchTarget")
+
     def test_keys_search_filters_by_key(self):
         response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only")
 

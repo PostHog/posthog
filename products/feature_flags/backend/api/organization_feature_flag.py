@@ -180,8 +180,15 @@ class OrganizationFeatureFlagView(
         except ValueError:
             return Response({"error": "Invalid query parameter."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Preserve the caller's team ordering (used to pick the representative flag per key).
-        ordered_team_ids = [t for t in requested_team_ids if t in allowed_team_ids] or sorted(allowed_team_ids)
+        # Preserve the caller's team ordering, de-duplicated (used to pick the representative per key).
+        ordered_team_ids: list[int] = []
+        seen_teams: set[int] = set()
+        for team_id in requested_team_ids:
+            if team_id in allowed_team_ids and team_id not in seen_teams:
+                seen_teams.add(team_id)
+                ordered_team_ids.append(team_id)
+        if not ordered_team_ids:
+            ordered_team_ids = sorted(allowed_team_ids)
         if not ordered_team_ids:
             return Response({"count": 0, "next": None, "previous": None, "results": []})
 
@@ -195,11 +202,10 @@ class OrganizationFeatureFlagView(
         page_keys = list(distinct_keys_qs[offset : offset + limit])
 
         # Choose one representative flag per key, preferring earlier teams in the requested order.
+        # Select from the search-filtered queryset so the representative always matches the search.
         team_rank = {team_id: rank for rank, team_id in enumerate(ordered_team_ids)}
         representative_by_key: dict[str, FeatureFlag] = {}
-        for flag in FeatureFlag.objects.filter(
-            key__in=page_keys, team_id__in=ordered_team_ids, deleted=False
-        ).select_related("created_by"):
+        for flag in flags_qs.filter(key__in=page_keys).select_related("created_by"):
             current = representative_by_key.get(flag.key)
             if current is None or team_rank[flag.team_id] < team_rank[current.team_id]:
                 representative_by_key[flag.key] = flag
