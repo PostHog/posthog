@@ -3,15 +3,15 @@ use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge, histogram};
 
-use crate::routing::{Router, RoutingStrategy};
+use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::types::SerializedKafkaMessage;
-use crate::worker_registry::{WorkerRegistry, WorkerState};
+use crate::worker_registry::{WorkerId, WorkerRegistry};
 
 /// A slice of a batch assigned to one worker, carrying the messages and the
 /// routing keys of all distinct_ids included. Routing keys are needed to
 /// decrement pin ref-counts when the sub-batch resolves.
 pub struct SubBatch {
-    pub worker_idx: usize,
+    pub worker: WorkerId,
     pub messages: Vec<SerializedKafkaMessage>,
     /// Unique routing keys contained in this sub-batch. Pass back to
     /// `Dispatcher::on_sub_batch_resolved` on ACK or DLQ.
@@ -22,7 +22,7 @@ pub struct SubBatch {
 /// many in-flight batches currently reference it. The pin is evicted when
 /// ref_count reaches 0.
 struct Pin {
-    worker_idx: usize,
+    worker: WorkerId,
     ref_count: u32,
 }
 
@@ -33,36 +33,23 @@ struct PinTable {
     /// Outstanding (in-flight) message count per worker. Both routing strategies
     /// use it as the per-worker load signal so new key-groups land on
     /// lightly-loaded workers — load is balanced by message volume rather than
-    /// by sub-batch count.
-    in_flight_messages: Vec<usize>,
+    /// by sub-batch count. A worker with no outstanding messages has no entry.
+    in_flight: WorkerLoad,
 }
 
 impl PinTable {
-    fn new(worker_count: usize) -> Self {
+    fn new() -> Self {
         Self {
             pins: HashMap::new(),
-            in_flight_messages: vec![0; worker_count],
+            in_flight: WorkerLoad::new(),
         }
     }
 
     /// Drop all pins targeting dead workers. Returns the count of evictions.
     fn drop_dead_pins(&mut self, registry: &WorkerRegistry) -> usize {
         let before = self.pins.len();
-        self.pins.retain(|_, pin| !registry.is_dead(pin.worker_idx));
+        self.pins.retain(|_, pin| !registry.is_dead(&pin.worker));
         before - self.pins.len()
-    }
-
-    /// Candidate worker indices for routing: those currently healthy or
-    /// degraded (dead/unhealthy workers are excluded). Returned in index order.
-    fn healthy_workers(&self, registry: &WorkerRegistry) -> Vec<usize> {
-        (0..self.in_flight_messages.len())
-            .filter(|&idx| {
-                matches!(
-                    registry.state(idx),
-                    WorkerState::Healthy | WorkerState::Degraded
-                )
-            })
-            .collect()
     }
 }
 
@@ -88,56 +75,40 @@ impl WorkerSubBatchBuilder {
 
 #[derive(Default)]
 struct WorkerAssignments {
-    by_worker: HashMap<usize, WorkerSubBatchBuilder>,
-    /// Messages provisionally assigned to each worker so far this round. Both
-    /// routing strategies add it to in-flight load so intra-batch placement
-    /// accounts for groups already routed earlier in the same round.
-    provisional_messages: Vec<usize>,
+    by_worker: HashMap<WorkerId, WorkerSubBatchBuilder>,
 }
 
 impl WorkerAssignments {
-    fn new(worker_count: usize) -> Self {
-        Self {
-            by_worker: HashMap::new(),
-            provisional_messages: vec![0; worker_count],
-        }
+    fn new() -> Self {
+        Self::default()
     }
 
-    fn provisional_messages(&self) -> &[usize] {
-        &self.provisional_messages
-    }
-
-    fn add_group(&mut self, worker_idx: usize, group: MessageGroup) {
+    fn add_group(&mut self, worker: WorkerId, group: MessageGroup) {
         let builder = self
             .by_worker
-            .entry(worker_idx)
+            .entry(worker)
             .or_insert_with(|| WorkerSubBatchBuilder {
                 messages: Vec::new(),
                 routing_keys: Vec::new(),
             });
 
-        // Accumulate by message volume, not group count, so a worker holding one
-        // heavy key counts as more loaded than one holding several tiny keys.
-        self.provisional_messages[worker_idx] =
-            self.provisional_messages[worker_idx].saturating_add(group.messages.len());
-
         builder.messages.extend(group.messages);
         builder.routing_keys.push(group.routing_key);
     }
 
-    fn routed_counts(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+    fn routed_counts(&self) -> impl Iterator<Item = (WorkerId, usize)> + '_ {
         self.by_worker
             .iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(&worker_idx, builder)| (worker_idx, builder.message_count()))
+            .map(|(worker, builder)| (worker.clone(), builder.message_count()))
     }
 
     fn into_sub_batches(self) -> Vec<SubBatch> {
         self.by_worker
             .into_iter()
             .filter(|(_, builder)| !builder.is_empty())
-            .map(|(worker_idx, builder)| SubBatch {
-                worker_idx,
+            .map(|(worker, builder)| SubBatch {
+                worker,
                 messages: builder.messages,
                 routing_keys: builder.routing_keys,
             })
@@ -152,8 +123,8 @@ impl WorkerAssignments {
 /// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
 ///
 /// **Stickiness**: a routing key stays on the same worker across batches
-/// (ref-counted pin). Pins are dropped when a worker is declared dead or
-/// when the last referencing batch resolves.
+/// (ref-counted pin). Pins are dropped when a worker is declared dead (or leaves
+/// the pool) or when the last referencing batch resolves.
 ///
 /// **Recovery**: `on_sub_batch_resolved` decrements ref-counts and subtracts
 /// the sub-batch's messages from the worker's outstanding load. Zero-count
@@ -174,9 +145,8 @@ impl Dispatcher {
 
     /// Construct a dispatcher with an explicit routing strategy.
     pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
-        let worker_count = registry.worker_count();
         Self {
-            pin_table: Mutex::new(PinTable::new(worker_count)),
+            pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::new(strategy)),
         }
@@ -189,9 +159,8 @@ impl Dispatcher {
         strategy: RoutingStrategy,
         seed: u64,
     ) -> Self {
-        let worker_count = registry.worker_count();
         Self {
-            pin_table: Mutex::new(PinTable::new(worker_count)),
+            pin_table: Mutex::new(PinTable::new()),
             registry,
             router: Mutex::new(Router::with_seed(strategy, seed)),
         }
@@ -231,18 +200,27 @@ impl Dispatcher {
 
         histogram!("ingestion_consumer_distinct_ids_per_batch").record(key_groups.len() as f64);
 
-        let worker_count = table.in_flight_messages.len();
-        let mut assignments = WorkerAssignments::new(worker_count);
+        let mut assignments = WorkerAssignments::new();
+
+        // Candidate workers and their working load for this round. `working_load`
+        // starts from each candidate's outstanding load and is bumped as groups
+        // are assigned, so intra-batch placement accounts for earlier picks.
+        let healthy = self.registry.healthy_workers();
+        let mut working_load: WorkerLoad = healthy
+            .iter()
+            .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
+            .collect();
 
         let mut unpinned_groups: Vec<MessageGroup> = Vec::new();
 
         for group in key_groups {
             match table.pins.get_mut(&group.routing_key) {
-                Some(pin) if !self.registry.is_dead(pin.worker_idx) => {
+                Some(pin) if !self.registry.is_dead(&pin.worker) => {
                     // Existing live pin — honor it.
                     pin.ref_count += 1;
-                    let worker_idx = pin.worker_idx;
-                    assignments.add_group(worker_idx, group);
+                    let worker = pin.worker.clone();
+                    bump_load(&mut working_load, &worker, group.messages.len());
+                    assignments.add_group(worker, group);
                 }
                 _ => {
                     // No pin or pinned to a dead worker — drop stale entry and
@@ -256,7 +234,6 @@ impl Dispatcher {
         // Route the unpinned groups via the configured strategy. Bin-packing
         // wants the biggest groups placed first so heavy hitters drive the load
         // distribution; P2C is per-group and order-independent.
-        let healthy = table.healthy_workers(&self.registry);
         let mut router = self.router.lock().unwrap();
 
         if router.prefers_largest_first() {
@@ -264,41 +241,36 @@ impl Dispatcher {
         }
 
         for group in unpinned_groups {
-            let Some(worker_idx) = router.select(
-                &healthy,
-                &table.in_flight_messages,
-                assignments.provisional_messages(),
-            ) else {
+            let Some(worker) = router.select(&healthy, &working_load) else {
                 // All workers unhealthy — this key cannot be assigned.
                 counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
                     .increment(group.messages.len() as u64);
                 continue;
             };
 
+            bump_load(&mut working_load, &worker, group.messages.len());
             table.pins.insert(
                 group.routing_key.clone(),
                 Pin {
-                    worker_idx,
+                    worker: worker.clone(),
                     ref_count: 1,
                 },
             );
-
-            assignments.add_group(worker_idx, group);
+            assignments.add_group(worker, group);
         }
         drop(router);
 
         // Add each worker's message volume to its outstanding load.
-        for (worker_idx, message_count) in assignments.routed_counts() {
-            table.in_flight_messages[worker_idx] =
-                table.in_flight_messages[worker_idx].saturating_add(message_count);
+        for (worker, message_count) in assignments.routed_counts() {
+            *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             counter!(
                 "ingestion_consumer_dispatcher_sub_batches_assigned_total",
-                "worker" => worker_idx.to_string(),
+                "worker" => worker.clone(),
             )
             .increment(1);
             counter!(
                 "ingestion_consumer_dispatcher_messages_routed_total",
-                "worker" => worker_idx.to_string(),
+                "worker" => worker.clone(),
             )
             .increment(message_count as u64);
         }
@@ -314,14 +286,22 @@ impl Dispatcher {
     /// on its next arrival. `message_count` must match the sub-batch's length.
     pub fn on_sub_batch_resolved(
         &self,
-        worker_idx: usize,
+        worker: &WorkerId,
         message_count: usize,
         routing_keys: &[String],
     ) {
         let mut table = self.pin_table.lock().unwrap();
 
-        table.in_flight_messages[worker_idx] =
-            table.in_flight_messages[worker_idx].saturating_sub(message_count);
+        let now_zero = match table.in_flight.get_mut(worker) {
+            Some(load) => {
+                *load = load.saturating_sub(message_count);
+                *load == 0
+            }
+            None => false,
+        };
+        if now_zero {
+            table.in_flight.remove(worker);
+        }
 
         let mut evictions = 0usize;
         for key in routing_keys {
@@ -330,7 +310,7 @@ impl Dispatcher {
                 // old pin and `assign` may create a new one for a different worker using
                 // the same key. A DLQ resolve from the original dead sub-batch would
                 // otherwise corrupt the new pin's ref_count.
-                if pin.worker_idx != worker_idx {
+                if pin.worker != *worker {
                     continue;
                 }
                 pin.ref_count = pin.ref_count.saturating_sub(1);
@@ -354,8 +334,17 @@ impl Dispatcher {
 
     /// Record the outcome of a send attempt for passive health tracking.
     /// Delegates to the underlying WorkerRegistry.
-    pub fn record_send_outcome(&self, worker_idx: usize, is_error: bool) {
-        self.registry.record_outcome(worker_idx, is_error);
+    pub fn record_send_outcome(&self, worker: &str, is_error: bool) {
+        self.registry.record_outcome(worker, is_error);
+    }
+}
+
+/// Add `count` to a worker's working load for this round, if it is a candidate.
+/// Workers that aren't routing candidates (e.g. a pin honored on an unhealthy
+/// worker) have no entry and don't affect selection, so they're skipped.
+fn bump_load(working_load: &mut WorkerLoad, worker: &WorkerId, count: usize) {
+    if let Some(load) = working_load.get_mut(worker) {
+        *load = load.saturating_add(count);
     }
 }
 
@@ -411,6 +400,14 @@ mod tests {
 
     // ---- helpers ----
 
+    fn worker_url(i: usize) -> String {
+        format!("http://worker:{}", 9001 + i)
+    }
+
+    fn wid(i: usize) -> WorkerId {
+        WorkerId::from(worker_url(i).as_str())
+    }
+
     fn make_msg(token: &str, distinct_id: &str) -> SerializedKafkaMessage {
         let mut headers = HashMap::new();
         headers.insert("token".to_string(), token.to_string());
@@ -445,9 +442,7 @@ mod tests {
     /// Registry with N healthy workers and no cooldown. `dead_declaration` is
     /// very short so tests can drive a worker to dead quickly.
     fn healthy_registry(n: usize) -> Arc<WorkerRegistry> {
-        let urls: Vec<String> = (0..n)
-            .map(|i| format!("http://worker:{}", 9001 + i))
-            .collect();
+        let urls: Vec<String> = (0..n).map(worker_url).collect();
         let config = WorkerRegistryConfig {
             probe_interval: Duration::from_millis(50),
             dead_declaration: Duration::from_millis(30),
@@ -459,6 +454,17 @@ mod tests {
             probe_failure_threshold: 2,
         };
         Arc::new(WorkerRegistry::new(&urls, config))
+    }
+
+    fn in_flight_of(dispatcher: &Dispatcher, worker: &WorkerId) -> usize {
+        dispatcher
+            .pin_table
+            .lock()
+            .unwrap()
+            .in_flight
+            .get(worker)
+            .copied()
+            .unwrap_or(0)
     }
 
     // ---- routing key ----
@@ -507,32 +513,31 @@ mod tests {
 
     #[test]
     fn test_worker_assignments_merges_groups_for_same_worker() {
-        let mut assignments = WorkerAssignments::new(2);
+        let mut assignments = WorkerAssignments::new();
 
         assignments.add_group(
-            1,
+            wid(1),
             MessageGroup {
                 routing_key: "tok:user-1".to_string(),
                 messages: make_msgs(&[("tok", "user-1")]),
             },
         );
         assignments.add_group(
-            1,
+            wid(1),
             MessageGroup {
                 routing_key: "tok:user-2".to_string(),
                 messages: make_msgs(&[("tok", "user-2")]),
             },
         );
 
-        assert_eq!(assignments.provisional_messages(), &[0, 2]);
         assert_eq!(
             assignments.routed_counts().collect::<Vec<_>>(),
-            vec![(1, 2)]
+            vec![(wid(1), 2)]
         );
 
         let sub_batches = assignments.into_sub_batches();
         assert_eq!(sub_batches.len(), 1);
-        assert_eq!(sub_batches[0].worker_idx, 1);
+        assert_eq!(sub_batches[0].worker, wid(1));
         assert_eq!(sub_batches[0].messages.len(), 2);
         assert_eq!(
             sub_batches[0].routing_keys,
@@ -550,7 +555,7 @@ mod tests {
         let sub_batches = dispatcher.assign(make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
 
         assert_eq!(sub_batches.len(), 1);
-        assert_eq!(sub_batches[0].worker_idx, 0);
+        assert_eq!(sub_batches[0].worker, wid(0));
         assert_eq!(sub_batches[0].messages.len(), 3);
     }
 
@@ -562,20 +567,22 @@ mod tests {
     }
 
     #[test]
-    fn test_same_distinct_id_goes_to_same_worker_across_batches() {
+    fn test_same_distinct_id_merges_within_batch() {
         let registry = healthy_registry(3);
         let dispatcher = Dispatcher::new(registry);
 
         let batch1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert_eq!(batch1.len(), 1);
-        let worker = batch1[0].worker_idx;
-        dispatcher.on_sub_batch_resolved(worker, batch1[0].messages.len(), &batch1[0].routing_keys);
+        let worker = batch1[0].worker.clone();
+        dispatcher.on_sub_batch_resolved(
+            &worker,
+            batch1[0].messages.len(),
+            &batch1[0].routing_keys,
+        );
 
-        // Second batch: same key must go to same worker (pin still alive until resolved).
-        // We resolved already, so the pin was evicted — it will re-pin to the same or
-        // different worker. What we care about is that within a batch, same key → same worker.
+        // Both user-1 messages merge into one sub-batch.
         let batch2 = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-1")]));
-        assert_eq!(batch2.len(), 1); // both user-1 messages merge into one sub-batch
+        assert_eq!(batch2.len(), 1);
     }
 
     // ---- sticky pins ----
@@ -587,14 +594,14 @@ mod tests {
 
         // First batch pins "t:user-1" to some worker.
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
-        let pinned_worker = b1[0].worker_idx;
+        let pinned_worker = b1[0].worker.clone();
 
         // Do NOT resolve b1 — pin stays alive with ref_count=1.
 
         // Second batch: same key must hit the same worker.
         let b2 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert_eq!(b2.len(), 1);
-        assert_eq!(b2[0].worker_idx, pinned_worker);
+        assert_eq!(b2[0].worker, pinned_worker);
     }
 
     #[test]
@@ -617,21 +624,23 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
-        let worker = b1[0].worker_idx;
+        let worker = b1[0].worker.clone();
 
-        // Pin exists (ref_count = 1).
-        {
-            let table = dispatcher.pin_table.lock().unwrap();
-            assert!(table.pins.contains_key("t:user-1"));
-        }
+        assert!(dispatcher
+            .pin_table
+            .lock()
+            .unwrap()
+            .pins
+            .contains_key("t:user-1"));
 
-        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(&worker, b1[0].messages.len(), &b1[0].routing_keys);
 
-        // Pin evicted (ref_count hit 0).
-        {
-            let table = dispatcher.pin_table.lock().unwrap();
-            assert!(!table.pins.contains_key("t:user-1"));
-        }
+        assert!(!dispatcher
+            .pin_table
+            .lock()
+            .unwrap()
+            .pins
+            .contains_key("t:user-1"));
     }
 
     #[test]
@@ -640,19 +649,17 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
-        let worker = b1[0].worker_idx;
+        let worker = b1[0].worker.clone();
 
         // Second batch, same key, pin not yet resolved: ref_count should be 2.
         dispatcher.assign(make_msgs(&[("t", "user-1")]));
-
-        {
-            let table = dispatcher.pin_table.lock().unwrap();
-            let pin = table.pins.get("t:user-1").unwrap();
-            assert_eq!(pin.ref_count, 2);
-        }
+        assert_eq!(
+            dispatcher.pin_table.lock().unwrap().pins["t:user-1"].ref_count,
+            2
+        );
 
         // Resolve first sub-batch: ref_count drops to 1, pin stays.
-        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(&worker, b1[0].messages.len(), &b1[0].routing_keys);
         {
             let table = dispatcher.pin_table.lock().unwrap();
             assert!(table.pins.contains_key("t:user-1"));
@@ -669,10 +676,9 @@ mod tests {
 
         // Two messages for one key → one sub-batch carrying two messages.
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-1")]));
-        let worker = b1[0].worker_idx;
+        let worker = b1[0].worker.clone();
 
-        let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight_messages[worker], 2);
+        assert_eq!(in_flight_of(&dispatcher, &worker), 2);
     }
 
     #[test]
@@ -681,12 +687,11 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-1")]));
-        let worker = b1[0].worker_idx;
+        let worker = b1[0].worker.clone();
 
-        dispatcher.on_sub_batch_resolved(worker, b1[0].messages.len(), &b1[0].routing_keys);
+        dispatcher.on_sub_batch_resolved(&worker, b1[0].messages.len(), &b1[0].routing_keys);
 
-        let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight_messages[worker], 0);
+        assert_eq!(in_flight_of(&dispatcher, &worker), 0);
     }
 
     #[test]
@@ -699,8 +704,7 @@ mod tests {
 
         dispatcher.assign(make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
 
-        let table = dispatcher.pin_table.lock().unwrap();
-        assert_eq!(table.in_flight_messages[0], 3);
+        assert_eq!(in_flight_of(&dispatcher, &wid(0)), 3);
     }
 
     // ---- bin-packing ----
@@ -711,22 +715,24 @@ mod tests {
         let dispatcher = Dispatcher::new(registry);
 
         // Artificially load worker 0 with 3 outstanding messages.
-        {
-            let mut table = dispatcher.pin_table.lock().unwrap();
-            table.in_flight_messages[0] = 3;
-        }
+        dispatcher
+            .pin_table
+            .lock()
+            .unwrap()
+            .in_flight
+            .insert(wid(0), 3);
 
         // A fresh key should go to worker 1 (load = 0).
         let b = dispatcher.assign(make_msgs(&[("t", "fresh")]));
         assert_eq!(b.len(), 1);
-        assert_eq!(b[0].worker_idx, 1);
+        assert_eq!(b[0].worker, wid(1));
     }
 
     #[test]
     fn test_bin_packing_balances_by_message_volume_not_group_count() {
         // Regression: load is tracked by message count, not sub-batch presence.
         // One heavy key (10 msgs) plus five small keys (1 msg each) must not all
-        // pile onto worker 0 — the small keys bin-pack onto the other worker
+        // pile onto one worker — the small keys bin-pack onto the other worker
         // until load is balanced.
         let registry = healthy_registry(2);
         let dispatcher = Dispatcher::new(registry);
@@ -739,14 +745,13 @@ mod tests {
         let sub_batches = dispatcher.assign(make_msgs(&specs));
         assert_eq!(sub_batches.len(), 2, "both workers must carry messages");
 
-        let table = dispatcher.pin_table.lock().unwrap();
-        let load0 = table.in_flight_messages[0];
-        let load1 = table.in_flight_messages[1];
+        let load0 = in_flight_of(&dispatcher, &wid(0));
+        let load1 = in_flight_of(&dispatcher, &wid(1));
         assert_eq!(load0 + load1, 15);
 
         // The heavy key lands alone on one worker; the five singles fill the
-        // other. With the old 0/1 accounting the singles would all dump onto
-        // worker 0, giving 15 vs 1.
+        // other. With per-sub-batch accounting the singles would all dump onto
+        // one worker, giving 15 vs 1.
         let (heavy, light) = if load0 >= load1 {
             (load0, load1)
         } else {
@@ -765,20 +770,24 @@ mod tests {
 
         // Pin "user-1" to whichever worker gets it first.
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
-        let original_worker = b1[0].worker_idx;
-        let other_worker = 1 - original_worker;
+        let original_worker = b1[0].worker.clone();
+        let other_worker = if original_worker == wid(0) {
+            wid(1)
+        } else {
+            wid(0)
+        };
 
         // Drive the pinned worker to dead via passive signal.
         for _ in 0..5 {
-            registry.record_outcome(original_worker, true);
+            registry.record_outcome(&original_worker, true);
         }
         tokio::time::sleep(Duration::from_millis(40)).await;
-        assert!(registry.is_dead(original_worker));
+        assert!(registry.is_dead(&original_worker));
 
         // Next batch: pin must be dropped and key rerouted to the live worker.
         let b2 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert_eq!(b2.len(), 1);
-        assert_eq!(b2[0].worker_idx, other_worker);
+        assert_eq!(b2[0].worker, other_worker);
     }
 
     #[test]
@@ -787,14 +796,13 @@ mod tests {
         let dispatcher = Dispatcher::new(Arc::clone(&registry));
 
         // Force both workers to Unhealthy via passive signal (min_state_duration=0).
-        for idx in 0..2 {
+        for i in 0..2 {
             for _ in 0..5 {
-                registry.record_outcome(idx, true);
+                registry.record_outcome(&worker_url(i), true);
             }
         }
 
-        // Both workers are Unhealthy (not yet dead, but Unhealthy).
-        // Dispatcher should not route to Unhealthy workers.
+        // Both workers are Unhealthy — the dispatcher should not route to them.
         let b = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert!(b.is_empty());
     }
@@ -812,7 +820,7 @@ mod tests {
         let sub_batches = dispatcher.assign(make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
 
         assert_eq!(sub_batches.len(), 1);
-        assert_eq!(sub_batches[0].worker_idx, 0);
+        assert_eq!(sub_batches[0].worker, wid(0));
         assert_eq!(sub_batches[0].messages.len(), 3);
     }
 
@@ -822,18 +830,18 @@ mod tests {
 
         // First batch pins "t:user-1"; do NOT resolve so the pin stays alive.
         let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
-        let pinned_worker = b1[0].worker_idx;
+        let pinned_worker = b1[0].worker.clone();
 
         // Second batch with the same key must hit the same worker, bypassing P2C.
         let b2 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert_eq!(b2.len(), 1);
-        assert_eq!(b2[0].worker_idx, pinned_worker);
+        assert_eq!(b2[0].worker, pinned_worker);
     }
 
     #[test]
     fn test_p2c_spreads_fresh_keys_across_two_workers() {
-        // With two workers, P2C samples both and the provisional bump after the
-        // first key steers the second to the other worker — one message each.
+        // With two workers, P2C samples both and the load bump after the first
+        // key steers the second to the other worker — one message each.
         let dispatcher = p2c_dispatcher(2, 3);
 
         let sub_batches = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-2")]));
@@ -848,14 +856,16 @@ mod tests {
         // With two workers P2C always compares both, so a pre-loaded worker 0
         // sends the fresh key to worker 1.
         let dispatcher = p2c_dispatcher(2, 9);
-        {
-            let mut table = dispatcher.pin_table.lock().unwrap();
-            table.in_flight_messages[0] = 5;
-        }
+        dispatcher
+            .pin_table
+            .lock()
+            .unwrap()
+            .in_flight
+            .insert(wid(0), 5);
 
         let b = dispatcher.assign(make_msgs(&[("t", "fresh")]));
         assert_eq!(b.len(), 1);
-        assert_eq!(b[0].worker_idx, 1);
+        assert_eq!(b[0].worker, wid(1));
     }
 
     #[tokio::test]
@@ -864,9 +874,9 @@ mod tests {
         let dispatcher =
             Dispatcher::with_strategy_seeded(Arc::clone(&registry), RoutingStrategy::P2c, 1);
 
-        for idx in 0..2 {
+        for i in 0..2 {
             for _ in 0..5 {
-                registry.record_outcome(idx, true);
+                registry.record_outcome(&worker_url(i), true);
             }
         }
 

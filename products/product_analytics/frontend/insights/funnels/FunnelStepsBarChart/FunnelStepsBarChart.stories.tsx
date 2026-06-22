@@ -6,6 +6,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTopToBottomFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import funnelTopToBottomBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import funnelTopToBottomBreakdownCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdownCompare.json'
+import funnelTopToBottomCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -66,4 +68,12 @@ export const Default: Story = {
 
 export const Breakdown: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} />,
+}
+
+export const Compare: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} />,
+}
+
+export const BreakdownAndCompare: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
 }

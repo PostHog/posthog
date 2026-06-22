@@ -68,7 +68,7 @@ dependencies = [
     "grpcio~=1.71.0",
     "gspread==6.2.1",
     "hogql-parser==1.3.72",
-    "hogql-parser-rs==1.3.92",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser-rs==1.3.96",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -302,7 +302,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
 # v0.11.0-posthog.N tag, and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.1" }
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.6" }
 
 
 [tool.isort]
@@ -569,6 +569,16 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
+    # TODO: customer_analytics presentation wave — these views still reach internals directly.
+    # Thin each view to parse -> facade -> serialize and delete its entry. backend:contract-check
+    # stays off until this list is empty.
+    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.constants",
+    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models",
+    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models.account",
+    "products.customer_analytics.backend.presentation.views.organization_members -> products.customer_analytics.backend.constants",
+    "products.customer_analytics.backend.presentation.views.serializers -> products.customer_analytics.backend.models",
+    "products.customer_analytics.backend.presentation.views.utils -> products.customer_analytics.backend.models",
+    "products.customer_analytics.backend.presentation.views.views -> products.customer_analytics.backend.models",
 ]
 
 [tool.ty.rules]
