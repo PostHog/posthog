@@ -983,7 +983,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: AlertSimulateResponseSerializer},
         description="Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
+    # Returns an insight's computed result series, so it requires insight read in addition to
+    # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
+    # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read", "insight:read"])
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)

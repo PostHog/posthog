@@ -1715,3 +1715,23 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         assert response.status_code == expected_status
         if error_scope:
             assert error_scope in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            # simulate returns an insight's result series, so alert:read alone isn't enough.
+            (["feature_flag:read"], "alert:read"),
+            (["alert:read"], "insight:read"),
+        ]
+    )
+    def test_simulate_requires_insight_read_scope(self, scopes, missing_scope):
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate/",
+            data={"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9}},
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert missing_scope in response.json()["detail"]
