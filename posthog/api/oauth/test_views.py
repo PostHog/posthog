@@ -2960,6 +2960,33 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
+    def test_introspection_returns_temporarily_unavailable_on_dropped_db_connection(self):
+        # A dropped Postgres connection during the token lookup must surface as a
+        # retryable 503, not the opaque `KeyError: 'application'` that a lazy
+        # `access_token.application` load raised before select_related was added.
+        access_token, _ = self._create_access_and_refresh_tokens()
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        with patch(
+            "posthog.models.OAuthAccessToken.objects",
+        ) as mock_objects:
+            mock_objects.select_related.return_value.get.side_effect = OperationalError(
+                "consuming input failed: server closed the connection unexpectedly"
+            )
+            response = self.post(
+                "/oauth/introspect/",
+                {"token": access_token.token},
+                headers={"Authorization": authorization_header},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response["Retry-After"], "1")
+        body = response.json()
+        self.assertEqual(body["error"], "temporarily_unavailable")
+        self.assertIn("error_description", body)
+
     def test_self_introspection_succeeds_without_introspection_scope(self):
         """A token can introspect itself without requiring the introspection scope."""
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
