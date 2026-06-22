@@ -3,12 +3,13 @@ from typing import cast
 
 from unittest.mock import MagicMock, patch
 
+import deltalake
 import pyarrow as pa
 
 from posthog.schema import SourceFieldInputConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema, table_from_py_list
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -406,3 +407,48 @@ class TestRevenueCatWebhookTableTransformer:
         result = _webhook_table_transformer(table)
 
         assert result.num_rows == 0
+
+    def test_price_fields_are_stable_doubles_across_whole_and_decimal_values(self):
+        first_batch = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-1",
+                            "type": "INITIAL_PURCHASE",
+                            "event_timestamp_ms": 1658726374000,
+                            "price": 19,
+                            "price_in_purchased_currency": 19,
+                        },
+                    }
+                ]
+            )
+        )
+        delta_schema = deltalake.Schema.from_arrow(first_batch.schema)
+
+        next_batch = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-2",
+                            "type": "RENEWAL",
+                            "event_timestamp_ms": 1659331174000,
+                            "price": 19.99,
+                            "price_in_purchased_currency": 19.99,
+                        },
+                    }
+                ]
+            )
+        )
+
+        evolved = evolve_pyarrow_schema(next_batch, delta_schema)
+
+        assert first_batch.schema.field("price").type == pa.float64()
+        assert first_batch.schema.field("price_in_purchased_currency").type == pa.float64()
+        assert evolved.schema.field("price").type == pa.float64()
+        assert evolved.schema.field("price_in_purchased_currency").type == pa.float64()
+        assert evolved.column("price").to_pylist() == [19.99]
+        assert evolved.column("price_in_purchased_currency").to_pylist() == [19.99]

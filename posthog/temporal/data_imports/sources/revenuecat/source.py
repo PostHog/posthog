@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.sources.revenuecat.constants import (
     EVENT_RESOURCE_NAME,
     RESOURCE_TO_REVENUECAT_EVENT_TYPE,
 )
+from posthog.temporal.data_imports.sources.revenuecat.event_schema import normalize_revenuecat_event_types
 from posthog.temporal.data_imports.sources.revenuecat.revenuecat import RevenueCatResumeConfig
 from posthog.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
@@ -79,6 +80,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         # but we accept a JSON-serialized string too in case the upstream
         # buffering layer flattens nested structures.
         row = orjson.loads(event) if isinstance(event, (str, bytes)) else dict(event)
+        row = normalize_revenuecat_event_types(row)
         row["api_version"] = api_version
         event_ts_ms = row.get("event_timestamp_ms")
         if isinstance(event_ts_ms, int) and not isinstance(event_ts_ms, bool):
