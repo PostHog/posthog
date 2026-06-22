@@ -16,10 +16,34 @@ use utils::MockS3Client;
 
 const STORAGE_BUCKET: &str = "test-bucket";
 
+fn process_request(body: &serde_json::Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .header("content-type", "application/json")
+        .uri("/process")
+        .body(Body::from(serde_json::to_vec(body).unwrap()))
+        .unwrap()
+}
+
+fn exception_event() -> serde_json::Value {
+    json!([{
+        "uuid": Uuid::now_v7(),
+        "event": "$exception",
+        "team_id": 1,
+        "timestamp": "2024-01-01T00:00:00Z",
+        "properties": {
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_handled": false,
+        },
+    }])
+}
+
 // One test per binary: common_posthog::init configures a process-wide global
-// client, so a second init with a different mock server would be ignored.
+// client, so a second init with a different mock server would be ignored. Both
+// behaviours (genuine errors captured, transient drops not) are exercised here
+// against the same router.
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
+async fn transient_db_drops_are_not_captured_but_genuine_errors_are(db: PgPool) {
     let posthog = MockServer::start_async().await;
     let capture = posthog
         .mock_async(|when, then| {
@@ -64,30 +88,17 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     .unwrap();
     let router = get_router(Arc::new(app_ctx));
 
-    // With the pool closed, the pipeline's first database access fails with
-    // an UnhandledError — the capture funnel under test.
-    db.close().await;
-
-    let event = json!([{
-        "uuid": Uuid::now_v7(),
-        "event": "$exception",
-        "team_id": 1,
-        "timestamp": "2024-01-01T00:00:00Z",
-        "properties": {
-            "$exception_list": [{"type": "Error", "value": "boom"}],
-            "$exception_handled": false,
-        },
-    }]);
+    // Genuine (non-transient) failure: dropping the table the grouping stage
+    // reads makes the pipeline's first DB query fail with a Database error,
+    // standing in for a real bug-class failure. This MUST still be captured.
+    sqlx::query("DROP TABLE posthog_errortrackinggroupingrule CASCADE")
+        .execute(&db)
+        .await
+        .expect("drop grouping rule table");
 
     let response = router
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .header("content-type", "application/json")
-                .uri("/process")
-                .body(Body::from(serde_json::to_vec(&event).unwrap()))
-                .unwrap(),
-        )
+        .clone()
+        .oneshot(process_request(&exception_event()))
         .await
         .unwrap();
     assert_eq!(
@@ -105,7 +116,30 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     assert_eq!(
         capture.hits_async().await,
         1,
-        "expected a matching $exception capture; total capture requests seen: {}",
+        "genuine errors should be captured; total capture requests seen: {}",
+        fallback.hits_async().await
+    );
+
+    // Transient failure: with the pool closed, the pipeline's first DB access
+    // fails with PoolClosed, which we now downgrade to a metric rather than
+    // capturing as an exception. The request still returns 5xx.
+    db.close().await;
+
+    let response = router
+        .oneshot(process_request(&exception_event()))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR
+    );
+
+    // Give any (erroneous) capture time to land, then assert none was added.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        capture.hits_async().await,
+        1,
+        "transient DB drops must not be captured as exceptions; total capture requests seen: {}",
         fallback.hits_async().await
     );
 }
