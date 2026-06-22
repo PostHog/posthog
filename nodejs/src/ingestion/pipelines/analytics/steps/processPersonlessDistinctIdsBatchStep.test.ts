@@ -1,16 +1,15 @@
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
-
-import { createTestPluginEvent } from '../../../helpers/plugin-event'
-import { createTestTeam } from '../../../helpers/team'
 
 describe('processPersonlessDistinctIdsBatchStep', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
     let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
-    let personlessDistinctIdCacheOperationsCounter: typeof import('../../../../src/worker/ingestion/persons/personless-distinct-id-cache').personlessDistinctIdCacheOperationsCounter
+    let personlessDistinctIdCacheOperationsCounter: typeof import('~/ingestion/common/persons/personless-distinct-id-cache').personlessDistinctIdCacheOperationsCounter
 
     // Reads the freshly-imported counter the step writes to (resetModules gives each test its own).
     const counterValue = async (operation: string, source: string): Promise<number> => {
@@ -25,7 +24,7 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
         // Import the cache module from the same fresh graph so the counter is the one the step increments.
         personlessDistinctIdCacheOperationsCounter = (
-            await import('../../../../src/worker/ingestion/persons/personless-distinct-id-cache.js')
+            await import('~/ingestion/common/persons/personless-distinct-id-cache.js')
         ).personlessDistinctIdCacheOperationsCounter
 
         team = createTestTeam()

@@ -1,12 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { isOkResult } from '~/ingestion/pipelines/results'
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
-
-import { PersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/persons-store-for-batch'
-import { createTestPluginEvent } from '../../../helpers/plugin-event'
-import { createTestTeam } from '../../../helpers/team'
 
 // The batch step (processPersonlessDistinctIdsBatchStep) and the per-event step
 // (processPersonlessStep) are coupled through the module-level LRU in
@@ -16,16 +15,16 @@ import { createTestTeam } from '../../../helpers/team'
 describe('flag-called personless batching: batch step → per-event step', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
-    let processPersonlessDistinctIdsBatchStep: typeof import('../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
-    let createProcessPersonlessStep: typeof import('../../../../src/ingestion/event-processing/process-personless-step').createProcessPersonlessStep
+    let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
+    let createProcessPersonlessStep: typeof import('~/ingestion/common/steps/event-processing/process-personless-step').createProcessPersonlessStep
 
     beforeEach(async () => {
         jest.resetModules()
         processPersonlessDistinctIdsBatchStep = (
-            await import('../../../../src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep.js')
+            await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep.js')
         ).processPersonlessDistinctIdsBatchStep
         createProcessPersonlessStep = (
-            await import('../../../../src/ingestion/event-processing/process-personless-step.js')
+            await import('~/ingestion/common/steps/event-processing/process-personless-step.js')
         ).createProcessPersonlessStep
 
         team = createTestTeam()
