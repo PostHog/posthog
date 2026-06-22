@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Default MAIL FROM subdomain used when the caller doesn't supply one. Kept in sync with the
+# default in posthog/models/integration.py so a blank value never reaches SES as ".<domain>".
+DEFAULT_MAIL_FROM_SUBDOMAIN = "feedback"
+
+# A MAIL FROM subdomain must be a single valid DNS label (no dots, spaces, or leading hyphen).
+MAIL_FROM_SUBDOMAIN_REGEX = r"(?i)^[a-z0-9]+(-[a-z0-9]+)*$"
+
 
 class SESProvider:
     ses_client: "SESClient"
@@ -46,6 +53,24 @@ class SESProvider:
 
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
+
+    def _normalize_mail_from_subdomain(self, mail_from_subdomain: str) -> str:
+        """
+        Coerce a MAIL FROM subdomain into a valid single DNS label.
+
+        The API serializer allows a blank `mail_from_subdomain`, and a blank value would
+        otherwise be interpolated into `f"{subdomain}.{domain}"` as `.<domain>` — which SES
+        rejects with `InvalidParameterValue: Invalid MAIL FROM domain name <.domain>`. Treat
+        blank as the default and reject anything that isn't a clean label with a clear error.
+        """
+        subdomain = (mail_from_subdomain or "").strip().strip(".").lower()
+        if not subdomain:
+            return DEFAULT_MAIL_FROM_SUBDOMAIN
+        if not re.match(MAIL_FROM_SUBDOMAIN_REGEX, subdomain):
+            raise exceptions.ValidationError(
+                "Please enter a valid MAIL FROM subdomain using only letters, digits, and hyphens."
+            )
+        return subdomain
 
     @cached_property
     def _aws_account_id(self) -> str:
@@ -109,6 +134,8 @@ class SESProvider:
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
+
+        mail_from_subdomain = self._normalize_mail_from_subdomain(mail_from_subdomain)
 
         dns_records: list[dict[str, Any]] = []
 
@@ -326,6 +353,7 @@ class SESProvider:
         """
         Update the MAIL FROM subdomain for a given identity
         """
+        mail_from_subdomain = self._normalize_mail_from_subdomain(mail_from_subdomain)
         try:
             self.ses_client.set_identity_mail_from_domain(
                 Identity=domain,
@@ -337,11 +365,34 @@ class SESProvider:
             logger.exception(f"SES API error updating MAIL FROM domain: {e}")
             raise
 
+    def _dissociate_identity_tenants(self, domain: str) -> None:
+        """
+        Remove every tenant resource association for an identity.
+
+        SES refuses `DeleteIdentity` while the identity still has tenant
+        associations (created by `create_email_domain`), so these must be torn
+        down first. The per-team tenant itself is left in place — it is harmless
+        when empty and may be reused by other domains owned by the same team.
+        """
+        for tenant in self._list_identity_tenants(domain):
+            try:
+                self.ses_v2_client.delete_tenant_resource_association(
+                    TenantName=tenant,
+                    ResourceArn=self._identity_arn(domain),
+                )
+            except ClientError as e:
+                # If the association is already gone we have nothing to clean up — that
+                # still unblocks deletion, so only re-raise on unexpected errors.
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+
     def delete_identity(self, identity: str):
         """
         Delete an identity from SES
         """
         try:
+            # Tenant associations block DeleteIdentity, so dissociate them first.
+            self._dissociate_identity_tenants(identity)
             self.ses_client.delete_identity(Identity=identity)
             logger.info(f"Identity {identity} deleted from SES")
         except (ClientError, BotoCoreError) as e:
