@@ -494,7 +494,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         items = get_recent_file_system_items(
             team_id=self.team.id,
-            user_id=request.user.id,
+            user_id=cast(User, request.user).id,
             surface=self.file_system_surface,
             # When searching, the text filter does the narrowing, so scan a wider recency window.
             limit=RECENTS_SEARCH_SCAN_LIMIT if search_param else limit,
