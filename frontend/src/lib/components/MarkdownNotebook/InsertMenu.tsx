@@ -3,6 +3,10 @@ import { ReactNode, type CSSProperties, useEffect, useRef } from 'react'
 
 import { IconCode, IconDatabase, IconGraph, IconList, IconPencil, IconSparkles } from '@posthog/icons'
 
+import { Scene } from 'scenes/sceneTypes'
+
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import {
     INSERT_MENU_GAP,
     INSERT_MENU_MAX_HEIGHT,
@@ -323,7 +327,7 @@ export function buildInsertCommands(
                             select: ['person_display_name -- Person', 'id', 'created_at'],
                             // ActorsQuery hits ClickHouse, which requires a product query tag.
                             // Match the notebook query tagging convention (see NotebookSQLEditor).
-                            tags: { productKey: 'notebooks', scene: 'Notebook' },
+                            tags: { productKey: ProductKey.NOTEBOOKS, scene: Scene.Notebook },
                         },
                     },
                 }),
