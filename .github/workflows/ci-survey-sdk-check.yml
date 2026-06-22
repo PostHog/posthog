@@ -5,7 +5,7 @@ on:
         paths:
             - 'frontend/src/scenes/surveys/**'
             - 'docs/published/surveys/**'
-            - 'frontend/bin/build-survey-sdk-docs.ts'
+            - 'frontend/bin/docs/build-survey-sdk-docs.ts'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

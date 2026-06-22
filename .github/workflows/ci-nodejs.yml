@@ -259,16 +259,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -458,16 +450,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
