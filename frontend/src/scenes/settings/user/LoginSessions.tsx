@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLaptop } from '@posthog/icons'
+import { IconLaptop, IconLeave } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
@@ -91,17 +91,17 @@ export function LoginSessions(): JSX.Element {
                     },
                     {
                         title: '',
+                        width: 0,
                         render: (_, session) =>
                             session.is_current ? null : (
                                 <LemonButton
-                                    type="secondary"
+                                    icon={<IconLeave />}
                                     status="danger"
                                     size="small"
+                                    tooltip="Log out of this device"
                                     disabledReason={loginSessionsLoading ? 'Working…' : undefined}
                                     onClick={() => handleRevoke(session)}
-                                >
-                                    Log out
-                                </LemonButton>
+                                />
                             ),
                     },
                 ]}
