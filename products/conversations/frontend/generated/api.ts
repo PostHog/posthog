@@ -28,7 +28,6 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
-    SuggestReplyResponseApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
@@ -438,21 +437,6 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
-    })
-}
-
-export const getConversationsTicketsSuggestReplyCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/${id}/suggest_reply/`
-}
-
-export const conversationsTicketsSuggestReplyCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SuggestReplyResponseApi> => {
-    return apiMutator<SuggestReplyResponseApi>(getConversationsTicketsSuggestReplyCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 

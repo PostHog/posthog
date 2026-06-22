@@ -2774,7 +2774,7 @@ def postgres_source(
                 connection.commit()
                 return connection
 
-            def offset_chunking(offset: int, chunk_size: int):
+            def offset_chunking(offset: int, chunk_size: int, *, from_recovery_conflict: bool = False):
                 # If the db is a read replica and we're running into `conflict with recovery errors,
                 # we create a new query for each chunk. This is due to how the primary replicates
                 # over, we often run into errors when vacuums are happening
@@ -2879,6 +2879,20 @@ def postgres_source(
                         )
                         if timeout_error is not None:
                             raise timeout_error from e
+                        if from_recovery_conflict:
+                            # We only reach offset chunking here because the read replica just
+                            # canceled our reads with a recovery conflict. Hitting the statement
+                            # timeout on top of that means the chunked fallback can't finish a chunk
+                            # either, and a whole-activity retry just re-reads from the start into the
+                            # same conflicting, overloaded replica — so stop retrying. QueryTimeoutException
+                            # is already non-retryable (see source.py), unlike the raw QueryCanceled.
+                            raise QueryTimeoutException(
+                                "Reading from your read replica timed out: Postgres canceled the initial "
+                                "read with a recovery conflict, and the chunked fallback read still couldn't "
+                                "finish within the 10 minute statement timeout. Increase "
+                                "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
+                                "or sync from the primary database instead."
+                            ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if not _is_connection_dropped_error(e):
@@ -3013,7 +3027,7 @@ def postgres_source(
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                 if using_read_replica and "conflict with recovery" in "".join(e.args):
                     logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
-                    yield from offset_chunking(offset, chunk_size)
+                    yield from offset_chunking(offset, chunk_size, from_recovery_conflict=True)
                     return
 
                 raise

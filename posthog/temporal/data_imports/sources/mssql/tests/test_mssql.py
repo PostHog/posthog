@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
 
+import pymssql
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
@@ -9,7 +11,9 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
     MSSQLImplementation,
     _build_query,
+    _is_transient_connection_error,
     filter_mssql_incremental_fields,
+    retry_on_transient_connection_error,
 )
 from posthog.temporal.data_imports.sources.mssql.source import MSSQLSource
 
@@ -605,3 +609,99 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_conversion_failed_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+
+class TestIsTransientConnectionError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Real pymssql shape: DB-Lib error 20047 carried as (code, bytes) args.
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            # The SQL-Server-message rendering of the same drop.
+            pymssql.OperationalError(
+                "SQL Server message 20047, severity 9, state 0, procedure b'\\xc0\\xaa\\x12\\x08\\xff\\xff', "
+                "line 0:\nb'DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n'"
+            ),
+        ],
+    )
+    def test_matches_dbprocess_dead(self, error):
+        assert _is_transient_connection_error(error)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Persistent failures must stay non-retryable, not be absorbed as transient.
+            pymssql.OperationalError("Login failed for user 'reporting'."),
+            pymssql.OperationalError("Invalid object name 'dbo.orders'."),
+            pymssql.OperationalError("The SELECT permission was denied on the object 'X'."),
+            pymssql.OperationalError(
+                "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
+                "unavailable or does not exist (db.example.com)"
+            ),
+            pymssql.OperationalError(),
+        ],
+    )
+    def test_does_not_match_other_errors(self, error):
+        assert not _is_transient_connection_error(error)
+
+
+class TestRetryOnTransientConnectionError:
+    def _dbprocess_dead(self) -> pymssql.OperationalError:
+        return pymssql.OperationalError(
+            20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+        )
+
+    def test_retries_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=[self._dbprocess_dead(), "ok"])
+
+        assert retry_on_transient_connection_error(operation) == "ok"
+        assert operation.call_count == 2
+        sleep.assert_called_once()
+
+    def test_does_not_retry_non_transient(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=pymssql.OperationalError("Login failed for user 'reporting'."))
+
+        with pytest.raises(pymssql.OperationalError):
+            retry_on_transient_connection_error(operation)
+        assert operation.call_count == 1
+        sleep.assert_not_called()
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=self._dbprocess_dead())
+
+        with pytest.raises(pymssql.OperationalError):
+            retry_on_transient_connection_error(operation, max_attempts=3)
+        assert operation.call_count == 3
+
+
+class TestGetSchemasRetriesTransientDrop:
+    def test_get_schemas_retries_then_recovers(self, mocker):
+        # A transient DBPROCESS death mid-discovery must retry the whole connect-and-discover cycle
+        # in-process instead of failing the activity on the first blip.
+        mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mssql.mssql.pymssql.connect",
+            return_value=mock_conn,
+        )
+        get_columns = mocker.patch.object(
+            MSSQLImplementation,
+            "get_columns",
+            side_effect=[
+                pymssql.OperationalError(
+                    20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+                ),
+                {},
+            ],
+        )
+
+        schemas = MSSQLSource().get_schemas(_make_config(), team_id=1)
+
+        assert schemas == []
+        assert get_columns.call_count == 2

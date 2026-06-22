@@ -1,5 +1,6 @@
-import { HealthCheckResult } from '../../../types'
-import { MemoryRateLimiter } from '../overflow-detector'
+import { MemoryRateLimiter } from '~/ingestion/utils/overflow-detector'
+import { HealthCheckResult } from '~/types'
+
 import {
     overflowRedirectCacheHitsTotal,
     overflowRedirectCacheSize,
