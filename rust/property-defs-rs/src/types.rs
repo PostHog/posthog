@@ -248,7 +248,11 @@ impl Event {
     /// As `into_updates`, but with an explicit `last_seen_at` flooring period for the
     /// event-definition dedup key. A coarser period re-issues event-def writes less
     /// often (the DB always records the real time); see `floor_last_seen`.
-    pub fn into_updates_with(self, skip_threshold: usize, last_seen_floor_secs: i64) -> Vec<Update> {
+    pub fn into_updates_with(
+        self,
+        skip_threshold: usize,
+        last_seen_floor_secs: i64,
+    ) -> Vec<Update> {
         if EVENTS_WITHOUT_PROPERTIES.contains(&self.event.as_str()) {
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "no_properties_event")]).increment(1);
             return vec![];
@@ -277,7 +281,9 @@ impl Event {
     }
 
     fn into_updates_inner(self, last_seen_floor_secs: i64) -> Vec<Update> {
-        let mut updates = vec![Update::Event(self.to_event_definition(last_seen_floor_secs))];
+        let mut updates = vec![Update::Event(
+            self.to_event_definition(last_seen_floor_secs),
+        )];
         let Some(props) = &self.properties else {
             return updates;
         };

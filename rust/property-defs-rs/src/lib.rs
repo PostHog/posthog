@@ -456,7 +456,10 @@ pub async fn writer_loop(
                 .resolve_group_types_indexes(&mut batch)
                 .await
                 .map_err(|e| {
-                    warn!("Failed resolving group type indices for batch, got: {:?}", e)
+                    warn!(
+                        "Failed resolving group type indices for batch, got: {:?}",
+                        e
+                    )
                 });
             process_batch(&task_config, task_cache, &task_context.pool, batch).await;
         });
