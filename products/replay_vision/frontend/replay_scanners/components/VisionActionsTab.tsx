@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,24 +13,13 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { VisionActionApi } from '../../generated/api.schemas'
+import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
-
-const FREQ_LABELS: Record<string, string> = {
-    HOURLY: 'Hourly',
-    DAILY: 'Daily',
-    WEEKLY: 'Weekly',
-    MONTHLY: 'Monthly',
-    YEARLY: 'Yearly',
-}
+import { VisionActionForm } from './VisionActionForm'
 
 function humanizeSchedule(action: VisionActionApi): string {
     const rrule = action.trigger_config?.rrule
-    if (!rrule) {
-        return '—'
-    }
-    // Light-touch label for the common case; the full cadence editor lands with the create form (PR6).
-    const freq = /FREQ=([A-Z]+)/.exec(rrule)?.[1]
-    return (freq && FREQ_LABELS[freq]) || rrule
+    return rrule ? humanizeCadence(parseRruleToCadence(rrule)) : '—'
 }
 
 function deliverySummary(action: VisionActionApi): string {
@@ -42,13 +31,14 @@ export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Elem
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
             <VisionActionsTable />
+            <VisionActionForm scannerId={scannerId} />
         </BindLogic>
     )
 }
 
 function VisionActionsTable(): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
-    const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
+    const { toggleActionEnabled, deleteAction, openCreateForm, openEditForm } = useActions(visionActionsLogic)
 
     if (!visionActionsLoading && visionActions.length === 0) {
         return (
@@ -62,7 +52,7 @@ function VisionActionsTable(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        disabledReason="Action creation is coming soon"
+                        onClick={() => openCreateForm()}
                         data-attr="vision-action-new-empty"
                     >
                         New action
@@ -137,40 +127,67 @@ function VisionActionsTable(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete"
-                        data-attr="vision-action-delete"
-                        onClick={() =>
-                            LemonDialog.open({
-                                title: `Delete "${action.name}"?`,
-                                description:
-                                    'This stops its scheduled summaries and removes its delivery destinations. This cannot be undone.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteAction(action.id),
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }
-                    />
+                    <div className="flex gap-1 justify-end">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            icon={<IconPencil />}
+                            tooltip="Edit"
+                            data-attr="vision-action-edit"
+                            onClick={() => openEditForm(action)}
+                        />
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete"
+                            data-attr="vision-action-delete"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete "${action.name}"?`,
+                                    description:
+                                        'This stops its scheduled summaries and removes its delivery destinations. This cannot be undone.',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        onClick: () => deleteAction(action.id),
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }
+                        />
+                    </div>
                 </AccessControlAction>
             ),
         },
     ]
 
     return (
-        <LemonTable
-            columns={columns}
-            dataSource={visionActions}
-            loading={visionActionsLoading}
-            rowKey="id"
-            data-attr="vision-actions-table"
-            emptyState="No actions yet — this scanner has no scheduled summaries."
-        />
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => openCreateForm()}
+                        data-attr="vision-action-new"
+                    >
+                        New action
+                    </LemonButton>
+                </AccessControlAction>
+            </div>
+            <LemonTable
+                columns={columns}
+                dataSource={visionActions}
+                loading={visionActionsLoading}
+                rowKey="id"
+                data-attr="vision-actions-table"
+                emptyState="No actions yet — this scanner has no scheduled summaries."
+            />
+        </div>
     )
 }

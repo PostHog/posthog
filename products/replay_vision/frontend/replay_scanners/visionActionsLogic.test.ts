@@ -29,6 +29,9 @@ describe('visionActionsLogic', () => {
             get: {
                 '/api/projects/:team/vision/actions/': { results: [action('a'), action('b')], count: 2 },
             },
+            post: {
+                '/api/projects/:team/vision/actions/': () => [201, action('new')],
+            },
             patch: {
                 '/api/projects/:team/vision/actions/:id/': () => [200, {}],
             },
@@ -82,5 +85,55 @@ describe('visionActionsLogic', () => {
         }).toMatchValues({
             visionActions: [expect.objectContaining({ id: 'b' })],
         })
+    })
+
+    it('creating an action submits, closes the form, and reloads', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.openCreateForm()
+            logic.actions.setVisionActionFormValue('name', 'My action')
+            logic.actions.submitVisionActionForm()
+        })
+            .toDispatchActions(['submitVisionActionFormSuccess', 'closeForm', 'loadActions'])
+            .toMatchValues({ formVisible: false })
+    })
+
+    it('openEditForm prefills the form from an existing action', async () => {
+        const existing: VisionActionApi = {
+            ...action('e'),
+            trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+            selection: { window_days: 7, verdict: 'yes' },
+            synthesis_config: { prompt_guide: 'focus on checkout' },
+            delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
+        }
+        await expectLogic(logic, () => {
+            logic.actions.openEditForm(existing)
+        }).toMatchValues({
+            formVisible: true,
+            editingAction: expect.objectContaining({ id: 'e' }),
+            visionActionForm: {
+                name: 'action-e',
+                cadence: { frequency: 'weekly', weekdays: [0, 2], hour: 14, minute: 30 },
+                timezone: 'Europe/Prague',
+                selection: { window_days: 7, verdict: 'yes' },
+                prompt_guide: 'focus on checkout',
+                integration_id: 5,
+                channel: 'C123',
+            },
+        })
+    })
+
+    it('keeps the form open and surfaces an error when the submit fails', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/': () => [400, { detail: 'nope' }],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openCreateForm()
+            logic.actions.setVisionActionFormValue('name', 'My action')
+            logic.actions.submitVisionActionForm()
+        })
+            .toDispatchActions(['submitVisionActionFormFailure'])
+            .toMatchValues({ formVisible: true })
     })
 })

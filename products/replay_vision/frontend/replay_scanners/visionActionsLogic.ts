@@ -1,15 +1,46 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { forms } from 'kea-forms'
 
+import { dayjs } from 'lib/dayjs'
+import { slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionActionsDestroy, visionActionsList, visionActionsPartialUpdate } from '../generated/api'
-import type { VisionActionApi } from '../generated/api.schemas'
+import {
+    visionActionsCreate,
+    visionActionsDestroy,
+    visionActionsList,
+    visionActionsPartialUpdate,
+} from '../generated/api'
+import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import type { SelectionApi, VisionActionApi } from '../generated/api.schemas'
+import { CadenceState, cadenceToRrule, DEFAULT_CADENCE, parseRruleToCadence } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
     scannerId: string
 }
+
+// UI-shaped form values, mapped to/from the API shape on submit/edit.
+export interface VisionActionForm {
+    name: string
+    cadence: CadenceState
+    timezone: string
+    selection: SelectionApi
+    prompt_guide: string
+    integration_id: number | null
+    channel: string
+}
+
+const NEW_ACTION_FORM = (): VisionActionForm => ({
+    name: '',
+    cadence: { ...DEFAULT_CADENCE },
+    timezone: dayjs.tz.guess(),
+    selection: { window_days: 1 },
+    prompt_guide: '',
+    integration_id: null,
+    channel: '',
+})
 
 export const visionActionsLogic = kea<visionActionsLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionActionsLogic']),
@@ -25,6 +56,9 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         toggleActionEnabledDone: (id: string) => ({ id }),
         deleteAction: (id: string) => ({ id }),
         deleteActionSuccess: (id: string) => ({ id }),
+        openCreateForm: true,
+        openEditForm: (action: VisionActionApi) => ({ action }),
+        closeForm: true,
     }),
 
     reducers({
@@ -56,7 +90,62 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 revertActionEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
+        formVisible: [
+            false,
+            {
+                openCreateForm: () => true,
+                openEditForm: () => true,
+                closeForm: () => false,
+            },
+        ],
+        editingAction: [
+            null as VisionActionApi | null,
+            {
+                openCreateForm: () => null,
+                openEditForm: (_, { action }) => action,
+                closeForm: () => null,
+            },
+        ],
     }),
+
+    forms(({ props, values }) => ({
+        visionActionForm: {
+            defaults: NEW_ACTION_FORM(),
+            errors: ({ name, integration_id, channel }) => ({
+                name: !name?.trim() ? 'Give this action a name' : undefined,
+                channel: integration_id && !channel ? 'Pick a channel' : undefined,
+            }),
+            submit: async (form) => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    throw new Error('No team selected')
+                }
+                const body: Parameters<typeof visionActionsCreate>[1] = {
+                    name: form.name.trim(),
+                    scanner: props.scannerId,
+                    trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+                    selection: form.selection,
+                    synthesis_config: { prompt_guide: form.prompt_guide },
+                    delivery_config:
+                        form.integration_id && form.channel
+                            ? [
+                                  {
+                                      type: DeliveryTargetTypeEnumApi.Slack,
+                                      integration_id: form.integration_id,
+                                      channel: slackChannelId(form.channel),
+                                  },
+                              ]
+                            : [],
+                }
+                const editing = values.editingAction
+                if (editing) {
+                    await visionActionsPartialUpdate(String(teamId), editing.id, body)
+                } else {
+                    await visionActionsCreate(String(teamId), body)
+                }
+            },
+        },
+    })),
 
     listeners(({ actions, props, values }) => ({
         loadActions: async () => {
@@ -103,6 +192,36 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             } catch (error: any) {
                 lemonToast.error(`Failed to delete action${error.detail ? `: ${error.detail}` : ''}`)
             }
+        },
+
+        openCreateForm: () => {
+            actions.resetVisionActionForm(NEW_ACTION_FORM())
+        },
+
+        openEditForm: ({ action }) => {
+            actions.setVisionActionFormValues({
+                name: action.name,
+                cadence: parseRruleToCadence(action.trigger_config?.rrule),
+                timezone: action.trigger_config?.timezone || dayjs.tz.guess(),
+                selection: action.selection ?? {},
+                prompt_guide: action.synthesis_config?.prompt_guide ?? '',
+                integration_id: action.delivery_config?.[0]?.integration_id ?? null,
+                channel: action.delivery_config?.[0]?.channel ?? '',
+            })
+        },
+
+        closeForm: () => {
+            actions.resetVisionActionForm(NEW_ACTION_FORM())
+        },
+
+        submitVisionActionFormSuccess: () => {
+            lemonToast.success(values.editingAction ? 'Action updated' : 'Action created')
+            actions.closeForm()
+            actions.loadActions()
+        },
+
+        submitVisionActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
+            lemonToast.error(`Failed to save action${error?.detail ? `: ${error.detail}` : ''}`)
         },
     })),
 
