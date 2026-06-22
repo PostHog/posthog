@@ -45,6 +45,38 @@ class RepoSelectionResult(BaseModel):
     )
 
 
+# Substrings the sandbox agent's end-turn carries when it relays an upstream LLM error instead
+# of a result — most commonly a transient rate limit (429) or overload (529). Used only to tag the
+# salvaged `reason`; any non-JSON end-turn degrades to `repository=None` regardless of these.
+_API_ERROR_END_TURN_MARKERS = ("api error", "rate limit", "(429)", "overloaded", "(529)", "too many requests")
+
+
+def _salvage_non_json_end_turn(text: str) -> RepoSelectionResult:
+    """Collapse a non-JSON agent end-turn into a graceful no-selection result.
+
+    The sandbox agent occasionally ends its turn with prose instead of the expected JSON —
+    most commonly an upstream LLM error string such as
+    `API Error: Request rejected (429) · Rate limit exceeded`. Rather than letting the parse
+    failure propagate and hard-fail the whole repo-selection run, degrade to `repository=None`
+    so callers' existing no-match handling takes over — mirroring how `select_repository_for_team`
+    already absorbs `RepoSelectionUnavailableError` and how the signals scout runner salvages its
+    own unparseable end-turns.
+    """
+    snippet = " ".join(text.split())[:200]
+    if any(marker in snippet.lower() for marker in _API_ERROR_END_TURN_MARKERS):
+        reason = (
+            "Repository selection could not complete: the agent relayed an upstream API error "
+            f"instead of a result ({snippet!r}). Treating as no match."
+        )
+    else:
+        reason = (
+            "Repository selection could not complete: the agent's end-turn was not valid JSON "
+            f"({snippet!r}). Treating as no match."
+        )
+    logger.warning("repo selection: non-JSON end-turn salvaged as no-match (%s)", snippet)
+    return RepoSelectionResult(repository=None, reason=reason)
+
+
 class RepoSelectionRejectedError(Exception):
     """Raised when the LLM returns a repository not in the candidate list (hallucination).
 
@@ -319,6 +351,10 @@ async def select_repository(
     candidate list (hallucination). Callers that need to distinguish that failure mode from
     a legitimate "no plausible candidate" decision (`RepoSelectionResult(repository=None, ...)`)
     should catch the exception.
+
+    A non-JSON end-turn (e.g. the agent relaying a transient upstream LLM 429 as prose) does
+    not raise — it degrades to `RepoSelectionResult(repository=None, ...)` so a transient
+    rate limit can't crash the whole run.
     """
     github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
     if github is None:
@@ -380,6 +416,10 @@ async def select_repository(
         signal_report_id=signal_report_id,
         ai_stage="repo_selection",
         internal=True,
+        # A non-JSON end-turn (most often a transient upstream LLM 429 relayed as prose) must not
+        # hard-fail the run — salvage it into a graceful `repository=None` so the caller's no-match
+        # path handles it, just like the operational errors `select_repository_for_team` absorbs.
+        fallback_from_text=_salvage_non_json_end_turn,
     )
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
