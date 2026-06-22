@@ -45,7 +45,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -223,7 +223,9 @@ export function InsightVizDisplay({
                         onClick={() => {
                             const update = excludeNullDataWarehouseIdRows(querySource)
                             if (update) {
-                                updateQuerySource(update)
+                                // `series` isn't a key common to every InsightQueryNode, so QuerySourceUpdate
+                                // can't see it — cast to the concrete query node like the trends series editor does.
+                                updateQuerySource(update as FunnelsQuery)
                             }
                         }}
                     >

@@ -47,6 +47,12 @@ from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
 from products.actions.backend.models.action import Action
 
+# Stable prefix of the throwIf message raised when a non-UUID data-warehouse id column contains a
+# null. FunnelsQueryRunner matches on this (alongside the ClickHouse error code) to convert the raw
+# exception into a friendly, fixable validation error — keep the two in sync. It's the leading text
+# of the message so a truncated ClickHouse exception still matches.
+DATA_WAREHOUSE_NULL_ID_ERROR_MESSAGE_PREFIX = "Encountered a null value in "
+
 
 @dataclass
 class TableConfigWithSteps:
@@ -563,7 +569,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                                     else f"{table_entity.table_name}_"
                                 ),
                                 "exception_message": ast.Constant(
-                                    value=f"Encountered a null value in {table_entity.table_name}.{table_entity.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                                    value=(
+                                        f"{DATA_WAREHOUSE_NULL_ID_ERROR_MESSAGE_PREFIX}"
+                                        f"{table_entity.table_name}.{table_entity.id_field}, "
+                                        "but a non-null value is required. "
+                                        "Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                                    )
                                 ),
                             },
                         )

@@ -33,6 +33,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.errors import ExposedCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnel_event_query import DATA_WAREHOUSE_NULL_ID_ERROR_MESSAGE_PREFIX
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_bins import (
@@ -141,10 +142,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def _data_warehouse_null_id_error(self, error: ExposedCHQueryError) -> ValidationError | None:
         """Build a friendly validation error for the data-warehouse null-id case, else None.
 
-        Match on the ClickHouse error code rather than the message: the funnels path emits exactly
-        one throwIf (the non-UUID id_field null guard), so this code can only originate there.
+        Match on both the ClickHouse error code and the message signature: `throwIf` is an exposed
+        HogQL function, so a funnel query could in principle carry another `throwIf` (e.g. via custom
+        HogQL aggregation/breakdown), and we must not misclassify those as the null-id guard.
         """
         if look_up_clickhouse_error_code_meta(error).name != "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+            return None
+        if DATA_WAREHOUSE_NULL_ID_ERROR_MESSAGE_PREFIX not in str(error):
             return None
 
         id_fields = sorted(
