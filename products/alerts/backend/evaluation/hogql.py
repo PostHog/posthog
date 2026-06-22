@@ -97,6 +97,7 @@ class HogQLExtractor:
         The head is unaffected by result truncation and pairs with a user ``LIMIT``, so this is
         the mode for queries that would otherwise return very many rows.
       - ``any_row``: every row is checked and fires if any value breaches, labeling each row.
+    In every mode the label column (the METRIC column in the preview) names the evaluated row(s).
     The shared comparator interprets the resulting series either way.
 
     PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
@@ -107,7 +108,11 @@ class HogQLExtractor:
       1. value-column resolution: explicit ``column`` -> single column -> single numeric column
       2. numeric classification: most recent non-None cell decides; bools are not numeric
       3. ``None`` cells evaluate as 0
-      4. label-column resolution: explicit -> first non-evaluated column -> row number
+      4. label-column resolution: explicit -> first non-evaluated column (the mirror reproduces
+         this). The fallback when a row has no label cell differs by surface and is NOT mirrored:
+         the preview falls back to the row number (it shows every row, so numbering keeps them
+         distinct), whereas this extractor's single evaluated row (last_row/first_row) falls back
+         to the value column name — there's only one row, so a number carries no information.
       5. empty result evaluates as 0 (zero sentinel)
       6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``)
       7. anchor row: ``last_row`` reads the tail, ``first_row`` the head; both yield (previous, current)
@@ -165,10 +170,22 @@ class HogQLExtractor:
             raise AlertExtractionError("Relative alerts on SQL insights need at least two rows (current and previous).")
 
         points = [SeriesPoint(date=None, value=v) for v in values]
-        single = ComparableSeries(
-            label=_value_column_label(column_names, value_index), points=points, current_index=len(points) - 1
+        # Label the evaluated row by its label column (the METRIC column shown in the preview),
+        # falling back to the value column name when the result has no distinct label column.
+        label_index = _resolve_label_column_index(config.label_column, column_names, value_index, rows)
+        anchor_row = rows[0] if evaluation == HogQLAlertEvaluation.FIRST_ROW else rows[-1]
+        label_cell = _label_cell(anchor_row, label_index)
+        series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
+        single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
+        # Surface the label in the breach message only when it's a real label cell — the value-column
+        # fallback would just read "The SQL insight value (value) (...)", which adds nothing.
+        return ExtractionResult(
+            series=[single],
+            is_breakdown=False,
+            subject=_HOGQL_SUBJECT,
+            framed=False,
+            include_series_label=label_cell is not None,
         )
-        return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
 
 def extract_hogql_detector_series(
@@ -292,12 +309,18 @@ def _resolve_label_column_index(
     return None
 
 
-def _label_for_row(row: Any, index: int, label_index: int | None) -> str:
+def _label_cell(row: Any, label_index: int | None) -> str | None:
+    # None when there's no usable label cell — the caller picks the mode-specific fallback.
     if label_index is not None and isinstance(row, list | tuple) and label_index < len(row):
         cell = row[label_index]
         if cell is not None:
             return str(cell)
-    return f"row {index + 1}"
+    return None
+
+
+def _label_for_row(row: Any, index: int, label_index: int | None) -> str:
+    cell = _label_cell(row, label_index)
+    return cell if cell is not None else f"row {index + 1}"
 
 
 def _row_width(rows: list) -> int:

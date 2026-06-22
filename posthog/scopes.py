@@ -133,7 +133,6 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
-        "query_performance",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -142,10 +141,11 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 )
 
 # Scope objects available via personal API keys but never advertised through
-# OAuth metadata. Used for alpha / not-yet-public products where a user can
-# manually paste the scope into a PAT but where we don't want OAuth-based
-# clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session"})
+# OAuth metadata. Used where a user can manually paste the scope into a PAT but
+# we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
+# to discover it — alpha / not-yet-public products, or staff-only debug endpoints
+# automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session", "query_performance"})
 
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
