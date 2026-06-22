@@ -13,14 +13,14 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
 )
 from products.tasks.backend.redis import run_uses_dedicated_stream
-from products.tasks.backend.services.agent_command import validate_sandbox_url
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 
 from ee.hogai.sandbox import is_turn_complete
@@ -423,8 +423,8 @@ _is_end_of_turn = is_turn_complete
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
-    from products.tasks.backend.services.agentsh import build_audit_query_command
-    from products.tasks.backend.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.agentsh import build_audit_query_command
+    from products.tasks.backend.logic.services.sandbox import Sandbox
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:
