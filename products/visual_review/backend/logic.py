@@ -1141,6 +1141,18 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
+def _changes_summary(run: Run) -> str:
+    """'N changed, M new, K removed' from the run's (quarantine-excluded) counts; '' when none."""
+    parts = []
+    if run.changed_count:
+        parts.append(f"{run.changed_count} changed")
+    if run.new_count:
+        parts.append(f"{run.new_count} new")
+    if run.removed_count:
+        parts.append(f"{run.removed_count} removed")
+    return ", ".join(parts)
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1182,15 +1194,15 @@ def _update_counts_and_post_status(run: Run) -> int:
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.purpose == RunPurpose.OBSERVE:
+        # Default-branch (tracking-only) runs never gate — there's no PR to approve.
+        # Report any changes as a green, informational status instead of a blocking
+        # failure; the per-snapshot detail lives in the VR UI (linked via target_url).
+        summary = _changes_summary(run)
+        description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
+        _post_commit_status(run, repo, "success", description)
     elif unresolved > 0:
-        parts = []
-        if run.changed_count:
-            parts.append(f"{run.changed_count} changed")
-        if run.new_count:
-            parts.append(f"{run.new_count} new")
-        if run.removed_count:
-            parts.append(f"{run.removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {_changes_summary(run)}")
         _post_review_prompt_comment(run, repo)
     elif pending_commit > 0:
         _post_commit_status(

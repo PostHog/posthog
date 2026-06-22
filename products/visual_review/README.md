@@ -116,7 +116,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
-- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". Use on master pushes where there's no PR to approve.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review"; the commit status is posted green (`success`, "Tracking only…") even when changes are detected, so a default-branch run never reads as a blocking failure. The UI hides all approval affordances. Use on master pushes where there's no PR to approve.
 
 ## Current state
 

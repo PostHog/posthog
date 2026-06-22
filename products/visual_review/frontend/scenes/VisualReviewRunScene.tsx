@@ -417,7 +417,7 @@ export function VisualReviewRunScene(): JSX.Element {
             {isReportingOnly && (
                 <LemonBanner type="info" className="mb-4">
                     Tracking-only run — this is a push to the default branch, so there's nothing to approve. Visual
-                    changes are recorded for history; a failing result here is informational.
+                    changes are recorded for history and reported to GitHub as a non-blocking status.
                 </LemonBanner>
             )}
 
