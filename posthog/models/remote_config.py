@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from typing import Any
 
 from django.conf import settings
@@ -21,7 +22,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
-from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, emit_cache_sync_metrics
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -427,10 +428,25 @@ class RemoteConfig(UUIDTModel):
             self.synced_at = timezone.now()
             self.save()
 
+            hypercache = RemoteConfig.get_hypercache()
+            sync_start = time.time()
             try:
                 # Write the already-built config (Redis + mirror + S3 + expiry tracking).
-                RemoteConfig.get_hypercache().set_cache_value(self.team, config)
+                size = hypercache.set_cache_value(self.team, config)
+                # set_cache_value() doesn't emit sync metrics; emit them here so the
+                # posthog_hypercache_sync{namespace="array"} series (counter + duration +
+                # size, used by the remote-config dashboard) keeps reporting.
+                emit_cache_sync_metrics(
+                    "success",
+                    hypercache.namespace,
+                    hypercache.value,
+                    duration=time.time() - sync_start,
+                    size=size,
+                )
             except Exception as e:
+                emit_cache_sync_metrics(
+                    "failure", hypercache.namespace, hypercache.value, duration=time.time() - sync_start
+                )
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
 
