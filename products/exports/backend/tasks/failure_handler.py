@@ -139,8 +139,21 @@ TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS) | {"Time
 
 
 def classify_failure_type(exception: Exception | str) -> str:
-    exception_type = type(exception).__name__ if isinstance(exception, Exception) else exception
+    # Live exceptions are classified by actual type, not name: the name sets are derived from
+    # these same tuples, so isinstance has identical coverage while avoiding false positives from
+    # unrelated classes that merely share a name (django/pydantic ValidationError, builtin SyntaxError).
+    if isinstance(exception, Exception):
+        if isinstance(exception, TIMEOUT_ERRORS):
+            return FAILURE_TYPE_TIMEOUT_GENERATION
+        if isinstance(exception, USER_QUERY_ERRORS):
+            return FAILURE_TYPE_USER
+        if isinstance(exception, EXCEPTIONS_TO_RETRY):
+            return FAILURE_TYPE_SYSTEM
+        return FAILURE_TYPE_UNKNOWN
 
+    # Stored exception-class names (historical rows, backfill) only carry the name, so fall back to
+    # name matching. This is best-effort and can't distinguish same-named classes from other packages.
+    exception_type = exception
     if exception_type:
         if exception_type in TIMEOUT_ERROR_NAMES:
             return FAILURE_TYPE_TIMEOUT_GENERATION

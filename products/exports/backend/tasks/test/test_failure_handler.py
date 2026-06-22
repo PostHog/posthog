@@ -1,5 +1,7 @@
 from unittest import TestCase
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -85,3 +87,18 @@ class TestClassifyFailureType(TestCase):
         # (e.g. a funnel with fewer than two steps); it must classify as a user error.
         exception = ValidationError("Funnels require at least two steps.", code="funnels_require_at_least_two_steps")
         assert classify_failure_type(exception) == FAILURE_TYPE_USER
+
+    @parameterized.expand(
+        [
+            # Unrelated classes that merely share a name with a user-query error must not be
+            # mislabelled when passed as a live instance — only the in-scope DRF/HogQL types count.
+            (DjangoValidationError("not a query error"),),
+            (SyntaxError("a Python syntax error, not HogQL's"),),
+        ]
+    )
+    def test_same_named_foreign_exception_instances_are_not_user_errors(self, exception: Exception) -> None:
+        assert classify_failure_type(exception) == FAILURE_TYPE_UNKNOWN
+
+    def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
+        # Stored rows only carry the class name, so the string path stays purely name-based.
+        assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
