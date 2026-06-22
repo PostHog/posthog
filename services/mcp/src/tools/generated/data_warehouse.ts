@@ -415,29 +415,6 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
     },
 })
 
-const WarehouseColumnAnnotationsListSchema = WarehouseColumnAnnotationsListQueryParams
-
-const warehouseColumnAnnotationsList = (): ToolBase<
-    typeof WarehouseColumnAnnotationsListSchema,
-    WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>
-> => ({
-    name: 'warehouse-column-annotations-list',
-    schema: WarehouseColumnAnnotationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedWarehouseColumnAnnotationList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_column_annotations/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                table_id: params.table_id,
-            },
-        })
-        return await withPostHogUrl(context, result, '/sql')
-    },
-})
-
 const WarehouseColumnAnnotationsCreateSchema = WarehouseColumnAnnotationsCreateBody.extend({
     column_name: WarehouseColumnAnnotationsCreateBody.shape['column_name'].describe(
         'Column to describe. Use an empty string to describe the table itself.'
@@ -468,6 +445,29 @@ const warehouseColumnAnnotationsCreate = (): ToolBase<
             body,
         })
         return result
+    },
+})
+
+const WarehouseColumnAnnotationsListSchema = WarehouseColumnAnnotationsListQueryParams
+
+const warehouseColumnAnnotationsList = (): ToolBase<
+    typeof WarehouseColumnAnnotationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedWarehouseColumnAnnotationList>
+> => ({
+    name: 'warehouse-column-annotations-list',
+    schema: WarehouseColumnAnnotationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof WarehouseColumnAnnotationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedWarehouseColumnAnnotationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_column_annotations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                table_id: params.table_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/sql')
     },
 })
 
@@ -531,8 +531,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'view-run-history': viewRunHistory,
     'view-unmaterialize': viewUnmaterialize,
     'view-update': viewUpdate,
-    'warehouse-column-annotations-list': warehouseColumnAnnotationsList,
     'warehouse-column-annotations-create': warehouseColumnAnnotationsCreate,
+    'warehouse-column-annotations-list': warehouseColumnAnnotationsList,
     'warehouse-column-annotations-partial-update': warehouseColumnAnnotationsPartialUpdate,
     'warehouse-tables-refresh-schema-create': warehouseTablesRefreshSchemaCreate,
 }
