@@ -7,6 +7,7 @@ from typing import Any, Optional
 import requests
 import structlog
 from linkedin_api.clients.restli.client import RestliClient
+from linkedin_api.common.errors import ResponseFormattingError
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from .schemas import (
@@ -285,13 +286,20 @@ class LinkedinAdsClient:
         so we fail fast instead of burning the remaining budget on doomed retries. Short-window
         429s stay retryable and honour the Retry-After header when present.
         """
-        response = self.client.finder(
-            resource_path=resource_path,
-            finder_name=finder,
-            access_token=self.access_token,
-            query_params=params,
-            version_string=self.api_version,
-        )
+        try:
+            response = self.client.finder(
+                resource_path=resource_path,
+                finder_name=finder,
+                access_token=self.access_token,
+                query_params=params,
+                version_string=self.api_version,
+            )
+        except ResponseFormattingError as e:
+            # The Restli client parses the body as JSON before returning, so a non-JSON response
+            # (an empty payload or an HTML error page from a 5xx gateway/proxy) raises here as a
+            # wrapped JSONDecodeError rather than a status code we can branch on below. These are
+            # transient edge responses — retry them like the 5xx path instead of failing the sync.
+            raise LinkedinAdsRetryableError(f"LinkedIn API returned a malformed (non-JSON) response: {e}") from e
 
         if response.status_code == 429:
             body = response.response.text
