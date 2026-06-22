@@ -35,6 +35,7 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { detectTerminalError } from './monitoring/terminal-errors'
 import {
     SelfLoopGuardMode,
     isPostHogIngestUrl,
@@ -884,6 +885,17 @@ export class HogExecutorService {
         } = {
             status: fetchResponse?.status ?? 500,
             body,
+        }
+
+        // Flag non-retryable, configuration-level destination errors (e.g. Slack `not_in_channel`).
+        // The watcher reads this to auto-disable the source instead of letting it fail forever.
+        const terminalError = detectTerminalError(hogVmResponse, params.url)
+        if (terminalError) {
+            result.terminalError = terminalError
+            addLog(
+                'error',
+                `Auto-disabling due to a terminal destination error (${terminalError.reason}): ${terminalError.message}`
+            )
         }
 
         // Finally we create the response object as the VM expects

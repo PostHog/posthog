@@ -51,6 +51,12 @@ export class HogFunctionHandler implements ActionHandler {
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
 
+        // Surface a terminal destination error (e.g. Slack `not_in_channel`) onto the flow
+        // result so the watcher auto-disables the whole flow rather than just this action.
+        if (functionResult.terminalError) {
+            result.terminalError = functionResult.terminalError
+        }
+
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state

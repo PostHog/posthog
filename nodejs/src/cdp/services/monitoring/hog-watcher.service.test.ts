@@ -4,7 +4,9 @@ import { logger } from '~/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
+import { FixtureHogFlowBuilder } from '../../_tests/builders/hogflow.builder'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
@@ -402,6 +404,50 @@ describe('HogWatcher', () => {
                     }
                 `)
             })
+        })
+    })
+
+    describe('terminal errors', () => {
+        const terminalError = { reason: 'slack:not_in_channel', message: 'PostHog is not a member of this channel.' }
+
+        it('force-disables a hog function that hit a terminal error', async () => {
+            const result = createResult({})
+            result.terminalError = terminalError
+
+            await watcher.observeResults([result])
+
+            expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.forcefully_disabled)
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('force-disables a hog flow that hit a terminal error', async () => {
+            const hogFlow = new FixtureHogFlowBuilder().withTeamId(2).build()
+            const invocation = createExampleHogFlowInvocation(hogFlow)
+            const result = createInvocationResult(invocation, {}, { finished: true, terminalError })
+
+            await watcher.observeResults([result])
+
+            expect((await watcher.getPersistedState(hogFlow.id)).state).toEqual(HogWatcherState.forcefully_disabled)
+        })
+
+        it('does not disable results without a terminal error', async () => {
+            await watcher.observeResults([createResult({})])
+            expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.healthy)
+        })
+
+        it('only disables a source once per batch of repeated terminal errors', async () => {
+            const results = Array(5)
+                .fill(null)
+                .map(() => {
+                    const result = createResult({})
+                    result.terminalError = terminalError
+                    return result
+                })
+
+            await watcher.observeResults(results)
+
+            expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.forcefully_disabled)
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
         })
     })
 

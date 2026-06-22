@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import { TerminalError } from './services/monitoring/terminal-errors'
 
 export type HogBytecode = any[]
 
@@ -292,6 +293,9 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     execResult?: unknown
+    // Set when a fetch hit a non-retryable, configuration-level destination error (e.g. Slack
+    // `not_in_channel`). Signals the watcher to auto-disable the source — see `terminal-errors.ts`.
+    terminalError?: TerminalError
 }
 
 export type CyclotronJobInvocationHogFunctionContext = {

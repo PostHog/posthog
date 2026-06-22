@@ -9,6 +9,7 @@ import { TeamManager } from '~/utils/team-manager'
 
 import {
     CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionTiming,
@@ -53,6 +54,19 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
+/**
+ * The minimal shape the watcher needs to track and report on a source's state. HogFunctions
+ * satisfy this directly; HogFlows are adapted via `watchedSourceFromResult` so the same
+ * disable/observe machinery works for both. Only these fields are read by the watcher.
+ */
+export type WatchedSource = {
+    id: string
+    team_id: number
+    type: string
+    name?: string
+    template_id?: string | null
+}
+
 const hogFunctionStateChange = new Counter({
     name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
@@ -72,6 +86,23 @@ export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
 ): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
     return 'hogFunction' in result.invocation
+}
+
+// Extract the watched source from a result, whether it wraps a HogFunction or a HogFlow.
+export const watchedSourceFromResult = (result: CyclotronJobInvocationResult): WatchedSource | null => {
+    if (isHogFunctionResult(result)) {
+        return result.invocation.hogFunction
+    }
+    const invocation = result.invocation as CyclotronJobInvocationHogFlow
+    if (invocation.hogFlow) {
+        return {
+            id: invocation.hogFlow.id,
+            team_id: invocation.teamId,
+            type: 'hog_flow',
+            name: invocation.hogFlow.name,
+        }
+    }
+    return null
 }
 
 // Helper if you don't care about the forced side of things
@@ -151,7 +182,7 @@ export class HogWatcherService {
         state,
         previousState,
     }: {
-        hogFunction: HogFunctionType
+        hogFunction: WatchedSource
         state: HogWatcherState
         previousState: HogWatcherState
     }) {
@@ -332,7 +363,7 @@ export class HogWatcherService {
     }
 
     public async doStageChanges(
-        changes: [HogFunctionType, HogWatcherState][],
+        changes: [WatchedSource, HogWatcherState][],
         forceReset: boolean = false
     ): Promise<void> {
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
@@ -382,11 +413,46 @@ export class HogWatcherService {
         )
     }
 
-    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherState): Promise<void> {
+    public async forceStateChange(hogFunction: WatchedSource, state: HogWatcherState): Promise<void> {
         await this.doStageChanges([[hogFunction, state]])
     }
 
+    /**
+     * Force-disable any source that hit a terminal, non-retryable destination error (e.g. Slack
+     * `not_in_channel`). Unlike the cost-based token bucket this applies to both HogFunctions and
+     * HogFlows, and uses `forcefully_disabled` so the source stays off until a human reconfigures
+     * it and re-enables — a config error will never fix itself on retry.
+     */
+    private async observeTerminalErrors(results: CyclotronJobInvocationResult[]): Promise<void> {
+        const changes: [WatchedSource, HogWatcherState][] = []
+        const seen = new Set<string>()
+
+        for (const result of results) {
+            if (!result.terminalError) {
+                continue
+            }
+            const source = watchedSourceFromResult(result)
+            if (!source || seen.has(source.id)) {
+                continue
+            }
+            seen.add(source.id)
+            logger.warn('[HogWatcherService] Auto-disabling source due to terminal error', {
+                sourceId: source.id,
+                sourceType: source.type,
+                teamId: source.team_id,
+                reason: result.terminalError.reason,
+            })
+            changes.push([source, HogWatcherState.forcefully_disabled])
+        }
+
+        if (changes.length > 0) {
+            await this.doStageChanges(changes, true)
+        }
+    }
+
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await this.observeTerminalErrors(results)
+
         const functionCosts: Record<
             CyclotronJobInvocation['functionId'],
             {
