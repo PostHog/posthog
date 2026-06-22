@@ -1,3 +1,4 @@
+import json
 import uuid
 import builtins
 from collections.abc import Callable
@@ -29,7 +30,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey
+from posthog.schema import ActorsQuery, ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -67,8 +68,6 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_peop
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from posthog.queries.insight import insight_sync_execute
-from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
@@ -500,18 +499,39 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        person_query = PersonQuery(filter, team.pk)
-        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
+        from posthog.hogql import ast  # noqa: PLC0415 — deferred to avoid a circular import at module load
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
-        raw_paginated_result = insight_sync_execute(
-            paginated_query,
-            {**paginated_params, **filter.hogql_context.values},
-            filter=filter,
-            query_type="person_list",
-            team_id=team.pk,
-            # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
+        from posthog.models.person.util import get_person_by_distinct_id  # noqa: PLC0415
+
+        person_properties: list[dict] = []
+        raw_properties = request.GET.get("properties")
+        if raw_properties:
+            for prop in json.loads(raw_properties):
+                # Legacy person filters default to the "exact" operator; ActorsQuery requires it explicitly.
+                if prop.get("type") != "cohort":
+                    prop.setdefault("operator", "exact")
+                person_properties.append(prop)
+        if filter.email:
+            person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
+        if filter.distinct_id:
+            # Exact match on any of the person's distinct IDs; no matching person => no results.
+            matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
+            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')" if matched else "1 = 2"})
+        actors_query = ActorsQuery(
+            select=["id"],
+            properties=person_properties,
+            search=filter.search or None,
+            orderBy=["created_at DESC", "id DESC"],
+            limit=filter.limit,
+            offset=filter.offset,
         )
-        actor_ids = [row[0] for row in raw_paginated_result]
+        # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
+        # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
+        # we still hydrate the person objects ourselves via get_serialized_people.
+        actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+        actor_ids = [row[0] for row in actors_runner.calculate().results]
         serialized_actors = get_serialized_people(team, actor_ids)
 
         restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
@@ -530,16 +550,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
         total_count: Optional[int] = None
         if "include_total" in request.GET:
-            total_query, total_params = person_query.get_query(paginate=False, filter_future_persons=True)
-            total_query_aggregated = f"SELECT count() FROM ({total_query})"
-            raw_paginated_result = insight_sync_execute(
-                total_query_aggregated,
-                {**total_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list_total",
-                team_id=team.pk,
+            count_inner = actors_runner.to_query()
+            count_inner.limit = None
+            count_inner.offset = None
+            count_query = ast.SelectQuery(
+                select=[ast.Call(name="count", args=[])],
+                select_from=ast.JoinExpr(table=count_inner),
             )
-            total_count = raw_paginated_result[0][0]
+            total_count = execute_hogql_query(count_query, team=team).results[0][0]
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
