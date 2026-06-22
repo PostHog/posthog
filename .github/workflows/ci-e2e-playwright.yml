@@ -143,6 +143,11 @@ jobs:
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - Dockerfile
+                      # Snapshot baselines auto-committed by Visual Review. Counted so the
+                      # decide step below can skip a bot's snapshots-only push.
+                      snapshots:
+                        - 'frontend/snapshots.yml'
+                        - 'playwright/snapshots.yml'
 
             - name: Decide whether to run Playwright
               id: decide
@@ -150,8 +155,19 @@ jobs:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
+                  # Visual Review auto-commits a snapshot baseline after human review and
+                  # CI approval. Re-running the ~25-min E2E stack for that bot push is pure
+                  # waste; the `playwright_tests` aggregator treats the skip as success.
+                  IS_BOT_SNAPSHOTS_ONLY: >-
+                      ${{ github.event_name == 'pull_request'
+                          && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
+                          && fromJSON(steps.changes.outputs.snapshots_count || '0') > 0
+                          && fromJSON(steps.changes.outputs.snapshots_count || '0')
+                             == fromJSON(steps.changes.outputs.shouldRun_count || '0') }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
+                  if [[ "$IS_BOT_SNAPSHOTS_ONLY" == "true" ]]; then
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  elif [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
