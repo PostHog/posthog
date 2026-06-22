@@ -44,7 +44,7 @@ from .server import ServerInfo, generate_token, make_server, serve_forever_in_th
 from .slow_queries import SlowQuery, fetch_available_columns, fetch_available_dictionaries, fetch_slow_queries
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.sandbox import SandboxBase
+    from products.tasks.backend.facade.sandbox import SandboxBase
 
 PRODUCT_DIR = Path(__file__).resolve().parent.parent
 RUNS_DIR = PRODUCT_DIR / "data" / "runs"
@@ -212,7 +212,7 @@ def _spawn_one_sandbox(
     # Lazy import: SandboxBase pulls in Django settings, structlog, etc.
     # Keeping it inside the worker means `--no-spawn` doesn't pay for it.
     _ensure_django_setup()
-    from products.tasks.backend.services.sandbox import (  # noqa: PLC0415
+    from products.tasks.backend.facade.sandbox import (  # noqa: PLC0415
         SandboxConfig,
         SandboxTemplate,
         get_sandbox_class_for_backend,
@@ -640,7 +640,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _load_repo_dotenv()
     # Set DJANGO_SETTINGS_MODULE + SANDBOX_PROVIDER before any worker thread
-    # might import `products.tasks.backend.services.sandbox`. Workers also
+    # might import `products.tasks.backend.logic.services.sandbox`. Workers also
     # call this defensively (idempotent), but doing it here means the first
     # `import` from a worker thread doesn't race with the env-var write.
     _ensure_django_setup()

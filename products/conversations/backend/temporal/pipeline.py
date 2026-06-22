@@ -37,9 +37,8 @@ with workflow.unsafe.imports_passed_through():
         get_or_create_support_sandbox_env,
         resolve_user_id_for_support,
     )
-    from products.tasks.backend.models import Task
-    from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-    from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
 logger = structlog.get_logger(__name__)
 
@@ -408,7 +407,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             context,
             model=SupportReplyDraft,
             step_name="support_reply",
-            origin_product=Task.OriginProduct.SUPPORT_REPLY,
+            origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             internal=True,
             max_poll_seconds=DRAFT_POLL_SECONDS,
         )

@@ -1,9 +1,10 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
-import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
-import { timeoutGuard } from '../../../utils/db/utils'
-import { logger } from '../../../utils/logger'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '~/types'
+import { timeoutGuard } from '~/utils/db/utils'
+import { logger } from '~/utils/logger'
+
 import { overflowRedirectRedisLatency, overflowRedirectRedisOpsTotal } from './metrics'
 
 export type OverflowType = 'events' | 'recordings' | 'llm'
