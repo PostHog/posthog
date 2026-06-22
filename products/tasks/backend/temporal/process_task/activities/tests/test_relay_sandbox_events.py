@@ -125,17 +125,37 @@ class TestIsActiveAgentUpdate:
 
     @parameterized.expand(
         [
-            # Generation updates -> active; lifecycle updates -> not active.
+            # Generation updates -> active.
+            ("agent_message", "agent_message", True),
             ("agent_message_chunk", "agent_message_chunk", True),
             ("agent_thought_chunk", "agent_thought_chunk", True),
             ("tool_call", "tool_call", True),
+            ("tool_call_update", "tool_call_update", True),
             ("plan", "plan", True),
+            ("user_message_chunk", "user_message_chunk", True),
+            # Lifecycle updates -> not active.
             ("available_commands_update", "available_commands_update", False),
             ("current_mode_update", "current_mode_update", False),
+            ("config_option_update", "config_option_update", False),
+            ("usage_update", "usage_update", False),
+            # Allowlist fails safe: an unknown/future sub-type is not active.
+            ("unknown_future_subtype", "some_new_lifecycle_event", False),
         ],
     )
     def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
         assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    @parameterized.expand(
+        [
+            ("missing_session_update_key", {"update": {}}),
+            ("missing_update_key", {}),
+            ("null_params", None),
+        ],
+    )
+    def test_missing_session_update_is_not_active(self, _name: str, params: dict | None) -> None:
+        # A session/update with no sessionUpdate sub-type must not mark the agent active.
+        event = {"type": "notification", "notification": {"method": "session/update", "params": params}}
+        assert _is_active_agent_update(event) is False
 
     def test_non_session_update_is_not_active(self) -> None:
         assert (

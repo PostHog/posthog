@@ -421,9 +421,22 @@ def _is_session_update(event_data: dict) -> bool:
     return notification.get("method") == "session/update"
 
 
-# Lifecycle session/update sub-types that fire while a session is idle (not
-# generating). They must not mark the agent active, or idle runs heartbeat forever.
-_LIFECYCLE_SESSION_UPDATE_SUBTYPES = frozenset({"available_commands_update", "current_mode_update"})
+# session/update sub-types that mean the agent is actively generating. Allowlist
+# (not denylist) so an unknown/missing sub-type — a future ACP lifecycle event,
+# or a malformed payload — fails safe to "not active" rather than re-latching
+# agent_active and reviving the idle heartbeat storm.
+_GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call",
+        "tool_call_update",
+        "plan",
+        "user_message",
+        "user_message_chunk",
+    }
+)
 
 
 def _is_active_agent_update(event_data: dict) -> bool:
@@ -431,7 +444,7 @@ def _is_active_agent_update(event_data: dict) -> bool:
     if not _is_session_update(event_data):
         return False
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
-    return update.get("sessionUpdate") not in _LIFECYCLE_SESSION_UPDATE_SUBTYPES
+    return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
 
 
 def _is_keepalive_event(event_data: dict) -> bool:
