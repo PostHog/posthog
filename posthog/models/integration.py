@@ -8,7 +8,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -3412,56 +3412,54 @@ class S3CredentialIntegrationError(Exception):
     pass
 
 
-class BaseS3CredentialIntegration:
-    """Shared credential storage for S3-family integrations (AWS S3, S3-compatible, and future kinds
-    such as a first-class GCS-via-S3 integration).
-
-    Kind-agnostic by design: subclasses set their own `kind` and may store extra non-sensitive config
-    (e.g. `endpoint_url`). Only the credentials live in `sensitive_config`; bucket, region, prefix and
-    other export-specific settings stay on the batch export destination config, so one credential can
-    be reused across many buckets/regions — and, in future, by Redshift COPY-mode exports that stage
-    to S3.
-    """
-
-    kind: ClassVar[str]
-
-    integration: Integration
-    # The `aws_` prefix applies even to non-AWS (S3-compatible) providers: these are AWS Signature V4
-    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
-    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass through
-    # unchanged.
-    aws_access_key_id: str
-    aws_secret_access_key: str
-
-    def __init__(self, integration: Integration) -> None:
-        if integration.kind != self.kind:
-            raise S3CredentialIntegrationError(
-                f"Integration provided is not a '{self.kind}' integration (got kind='{integration.kind}')"
-            )
-        self.integration = integration
-
-        try:
-            self.aws_access_key_id = integration.sensitive_config["aws_access_key_id"]
-            self.aws_secret_access_key = integration.sensitive_config["aws_secret_access_key"]
-        except KeyError as e:
-            raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
-
-    @staticmethod
-    def _build_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
-        return {
-            "aws_access_key_id": aws_access_key_id,
-            "aws_secret_access_key": aws_secret_access_key,
-        }
+# Credentials shared by every S3-family integration (AWS S3, S3-compatible, and future kinds such as
+# a first-class GCS-via-S3 integration). The handler classes stay flat — matching the other
+# integration handlers in this module — and compose these helpers rather than sharing a base class.
+#
+# The `aws_` prefix applies even to non-AWS (S3-compatible) providers: these are AWS Signature V4
+# credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also match
+# boto3's kwargs and the existing S3-family batch export config fields, so they pass through unchanged.
+#
+# Only the credentials live in `sensitive_config`; bucket, region, prefix and other export-specific
+# settings stay on the batch export destination config, so one credential can be reused across many
+# buckets/regions — and, in future, by Redshift COPY-mode exports that stage to S3.
 
 
-class AwsS3Integration(BaseS3CredentialIntegration):
+def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+    try:
+        return (
+            integration.sensitive_config["aws_access_key_id"],
+            integration.sensitive_config["aws_secret_access_key"],
+        )
+    except KeyError as e:
+        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+
+
+def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
+    return {
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
+    }
+
+
+class AwsS3Integration:
     """An AWS S3 integration storing reusable AWS credentials.
 
     Holds only credentials. Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
     integration must never be pointed at an arbitrary endpoint (SSRF boundary).
     """
 
-    kind = Integration.IntegrationKind.AWS_S3.value
+    integration: Integration
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
 
     @property
     def aws_account_id(self) -> str | None:
@@ -3519,11 +3517,11 @@ class AwsS3Integration(BaseS3CredentialIntegration):
         # sets for the same AWS account (bare account_id would collide under update_or_create).
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
-            kind=cls.kind,
+            kind=Integration.IntegrationKind.AWS_S3.value,
             integration_id=name,
             defaults={
                 "config": {"name": name, "aws_account_id": account_id},
-                "sensitive_config": cls._build_sensitive_config(aws_access_key_id, aws_secret_access_key),
+                "sensitive_config": _build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
                 "created_by": created_by,
             },
         )
@@ -3535,7 +3533,7 @@ class AwsS3Integration(BaseS3CredentialIntegration):
         return integration
 
 
-class S3CompatibleIntegration(BaseS3CredentialIntegration):
+class S3CompatibleIntegration:
     """An S3-compatible storage integration (MinIO, Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
 
     Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
@@ -3543,12 +3541,18 @@ class S3CompatibleIntegration(BaseS3CredentialIntegration):
     `endpoint_url` before calling `integration_from_config` (see `IntegrationSerializer.create`).
     """
 
-    kind = Integration.IntegrationKind.S3_COMPATIBLE.value
-
+    integration: Integration
+    aws_access_key_id: str
+    aws_secret_access_key: str
     endpoint_url: str
 
     def __init__(self, integration: Integration) -> None:
-        super().__init__(integration)
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
@@ -3571,11 +3575,11 @@ class S3CompatibleIntegration(BaseS3CredentialIntegration):
 
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
-            kind=cls.kind,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
             integration_id=name,
             defaults={
                 "config": {"name": name, "endpoint_url": endpoint_url},
-                "sensitive_config": cls._build_sensitive_config(aws_access_key_id, aws_secret_access_key),
+                "sensitive_config": _build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
                 "created_by": created_by,
             },
         )

@@ -2037,7 +2037,7 @@ class TestAwsS3IntegrationModel(BaseTest):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
         )
-        with pytest.raises(S3CredentialIntegrationError, match="is not a 'aws-s3' integration"):
+        with pytest.raises(S3CredentialIntegrationError, match="is not an AWS S3 integration"):
             AwsS3Integration(integration)
 
     def test_wrapping_missing_credentials_raises(self):
