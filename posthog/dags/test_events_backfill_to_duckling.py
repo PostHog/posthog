@@ -9,6 +9,7 @@ import duckdb
 import psycopg
 from parameterized import parameterized
 
+from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
@@ -38,7 +39,9 @@ from posthog.dags.events_backfill_to_duckling import (
     _set_table_partitioning,
     _validate_identifier,
     delete_events_partition_data,
+    duckling_events_backfill_job,
     duckling_events_full_backfill_sensor,
+    duckling_persons_backfill_job,
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
@@ -51,6 +54,18 @@ from posthog.dags.events_backfill_to_duckling import (
     register_persons_files_with_duckling,
     table_exists,
 )
+
+
+class TestDucklingBackfillAlertRouting:
+    @parameterized.expand(
+        [
+            ("events", duckling_events_backfill_job),
+            ("persons", duckling_persons_backfill_job),
+        ]
+    )
+    def test_backfill_jobs_alert_managed_warehouse(self, _name, job):
+        assert job.tags["owner"] == JobOwners.TEAM_MANAGED_WAREHOUSE.value
+        assert "disable_slack_notifications" not in job.tags
 
 
 class TestResolveDucklingTarget:

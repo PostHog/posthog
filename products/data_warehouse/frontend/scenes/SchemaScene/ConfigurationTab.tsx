@@ -36,6 +36,7 @@ import {
 import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
+    SyncTypeLabelMap,
     allowedSyncFrequencies,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
@@ -359,25 +360,53 @@ function SyncMethodSection({
         incrementalFieldLookbackSeconds?: number | null
     ): Promise<void> => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
-        setSaving(true)
-        try {
-            await api.externalDataSchemas.update(schema.id, {
-                should_sync: true,
-                sync_type: syncType,
-                incremental_field: noIncrementalField ? null : incrementalField,
-                incremental_field_type: noIncrementalField ? null : incrementalFieldType,
-                incremental_field_lookback_seconds:
-                    syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
-                primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
-            })
-            lemonToast.success('Sync method saved')
-            loadSchema()
-        } catch (e: any) {
-            lemonToast.error(e?.message || "Can't save sync method at this time")
-        } finally {
-            setSaving(false)
+
+        const applyUpdate = async (): Promise<void> => {
+            setSaving(true)
+            try {
+                await api.externalDataSchemas.update(schema.id, {
+                    should_sync: true,
+                    sync_type: syncType,
+                    incremental_field: noIncrementalField ? null : incrementalField,
+                    incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                    incremental_field_lookback_seconds:
+                        syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
+                    primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
+                    ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                })
+                lemonToast.success('Sync method saved')
+                loadSchema()
+            } catch (e: any) {
+                lemonToast.error(e?.message || "Can't save sync method at this time")
+            } finally {
+                setSaving(false)
+            }
         }
+
+        // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
+        // column), so the backend rebuilds the table from scratch. Warn before discarding the data.
+        const crossesXminBoundary = syncType === 'xmin' || schema.sync_type === 'xmin'
+        if (crossesXminBoundary && syncType !== schema.sync_type && schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Switching sync method requires a full resync',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            Switching <strong>{schema.table?.name ?? schema.name}</strong> from{' '}
+                            <strong>{SyncTypeLabelMap[schema.sync_type ?? 'full_refresh']}</strong> to{' '}
+                            <strong>{SyncTypeLabelMap[syncType ?? 'full_refresh']}</strong> changes the table's
+                            structure, so it will be deleted and resynced from scratch.
+                        </p>
+                        <p>The existing synced data is replaced. This can take a while for large tables.</p>
+                    </div>
+                ),
+                primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
+                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+            })
+            return
+        }
+
+        await applyUpdate()
     }
 
     return (
