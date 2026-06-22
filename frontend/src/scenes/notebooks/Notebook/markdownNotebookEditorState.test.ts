@@ -6,7 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { NotebookType } from '../types'
+import { NotebookNodeType, NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_CLIENT_ID, NOTEBOOK_AI_PRESENCE_NAME } from './notebookPresence'
@@ -117,12 +117,8 @@ describe('notebookLogic markdown editor state', () => {
         expect(logic.values.autosavePaused).toBe(false)
     })
 
-    it('applies notebook artifact markdown while preserving the chat marker', () => {
-        const chatId = '10000000-1000-4000-8000-100000000001'
-        const withChatMarkdown = `${BASE_MARKDOWN}
-
-<Chat id="${chatId}" />`
-        logic.actions.handleMarkdownEditorChange(withChatMarkdown)
+    it('appends artifact markdown in insert-after-response mode', () => {
+        logic.actions.handleMarkdownEditorChange(BASE_MARKDOWN)
 
         logic.actions.applyNotebookArtifactMarkdown(
             {
@@ -130,12 +126,12 @@ describe('notebookLogic markdown editor state', () => {
                 title: 'Generated',
                 blocks: [{ type: 'markdown', content: 'Artifact paragraph' } as any],
             } as any,
-            chatId
+            'inline-conversation-id',
+            'insert-after-response'
         )
 
         const appliedMarkdown = (logic.values.localContent as any).content[0].attrs.markdown as string
-        expect(appliedMarkdown).toContain('Artifact paragraph')
-        expect(appliedMarkdown).toContain(`<Chat id="${chatId}" />`)
+        expect(appliedMarkdown).toEqual(`${BASE_MARKDOWN}\n\n# Generated\n\nArtifact paragraph`)
         expect(logic.values.markdownEditorDraft).toBeNull()
         expect(logic.values.autosavePaused).toBe(false)
     })
@@ -151,7 +147,7 @@ Thinking...`)
                 title: 'Cleaned notebook',
                 blocks: [{ type: 'markdown', content: '# Cleaned notebook\n\nUseful content.' } as any],
             } as any,
-            'inline-chat-id',
+            'inline-conversation-id',
             'replace'
         )
 
@@ -206,5 +202,34 @@ Thinking...`)
         logic.actions.setMarkdownAIPresenceActive(false)
 
         expect(logic.values.notebookPresenceParticipants).toHaveLength(1)
+    })
+
+    it('does not surface legacy left-column state for markdown notebooks', () => {
+        logic.unmount()
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.setLocalContent(buildMarkdownNotebookContent(BASE_MARKDOWN))
+
+        const nodeLogic = {
+            values: {
+                nodeId: 'markdown-node',
+                settingsPlacement: 'left',
+            },
+            props: {
+                nodeType: NotebookNodeType.Experiment,
+                attributes: { id: 1 },
+            },
+            actions: {
+                selectNode: jest.fn(),
+            },
+        } as any
+
+        logic.actions.setContainerSize('medium')
+        logic.actions.registerNodeLogic('markdown-node', nodeLogic)
+        logic.actions.setEditingNodeEditing('markdown-node', true)
+
+        expect(logic.values.editingNodeLogics).toEqual([nodeLogic])
+        expect(logic.values.editingNodeLogicsForLeft).toEqual([])
+        expect(logic.values.isShowingLeftColumn).toBe(false)
     })
 })

@@ -1,8 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { Region } from '~/types'
 
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
@@ -20,6 +23,14 @@ import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogi
 // 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
 const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
 
+// DNS zone the connection host lives under, selected by deployment region. Mirrors
+// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
+const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
+    [Region.US]: 'us.postwh.com',
+    [Region.EU]: 'eu.postwh.com',
+    [Region.DEV]: 'dev.postwh.com',
+}
+
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
 
@@ -27,6 +38,10 @@ const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
 
 export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'warehouseProvisioningLogic']),
+
+    connect(() => ({
+        values: [preflightLogic, ['preflight']],
+    })),
 
     actions({
         provisionWarehouse: (params: { databaseName: string }) => params,
@@ -151,6 +166,14 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             },
         ],
         isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => WAREHOUSE_NAME_REGEX.test(name)],
+        // DNS zone for the connection host, resolved from the deployment region (null when unknown).
+        warehouseDomain: [
+            (s) => [s.preflight],
+            (preflight): string | null => {
+                const region = preflight?.region
+                return region ? (MANAGED_WAREHOUSE_DOMAINS[region] ?? null) : null
+            },
+        ],
         retryDatabaseName: [
             (s) => [s.databaseName, s.lastRequestedDatabaseName],
             (databaseName, lastRequestedDatabaseName): string => databaseName || lastRequestedDatabaseName || '',

@@ -367,7 +367,7 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
 
     with patch(
-        "products.tasks.backend.services.custom_prompt_multi_turn_runner.MultiTurnSession.start",
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
         AsyncMock(return_value=(session, first_finding)),
     ):
         with pytest.raises(RuntimeError, match="poll_for_turn"):

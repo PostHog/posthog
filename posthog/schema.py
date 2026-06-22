@@ -138,6 +138,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
@@ -1630,14 +1631,6 @@ class LogAttributeResult(BaseModel):
     )
     name: str
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
-
-
-class LogValueResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str
-    name: str
 
 
 class LogsAlertStateChangeSignalExtra(BaseModel):
@@ -5339,9 +5332,11 @@ class HogQLAlertConfig(BaseModel):
     label_column: str | None = Field(
         default=None,
         description=(
-            "In `any_row` mode, the column whose value labels each row in breach"
-            " messages. When unset, the first non-evaluated column is used, falling"
-            " back to the row number."
+            "Column whose value labels the evaluated row(s) in breach messages: every"
+            " row in `any_row` mode, or the single evaluated row in"
+            " `last_row`/`first_row`. When unset, the first non-evaluated column is"
+            " used, falling back to the row number (any_row) or the value column name"
+            " (last_row/first_row)."
         ),
     )
     type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
@@ -5612,6 +5607,21 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogValueResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = Field(
+        default=None,
+        description=(
+            "Number of log records with this attribute value, over the current date"
+            " range, service, and resource filters."
+        ),
+    )
+    id: str
+    name: str
 
 
 class LogsAlertStateChangeSignalInput(BaseModel):
@@ -7777,6 +7787,10 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     metricChangeDecreaseColor: str | None = Field(
         default=None,
         description=("Metric display: change pill color when the metric decreased. Defaults to red."),
@@ -21309,6 +21323,34 @@ class AssistantRetentionActorsQuery(BaseModel):
     source: AssistantRetentionQuery = Field(
         ...,
         description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
+class AssistantStickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compareFilter` is enabled in the source."),
+    )
+    day: int = Field(
+        ...,
+        description=(
+            "The number of active intervals to drill into — the X-axis value of the"
+            " stickiness bar. Despite the name, this is an interval **count**, not a"
+            " date: for a daily insight, `day: 13` lists the users who were active on"
+            " exactly 13 days within the source's date range."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
+    )
+    source: AssistantStickinessQuery = Field(
+        ...,
+        description=("The source stickiness insight query whose bar we are drilling into."),
     )
 
 

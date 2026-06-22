@@ -5,18 +5,14 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.cloud_utils import is_cloud
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -24,47 +20,30 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+
+# Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
+# so the HTTP metadata surface can share them. Imported by name so the planning code below calls
+# them unqualified and tests can patch them on this module.
+from products.signals.backend.scout_harness.team_limits import (
+    DAILY_BUDGET_WINDOW,
+    _canonicalize_team_config_keys,
+    _default_team_config,
+    _enrolled_team_ids,
+    _read_flag_payload,
+    _resolve_max_runs_per_day,
+    _resolve_max_runs_per_tick,
+    _runs_today_by_team,
+    _team_configs,
+)
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
 logger = structlog.get_logger(__name__)
-
-# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag's JSON
-# payload picks which teams run scouts; per-scout SignalScoutConfig rows pick which
-# scouts/schedules.
-SIGNALS_SCOUT_DOGFOOD_FLAG = "signals-scout"
-
-# Fixed distinct_id for the payload read — enrollment is team-list-in-payload, not per-user.
-SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID = "internal_signals_scout_team_discovery"
-
-# Fail-safe allowlist used when the flag payload is missing/invalid — but only on PostHog
-# Cloud or local dev (see `_fallback_team_ids`). 1 (local dev), 2 (internal), 148051 (dev).
-DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
 # Set generously for now while scouts roll out to more teams — the per-team tick cap and
 # round-robin allocation do the day-to-day fairness work; this is the global ceiling.
 MAX_RUNS_PER_TICK = 1000
-
-# Per-team slice of the tick budget. Bounds what one team can consume per tick (and thus
-# per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
-# not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
-# team is never trimmed; round-robin allocation still keeps any one team from starving the
-# others even when this is close to the global cap.
-#
-# This is the LAST-RESORT default. Effective per-team cap resolves through three layers,
-# most specific first (see `_resolve_max_runs_per_tick`): a team's own `team_configs` entry →
-# the fleet-wide `default_team_config` → this code constant. The two flag layers are read
-# fresh each tick, so the launch posture (e.g. cap every enrolled team at 1 run/tick via
-# `default_team_config`, then hand a close partner more headroom via `team_configs`) is
-# tunable in the flag UI with no deploy.
-MAX_RUNS_PER_TEAM_PER_TICK = 50
-
-# Key inside a `team_configs` entry (or the `default_team_config` blob) that overrides
-# `MAX_RUNS_PER_TEAM_PER_TICK`. Both blobs share the same inner shape — a forward-looking
-# override bag — so add more per-team-tunable settings here and each consumer reads + validates
-# the key it cares about.
-TEAM_CONFIG_MAX_RUNS_PER_TICK = "max_runs_per_tick"
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
@@ -224,7 +203,13 @@ def _collect_planned_runs(
     if not due:
         return []
 
-    selected = _allocate_tick_budget(due, team_configs, default_team_config)
+    # Only count runs for teams that actually have a resolved daily budget — for the default
+    # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
+    capped_team_ids = {
+        d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
+    }
+    runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
+    selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
@@ -235,21 +220,36 @@ def _allocate_tick_budget(
     due: list[_DueRun],
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
+    runs_today: dict[int, int] | None = None,
 ) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to its per-team cap,
-    resolved per `_resolve_max_runs_per_tick` (team override → fleet default → code constant);
-    the global `MAX_RUNS_PER_TICK` budget is then filled round-robin across teams (one run per
-    team per round) so a single team with many due scouts can't monopolize the tick. Deferred
+    Each team's due runs are ordered most-overdue-first and trimmed to its effective per-team
+    cap, then the global `MAX_RUNS_PER_TICK` budget is filled round-robin across teams (one run
+    per team per round) so a single team with many due scouts can't monopolize the tick. Deferred
     runs stay unstamped, so they're the most overdue next tick — a poor-man's queue, same
     catch-up semantics as before.
+
+    The effective per-team cap is the tighter of two bounds: the per-tick cap
+    (`_resolve_max_runs_per_tick`) and the day's remaining headroom under the per-team daily
+    budget (`_resolve_max_runs_per_day` minus `runs_today`). The daily budget is what bounds a
+    team to N runs/day regardless of how many scouts it enables or how short their intervals —
+    the per-tick cap alone can only bound bursts (≤ cap × ticks/day).
     """
     team_configs = team_configs or {}
     default_team_config = default_team_config or {}
+    runs_today = runs_today or {}
 
     def _team_cap(team_id: int) -> int:
-        return _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
+        per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
+        per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
+        if per_day is None:
+            return per_tick
+        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
+        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
+        # not-yet-started dispatches; the per-tick cap bounds that brief window.
+        remaining_today = max(0, per_day - runs_today.get(team_id, 0))
+        return min(per_tick, remaining_today)
 
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
@@ -258,13 +258,27 @@ def _allocate_tick_budget(
         runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
         cap = _team_cap(team_id)
         if len(runs) > cap:
-            logger.warning(
-                "signals_scout coordinator: team over per-tick cap, deferring overflow",
-                team_id=team_id,
-                due=len(runs),
-                cap=cap,
-            )
+            if cap == 0:
+                # The expected steady state once a team has spent its daily budget — info, not a
+                # warning, so it doesn't read as a misconfiguration in alerting (it would otherwise
+                # fire every tick for the rest of the 24h window).
+                logger.info(
+                    "signals_scout coordinator: team daily budget spent, deferring all due scouts",
+                    team_id=team_id,
+                    deferred=len(runs),
+                )
+            else:
+                logger.warning(
+                    "signals_scout coordinator: team over effective per-team cap, deferring overflow",
+                    team_id=team_id,
+                    due=len(runs),
+                    cap=cap,
+                )
             del runs[cap:]
+
+    # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
+    # sort never indexes into an empty list.
+    by_team = {team_id: runs for team_id, runs in by_team.items() if runs}
 
     # Count after per-team trimming — that's the real candidate pool the global cap defers
     # against, so the warning doesn't fire on runs already dropped by the per-team caps.
@@ -295,21 +309,6 @@ def _allocate_tick_budget(
     return selected
 
 
-def _resolve_max_runs_per_tick(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> int:
-    """Effective per-tick cap for a team, most-specific layer first.
-
-    `team_configs[team_id]` (per-team override) → `default_team_config` (fleet-wide default) →
-    `MAX_RUNS_PER_TEAM_PER_TICK` (code constant). Both flag blobs are arbitrary JSON, so the
-    `max_runs_per_tick` value is validated at each layer (positive int, not bool); an absent or
-    malformed value falls through to the next layer rather than failing the tick.
-    """
-    for source in ((team_configs.get(team_id) or {}), default_team_config):
-        override = source.get(TEAM_CONFIG_MAX_RUNS_PER_TICK)
-        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
-            return override
-    return MAX_RUNS_PER_TEAM_PER_TICK
-
-
 def _participating_teams(enrolled: set[int]) -> list[Team]:
     """Resolve enrolled team ids to canonical `Team`s to run scouts on.
 
@@ -325,135 +324,6 @@ def _participating_teams(enrolled: set[int]) -> list[Team]:
     candidates = Team.objects.filter(id__in=enrolled)
     canonical_ids = {team.parent_team_id or team.id for team in candidates}
     return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
-
-
-def _canonicalize_team_config_keys(team_configs: dict[int, dict]) -> dict[int, dict]:
-    """Remap child-env config keys to their parent project id so per-team overrides line up with
-    the canonical team ids planning uses — `_participating_teams` canonicalizes enrollment the
-    same way, so an operator listing a child env id in both `guaranteed_team_ids` and
-    `team_configs` keeps its override. If both a parent and one of its child envs are keyed, the
-    explicit parent-keyed config wins regardless of dict order."""
-    if not team_configs:
-        return team_configs
-    parent_of = {
-        team_id: (parent_id or team_id)
-        for team_id, parent_id in Team.objects.filter(id__in=team_configs.keys()).values_list("id", "parent_team_id")
-    }
-    canonical: dict[int, dict] = {}
-    for team_id, config in team_configs.items():
-        canonical_id = parent_of.get(team_id, team_id)
-        # A parent/standalone key (team_id == canonical_id) always wins; a child remap only
-        # fills in when no parent-keyed config is present for that project.
-        if team_id == canonical_id or canonical_id not in canonical:
-            canonical[canonical_id] = config
-    return canonical
-
-
-def _fallback_team_ids() -> list[int]:
-    """Default allowlist when the flag payload is absent/unreadable — gated to PostHog Cloud
-    and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
-    fails closed instead, so the coordinator never starts LLM scout runs for an unintended
-    tenant; a self-hoster opts in by setting the payload explicitly."""
-    return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
-
-
-def _read_flag_payload() -> dict | None:
-    """Read + parse the `signals-scout` flag's JSON payload once.
-
-    The flag must stay 100%-on so the payload is served for the synthetic discovery
-    distinct_id — `match_value=True` additionally forces the true-variant payload under local
-    evaluation. Returns the parsed dict, or `None` when the payload is absent / not an object /
-    unreadable. A read error never breaks dispatch: callers apply their own fallback to `None`.
-    Enrollment and per-team configs both derive from a single call to this so they always see
-    the same snapshot. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
-    """
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        return payload if isinstance(payload, dict) else None
-    except Exception as error:
-        capture_exception(error)
-        return None
-
-
-def _enrolled_team_ids(payload: dict | None) -> set[int]:
-    """Project ids enrolled in scouts, parsed from the `signals-scout` flag payload.
-
-    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
-    drain) a team on the next tick; `skip_team_ids` is an override kill-switch.
-    Fail-safe: a missing/invalid payload (`None`) or malformed value falls back to
-    `_fallback_team_ids`.
-    """
-    fallback = _fallback_team_ids()
-    if payload is None:
-        return set(fallback)
-
-    # Absent key or malformed value → fallback. An explicit empty list is honored as an
-    # intentional "drain all teams" — not coerced to the fallback.
-    guaranteed = payload.get("guaranteed_team_ids", fallback)
-    if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
-        guaranteed = fallback
-
-    skip = payload.get("skip_team_ids", [])
-    if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
-        skip = []
-
-    return set(guaranteed) - set(skip)
-
-
-def _team_configs(payload: dict | None) -> dict[int, dict]:
-    """Optional per-team config overrides, parsed from the same `signals-scout` flag payload as
-    enrollment. Returns `{team_id: config_dict}`.
-
-    Payload key `team_configs` is a `{team_id: {…}}` map — a forward-looking per-team override
-    bag. Today the only honored key is `max_runs_per_tick` (overrides `MAX_RUNS_PER_TEAM_PER_TICK`
-    for that team — give an important dogfooder more headroom or hold a noisy one lower, no
-    deploy); add more per-team settings under the same blob later. The override takes precedence
-    over the global default for its team; teams not listed keep the global default.
-
-    Absent/malformed (`None` payload included) → `{}` (everyone on the defaults). Defensive
-    parse: JSON object keys arrive as strings so they're coerced to int; entries whose value
-    isn't a dict are dropped. Each consumer validates the specific key it reads (see
-    `_allocate_tick_budget._team_cap`). Keys are canonicalized to parent projects at planning
-    time (see `_canonicalize_team_config_keys`).
-    """
-    if payload is None:
-        return {}
-
-    raw = payload.get("team_configs", {})
-    if not isinstance(raw, dict):
-        return {}
-
-    configs: dict[int, dict] = {}
-    for key, value in raw.items():
-        if not isinstance(value, dict):
-            continue
-        try:
-            team_id = int(key)
-        except (TypeError, ValueError):
-            continue
-        configs[team_id] = value
-    return configs
-
-
-def _default_team_config(payload: dict | None) -> dict:
-    """Fleet-wide default config applied to every enrolled team, parsed from the `signals-scout`
-    flag payload key `default_team_config`.
-
-    Same inner shape as a `team_configs` entry (today: `max_runs_per_tick`). It sits between a
-    per-team `team_configs` override and the code constant in `_resolve_max_runs_per_tick`, so a
-    single fleet-wide cost guardrail (e.g. cap every enrolled team at 1 run/tick for launch) can
-    be set in the flag UI with no deploy, while specific teams still get more headroom via
-    `team_configs`. Absent/malformed (`None` payload included) → `{}` (everyone falls back to the
-    code constants — unchanged behaviour).
-    """
-    if payload is None:
-        return {}
-    raw = payload.get("default_team_config", {})
-    return raw if isinstance(raw, dict) else {}
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:
