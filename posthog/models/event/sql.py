@@ -565,22 +565,6 @@ VALUES
 )
 
 
-SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    events
-WHERE
-    team_id = %(team_id)s
-    {property_exists_filter}
-    {parsed_date_from}
-    {parsed_date_to}
-    {event_filter}
-    {value_filter}
-{order_by_clause}
-LIMIT 10
-"""
-
 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
 SELECT
     uuid,
