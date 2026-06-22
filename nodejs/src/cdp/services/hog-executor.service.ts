@@ -28,6 +28,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -793,7 +794,24 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. The queue payload keeps only the structured credentials
+        // and base headers; signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: params.aws_sigv4,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

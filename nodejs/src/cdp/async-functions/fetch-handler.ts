@@ -20,12 +20,17 @@ registerAsyncFunction('fetch', {
                 : JSON.stringify(fetchOptions.body)
             : fetchOptions?.body
 
+        // Hog templates targeting AWS services (Kinesis, SQS, …) pass `aws_sigv4`
+        // here instead of computing the Authorization header in Hog. The fetch
+        // executor re-signs on every attempt so a retry can never carry a stale
+        // signature past AWS's 5-minute expiry window.
         const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url,
             method,
             body,
             headers: pickBy(headers, (v) => typeof v == 'string'),
+            aws_sigv4: fetchOptions?.aws_sigv4,
         })
 
         result.invocation.queueParameters = fetchQueueParameters
