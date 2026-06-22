@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { CyclotronV2Janitor } from './janitor'
@@ -1414,6 +1415,26 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+        })
+
+        it('measureQueueDepths splits dequeueable and future-scheduled into separate gauges', async () => {
+            const future = new Date(Date.now() + 60_000)
+            // 2 dequeueable + 3 future-scheduled on the email queue
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', status: 'available' })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', status: 'available' })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', status: 'available', scheduled: future })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', status: 'available', scheduled: future })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', status: 'available', scheduled: future })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.depths.get('email')).toBe(2)
+
+            const futureGauge = await register.getSingleMetric('cdp_cyclotron_v2_future_scheduled_depth')?.get()
+            const futureEmail = futureGauge?.values.find((v) => v.labels.queue === 'email')
+            expect(futureEmail?.value).toBe(3)
         })
     })
 })

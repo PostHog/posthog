@@ -31,6 +31,12 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+const futureScheduledDepthGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_future_scheduled_depth',
+    help: 'Number of available jobs with scheduled > NOW() per queue — leading indicator for fair-dequeue walk-past cost on the email queue',
+    labelNames: ['queue'],
+})
+
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
@@ -174,18 +180,22 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        const result = await this.pool.query<{ queue_name: string; dequeueable: string; future: string }>(
+            `SELECT queue_name,
+                    COUNT(*) FILTER (WHERE scheduled <= NOW()) AS dequeueable,
+                    COUNT(*) FILTER (WHERE scheduled > NOW()) AS future
              FROM cyclotron_jobs
-             WHERE status = 'available' AND scheduled <= NOW()
+             WHERE status = 'available'
              GROUP BY queue_name`
         )
 
         const depths = new Map<string, number>()
         for (const row of result.rows) {
-            const count = parseInt(row.count, 10)
-            depths.set(row.queue_name, count)
-            queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            const dequeueable = parseInt(row.dequeueable, 10)
+            const future = parseInt(row.future, 10)
+            depths.set(row.queue_name, dequeueable)
+            queueDepthGauge.labels({ queue: row.queue_name }).set(dequeueable)
+            futureScheduledDepthGauge.labels({ queue: row.queue_name }).set(future)
         }
 
         return depths

@@ -170,9 +170,11 @@ export class CyclotronV2Worker {
      * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue_v2` (only
+     * indexes email-queue rows with status='available'; `INCLUDE (scheduled)`
+     * so the `scheduled <= NOW()` filter is satisfied from the index entry
+     * without heap visits on walked-past future-scheduled rows). NULLS FIRST
+     * drains any pre-migration legacy rows ahead of new fair-ordered ones.
      *
      * Email-specific by intent — but mechanically just "ORDER BY a different
      * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
