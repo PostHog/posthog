@@ -1,5 +1,6 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
+import antigravityLogo from '../harness-logos/antigravity.png'
 import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
@@ -138,6 +139,11 @@ const HARNESS_REGISTRY: HarnessDescriptor[] = [
         logo: { src: librechatLogo, alt: 'LibreChat logo' },
     },
     { category: 'Pi', match: (n) => n.startsWith('pi-client'), logo: { src: piLogo, alt: 'Pi logo' } },
+    {
+        category: 'Antigravity',
+        match: (n) => n.startsWith('antigravity'),
+        logo: { src: antigravityLogo, alt: 'Antigravity logo' },
+    },
     { category: 'Poke', match: (n) => n === 'poke' },
     { category: 'opencode', match: (n) => n === 'opencode', logo: { src: opencodeLogo, alt: 'opencode logo' } },
     { category: 'Kiro', match: (n) => n.startsWith('kiro') },
