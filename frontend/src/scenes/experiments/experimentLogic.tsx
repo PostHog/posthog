@@ -2630,7 +2630,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
+                    return await performQuery(
+                        query,
+                        undefined,
+                        getExperimentRefreshMode(values.featureFlags, refresh),
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        // Show the cached exposures immediately when the backend is recomputing in the
+                        // background, instead of hanging on the spinner until the recompute finishes.
+                        true
+                    )
                 },
             },
         ],
