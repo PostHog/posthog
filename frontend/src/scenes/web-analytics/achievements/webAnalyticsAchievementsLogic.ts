@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,10 +16,26 @@ import type {
     PendingCelebrationApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import type { webAnalyticsAchievementsLogicType } from './webAnalyticsAchievementsLogicType'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
+
+function sortByCloseness(
+    tracks: AchievementDefinitionApi[],
+    progressByTrack: Record<string, AchievementProgressApi>
+): AchievementDefinitionApi[] {
+    return [...tracks]
+        .map((track) => ({ track, derived: deriveTrackProgress(track, progressByTrack[track.key]) }))
+        .sort((a, b) => {
+            if (a.derived.maxed !== b.derived.maxed) {
+                return a.derived.maxed ? 1 : -1
+            }
+            return a.derived.fractionRemaining - b.derived.fractionRemaining
+        })
+        .map(({ track }) => track)
+}
 
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
@@ -30,6 +47,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         markCelebrated: (key: string) => ({ key }),
+        toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
         achievements: [
@@ -53,6 +71,14 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+            },
+        ],
+        expandedTracks: [
+            [] as string[],
+            {
+                toggleTrackExpanded: (state, { trackKey }) =>
+                    state.includes(trackKey) ? state.filter((key) => key !== trackKey) : [...state, trackKey],
+                closeModal: () => [],
             },
         ],
     }),
@@ -88,9 +114,36 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 return byTrack
             },
         ],
+        sortedUserTracks: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): AchievementDefinitionApi[] =>
+                sortByCloseness(
+                    definitions.filter((track) => track.scope === 'user'),
+                    progressByTrack
+                ),
+        ],
+        sortedTeamTracks: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): AchievementDefinitionApi[] =>
+                sortByCloseness(
+                    definitions.filter((track) => track.scope === 'team'),
+                    progressByTrack
+                ),
+        ],
     }),
     listeners(({ values, actions }) => ({
+        openModal: () => {
+            posthog.capture('web_analytics_achievements_opened')
+            actions.loadAchievements()
+        },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
+            const track = values.definitions.find((t) => t.key === trackKey)
+            posthog.capture('web_analytics_achievement_unlocked', {
+                track_key: trackKey,
+                stage,
+                stage_name: track?.stages[stage - 1]?.name,
+                scope: track?.scope,
+            })
             actions.markCelebrated(celebrationKey(trackKey, stage))
             try {
                 await webAnalyticsAchievementsAcknowledgeCelebration(String(values.currentProjectId), {
