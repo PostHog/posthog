@@ -246,7 +246,12 @@ def simulate_detector_on_insight(
             raise ValueError("No results found for insight.")
         if result.is_breakdown:
             raise ValueError("No breakdown values had enough data points for simulation.")
-        raise ValueError("No data points found for the selected series.")
+        # Rows exist but the series is shorter than the detector's window — say so, rather than the
+        # misleading "no data" (e.g. a 40-row SQL query against the default 90-point window).
+        raise ValueError(
+            "Not enough data points to score: the series is shorter than the detector's window size. "
+            "Return more rows or reduce the window size."
+        )
 
     if result.is_breakdown:
         breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str) for s in result.series]

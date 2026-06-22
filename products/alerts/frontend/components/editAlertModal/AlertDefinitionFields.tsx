@@ -91,9 +91,13 @@ export function HogQLDefinitionFields({
                                 value={value ?? 'last_row'}
                                 onChange={(newValue) => {
                                     onChange(newValue)
-                                    // Any-row mode checks unrelated rows — a relative condition is meaningless.
+                                    // Any-row rows are unrelated entities, not a time series: a relative
+                                    // condition has no prior value, and anomaly detection has nothing to
+                                    // score. Reset both so we can't land in an unsupported any-row+detector
+                                    // (or any-row+relative) state.
                                     if (newValue === 'any_row') {
                                         onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
+                                        onSetAlertFormValue('detector_config', null)
                                     }
                                 }}
                                 options={[
