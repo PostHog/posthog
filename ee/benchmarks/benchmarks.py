@@ -9,14 +9,16 @@ from ee.clickhouse.materialized_columns.analyze import (
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 from posthog.queries.funnels import ClickhouseFunnel
 from posthog.queries.property_values import (
-    get_property_values_for_key,
     get_person_property_values_for_key,
 )
 from posthog.queries.trends.trends import Trends
 from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
+from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered
+from posthog.schema import PropertyType, PropertyValuesQuery
 from posthog.models import Cohort, Team, Organization
 from products.actions.backend.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -516,11 +518,17 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_event_property_values(self):
         with no_materialized_columns():
-            get_property_values_for_key("$browser", self.team)
+            self._run_event_property_values("$browser")
 
     @benchmark_clickhouse
     def track_event_property_values_materialized(self):
-        get_property_values_for_key("$browser", self.team)
+        self._run_event_property_values("$browser")
+
+    def _run_event_property_values(self, key: str) -> None:
+        PropertyValuesQueryRunner(
+            team=self.team,
+            query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=key),
+        ).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     @benchmark_clickhouse
     def track_person_property_values(self):
