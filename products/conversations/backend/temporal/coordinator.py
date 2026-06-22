@@ -24,8 +24,8 @@ with workflow.unsafe.imports_passed_through():
 
 logger = structlog.get_logger(__name__)
 
-COORDINATOR_INTERVAL_MINUTES = 5
-TICKET_LOOKBACK_MINUTES = 6
+COORDINATOR_INTERVAL_MINUTES = 1
+TICKET_LOOKBACK_MINUTES = 2
 
 # Fanout caps so public ticket volume can't directly turn into unbounded sandbox/LLM work.
 # A single opted-in team that gets flooded with externally-created tickets can only spend
