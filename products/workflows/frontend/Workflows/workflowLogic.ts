@@ -20,7 +20,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { AccessControlLevel, ActivityScope, HogFunctionTemplateType } from '~/types'
 
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
@@ -370,6 +371,23 @@ export const workflowLogic = kea<workflowLogicType>([
     }),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
+        workflowUserAccessLevel: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow): AccessControlLevel | null => originalWorkflow?.user_access_level ?? null,
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.originalWorkflow],
+            (originalWorkflow): SidePanelSceneContext | null => {
+                return originalWorkflow?.id
+                    ? {
+                          activity_scope: ActivityScope.HOG_FLOW,
+                          activity_item_id: `${originalWorkflow.id}`,
+                          access_control_resource: 'hog_flow',
+                          access_control_resource_id: `${originalWorkflow.id}`,
+                      }
+                    : null
+            },
+        ],
         currentSchedule: [(s) => [s.schedules], (schedules): HogFlowSchedule | null => schedules[0] ?? null],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],

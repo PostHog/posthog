@@ -6,6 +6,7 @@ from typing import Optional, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import Http404
 from django.utils import timezone
 
 import structlog
@@ -48,6 +49,8 @@ from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -711,7 +714,7 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class HogFlowMinimalSerializer(serializers.ModelSerializer):
+class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -734,6 +737,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -835,6 +839,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "variables",
             "billable_action_types",
             "schedules",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -846,6 +851,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
+            "user_access_level",
         ]
 
     def validate(self, data):
@@ -1082,7 +1088,9 @@ class HogFlowPagination(LimitOffsetPagination):
 
 
 @extend_schema(extensions={"x-product": "workflows"})
-class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
+class HogFlowViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
+):
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
@@ -1308,7 +1316,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def invocations(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # No saved workflow yet (e.g. testing from the builder before first save) — fall back to
+            # testing the submitted payload. A PermissionDenied from the object-level access check must
+            # not be swallowed here; it surfaces as a 403.
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
@@ -1459,7 +1470,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        queryset = self.get_queryset().filter(id__in=validated_ids, status="archived")
+        # Only delete workflows the caller has object-level access to — standard destroy gets this via
+        # get_object(); the bulk path must filter explicitly so a denied workflow in the id list survives.
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            self.get_queryset().filter(id__in=validated_ids, status="archived")
+        )
         deleted_count, _ = queryset.delete()
 
         return Response({"deleted": deleted_count})
@@ -1472,7 +1487,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
-        except Exception:
+        except (Http404, exceptions.NotFound):
+            # A PermissionDenied from the object-level access check propagates as a 403; only a genuine
+            # missing workflow becomes a friendly 404.
             raise exceptions.NotFound(f"Workflow {kwargs.get('pk')} not found")
 
         if request.method == "POST":
