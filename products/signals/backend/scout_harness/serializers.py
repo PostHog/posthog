@@ -319,7 +319,8 @@ class RememberRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
+            "null), not rejected, so the memory write is never lost."
         ),
     )
 
