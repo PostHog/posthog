@@ -572,9 +572,6 @@ ignore_imports = [
     # TODO: customer_analytics presentation wave — these views still reach internals directly.
     # Thin each view to parse -> facade -> serialize and delete its entry. backend:contract-check
     # stays off until this list is empty.
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.constants",
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models",
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models.account",
     "products.customer_analytics.backend.presentation.views.organization_members -> products.customer_analytics.backend.constants",
     "products.customer_analytics.backend.presentation.views.serializers -> products.customer_analytics.backend.models",
     "products.customer_analytics.backend.presentation.views.utils -> products.customer_analytics.backend.models",
