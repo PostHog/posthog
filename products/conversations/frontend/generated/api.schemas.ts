@@ -641,15 +641,6 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
-export interface SuggestReplyResponseApi {
-    suggestion: string
-}
-
-export interface SuggestReplyErrorApi {
-    detail: string
-    error_type?: string
-}
-
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.
@@ -746,6 +737,11 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
+}
+
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
 }
 
 /**
