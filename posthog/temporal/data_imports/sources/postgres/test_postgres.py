@@ -643,9 +643,11 @@ class TestPostgresSourceNonRetryableErrors:
             )
         )
         non_retryable = source.get_non_retryable_errors()
-        assert "QueryTimeoutException" not in error_msg
-        assert "has an appropriate index" in non_retryable
-        assert any(pattern in error_msg for pattern in non_retryable.keys())
+        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
+        # The class-name key can't catch the raw message (str(e) carries no class name); the
+        # dedicated message fragment is what recognises it at the activity layer.
+        assert "QueryTimeoutException" not in matching_keys
+        assert "has an appropriate index" in matching_keys
 
 
 class TestPostgresSourceSetupRecoveryConflictRetry:
