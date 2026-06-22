@@ -6872,7 +6872,10 @@ export const externalDataSources = [
     'Appstack',
     'Razorpay',
     'Neon',
+    'NewRelic',
     'Custom',
+    'Tile38',
+    'Chatwoot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

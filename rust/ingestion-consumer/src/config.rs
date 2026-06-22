@@ -2,6 +2,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
 
@@ -142,6 +143,27 @@ pub struct Config {
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ---- Worker discovery ----
+    /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
+    /// co-located sidecar default) or `endpointslice` (watch a Kubernetes
+    /// Service's EndpointSlices for a separately-deployed, autoscaled worker pool).
+    #[envconfig(from = "WORKER_DISCOVERY_MODE", default = "static")]
+    pub worker_discovery_mode: DiscoveryMode,
+
+    /// EndpointSlice mode: Kubernetes Service name whose EndpointSlices list the
+    /// worker pods (label selector `kubernetes.io/service-name=<name>`).
+    #[envconfig(from = "WORKER_SERVICE_NAME", default = "")]
+    pub worker_service_name: String,
+
+    /// EndpointSlice mode: namespace of the worker Service. Defaults to the
+    /// pod's own namespace via the downward-API `POD_NAMESPACE` env var.
+    #[envconfig(from = "POD_NAMESPACE", default = "default")]
+    pub worker_namespace: String,
+
+    /// EndpointSlice mode: the worker pods' HTTP port (the ingestion-api port).
+    #[envconfig(from = "WORKER_PORT", default = "9001")]
+    pub worker_port: u16,
 
     /// How unpinned routing keys are assigned to workers: `binpack` (default,
     /// least-loaded — accurate for the co-located sidecar) or `p2c`

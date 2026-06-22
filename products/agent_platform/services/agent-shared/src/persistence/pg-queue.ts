@@ -120,6 +120,19 @@ export class PgSessionQueue implements SessionQueue {
         }
     }
 
+    async countByState(): Promise<Partial<Record<AgentSession['state'], number>>> {
+        // Cheap GROUP BY over the queue's partial-state index. Sampled by the
+        // janitor singleton once per sweep, not on any hot path.
+        const res = await this.pool.query<{ state: AgentSession['state']; count: string }>(
+            `SELECT state, count(*)::bigint AS count FROM agent_session GROUP BY state`
+        )
+        const out: Partial<Record<AgentSession['state'], number>> = {}
+        for (const row of res.rows) {
+            out[row.state] = Number(row.count)
+        }
+        return out
+    }
+
     async update(sessionId: string, patch: Partial<AgentSession>): Promise<void> {
         const sets: string[] = ['updated_at = NOW()']
         const params: unknown[] = [sessionId]

@@ -17,12 +17,14 @@ import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,
+    getMetricChangeTooltip,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
     METRIC_DEFAULT_INCREASE_COLOR,
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     METRIC_SUMMARY_LABELS,
+    selectCurrentSeries,
     selectPreviousSeriesSummary,
 } from './Metric.utils'
 
@@ -33,11 +35,12 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
 
 export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, compareFilter } = useValues(insightVizDataLogic(insightProps))
+    const { insightData, trendsFilter, interval } = useValues(insightVizDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
     const theme = useChartTheme()
 
-    const resultSeries = insightData?.result?.[0] as TrendResult | undefined
+    const results = insightData?.result as TrendResult[] | undefined
+    const resultSeries = selectCurrentSeries(results)
 
     // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {
@@ -48,17 +51,13 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const headlineValue = computeMetricSummary(summary, resultSeries.count, resultSeries.data)
     const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
-    // When "compare to previous" is on, total/average compare against the previous period (matched by
-    // compare_label) instead of the within-window first→last movement.
-    const previousSeries = selectPreviousSeriesSummary(
-        !!compareFilter?.compare,
-        insightData?.result as TrendResult[] | undefined
-    )
+    const previousSeries = selectPreviousSeriesSummary(results)
     const change = computeMetricSummaryChange(
         summary,
         { total: resultSeries.count, data: resultSeries.data },
         previousSeries
     )
+    const changeTooltip = getMetricChangeTooltip(summary, previousSeries != null, interval)
 
     const isIncrease = (change?.value ?? 0) >= 0
     const pillColors = {
@@ -87,6 +86,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 changeSize="md"
                 changeInline
                 change={change}
+                changeTooltip={changeTooltip}
                 hoverChangeFromPreviousPoint
                 {...pillColors}
                 restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
