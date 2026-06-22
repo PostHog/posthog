@@ -563,5 +563,9 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
     )
 
 
+def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.get_source_maps_recommendation_for_team(team)
+
+
 def build_ingestion_failures_url(team_id: int) -> str:
     return weekly_digest.build_ingestion_failures_url(team_id)
