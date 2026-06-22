@@ -71,7 +71,7 @@ export function buildMessageContentWithFiles(message: Message): string {
         return message.content
     }
     const fileBlocks = message.files
-        .map((file) => `<file name="${sanitizeFileName(file.name)}">\n${file.content}\n</file>`)
+        .map((file) => `<file name="${sanitizeFileName(file.name)}">\n${file.content.replace(/<\/file>/gi, '<\\/file>')}\n</file>`)
         .join('\n\n')
     const typed = message.content.trim()
     return typed ? `${fileBlocks}\n\n${message.content}` : fileBlocks
