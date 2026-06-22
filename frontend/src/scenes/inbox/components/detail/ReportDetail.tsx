@@ -179,15 +179,15 @@ export function ReportDetailSkeleton(): JSX.Element {
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm" aria-hidden>
             <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
                 <div className="h-3.5 w-24 rounded bg-fill-highlight-50 animate-pulse" />
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
+                    <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
                         <div className="size-7 shrink-0 mt-0.5 rounded bg-fill-highlight-100 animate-pulse" />
                         <div className="flex flex-col gap-2 min-w-0 flex-1">
                             <div className="h-6 w-2/3 rounded bg-fill-highlight-100 animate-pulse" />
                             <div className="h-3 w-1/2 rounded bg-fill-highlight-50 animate-pulse" />
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center flex-wrap gap-2 @2xl:shrink-0">
                         <div className="h-8 w-24 rounded bg-fill-highlight-50 animate-pulse" />
                         <div className="h-8 w-20 rounded bg-fill-highlight-50 animate-pulse" />
                     </div>
@@ -265,9 +265,9 @@ export function InboxDetailFrame({
                 >
                     {INBOX_TAB_LABEL[tab]}
                 </LemonButton>
-                <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
                     {/* Priority square anchors the title; everything else collapses into the meta line. */}
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
                         {report.priority && (
                             <div className="shrink-0 mt-0.5">
                                 <SignalReportPriorityBadge
@@ -293,7 +293,7 @@ export function InboxDetailFrame({
                             />
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center flex-wrap gap-2 @2xl:shrink-0">
                         <LemonButton
                             type="secondary"
                             size="small"

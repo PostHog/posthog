@@ -175,13 +175,49 @@ export interface AlertCheckApi {
     readonly notification_suppressed_by_agent: boolean
 }
 
+export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
+
+export const TrendsAlertConfigApiType = {
+    TrendsAlertConfig: 'TrendsAlertConfig',
+} as const
+
 export interface TrendsAlertConfigApi {
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean | null
     /** Zero-based index of the series in the insight's query to monitor. */
     series_index: number
-    type?: 'TrendsAlertConfig'
+    type: TrendsAlertConfigApiType
 }
+
+export type HogQLAlertEvaluationApi = (typeof HogQLAlertEvaluationApi)[keyof typeof HogQLAlertEvaluationApi]
+
+export const HogQLAlertEvaluationApi = {
+    LastRow: 'last_row',
+    FirstRow: 'first_row',
+    AnyRow: 'any_row',
+} as const
+
+export type HogQLAlertConfigApiType = (typeof HogQLAlertConfigApiType)[keyof typeof HogQLAlertConfigApiType]
+
+export const HogQLAlertConfigApiType = {
+    HogQLAlertConfig: 'HogQLAlertConfig',
+} as const
+
+export interface HogQLAlertConfigApi {
+    /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluationApi
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row). */
+    label_column?: string | null
+    type: HogQLAlertConfigApiType
+}
+
+/**
+ * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+ * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+ */
+export type AlertConfigUnionApi = TrendsAlertConfigApi | HogQLAlertConfigApi
 
 export interface PreprocessingConfigApi {
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -459,8 +495,8 @@ export interface AlertApi {
      * @nullable
      */
     readonly checks_total: number | null
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
@@ -540,8 +576,8 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly checks_total?: number | null
-    /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-    config?: TrendsAlertConfigApi | null
+    /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+    config?: AlertConfigUnionApi | null
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *

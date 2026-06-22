@@ -18,7 +18,7 @@ from posthog.tasks.email import (
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
-from posthog.tasks.gateway_credential import refresh_gateway_credentials
+from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -94,6 +94,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -229,6 +230,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="gateway credential cache sync",
     )
 
+    # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        drain_gateway_credential_last_used_task.s(),
+        name="gateway credential last-used drain",
+    )
+
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
@@ -337,6 +345,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="20"),
+        sweep_web_analytics_achievement_team_tracks.s(),
+        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week

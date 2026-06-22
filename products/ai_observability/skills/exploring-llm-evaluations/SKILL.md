@@ -1,20 +1,20 @@
 ---
 name: exploring-llm-evaluations
 description: >
-  Investigate AI observability evaluations of both types — `hog` (deterministic
-  code-based) and `llm_judge` (LLM-prompt-based). Find existing evaluations,
-  inspect their configuration, run them against specific generations, query
-  individual pass/fail results, and generate AI-powered summaries of patterns
-  across many runs. Use when the user asks to debug why an evaluation is
-  failing, surface common failure modes, compare results across filters,
-  dry-run a Hog evaluator, prototype a new LLM-judge prompt, or manage the
-  evaluation lifecycle (create, update, enable/disable, delete).
+  Investigate AI observability evaluations — `hog` (deterministic code-based),
+  `llm_judge` (LLM-prompt-based), and `sentiment` (user-message sentiment).
+  Find existing evaluations, inspect their configuration, run them against
+  specific generations, query individual results, and generate AI-powered
+  summaries for boolean pass/fail runs. Use when the user asks to debug why an
+  evaluation is failing, surface common failure modes, compare results across
+  filters, dry-run a Hog evaluator, prototype a new LLM-judge prompt, inspect
+  sentiment classifications, or manage the evaluation lifecycle.
 ---
 
-# Exploring LLM evaluations
+# Exploring AI observability evaluations
 
-PostHog evaluations score `$ai_generation` events. Each evaluation is one of two types,
-both first-class:
+PostHog evaluations score `$ai_generation` events. Each evaluation is one of three
+types:
 
 - **`hog`** — deterministic Hog code that returns `true`/`false` (and optionally N/A).
   Best for objective rule-based checks: format validation (JSON parses, schema matches),
@@ -25,15 +25,16 @@ both first-class:
   subjective or fuzzy checks: tone, helpfulness, hallucination detection, off-topic
   drift, instruction-following. Costs an LLM call per run and requires AI data
   processing approval at the org level.
+- **`sentiment`** — classifies sentiment from user messages on each matching
+  generation. Returns a sentiment label and score, not a pass/fail verdict.
 
-Results from both types land in ClickHouse as `$ai_evaluation` events with the same
-schema, so the read/query/summary workflows are identical regardless of evaluator type —
-the only thing that changes is whether `$ai_evaluation_reasoning` was written by Hog
-code or by an LLM.
+Results from all types land in ClickHouse as `$ai_evaluation` events. Boolean
+evaluations (`llm_judge` and `hog`) set `$ai_evaluation_result`; sentiment
+evaluations set `$ai_sentiment_*` properties instead.
 
-This skill covers the full lifecycle: list/inspect/manage evaluation configs (Hog or
-LLM judge), run them on specific generations, query individual results, and get an
-AI-generated summary of pass/fail/N/A patterns across many runs.
+This skill covers the full lifecycle: list/inspect/manage evaluation configs, run
+them on specific generations, query individual results, and get an AI-generated
+summary of pass/fail/N/A patterns across many boolean runs.
 
 ## Tools
 
@@ -41,7 +42,7 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 | ---------------------------------------- | -------------------------------------------------------------- |
 | `posthog:llma-evaluation-list`           | List/search evaluation configs (filter by name, enabled flag)  |
 | `posthog:llma-evaluation-get`            | Get a single evaluation config by UUID                         |
-| `posthog:llma-evaluation-create`         | Create a new `llm_judge` or `hog` evaluation                   |
+| `posthog:llma-evaluation-create`         | Create a new `llm_judge`, `hog`, or `sentiment` evaluation     |
 | `posthog:llma-evaluation-update`         | Update an existing evaluation (name, prompt, enabled, …)       |
 | `posthog:llma-evaluation-delete`         | Soft-delete an evaluation                                      |
 | `posthog:llma-evaluation-run`            | Run an evaluation against a specific `$ai_generation` event    |
@@ -56,23 +57,28 @@ All `llma-evaluation-*` tools are defined in `products/ai_observability/mcp/tool
 
 Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
-| Property                    | Meaning                                                  |
-| --------------------------- | -------------------------------------------------------- |
-| `$ai_evaluation_id`         | UUID of the evaluation config                            |
-| `$ai_evaluation_name`       | Human-readable name                                      |
-| `$ai_target_event_id`       | UUID of the `$ai_generation` event being scored          |
-| `$ai_trace_id`              | Parent trace ID (for jumping to the trace UI)            |
-| `$ai_evaluation_result`     | `true` = pass, `false` = fail                            |
-| `$ai_evaluation_reasoning`  | Free-text explanation (set by the LLM judge or Hog code) |
-| `$ai_evaluation_applicable` | `false` when the evaluator decided the generation is N/A |
+| Property                     | Meaning                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `$ai_evaluation_id`          | UUID of the evaluation config                                   |
+| `$ai_evaluation_name`        | Human-readable name                                             |
+| `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
+| `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                   |
+| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                           |
+| `$ai_evaluation_result`      | For boolean evaluations: `true` = pass, `false` = fail          |
+| `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)        |
+| `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A        |
+| `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative` |
+| `$ai_sentiment_score`        | Confidence score for the winning sentiment label                |
 
 When `$ai_evaluation_applicable = false`, the run counts as N/A regardless of `$ai_evaluation_result`.
 For evaluations that don't support N/A, this property may be `null` — treat null as "applicable".
 
 ## Workflow: investigate why an evaluation is failing
 
-Works the same way for `llm_judge` and `hog` evaluations — the differences only matter
-when you eventually go to fix the evaluator (edit the prompt vs. edit the Hog source).
+Works the same way for boolean `llm_judge` and `hog` evaluations — the differences
+only matter when you eventually go to fix the evaluator (edit the prompt vs. edit
+the Hog source). Sentiment evaluations should be inspected by sentiment label and
+score rather than pass/fail filters.
 
 ### Step 1 — Find the evaluation
 

@@ -11,6 +11,7 @@
  */
 
 import { HttpFetcher } from './http-client'
+import { markdownToMrkdwn } from './slack-mrkdwn'
 
 export interface SlackTriggerMetadata {
     type: 'slack'
@@ -180,7 +181,8 @@ export class SlackStatusReporter {
 }
 
 export async function postSlackReply(http: HttpFetcher, opts: PostSlackReplyOpts): Promise<boolean> {
-    const text = opts.text.trim()
+    // The model replies in Markdown; Slack speaks mrkdwn.
+    const text = markdownToMrkdwn(opts.text).trim()
     if (!text) {
         return false
     }

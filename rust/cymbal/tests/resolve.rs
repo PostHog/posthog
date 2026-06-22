@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common_types::ClickHouseEvent;
+use cymbal::symbolication::resolve::Resolve;
 use cymbal::{
-    config::Config,
     frames::{Frame, RawFrame},
-    symbol_store::{
+    modes::processing::ProcessingConfig,
+    symbolication::symbol_store::{
         apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
@@ -111,12 +112,12 @@ async fn end_to_end_resolver_test() {
         frame.source_url = Some(server.url(CHUNK_PATH).to_string());
     }
 
-    let mut config = Config::init_with_defaults().unwrap();
-    config.allow_internal_ips = true; // We're hitting localhost for the tests
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.allow_internal_ips = true; // We're hitting localhost for the tests
 
-    let sourcemap = SourcemapProvider::new(&config);
+    let sourcemap = SourcemapProvider::new(&config.resolver);
     let cache = Arc::new(Mutex::new(SymbolSetCache::new(
-        config.symbol_store_cache_max_bytes,
+        config.resolver.symbol_store_cache_max_bytes,
     )));
 
     let wrapped = NoOpChunkIdFetcher { inner: sourcemap };
@@ -142,7 +143,7 @@ async fn end_to_end_resolver_test() {
     for frame in test_stack {
         resolved_frames.push(
             frame
-                .resolve(exception.team_id, &catalog, &[])
+                .resolve(exception.team_id, &catalog, &[], 15)
                 .await
                 .unwrap(),
         );
@@ -174,7 +175,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
         .lookup(SourcePosition::new(location.line - 1, location.column))
         .unwrap();
 
-    let res = Frame::from((&frame, token));
+    let res = Frame::from((&frame, token, 15));
 
     assert!(!res.source.unwrap().contains('\0'));
 }
