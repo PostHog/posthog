@@ -8,9 +8,9 @@ Responsibilities:
 - Stay thin and stable.
 
 This module is deliberately light: it imports the models and small helpers only. The
-heavy behavioral surfaces (sandbox provisioning, the multi-turn agent machinery, temporal
-workflows, max tools) live in sibling facade submodules (``sandbox``, ``agents``,
-``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
+heavy behavioral surfaces (sandbox provisioning, warming, the multi-turn agent machinery,
+temporal workflows, max tools) live in sibling facade submodules (``sandbox``, ``warm``,
+``agents``, ``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
 config-only importer never drags docker/temporalio onto the ``django.setup()`` path.
 Functions that bridge to those heavy surfaces import them lazily inside the function body.
 """
@@ -114,6 +114,7 @@ __all__ = [
     "finalize_task_staged_artifacts",
     "get_code_home",
     "get_code_workflow_config",
+    "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
     "get_sandbox_environment",
@@ -155,6 +156,7 @@ __all__ = [
     "save_code_workflow_bindings",
     "send_cancel",
     "send_user_message",
+    "select_repository_for_message",
     "set_task_run_output",
     "signal_report_queryset",
     "signal_task_run_user_message",
@@ -325,14 +327,21 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
     )
 
 
-def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
+def _task_detail_to_dto(task: Task, *, include_latest_run: bool = True) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO.
 
     Mirrors ``TaskSerializer`` output exactly. ``latest_run`` is the task's most-recent run
     (by ``created_at``) mapped to a ``TaskRunDetailDTO``; pass a queryset that has
     ``prefetch_related("runs")`` and ``select_related("created_by")`` to avoid N+1s.
+    Set ``include_latest_run=False`` for consumers that render the task envelope without
+    nested run details.
     """
-    latest_run = task.latest_run
+    latest_run = task.latest_run if include_latest_run else None
+    # Prefer a cheap `_latest_run_id` subquery annotation (conversation envelope); otherwise derive
+    # it from a populated nested run so the id is always consistent with `latest_run`.
+    latest_run_id = getattr(task, "_latest_run_id", None)
+    if latest_run_id is None and latest_run is not None:
+        latest_run_id = latest_run.id
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
@@ -354,6 +363,7 @@ def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
         created_at=task.created_at,
         updated_at=task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
+        latest_run_id=latest_run_id,
     )
 
 
@@ -2273,6 +2283,25 @@ def get_task_detail(
     return _task_detail_to_dto(task) if task is not None else None
 
 
+def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> dict[UUID, contracts.TaskDetailDTO]:
+    """Task payloads for the Max conversation API, keyed by task id.
+
+    Team-scoped. ``latest_run`` (the nested run payload) stays excluded so conversation lists never
+    presign per-row log URLs; instead a single ``latest_run_id`` subquery carries the latest run id,
+    which the frontend needs to reconnect to sandbox logs.
+    """
+    if not task_ids:
+        return {}
+
+    latest_run_id_sq = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("id")[:1]
+    tasks = (
+        Task.objects.filter(team_id=team_id, id__in=task_ids)
+        .select_related("created_by", "team")
+        .annotate(_latest_run_id=Subquery(latest_run_id_sq))
+    )
+    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
@@ -2281,6 +2310,21 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool
     the original ordering.
     """
     return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+
+
+async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
+    """Pick the repository a free-form chat message is most likely about.
+
+    Kept as a lazy facade wrapper so API importers do not load the repo-selection agent or
+    sandbox/Temporal dependencies on their request import path.
+    """
+    from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
+        select_repository_for_message as select_repository_for_message_impl,
+    )
+
+    return await select_repository_for_message_impl(
+        team_id, user_id, message, origin_product=Task.OriginProduct(origin_product)
+    )
 
 
 def list_tasks(
