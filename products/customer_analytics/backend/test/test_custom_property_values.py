@@ -10,6 +10,10 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.customer_analytics.backend.facade import (
+    api as facade,
+    contracts,
+)
 from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyDefinitionNotFound,
     InvalidCustomPropertyValue,
@@ -162,3 +166,48 @@ class TestSetCustomPropertyValue(BaseTest):
             (plan.id, "enterprise", None),
             (seats.id, None, 42.0),
         }
+
+
+class TestCustomPropertyValueFacade(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    @parameterized.expand(
+        [
+            ("text", DisplayType.TEXT, "enterprise", "enterprise"),
+            ("number", DisplayType.NUMBER, 9.99, 9.99),
+            ("boolean", DisplayType.BOOLEAN, True, True),
+            (
+                "datetime",
+                DisplayType.DATETIME,
+                "2026-01-01T12:00:00Z",
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_set_returns_a_contract_with_the_typed_value(self, _name, display_type, value, expected_value):
+        definition = create_custom_property_definition(team_id=self.team.id, name=_name, display_type=display_type)
+
+        result = facade.set_custom_property_value(
+            self.team.id, self.account.id, definition.id, value, created_by_id=self.user.id
+        )
+
+        assert isinstance(result, contracts.CustomPropertyValue)
+        assert result.value == expected_value
+        # the union must not coerce across types (e.g. bool True -> 1.0)
+        assert type(result.value) is type(expected_value)
+        assert result.account_id == self.account.id
+        assert result.definition_id == definition.id
+        assert result.created_by_id == self.user.id
+
+    def test_list_active_returns_contracts(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        facade.set_custom_property_value(self.team.id, self.account.id, plan.id, "enterprise")
+
+        result = facade.list_active_custom_property_values(self.team.id, self.account.id)
+
+        assert len(result) == 1
+        assert isinstance(result[0], contracts.CustomPropertyValue)
+        assert result[0].value == "enterprise"
+        assert result[0].definition_id == plan.id

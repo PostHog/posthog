@@ -57,13 +57,17 @@ def set_custom_property_value(
         CustomPropertyValue.objects.for_team(team_id).filter(
             account_id=account_id, definition_id=definition_id, is_deleted=False
         ).update(is_deleted=True)
-        return CustomPropertyValue.objects.for_team(team_id).create(
+        row = CustomPropertyValue.objects.for_team(team_id).create(
             team_id=team_id,
             account_id=account_id,
             definition_id=definition_id,
             created_by_id=created_by_id,
             **{column: coerced},
         )
+    # Cache the definition we already hold so callers reading row.definition.* don't trigger a
+    # lazy FK load against the fail-closed manager (which would raise outside request scope).
+    row.definition = definition
+    return row
 
 
 def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) -> list[CustomPropertyValue]:
@@ -146,3 +150,9 @@ _HANDLER_BY_DATA_TYPE: dict[DataType, tuple[str, Callable[[CustomPropertyDefinit
 def _coerce_to_column(definition: CustomPropertyDefinition, value: Any) -> tuple[str, CoercedValue]:
     column, coerce = _HANDLER_BY_DATA_TYPE[definition.data_type]
     return column, coerce(definition, value)
+
+
+def value_of(row: CustomPropertyValue) -> CoercedValue | None:
+    """The value stored on `row`, read from the column matching its definition's data type."""
+    column, _ = _HANDLER_BY_DATA_TYPE[row.definition.data_type]
+    return getattr(row, column)
