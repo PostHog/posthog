@@ -41,6 +41,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { Team } from '~/types'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
@@ -100,6 +101,7 @@ export interface JoinedIngestionPipelineDeps {
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
+    featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
@@ -160,6 +162,7 @@ export function createJoinedIngestionPipeline<
         promiseScheduler,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        featureFlagCalledDedupService,
         teamManager,
         cookielessManager,
         groupTypeManager,
@@ -183,6 +186,7 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        featureFlagCalledDedupService,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
