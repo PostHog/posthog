@@ -195,7 +195,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # untouched so we preserve edits and don't redo work. Only columns without one are enriched —
     # which also lets a later re-sync fill in columns added after the first enrichment pass.
     new_columns = [column for column in columns if column["name"] not in existing]
-    if not new_columns:
+    # The table-level description (column_name="") is enriched on the genuine first pass — when neither
+    # the source schema nor a prior run carries one — independently of whether any columns are new. Fold
+    # it into the idempotency guard so a table whose columns are all annotated but which still lacks a
+    # table-level description isn't skipped.
+    table_needs_description = not bool(schema.description) and "" not in existing
+    if not new_columns and not table_needs_description:
         return {"status": "skipped", "reason": "already_enriched"}
 
     # 1) Native comments are authoritative — persist them directly, no LLM.
@@ -210,9 +215,6 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     columns_needing_description = [column["name"] for column in new_columns if not column.get("description")]
 
-    table_has_description = bool(schema.description)
-    # Only write a table-level description on the genuine first pass — never overwrite an existing one.
-    table_needs_description = not table_has_description and "" not in existing
     if not columns_needing_description and not table_needs_description:
         return {"status": "done", "native_annotations": native_count, "ai_annotations": 0}
 

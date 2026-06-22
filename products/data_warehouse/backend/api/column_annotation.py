@@ -125,10 +125,13 @@ class WarehouseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        # A PATCH/PUT can re-point the annotation at a different (same-team) table the user is denied,
-        # so re-check editor access on the resolved target table — falling back to the current one.
+        # Editing requires editor access on the annotation's current table (so it can't be moved off a
+        # view-only table), and — when a PATCH/PUT repoints it — editor access on the new table too.
         annotation = cast(WarehouseColumnAnnotation, serializer.instance)
-        self._require_table_editor_access(serializer.validated_data.get("table") or annotation.table)
+        target_table = serializer.validated_data.get("table") or annotation.table
+        self._require_table_editor_access(annotation.table)
+        if target_table.pk != annotation.table_id:
+            self._require_table_editor_access(target_table)
         serializer.save(
             description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             is_user_edited=True,

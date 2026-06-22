@@ -156,7 +156,12 @@ class TestEnrichTableSemanticsSync:
 
     def test_idempotent_when_already_enriched(self):
         team = _team()
-        schema, table = _make_schema(team, columns=[{"name": "status", "data_type": "String", "is_nullable": True}])
+        # Fully enriched: every column annotated AND the table already carries a description.
+        schema, table = _make_schema(
+            team,
+            columns=[{"name": "status", "data_type": "String", "is_nullable": True}],
+            description="Stripe charges",
+        )
         WarehouseColumnAnnotation.objects.for_team(team.pk).create(
             team=team,
             table=table,
@@ -174,6 +179,34 @@ class TestEnrichTableSemanticsSync:
         mock_llm.assert_not_called()
         assert result == {"status": "skipped", "reason": "already_enriched"}
         assert _annotations(team, table)["status"].description == "user wrote this"
+
+    def test_enriches_table_description_when_columns_done_but_table_undescribed(self):
+        team = _team()
+        # All columns are already annotated, but neither the source schema nor a prior run set a
+        # table-level description — the activity should still enrich the table-level description.
+        schema, table = _make_schema(team, columns=[{"name": "status", "data_type": "String", "is_nullable": True}])
+        WarehouseColumnAnnotation.objects.for_team(team.pk).create(
+            team=team,
+            table=table,
+            column_name="status",
+            description="charge lifecycle status",
+            description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+        )
+        generated = {"table_description": "Stripe charges", "columns": {}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_llm.assert_called_once()
+        # No columns need a description, but the table-level one is still requested.
+        assert mock_llm.call_args.kwargs["columns_needing_description"] == []
+        assert result["status"] == "done"
+        annotations = _annotations(team, table)
+        assert annotations[""].description == "Stripe charges"
+        assert annotations[""].description_source == WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
 
     def test_enriches_only_columns_added_after_initial_run(self):
         team = _team()
