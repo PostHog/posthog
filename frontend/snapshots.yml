@@ -4600,6 +4600,14 @@ snapshots:
         hash: v1.k794b7964.33000cd287cce76314b2d6a8005a0ed406396a50f43e18656a2ec8d33d33cc2b.rxsuAyw0uMSA4ouh1IhJClwrFxRGgOuKSvA5gpLxKk0
     scenes-app-ai-observability-trace--without-content--light:
         hash: v1.k794b7964.925af22228dd96b4c1bef5ccd9db87cacdbb8a9d9764f6845dbcf28cd510b73c._WVyYZM7SRur33YhrFxOYMN0NurSDNzWONIuDn5bsMw
+    scenes-app-aigateway--empty--dark:
+        hash: v1.k794b7964.9e5467f2092ba267f9bfb8adcdffe0d3b31cd6554e2cb65319f32602df9edb0c.FUdZ9vdoxd21tqhGoU2u8tvq-qQdlZkhh8jX8YhZs5U
+    scenes-app-aigateway--empty--light:
+        hash: v1.k794b7964.42ff5abd4d63a1a7c26347fcdc4873bd91c15018908d2be8a2e4a78995b37a79.72TfxeANzlgea6StJz9ARJesnyXRS9SBJhYTn9cClzk
+    scenes-app-aigateway--page--dark:
+        hash: v1.k794b7964.9e5467f2092ba267f9bfb8adcdffe0d3b31cd6554e2cb65319f32602df9edb0c.MKNf_pxiMAM_Oc88m0gAsJiwpde3Milvp7tNfGJKaLI
+    scenes-app-aigateway--page--light:
+        hash: v1.k794b7964.c75e47361d88cbc6bccf1080ec6ded4af7989ba6b9e0421e98e5d19e9ee8f70d.vGGS5YUSdED2wefcOe-Fs-UJQx9jzSXaJo6Qwk20vC4
     scenes-app-annotations--annotations--dark:
         hash: v1.k794b7964.839aa1c77337bde89878542d449c58c1080ddc767ff1c52ba73dc06683d5f797.VhGpyYpvz4Xkk8Kd7Y-_xPXGjLQ7lj_BXLfuTP5KSC4
     scenes-app-annotations--annotations--light:
