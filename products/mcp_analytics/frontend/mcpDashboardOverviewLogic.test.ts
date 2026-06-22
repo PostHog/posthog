@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     aggregateHarnessRows,
@@ -69,6 +70,22 @@ describe('mcpDashboardOverviewLogic', () => {
             ['cursor/0.42', 'Cursor'],
             ['cursor darwin arm64', 'Cursor'],
             ['codex-cli', 'OpenAI Codex'],
+            // Raw clientInfo.name tokens the harness coalesce now surfaces from
+            // mcp_session_client_name (these clients send no useful User-Agent).
+            ['codex-mcp-client', 'OpenAI Codex'],
+            ['cursor-vscode', 'Cursor'],
+            ['opencode', 'opencode'],
+            ['Lovable MCP Client', 'Lovable'],
+            ['linear-agent', 'Linear'],
+            ['@librechat/api-client', 'LibreChat'],
+            ['pi-client', 'Pi'],
+            ['antigravity-client', 'Antigravity'],
+            ['coderabbit', 'CodeRabbit'],
+            ['notion-mcp-client', 'Notion'],
+            ['replit-agent-mcp-client', 'Replit'],
+            ['windsurf', 'Windsurf'],
+            ['claude-code sdk-cli', 'Claude Agent SDK'],
+            ['claude-code sdk-py', 'Claude Agent SDK'],
             ['visual studio code', 'VS Code'],
             ['something-nobody-knows', 'Other'],
             ['', 'Other'],
@@ -79,6 +96,32 @@ describe('mcpDashboardOverviewLogic', () => {
         it('strips the "(via mcp-remote …)" suffix before matching', () => {
             expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
         })
+
+        it.each([
+            'Claude Code',
+            'OpenAI',
+            'Cursor',
+            'Linear',
+            'CodeRabbit',
+            'Notion',
+            'Replit',
+            'Windsurf',
+            'opencode',
+            'Lovable',
+            'Manus',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+        ])('resolves a logo for the %s category', (category) => {
+            expect(harnessLogo(category)?.src).toBeTruthy()
+        })
+
+        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
+            'has no logo for the logo-less %s category',
+            (category) => {
+                expect(harnessLogo(category)).toBeUndefined()
+            }
+        )
     })
 
     describe('deltaPct', () => {
