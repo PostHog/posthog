@@ -11,7 +11,7 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
@@ -85,6 +85,83 @@ class DirectlyFailingWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         if inputs.fail:
             raise ApplicationError("Workflow failed!")
+
+
+@workflow.defn
+class BenignFailingWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            benign_failing_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def benign_failing_activity(inputs: OptionallyFailingInputs) -> None:
+    raise ApplicationError("Expected user error", non_retryable=True, category=ApplicationErrorCategory.BENIGN)
+
+
+@workflow.defn
+class DirectlyBenignFailingWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        raise ApplicationError("Expected user error", category=ApplicationErrorCategory.BENIGN)
+
+
+@pytest.mark.asyncio
+async def test_benign_activity_error_is_not_captured(temporal_client: Client):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[BenignFailingWorkflow],
+            activities=[benign_failing_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "BenignFailingWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_benign_workflow_error_is_not_captured(temporal_client: Client):
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[DirectlyBenignFailingWorkflow],
+            activities=[],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "DirectlyBenignFailingWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.parametrize("fail", [True, False])

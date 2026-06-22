@@ -5,6 +5,7 @@ import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -18,6 +19,14 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_benign(e: BaseException) -> bool:
+    """Benign-category ApplicationErrors are expected failures an activity/workflow has already
+    handled (e.g. an invalid user-authored HogQL query rejected by the resolver). Reporting them
+    to error tracking is pure noise, so the interceptor skips capture for them while still letting
+    the failure propagate normally."""
+    return isinstance(e, ApplicationError) and e.category == ApplicationErrorCategory.BENIGN
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -65,6 +74,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            if _is_benign(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +108,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if _is_benign(e):
+                raise  # Expected failure the workflow tagged as benign; not error-tracking noise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

@@ -2,7 +2,7 @@ import traceback
 
 import structlog
 import temporalio.activity
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from posthog.event_usage import EventSource
 from posthog.sync import database_sync_to_async
@@ -12,7 +12,13 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES, TIMEOUT_ERROR_NAMES, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_USER,
+    SYSTEM_ERROR_NAMES,
+    TIMEOUT_ERROR_NAMES,
+    ExportCancelled,
+    classify_failure_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,11 +65,15 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # errors retry; programming errors and Chrome crashes fail fast). See
             # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
             # an upstream exception can't blow out the 2 MiB payload envelope.
+            # User-query failures (e.g. an invalid HogQL query) are expected and tagged BENIGN
+            # so the PostHog interceptor skips error-tracking capture — the export still fails fast.
+            is_user_error = classify_failure_type(e) == FAILURE_TYPE_USER
             raise ApplicationError(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 type=exception_class,
                 non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
+                category=ApplicationErrorCategory.BENIGN if is_user_error else ApplicationErrorCategory.UNSPECIFIED,
             ) from e
 
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
