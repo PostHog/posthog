@@ -4,6 +4,7 @@
        ❌ feat: Added retention export.   (capitalized, period, no scope)
      Description: high-level rationale, not a step-by-step replay. See "Rules for agent-authored PRs" lower down.
      Public OSS repo: no internal customers, incidents, or operational metrics.
+     Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 -->
 
 ## Problem
