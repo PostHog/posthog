@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
@@ -27,7 +27,7 @@ import { loginLogic } from '../../loginLogic'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, clearGeneralError, resendEmailMFA, devLogin, loadDevUsers } = useActions(loginLogic)
+    const { precheck, clearGeneralError, resendEmailMFA } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -37,26 +37,14 @@ function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
-        devUsers,
-        devUsersLoading,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const allowDevLogin = !!preflight?.allow_dev_login
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
-    const [devLoginOpen, setDevLoginOpen] = useState(false)
     const prevEmail = usePrevious(login.email)
 
-    useEffect(() => {
-        if (allowDevLogin) {
-            loadDevUsers(null)
-        }
-    }, [allowDevLogin, loadDevUsers])
-
-    // Trigger precheck for password manager autofill/paste (detected by large character delta),
-    // so SSO/SAML enforcement and passkey prompts resolve without a manual blur.
     useEffect(() => {
         const charDelta = login.email.length - (prevEmail?.length ?? 0)
         const isAutofill = charDelta > 1
@@ -99,7 +87,11 @@ function Login(): JSX.Element {
                                     data-attr="login-error-contact-support"
                                     onClick={(e) => {
                                         e.preventDefault()
-                                        openSupportForm({ kind: 'support', target_area: 'login', email: login.email })
+                                        openSupportForm({
+                                            kind: 'support',
+                                            target_area: 'login',
+                                            email: login.email,
+                                        })
                                     }}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
@@ -224,32 +216,6 @@ function Login(): JSX.Element {
                         lastUsedProvider={lastLoginMethod}
                         showPasskey
                     />
-                )}
-                {allowDevLogin && !devUsersLoading && devUsers.length > 0 && (
-                    <div className="mt-5 border-t border-dashed pt-4">
-                        <button
-                            type="button"
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
-                            onClick={() => setDevLoginOpen((open) => !open)}
-                            aria-expanded={devLoginOpen}
-                        >
-                            {devLoginOpen ? '▾' : '▸'} Dev login ({devUsers.length}) · development only
-                        </button>
-                        {devLoginOpen && (
-                            <div className="mt-2 flex flex-col gap-1">
-                                {devUsers.map((u) => (
-                                    <LemonButton
-                                        key={u.email}
-                                        fullWidth
-                                        onClick={() => devLogin(u.email)}
-                                        data-attr={`dev-login-${u.email}`}
-                                    >
-                                        {u.email}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        )}
-                    </div>
                 )}
             </PaperDeskCard>
         </PaperDeskScene>

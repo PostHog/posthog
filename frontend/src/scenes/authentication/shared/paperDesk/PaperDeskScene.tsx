@@ -4,6 +4,7 @@ import { type ReactNode } from 'react'
 
 import { PostHogLogo } from 'lib/brand/v2'
 
+import { DevLoginPanel } from './DevLoginPanel'
 import { Typewriter } from './Typewriter'
 
 /** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes. */
@@ -14,6 +15,7 @@ export function PaperDeskScene({ notes, children }: { notes: string[]; children:
             <div className="relative z-[3] flex flex-col items-center justify-center min-h-screen py-18 px-10">
                 <div className="PaperDesk__column flex flex-col items-center w-[27rem] max-w-full">{children}</div>
             </div>
+            <DevLoginPanel />
         </div>
     )
 }
