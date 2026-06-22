@@ -30,9 +30,7 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
-    columns_in_position_order,
     remove_named_tuples,
-    stamp_column_positions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -138,8 +136,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
-        if isinstance(self.columns, dict):
-            stamp_column_positions(self.columns)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -171,6 +167,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.data_load.saved_query_service import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
@@ -178,6 +175,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         )
 
         try:
+            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
+            # fails, we honor the failure contract below rather than leaving is_materialized=True
+            # with no schedule backing it.
+            if self.id in get_v2_saved_query_ids([self.id]):
+                if self.sync_frequency_interval is not None:
+                    self.sync_frequency_interval = None
+                    self.save(update_fields=["sync_frequency_interval"])
+                return
+
             self.setup_model_paths()
 
             schedule_exists = saved_query_workflow_exists(self)
@@ -292,7 +300,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -309,7 +318,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):
@@ -340,8 +349,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        # jsonb scrambles key order, so restore the stamped column positions
-        for column, type in columns_in_position_order(columns):
+        for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

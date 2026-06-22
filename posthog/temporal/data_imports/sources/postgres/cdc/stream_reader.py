@@ -37,7 +37,7 @@ class PgCDCConnectionParams:
     database: str
     user: str
     password: str
-    sslmode: str = "prefer"
+    require_ssl: bool = False
     slot_name: str = ""
     publication_name: str = ""
 
@@ -90,6 +90,7 @@ class PgCDCStreamReader:
                 database=self._params.database,
                 user=self._params.user,
                 password=self._params.password,
+                require_ssl=self._params.require_ssl,
             ),
             logger,
         )
@@ -153,6 +154,7 @@ class PgCDCStreamReader:
                 database=self._params.database,
                 user=self._params.user,
                 password=self._params.password,
+                require_ssl=self._params.require_ssl,
             ),
             logger,
         )

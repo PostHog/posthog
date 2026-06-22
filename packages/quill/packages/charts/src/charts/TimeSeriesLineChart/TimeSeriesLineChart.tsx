@@ -11,11 +11,15 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
+    YAxis,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
+    buildYAxes,
+    normalizeYAxisList,
+    primaryYAxisConfig,
     useXTickFormatter,
     useYTickFormatter,
     type XAxisConfig,
@@ -38,7 +42,11 @@ export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
-    yAxis?: YAxisConfig
+    /** Single object = one y-axis (today's behavior). Array = one entry per axis for dual y-axis
+     *  charts: set `id` (matches `Series.yAxisId`; first entry defaults to `'left'`) and `position`
+     *  (`'left'`/`'right'`; first entry defaults to `'left'`, the rest to `'right'`). A series renders
+     *  against a secondary axis when its `yAxisId` matches an entry's `id`. */
+    yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
@@ -100,8 +108,19 @@ export function TimeSeriesLineChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
+    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
+    // Scalar y-config describes the primary (left) axis — drives single-axis rendering, the default
+    // value-label formatter, and the left gutter when a right-axis series is present.
+    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
+    // Per-axis configs only when the caller passed an array — a single object keeps the existing
+    // single-axis path untouched (no `yAxes` on the LineChart config).
+    const yAxes = useMemo<YAxis[] | undefined>(
+        () => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined),
+        [yAxis, axisList]
+    )
+
     const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(yAxis)
+    const yTickFormatter = useYTickFormatter(primaryYAxis)
 
     // Toggling works off the raw series so the legend lists the user's series (not derived trend
     // lines / CI bands); hidden ones flow through the derived pipeline already excluded.
@@ -126,20 +145,26 @@ export function TimeSeriesLineChart<Meta = unknown>({
     // object stays referentially stable and doesn't re-trigger scale recomputation each render.
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
 
+    // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
+    // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
+    const floatBaseline = primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log'
+
     const lineChartConfig: LineChartConfig = {
-        yScaleType: yAxis?.scale,
+        yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: yAxis?.hide,
+        hideYAxis: primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
-        yAxisLabel: yAxis?.label,
-        showGrid: yAxis?.showGrid,
+        yAxisLabel: primaryYAxis?.label,
+        showGrid: primaryYAxis?.showGrid,
         showAxisLines,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
         valueDomain,
+        floatBaseline,
+        yAxes,
     }
 
     return (

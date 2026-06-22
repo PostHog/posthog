@@ -1,8 +1,17 @@
 from parameterized import parameterized
 
+from posthog.temporal.ai_observability.sentiment.constants import (
+    MAX_MESSAGE_CHARS,
+    MAX_USER_MESSAGES,
+    SENTIMENT_EVAL_MAX_MESSAGE_CHARS,
+    SENTIMENT_EVAL_MESSAGE_HEAD_CHARS,
+)
 from posthog.temporal.ai_observability.sentiment.extraction import (
+    HEAD_TAIL_SEPARATOR,
     _is_tool_result_message,
+    extract_sentiment_eval_messages,
     extract_user_messages_individually,
+    truncate_to_head_tail,
     truncate_to_token_limit,
 )
 
@@ -76,8 +85,6 @@ class TestExtractUserMessagesIndividually:
         assert extract_user_messages_individually(ai_input) == expected
 
     def test_limits_to_max_user_messages(self):
-        from posthog.temporal.ai_observability.sentiment.constants import MAX_USER_MESSAGES
-
         messages = [{"role": "user", "content": f"msg-{i}"} for i in range(MAX_USER_MESSAGES + 10)]
         result = extract_user_messages_individually(messages)
         assert len(result) == MAX_USER_MESSAGES
@@ -128,10 +135,50 @@ class TestTruncateToTokenLimit:
         assert truncate_to_token_limit(text, max_chars=max_chars) == expected
 
     def test_default_max_chars_from_constants(self):
-        from posthog.temporal.ai_observability.sentiment.constants import MAX_MESSAGE_CHARS
-
         short_text = "x" * (MAX_MESSAGE_CHARS - 1)
         assert truncate_to_token_limit(short_text) == short_text
 
         long_text = "x" * (MAX_MESSAGE_CHARS + 100)
         assert len(truncate_to_token_limit(long_text)) == MAX_MESSAGE_CHARS
+
+
+class TestTruncateToHeadTail:
+    def test_keeps_short_text_unchanged(self):
+        assert truncate_to_head_tail("short", max_chars=100, head_chars=30) == "short"
+
+    def test_keeps_head_and_tail_within_max_chars(self):
+        text = ("h" * 400) + ("m" * 400) + ("t" * 800)
+        result = truncate_to_head_tail(text, max_chars=1000, head_chars=300)
+        tail_chars = 1000 - len(HEAD_TAIL_SEPARATOR) - 300
+
+        assert len(result) == 1000
+        assert result.startswith("h" * 300)
+        assert HEAD_TAIL_SEPARATOR in result
+        assert result.endswith("t" * tail_chars)
+
+    def test_falls_back_to_tail_when_head_chars_is_zero(self):
+        text = "abcdefgh"
+        assert truncate_to_head_tail(text, max_chars=5, head_chars=0) == "defgh"
+
+
+class TestExtractSentimentEvalMessages:
+    def test_keeps_only_last_user_message(self):
+        messages = [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "reply"},
+            {"role": "user", "content": "second"},
+        ]
+
+        assert extract_sentiment_eval_messages(messages) == [(2, "second")]
+
+    def test_applies_head_tail_truncation_to_last_user_message(self):
+        long_message = ("h" * 400) + ("m" * 400) + ("t" * 800)
+        result = extract_sentiment_eval_messages([{"role": "user", "content": long_message}])
+        tail_chars = SENTIMENT_EVAL_MAX_MESSAGE_CHARS - len(HEAD_TAIL_SEPARATOR) - SENTIMENT_EVAL_MESSAGE_HEAD_CHARS
+
+        assert len(result) == 1
+        message_index, text = result[0]
+        assert message_index == 0
+        assert len(text) == SENTIMENT_EVAL_MAX_MESSAGE_CHARS
+        assert text.startswith("h" * SENTIMENT_EVAL_MESSAGE_HEAD_CHARS)
+        assert text.endswith("t" * tail_chars)

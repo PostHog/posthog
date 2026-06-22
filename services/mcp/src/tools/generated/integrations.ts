@@ -6,6 +6,8 @@ import {
     IntegrationsChannelsRetrieveParams,
     IntegrationsChannelsRetrieveQueryParams,
     IntegrationsDestroyParams,
+    IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubReposRetrieveQueryParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
@@ -75,6 +77,31 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsGithubReposRetrieveSchema = IntegrationsGithubReposRetrieveParams.omit({ project_id: true }).extend(
+    IntegrationsGithubReposRetrieveQueryParams.shape
+)
+
+const integrationsGithubReposRetrieve = (): ToolBase<
+    typeof IntegrationsGithubReposRetrieveSchema,
+    Schemas.GitHubReposResponse
+> => ({
+    name: 'integrations-github-repos-retrieve',
+    schema: IntegrationsGithubReposRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsGithubReposRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GitHubReposResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/github_repos/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const IntegrationsListSchema = IntegrationsListQueryParams
 
 const integrationsList = (): ToolBase<
@@ -108,5 +135,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-list': integrationsList,
 }
