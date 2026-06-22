@@ -1170,6 +1170,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         existing_dashboard: Dashboard | None = None
+        user_access_control = UserAccessControl(user=cast(User, request.user), team=team)
         if use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(
@@ -1180,7 +1181,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             # Duplicating a dashboard reads and copies all of its content (filters, variables, tiles, insights),
             # so the caller must have at least viewer access to the source — mirrors the copy_tile/move_tile checks.
-            user_access_control = UserAccessControl(user=cast(User, request.user), team=team)
             if not user_access_control.check_access_level_for_object(existing_dashboard, "viewer"):
                 raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
 
@@ -1216,7 +1216,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     use_template,
                     dashboard,
                     cast(User, request.user),
-                    user_access_control=UserAccessControl(user=cast(User, request.user), team=team),
+                    user_access_control=user_access_control,
                 )
             except AttributeError as error:
                 logger.error(
@@ -1238,7 +1238,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             for existing_tile in existing_tiles:
                 # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
                 if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile)
+                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
                 else:
                     existing_tile.copy_to_dashboard(dashboard)
 
@@ -1261,8 +1261,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         return dashboard
 
-    def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
+    def _deep_duplicate_tiles(
+        self, dashboard: Dashboard, existing_tile: DashboardTile, user_access_control: UserAccessControl
+    ) -> None:
         if existing_tile.insight:
+            # Deep duplication serializes and recreates the source insight, so the caller must have viewer
+            # access to that specific insight — an insight can be restricted independently of its dashboard.
+            if not user_access_control.check_access_level_for_object(existing_tile.insight, "viewer"):
+                raise exceptions.PermissionDenied(
+                    "You don't have permission to view one of the source dashboard's insights."
+                )
+
             new_data = {
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
@@ -1455,11 +1464,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
-        for tile_data in duplicate_tiles:
-            # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
-            existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
-            existing_tile.layouts = tile_data.get("layouts", {})
-            self._deep_duplicate_tiles(instance, existing_tile)
+        if duplicate_tiles:
+            user_access_control = UserAccessControl(user=user, team=instance.team)
+            for tile_data in duplicate_tiles:
+                # nosemgrep: idor-lookup-without-team (scoped via parent viewset get_queryset)
+                existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+                existing_tile.layouts = tile_data.get("layouts", {})
+                self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
             if being_deleted:
