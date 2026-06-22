@@ -27,15 +27,20 @@ first.
   real PG pools + KafkaLogSink + RedisSessionEventBus, starts the loop.
 - [src/lib.ts](src/lib.ts) — library entry (`Worker`, `runSession`,
   `posthogAiGatewayModel`). The harness imports from here.
+- [src/metrics.ts](src/metrics.ts) — Prometheus metrics: session outcomes
+  by state, pre-run/crash failures by category, in-flight + max-concurrency
+  gauges, claim failure counters, session duration histogram, turns per
+  session, sandbox-acquire latency + outcome, MCP-open failures.
 
 ## Rules of engagement
 
 1. **No HTTP request-handling in this service.** The runner is
    queue-driven. If you reach for express or fetch-as-server to serve
    product traffic, you're in the wrong place — that belongs in ingress
-   (inbound) or janitor (authoring). The one exception is the minimal
-   `node:http` `/healthz` liveness server in `index.ts` (k8s probe target,
-   no business logic) — keep it that small.
+   (inbound) or janitor (authoring). The two exceptions are the minimal
+   `node:http` `/healthz` liveness server (k8s probe target) and the
+   Prometheus `/metrics` server on port 6738 (scrape target, no business
+   logic) — keep both that small.
 
 2. **Side effects go through injected interfaces.** The bundle store,
    queue, sandbox pool, secret broker, log sink, event bus are all
