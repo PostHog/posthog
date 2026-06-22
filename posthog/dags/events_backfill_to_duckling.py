@@ -237,7 +237,7 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     # CP couldn't answer — fall back to the stored row if it knows a bucket.
     server = get_duckgres_server_for_organization(org_id)
     if server is not None and server.bucket:
-        bucket, bucket_region = server.bucket, server.bucket_region
+        bucket, bucket_region = server.bucket, server.bucket_region or DUCKGRES_BUCKET_REGION
         logger.warning(
             "duckling_bucket_from_stored_server_control_plane_unavailable",
             team_id=team_id,
