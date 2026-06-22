@@ -177,6 +177,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- User preferences with no IDOR risk (read own data only) ---
         "FeatureFlagOverride",
         "NotificationReadState",
+        "NotificationArchiveState",
         "NotificationViewed",
         "SessionRecordingPlaylistViewed",
         "UserPromptState",
@@ -314,6 +315,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "LogsAlertCheck",  # via LogsAlertConfiguration
         "LogsAlertEvent",  # via LogsAlertConfiguration
         "NotificationReadState",  # via NotificationEvent
+        "NotificationArchiveState",  # via NotificationEvent
         "PluginStorage",  # via PluginConfig
         "ResourceNotebook",  # via Notebook
         "SchemaPropertyGroupProperty",  # via SchemaPropertyGroup

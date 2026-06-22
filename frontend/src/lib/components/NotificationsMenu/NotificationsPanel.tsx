@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification } from '@posthog/icons'
+import { IconArchive, IconCheckCircle, IconEllipsis, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
@@ -75,18 +76,35 @@ export function NotificationsPanel(): JSX.Element {
                     Archived
                 </button>
             </div>
-            {!isArchivedTab && (
-                <div className="flex items-center gap-1 ml-auto">
-                    {inAppUnreadCount > 0 && (
-                        <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()}>
-                            Mark all as read
-                        </LemonButton>
-                    )}
-                    {hasArchivableNotifications && (
-                        <LemonButton size="xsmall" type="secondary" onClick={() => archiveAll()}>
-                            Archive all
-                        </LemonButton>
-                    )}
+            {!isArchivedTab && (inAppUnreadCount > 0 || hasArchivableNotifications) && (
+                <div className="ml-auto">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger
+                            render={
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    tooltip="More actions"
+                                />
+                            }
+                        />
+                        <DropdownMenuContent align="end" className="w-auto min-w-max">
+                            {inAppUnreadCount > 0 && (
+                                <DropdownMenuItem onClick={() => markAllAsRead()}>
+                                    <IconCheckCircle />
+                                    Mark all as read
+                                </DropdownMenuItem>
+                            )}
+                            {hasArchivableNotifications && (
+                                <DropdownMenuItem onClick={() => archiveAll()}>
+                                    <IconArchive />
+                                    Archive all
+                                </DropdownMenuItem>
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             )}
         </div>

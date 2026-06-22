@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconChevronRight, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconArchive, IconChevronRight } from '@posthog/icons'
 
+import { NotificationActionButton, ReadToggleIcon } from 'lib/components/NotificationsMenu/NotificationActionButton'
 import { NotificationRow } from 'lib/components/NotificationsMenu/NotificationRow'
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { dayjs } from 'lib/dayjs'
-import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
 import {
     NotificationGroup,
@@ -59,7 +58,7 @@ export function NotificationGroupRow({
     return (
         <div className="flex flex-col">
             <div
-                className={`flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
+                className={`group/row flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
                     allRead ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
                 }`}
                 onClick={handleExpand}
@@ -75,41 +74,34 @@ export function NotificationGroupRow({
                                 {group.count}
                             </span>
                             {!readOnly && (
-                                <Tooltip title={allRead ? 'Mark group as unread' : 'Mark group as read'}>
-                                    <button
-                                        className="group/read min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 cursor-pointer"
-                                        onClick={handleToggleRead}
-                                    >
-                                        {allRead ? (
-                                            <IconCheckCircle className="size-4 text-success" />
-                                        ) : (
-                                            <>
-                                                <IconRadioButtonUnchecked className="size-4 text-muted opacity-40 group-hover/read:hidden" />
-                                                <IconCheckCircle className="size-4 text-muted opacity-60 hidden group-hover/read:block" />
-                                            </>
-                                        )}
-                                    </button>
-                                </Tooltip>
-                            )}
-                            {!readOnly && group.has_archivable && (
-                                <Tooltip title="Archive group">
-                                    <button
-                                        className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
-                                        onClick={handleArchive}
-                                    >
-                                        <IconX className="size-4" />
-                                    </button>
-                                </Tooltip>
-                            )}
-                            <button
-                                className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary"
-                                onClick={handleExpand}
-                                aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
-                            >
-                                <IconChevronRight
-                                    className={`size-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                <NotificationActionButton
+                                    className="group/read"
+                                    tooltip={allRead ? 'Mark group as unread' : 'Mark group as read'}
+                                    onClick={handleToggleRead}
+                                    icon={<ReadToggleIcon read={allRead} />}
                                 />
-                            </button>
+                            )}
+                            {!readOnly && (
+                                <div className="ml-1 min-w-[26px] min-h-[26px] flex">
+                                    {group.has_archivable && (
+                                        <NotificationActionButton
+                                            icon={<IconArchive className="size-4" />}
+                                            tooltip="Archive group"
+                                            onClick={handleArchive}
+                                            tone="danger"
+                                        />
+                                    )}
+                                </div>
+                            )}
+                            <NotificationActionButton
+                                icon={
+                                    <IconChevronRight
+                                        className={`size-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                    />
+                                }
+                                ariaLabel={isExpanded ? 'Collapse group' : 'Expand group'}
+                                onClick={handleExpand}
+                            />
                         </div>
                     </div>
                     <div className="text-xs text-secondary mt-0.5 line-clamp-1">
