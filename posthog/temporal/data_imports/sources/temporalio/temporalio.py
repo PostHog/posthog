@@ -273,10 +273,8 @@ async def _get_workflow_histories(
 
         for item in page:
             try:
-                history = await _with_rate_limit_retry(
-                    lambda item=item: client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history(),
-                    logger,
-                )
+                handle = client.get_workflow_handle(item.id, run_id=item.run_id)
+                history = await _with_rate_limit_retry(handle.fetch_history, logger)
                 history_dict = history.to_json_dict()
                 events = history_dict["events"]
                 for event in events:
