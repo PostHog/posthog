@@ -18,11 +18,17 @@ Do NOT:
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Q
 
+from posthog.api.tagged_item import set_tags_on_object
+from posthog.exceptions_capture import capture_exception
+from posthog.models import OrganizationMembership, Tag
+from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
+from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -196,3 +202,135 @@ def get_account(
         properties=_to_account_properties(account.properties),
         created_at=account.created_at,
     )
+
+
+# --- External (CDP worker) account API ---
+#
+# The data access, transactional write, org-membership resolution, tag
+# application, and exception capture for the Bearer-authed external account
+# endpoint. The view keeps only HTTP concerns (auth, throttles, the flag gate,
+# request validation) and maps the results below to responses.
+
+
+def _to_external_account(account: Account) -> contracts.ExternalAccount:
+    """Map an account to the verbatim external wire shape.
+
+    ``properties`` is the exact ``model_dump(mode="json")`` of the validated
+    pydantic properties and ``tags`` the sorted tag names — byte-identical to
+    what the CDP worker consumed before this moved behind the facade.
+    """
+    return contracts.ExternalAccount(
+        id=str(account.id),
+        external_id=account.external_id,
+        name=account.name,
+        properties=account.properties.model_dump(mode="json"),
+        tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
+    )
+
+
+def _get_external_account_by_external_id(team_id: int, external_id: str) -> Account | None:
+    try:
+        return Account.objects.for_team(team_id).select_related("team").get(external_id=external_id)
+    except Account.DoesNotExist:
+        return None
+
+
+def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAccount | None:
+    """Fetch the team's account by external id for the external API, or None."""
+    account = _get_external_account_by_external_id(team_id, external_id)
+    if account is None:
+        return None
+    return _to_external_account(account)
+
+
+def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
+    normalized = list({tagify(t) for t in tags})
+    if mode == "remove":
+        account.tagged_items.filter(tag__name__in=normalized).delete()
+    elif mode == "set":
+        set_tags_on_object(normalized, account)
+    else:
+        for tag_name in normalized:
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=account.team_id)
+            account.tagged_items.get_or_create(tag_id=tag.id)
+
+
+def _apply_external_role_assignments(
+    account: Account, role_assignments: dict[str, int | None]
+) -> contracts.ExternalAccountUpdateResult | None:
+    """Apply provided role assignments to the account's properties.
+
+    ``role_assignments`` holds only the roles present in the request (None
+    clears a role). Each non-None user id is resolved against an
+    ``OrganizationMembership`` in the account's org so the stored ``{id, email}``
+    is always trusted. Returns an error result (membership missing / invalid
+    properties) or None on success.
+    """
+    properties = dict(account._properties or {})
+    changed = False
+
+    for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
+        if field not in role_assignments:
+            continue
+        user_id = role_assignments[field]
+        if user_id is None:
+            properties[field] = None
+        else:
+            membership = (
+                OrganizationMembership.objects.select_related("user")
+                .filter(organization_id=account.team.organization_id, user_id=user_id)
+                .first()
+            )
+            if membership is None:
+                return contracts.ExternalAccountUpdateResult(
+                    error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
+                    error_field=field,
+                )
+            properties[field] = {"id": membership.user.id, "email": membership.user.email}
+        changed = True
+
+    if not changed:
+        return None
+
+    try:
+        account.properties = _ModelAccountProperties.model_validate(properties)
+    except Exception as e:
+        capture_exception(e, {"account_id": str(account.id)})
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
+
+    account.save(update_fields=["_properties", "updated_at"])
+    return None
+
+
+def update_external_account(
+    team_id: int,
+    external_id: str,
+    *,
+    role_assignments: dict[str, int | None],
+    tags: list[str] | None,
+    tags_mode: str,
+) -> contracts.ExternalAccountUpdateResult:
+    """Apply role assignments and tags to an account, transactionally, for the external API.
+
+    Role assignments and tags are all-or-nothing — a tag failure must not leave the
+    role-contact changes committed. Returns a result the view maps to the exact HTTP
+    status/body: not found, a per-role org-membership failure, invalid properties, a
+    generic write failure, or success carrying the re-serialized account.
+    """
+    account = _get_external_account_by_external_id(team_id, external_id)
+    if account is None:
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.NOT_FOUND)
+
+    try:
+        with transaction.atomic():
+            error_result = _apply_external_role_assignments(account, role_assignments)
+            if error_result is not None:
+                return error_result
+            if tags is not None:
+                _apply_external_tags(account, tags, tags_mode)
+    except Exception as e:
+        capture_exception(e, {"account_id": str(account.id)})
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
+
+    account.refresh_from_db()
+    return contracts.ExternalAccountUpdateResult(account=_to_external_account(account))

@@ -8681,7 +8681,7 @@ export namespace Schemas {
       column?: string | null;
       /** How to read the result rows — an explicit choice, no implicit default. */
       evaluation: HogQLAlertEvaluation;
-      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row). */
       label_column?: string | null;
       type: HogQLAlertConfigType;
     }
@@ -8938,7 +8938,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -21017,6 +21017,11 @@ export namespace Schemas {
       readonly expires_after: string | null;
       /** @nullable */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -23357,6 +23362,17 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
+    }
+
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -25037,6 +25053,8 @@ export namespace Schemas {
     }
 
     export interface LogValueResult {
+      /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+      count?: number | null;
       id: string;
       name: string;
     }
@@ -29078,6 +29096,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -29093,6 +29112,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -34066,7 +34086,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -39616,6 +39636,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -45032,6 +45053,47 @@ export namespace Schemas {
     }
 
     /**
+     * A team's enforced scout run caps and current usage.
+     *
+     * These are the values the coordinator actually applies at dispatch (resolved per-team override →
+     * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+     * user thinks they configured.
+     */
+    export interface ScoutLimits {
+      /** Most scout runs the team can start in a single 30-minute coordinator tick. */
+      max_runs_per_tick: number;
+      /**
+         * Most scout runs the team can start per rolling 24 hours, or null when uncapped.
+         * @nullable
+         */
+      max_runs_per_day: number | null;
+      /** Scout runs the team has started in the trailing 24 hours. */
+      runs_today: number;
+      /**
+         * Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.
+         * @nullable
+         */
+      runs_remaining_today: number | null;
+    }
+
+    /**
+     * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+     * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+     * change without a deploy to either app.
+     */
+    export interface ScoutMetadata {
+      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      enrolled: boolean;
+      /**
+         * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
+         * @nullable
+         */
+      banner_message: string | null;
+      /** The team's enforced scout run caps and current usage. */
+      limits: ScoutLimits;
+    }
+
+    /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
     export interface ScratchpadEntry {
@@ -47398,15 +47460,6 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
-    export interface SuggestReplyError {
-      detail: string;
-      error_type?: string;
-    }
-
-    export interface SuggestReplyResponse {
-      suggestion: string;
-    }
-
     /**
      * * `trace` - trace
      * * `event` - event
@@ -48731,6 +48784,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -49138,6 +49192,11 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TicketError {
+      detail: string;
+      error_type?: string;
     }
 
     /**
@@ -49815,6 +49874,8 @@ export namespace Schemas {
       id: string;
       /** Display name — currently identical to `id`. */
       name: string;
+      /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+      count?: number;
     }
 
     /**
@@ -61863,6 +61924,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsStreamRetrieveParams = {
+    /**
+     * Set to `latest` to skip the event backlog and only receive events published after connecting.
+     */
+    start?: string;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {
