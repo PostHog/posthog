@@ -10,6 +10,28 @@
 import type { Redis as IoRedis } from 'ioredis'
 
 import { createLogger } from './logger'
+import { Counter } from './metrics'
+
+/**
+ * Bus health metrics. The bus is critical-path for /listen: the runner
+ * publishes lifecycle events, the ingress subscribes and streams them to
+ * clients. A publish/subscribe failure means events silently never reach a
+ * connected user, so these are the signals for "the live transport is broken."
+ */
+const busPublishTotal = new Counter({
+    name: 'agent_bus_publish_total',
+    help: 'Session lifecycle events published to the Redis bus, by outcome (ok/error).',
+    labelNames: ['outcome'],
+})
+const busSubscribeFailures = new Counter({
+    name: 'agent_bus_subscribe_failures_total',
+    help: 'Failures to SUBSCRIBE a session channel on the Redis bus (the /listen stream gets no events).',
+})
+const busReceiveErrors = new Counter({
+    name: 'agent_bus_receive_errors_total',
+    help: 'Errors handling a received bus message, by kind (parse = malformed event, listener = a subscriber threw).',
+    labelNames: ['kind'],
+})
 
 export type SessionEventKind =
     | 'session_started'
@@ -171,6 +193,7 @@ export class RedisSessionEventBus implements SessionEventBus {
                 try {
                     event = JSON.parse(message) as SessionEvent
                 } catch (err) {
+                    busReceiveErrors.labels({ kind: 'parse' }).inc()
                     this.log.warn({ channel, err: (err as Error).message }, 'parse_failed')
                     return
                 }
@@ -178,6 +201,7 @@ export class RedisSessionEventBus implements SessionEventBus {
                     try {
                         fn(event)
                     } catch (err) {
+                        busReceiveErrors.labels({ kind: 'listener' }).inc()
                         this.log.warn({ channel, err: (err as Error).message }, 'listener_threw')
                     }
                 }
@@ -190,7 +214,13 @@ export class RedisSessionEventBus implements SessionEventBus {
         if (!this.publisher) {
             await this.connect()
         }
-        await this.publisher!.publish(this.channel(event.session_id), JSON.stringify(event))
+        try {
+            await this.publisher!.publish(this.channel(event.session_id), JSON.stringify(event))
+            busPublishTotal.labels({ outcome: 'ok' }).inc()
+        } catch (err) {
+            busPublishTotal.labels({ outcome: 'error' }).inc()
+            throw err
+        }
     }
 
     subscribe(sessionId: string, fn: (e: SessionEvent) => void): () => void {
@@ -226,6 +256,7 @@ export class RedisSessionEventBus implements SessionEventBus {
         try {
             await this.subscriber!.subscribe(this.channel(sessionId))
         } catch (err) {
+            busSubscribeFailures.inc()
             this.log.error({ session_id: sessionId, err: (err as Error).message }, 'subscribe_failed')
         }
     }
