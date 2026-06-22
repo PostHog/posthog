@@ -16,6 +16,7 @@ import logging
 
 from django.conf import settings
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import User
@@ -36,10 +37,6 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
-from products.signals.backend.slack_mrkdwn import (
-    escape_mrkdwn as _escape_mrkdwn,
-    markdown_to_slack_mrkdwn,
-)
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -48,6 +45,8 @@ _ACTIONABLE_VALUES = frozenset(
 )
 
 logger = logging.getLogger(__name__)
+
+_SLACK_MRKDWN_CONVERTER = SlackMarkdownConverter()
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
@@ -279,6 +278,21 @@ def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | 
     if not isinstance(slack_user, dict) or not slack_user.get("id"):
         return None
     return str(slack_user["id"])
+
+
+def _escape_mrkdwn(text: str) -> str:
+    """Neutralize Slack control syntax (`&`, `<`, `>`) so untrusted text can't inject mentions/links."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _markdown_to_slack_mrkdwn(text: str) -> str:
+    """Convert signal markdown to Slack mrkdwn, escaping first so untrusted angle-bracket
+    syntax can't inject mentions — markdown links use no angle brackets, so they still
+    convert to the well-formed `<url|text>` form. Kept local rather than shared with the
+    other `SlackMarkdownConverter` call sites: they render trusted LLM output, signals does
+    not, so it needs this escape-first step.
+    """
+    return _SLACK_MRKDWN_CONVERTER.convert(_escape_mrkdwn(text))
 
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
@@ -516,11 +530,11 @@ def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
 
     content = (signal.get("content") or "").strip()
     if content:
-        # Truncate the raw markdown before converting so we never cut a link or emphasis
-        # token in half, then render markdown (headings, bullets, links) as Slack mrkdwn.
+        # Truncate the raw markdown before converting so the cut can't slice a converted
+        # Slack link/emphasis token (which would render broken), then render to mrkdwn.
         if len(content) > _SIGNAL_CONTENT_MAX_LEN:
             content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": markdown_to_slack_mrkdwn(content)}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _markdown_to_slack_mrkdwn(content)}})
 
     detail_parts = _signal_detail_parts(source_product, extra)
     if detail_parts:
