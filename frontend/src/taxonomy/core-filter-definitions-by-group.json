@@ -2147,6 +2147,14 @@
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
         },
+        "$mcp_listed_tool_names": {
+            "description": "Array of every tool name advertised to the agent on a tools/list request, in multi-tool mode. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Lets you compute zombie tools (advertised but never called) by diffing against $mcp_tool_name from mcp_tool_call events. In single-exec mode the catalog rides on $mcp_exec_inner_tool_names instead. Only present on mcp_tools_list.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP listed tool names"
+        },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
             "examples": [
@@ -2228,6 +2236,16 @@
                 "posthog_mcp_analytics"
             ],
             "label": "MCP source"
+        },
+        "$mcp_tool_category": {
+            "description": "The product category the invoked tool belongs to \u2014 the grouping dimension the MCP analytics dashboard buckets tool calls by. Stamped server-side from the tool catalog (PostHog's server) or declared per tool (external servers). Omitted when the tool has no catalogued category (e.g. the `exec` dispatcher), which the dashboard buckets as 'Uncategorized'. Present on mcp_tool_call.",
+            "examples": [
+                "Error tracking",
+                "Logs",
+                "Feature flags",
+                "Session replays"
+            ],
+            "label": "MCP tool category"
         },
         "$mcp_tool_description": {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
@@ -2313,7 +2331,7 @@
             "label": "OS distro"
         },
         "$os_name": {
-            "description": "The Operating System name",
+            "description": "The Operating System name.",
             "examples": [
                 "iOS",
                 "Android"
@@ -3471,13 +3489,64 @@
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
             "label": "MCP protocol version (unprefixed)"
         },
+        "mcp_runtime": {
+            "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
+            "examples": [
+                "hono"
+            ],
+            "label": "MCP runtime"
+        },
+        "mcp_session_client_name": {
+            "description": "MCP client name captured at session initialize and carried across every request in that session. Session-scoped counterpart of $mcp_client_name.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP session client name"
+        },
+        "mcp_session_client_version": {
+            "description": "MCP client version captured at session initialize and carried across every request in that session.",
+            "label": "MCP session client version"
+        },
+        "mcp_session_consumer": {
+            "description": "Upstream surface that initiated the MCP session, captured at session initialize. Session-scoped counterpart of $mcp_consumer.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP session consumer"
+        },
         "mcp_session_id": {
             "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
             "label": "MCP session ID (unprefixed)"
         },
+        "mcp_session_protocol_version": {
+            "description": "MCP protocol version negotiated at session initialize and carried across every request in that session.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP session protocol version"
+        },
+        "mcp_session_vendor_client": {
+            "description": "Vendor client captured at session initialize and carried across every request in that session.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI"
+            ],
+            "label": "MCP session vendor client"
+        },
         "mcp_transport": {
             "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
             "label": "MCP transport (unprefixed)"
+        },
+        "mcp_vendor_client": {
+            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI"
+            ],
+            "label": "MCP vendor client"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
@@ -6114,6 +6183,14 @@
             ],
             "label": "Initial OS"
         },
+        "$initial_os_name": {
+            "description": "The Operating System name. Data from the first time this user was seen.",
+            "examples": [
+                "iOS",
+                "Android"
+            ],
+            "label": "Initial OS name"
+        },
         "$initial_os_version": {
             "description": "The Operating System version. Data from the first time this user was seen.",
             "examples": [
@@ -6495,6 +6572,14 @@
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
         },
+        "$mcp_listed_tool_names": {
+            "description": "Array of every tool name advertised to the agent on a tools/list request, in multi-tool mode. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Lets you compute zombie tools (advertised but never called) by diffing against $mcp_tool_name from mcp_tool_call events. In single-exec mode the catalog rides on $mcp_exec_inner_tool_names instead. Only present on mcp_tools_list.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP listed tool names"
+        },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
             "examples": [
@@ -6576,6 +6661,16 @@
                 "posthog_mcp_analytics"
             ],
             "label": "MCP source"
+        },
+        "$mcp_tool_category": {
+            "description": "The product category the invoked tool belongs to \u2014 the grouping dimension the MCP analytics dashboard buckets tool calls by. Stamped server-side from the tool catalog (PostHog's server) or declared per tool (external servers). Omitted when the tool has no catalogued category (e.g. the `exec` dispatcher), which the dashboard buckets as 'Uncategorized'. Present on mcp_tool_call.",
+            "examples": [
+                "Error tracking",
+                "Logs",
+                "Feature flags",
+                "Session replays"
+            ],
+            "label": "MCP tool category"
         },
         "$mcp_tool_description": {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
@@ -6661,12 +6756,12 @@
             "label": "OS distro"
         },
         "$os_name": {
-            "description": "The Operating System name",
+            "description": "The Operating System name. Data from the last time this user was seen.",
             "examples": [
                 "iOS",
                 "Android"
             ],
-            "label": "OS name"
+            "label": "Latest OS name"
         },
         "$os_version": {
             "description": "The Operating System version. Data from the last time this user was seen.",
@@ -7814,13 +7909,64 @@
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
             "label": "MCP protocol version (unprefixed)"
         },
+        "mcp_runtime": {
+            "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
+            "examples": [
+                "hono"
+            ],
+            "label": "MCP runtime"
+        },
+        "mcp_session_client_name": {
+            "description": "MCP client name captured at session initialize and carried across every request in that session. Session-scoped counterpart of $mcp_client_name.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP session client name"
+        },
+        "mcp_session_client_version": {
+            "description": "MCP client version captured at session initialize and carried across every request in that session.",
+            "label": "MCP session client version"
+        },
+        "mcp_session_consumer": {
+            "description": "Upstream surface that initiated the MCP session, captured at session initialize. Session-scoped counterpart of $mcp_consumer.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP session consumer"
+        },
         "mcp_session_id": {
             "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
             "label": "MCP session ID (unprefixed)"
         },
+        "mcp_session_protocol_version": {
+            "description": "MCP protocol version negotiated at session initialize and carried across every request in that session.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP session protocol version"
+        },
+        "mcp_session_vendor_client": {
+            "description": "Vendor client captured at session initialize and carried across every request in that session.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI"
+            ],
+            "label": "MCP session vendor client"
+        },
         "mcp_transport": {
             "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
             "label": "MCP transport (unprefixed)"
+        },
+        "mcp_vendor_client": {
+            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI"
+            ],
+            "label": "MCP vendor client"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",

@@ -5,7 +5,6 @@ import duckdb
 from parameterized import parameterized
 
 from posthog.ducklake.common import (
-    derive_duckling_bucket,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
@@ -13,25 +12,6 @@ from posthog.ducklake.common import (
 )
 from posthog.ducklake.models import DuckgresServer
 from posthog.models import Organization
-
-
-class TestDeriveDucklingBucket:
-    @parameterized.expand(
-        [
-            ("prod_us", "US", "posthog-duckling-org-abc-prod-us"),
-            ("hosted_dev", "DEV", "posthog-duckling-org-abc-dev"),
-            ("local_unset", None, "posthog-duckling-org-abc-dev"),
-        ]
-    )
-    def test_derives_bucket_from_region(self, _name: str, region: str | None, expected_bucket: str):
-        # Mirrors the duckgres Crossplane composition: posthog-duckling-{org}-{suffix}.
-        with patch("posthog.utils.get_instance_region", return_value=region):
-            assert derive_duckling_bucket("org-abc") == (expected_bucket, "us-east-1")
-
-    def test_eu_is_not_enabled(self):
-        with patch("posthog.utils.get_instance_region", return_value="EU"):
-            with pytest.raises(NotImplementedError, match="EU"):
-                derive_duckling_bucket("org-1")
 
 
 @pytest.mark.django_db

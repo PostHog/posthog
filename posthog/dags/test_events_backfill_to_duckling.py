@@ -9,6 +9,7 @@ import duckdb
 import psycopg
 from parameterized import parameterized
 
+from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
@@ -38,7 +39,9 @@ from posthog.dags.events_backfill_to_duckling import (
     _set_table_partitioning,
     _validate_identifier,
     delete_events_partition_data,
+    duckling_events_backfill_job,
     duckling_events_full_backfill_sensor,
+    duckling_persons_backfill_job,
     export_events_to_duckling_s3,
     export_persons_full_to_duckling_s3,
     export_persons_to_duckling_s3,
@@ -53,15 +56,94 @@ from posthog.dags.events_backfill_to_duckling import (
 )
 
 
-class TestResolveDucklingTarget:
-    @patch("posthog.dags.events_backfill_to_duckling.derive_duckling_bucket", return_value=("bkt", "us-west-2"))
-    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_builds_target_from_org_and_derived_bucket(self, mock_org: MagicMock, mock_derive: MagicMock):
-        target = _resolve_duckling_target(7)
+class TestDucklingBackfillAlertRouting:
+    @parameterized.expand(
+        [
+            ("events", duckling_events_backfill_job),
+            ("persons", duckling_persons_backfill_job),
+        ]
+    )
+    def test_backfill_jobs_alert_managed_warehouse(self, _name, job):
+        assert job.tags["owner"] == JobOwners.TEAM_MANAGED_WAREHOUSE.value
+        assert "disable_slack_notifications" not in job.tags
 
-        assert target == DucklingTarget(team_id=7, organization_id="org-1", bucket="bkt", bucket_region="us-west-2")
+
+class TestResolveDucklingTarget:
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_resolves_bucket_from_control_plane(
+        self, mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+    ):
+        # The control plane is the authoritative owner of the bucket name.
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            return_value="posthog-duckling-org-1-mw-prod-us",
+        ) as mock_cp:
+            target = _resolve_duckling_target(7)
+
+        assert target == DucklingTarget(
+            team_id=7,
+            organization_id="org-1",
+            bucket="posthog-duckling-org-1-mw-prod-us",
+            bucket_region="us-east-1",
+        )
         mock_org.assert_called_once_with(7)
-        mock_derive.assert_called_once_with("org-1")
+        mock_cp.assert_called_once_with("org-1")
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_control_plane_wins_over_stale_stored_server_bucket(self, _mock_org: MagicMock, _mock_catalog: MagicMock):
+        # A row provisioned before the naming fix carries a stale bucket; the CP value
+        # must win so the backfill never exports to a bucket that doesn't exist.
+        server = MagicMock(bucket="posthog-duckling-stale-prod-us", bucket_region="us-east-1")
+        with (
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization",
+                return_value=server,
+            ),
+            patch(
+                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                return_value="posthog-duckling-org-1-mw-prod-us",
+            ),
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_falls_back_to_stored_server_when_control_plane_unavailable(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock
+    ):
+        # CP can't answer → use the known-good stored row rather than failing the run.
+        server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
+        with (
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization",
+                return_value=server,
+            ),
+            patch(
+                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                return_value=None,
+            ),
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
+
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_raises_when_nothing_can_name_the_bucket(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+    ):
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            return_value=None,
+        ):
+            with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+                _resolve_duckling_target(7)
 
 
 class TestParsePartitionKey:
