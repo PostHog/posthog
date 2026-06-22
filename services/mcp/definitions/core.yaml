@@ -610,14 +610,7 @@ tools:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
         response:
-            # Allowlist: only fields that belong to the user, plus id+name for the org/project
-            # references. Anything not listed here is dropped — the inlined org tree and API tokens,
-            # the impersonation/sensitive-session fields, and read-only internal UI/onboarding state
-            # (has_seen_product_intro_for, active_realtime_notification_types, requires_credential_review,
-            # the onboarding_* flow flags) that an MCP caller has no use for. New user-facing fields
-            # added to the serializer must be added here to surface through this tool.
             include:
-                # Identity & profile
                 - id
                 - uuid
                 - distinct_id
@@ -628,14 +621,12 @@ tools:
                 - last_name
                 - date_joined
                 - is_staff
-                # Security & auth
                 - has_password
                 - is_2fa_enabled
                 - has_social_auth
                 - has_sso_enforcement
                 - passkeys_enabled_for_2fa
                 - allow_impersonation
-                # Preferences & settings
                 - notification_settings
                 - anonymize_data
                 - toolbar_mode
@@ -647,9 +638,7 @@ tools:
                 - role_at_organization
                 - hide_mcp_hints
                 - scene_personalisation
-                # Invites
                 - pending_invites
-                # Org/project references — id + name only (people use project-get / org tools for the rest)
                 - organization.id
                 - organization.name
                 - team.id
