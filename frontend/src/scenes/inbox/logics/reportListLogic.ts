@@ -36,8 +36,9 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
     'not-actionable': { actionability: 'not_actionable' },
-    // Archived = reports the user dismissed (suppressed). Restorable back into the inbox.
-    archived: { status: 'suppressed' },
+    // Archive = terminal reports: ones the user dismissed (suppressed, restorable) and ones
+    // resolved by a merged implementation PR (terminal, not restorable).
+    archived: { status: 'suppressed,resolved' },
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -222,6 +223,10 @@ export const reportListLogic = kea<reportListLogicType>([
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
                 captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
                 lemonToast.success('Report restored to inbox')
+                // Restore maps through restore_target_status server-side, so a report suppressed while
+                // resolved returns to `resolved` and still belongs in this tab. Reconcile against the
+                // server rather than trusting the optimistic removal, which over-drops those rows.
+                actions.refresh()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
                 actions.refresh()
