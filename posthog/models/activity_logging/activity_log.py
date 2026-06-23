@@ -344,13 +344,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "SignalScoutConfig": [
         "last_run_at",
     ],
-    # The hourly CDC slot sweeper writes `cdc_state` (lag snapshots, last-extraction heartbeat) on
-    # every successful check. When that is the only change, suppress the signal so runtime
-    # bookkeeping never spams the audit log. `updated_at` rides along on the same `update_fields`.
-    "ExternalDataSource": [
-        "cdc_state",
-        "updated_at",
-    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -642,8 +635,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "connection_id",
         "destination_id",
         "are_tables_created",
-        # Runtime CDC state — sweeper bookkeeping, never user intent; keep it out of diffs.
-        "cdc_state",
     ],
     "ExternalDataSchema": [
         "status",

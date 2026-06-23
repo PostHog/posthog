@@ -32,7 +32,6 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
-from posthog.temporal.data_imports.cdc.state import update_cdc_state
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
@@ -1091,14 +1090,6 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             lag_mb = lag_bytes / (1024 * 1024)
-
-            # Persist the lag snapshot on every successful check (ok/warning/critical) so the UI
-            # and health checks can read it without opening a live replication connection.
-            update_cdc_state(
-                source.id,
-                lag_bytes=lag_bytes,
-                lag_checked_at=dt.datetime.now(tz=dt.UTC).isoformat(),
-            )
 
             critical_threshold_mb = cdc_config.lag_critical_threshold_mb
             if retention_cap_mb is not None:
