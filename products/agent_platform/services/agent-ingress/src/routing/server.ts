@@ -21,6 +21,7 @@ import {
     applyApprovalDecision,
     buildIdentityRegistry,
     createLogger,
+    effectiveApprovalType,
     handleMetricsRequest,
     isDev,
     RevisionStore,
@@ -157,6 +158,13 @@ export interface BuildAppOpts {
  * at the originating trigger: walk the agent's chat/mcp trigger auth configs
  * (the surfaces that mint posthog/jwt principals) and return the first verified
  * principal. Null when no configured mode authenticates the request.
+ *
+ * Returning the FIRST verifying mode is intentional: which configured mode
+ * authenticated the request doesn't matter for safety, because the caller still
+ * runs `principalsMatch` against the session's own principal — that match is the
+ * gate. A credential only verifies against the mode that actually accepts it (a
+ * JWT won't pass posthog `/@me`, a PAT isn't a valid JWT, …), so the resolved
+ * principal is the genuine caller regardless of trigger iteration order.
  */
 async function authenticatePrincipalDecider(
     req: Request,
@@ -366,7 +374,10 @@ export function buildApp(opts: BuildAppOpts): Express {
             const row = await opts.approvals.get(req.params.id)
             // `agent`-type rows are decided in the console — collapse to not-found
             // here so this surface never leaks or decides an owner-gated request.
-            if (!row || row.approver_scope.type === 'agent') {
+            // `effectiveApprovalType` also maps legacy `team_admins` rows (which
+            // have no `type`), so an in-flight pre-rebuild row can't be decided as
+            // a principal request here during the migration window.
+            if (!row || effectiveApprovalType(row.approver_scope) === 'agent') {
                 res.status(404).json({ error: 'not_found' })
                 return
             }

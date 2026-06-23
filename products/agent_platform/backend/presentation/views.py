@@ -1681,7 +1681,11 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # client_id into the spec. Idempotent; runs before the state flip so the
         # frozen-and-live spec carries the client_id the runner links against.
         spec_mutated = provision_posthog_identity_apps(
-            application=revision.application, revision=revision, acting_user=request.user
+            # Promote requires auth, so this is always a real User (not Anonymous);
+            # cast to satisfy the `User | None` signature, as elsewhere in this file.
+            application=revision.application,
+            revision=revision,
+            acting_user=cast(User, request.user),
         )
 
         # All three writes — demote previous live, set this live, point the

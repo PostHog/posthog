@@ -210,6 +210,22 @@ describe('handleApprovalDecisionAction', () => {
         expect(String(calls.http[0].body.text)).toContain('could not be found')
     })
 
+    it('a legacy `team_admins` row (no `type`) is treated as agent-type and refused here', async () => {
+        const { ctx, calls } = harness({
+            // Pre-rebuild shape: `approvers` instead of `type`. Must still gate to
+            // the console, not be decidable as a principal request.
+            row: fakeRow({ approver_scope: { approvers: ['team_admins'] } as never }),
+            sessionPrincipal: OWNER,
+        })
+        await handleApprovalDecisionAction(ctx, payload('U-owner') as never, {
+            sessionId: ROW_SESSION,
+            requestId: 'req-1',
+            decision: 'approve',
+        })
+        expect(calls.markApproving).toBe(0)
+        expect(calls.http[0].body).toMatchObject({ response_type: 'ephemeral' })
+    })
+
     it('a missing row collapses to a not-found ephemeral', async () => {
         const { ctx, calls } = harness({ row: null })
         await handleApprovalDecisionAction(ctx, payload('U-owner') as never, {

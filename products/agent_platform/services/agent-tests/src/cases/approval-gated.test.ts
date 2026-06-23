@@ -126,6 +126,8 @@ describe('approval-gated tools: real e2e', () => {
         kind?: 'native' | 'custom'
         path?: string
         allowEdit?: boolean
+        /** Approval authority. Omit for the `principal` default. */
+        approvalType?: 'principal' | 'agent'
         extraTools?: Array<Record<string, unknown>>
         files?: Record<string, string>
         auth?: Record<string, unknown>
@@ -137,13 +139,19 @@ describe('approval-gated tools: real e2e', () => {
                       id: opts.toolId,
                       path: opts.path ?? `tools/${opts.toolId}/`,
                       requires_approval: true,
-                      approval_policy: { allow_edit: !!opts.allowEdit },
+                      approval_policy: {
+                          allow_edit: !!opts.allowEdit,
+                          ...(opts.approvalType ? { type: opts.approvalType } : {}),
+                      },
                   }
                 : {
                       kind: 'native' as const,
                       id: opts.toolId,
                       requires_approval: true,
-                      approval_policy: { allow_edit: !!opts.allowEdit },
+                      approval_policy: {
+                          allow_edit: !!opts.allowEdit,
+                          ...(opts.approvalType ? { type: opts.approvalType } : {}),
+                      },
                   }
         return c.deployAgent({
             slug: opts.slug,
@@ -252,6 +260,63 @@ describe('approval-gated tools: real e2e', () => {
         }>
         const finalText = assistantMessages[assistantMessages.length - 1]
         expect(finalText.content[0].text).toBe('done')
+    })
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 1b — agent-level approval (owner/admin authority).
+    // Same queue → approve → dispatch flow as case 1, but the policy is
+    // `type: 'agent'`: the queued hint points at an owner/admin (not the
+    // principal), and the decision is the one Django forwards to the janitor.
+    // Proves an agent-type row flows all the way through decide → wake →
+    // dispatch (Django's team-admin authz over the decide is covered separately
+    // in backend/tests/test_approvals_api.py).
+    // ─────────────────────────────────────────────────────────────
+    it('case 1b: agent-type queue → approve → real result → completes', async () => {
+        c.setScript([
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
+            fauxText('queued for approval'),
+            fauxText('done'),
+        ])
+        const { application } = await deployGatedAgent({
+            slug: 'gated-agent-type',
+            toolId: '@posthog/query',
+            approvalType: 'agent',
+            auth: { modes: [{ type: 'posthog' }] },
+        })
+
+        const run = await request(c.ingress)
+            .post('/agents/gated-agent-type/run')
+            .set('authorization', `Bearer ${APPROVAL_PAT}`)
+            .send({ message: 'go' })
+        expect(run.status).toBe(200)
+        const sid = run.body.session_id
+
+        await c.drain()
+
+        const queued = findApproval((await c.queue.get(sid))!.conversation, 'queued')
+        expect(queued).not.toBeNull()
+        // Agent-type → the hint points at an owner/admin, not the principal.
+        expect(queued!.approver_hint).toMatch(/owner or admin/i)
+
+        const approvals = await listApprovals(application.id, 'queued')
+        expect(approvals).toHaveLength(1)
+        expect(approvals[0].id).toBe(queued!.request_id)
+
+        // Decide via the janitor route — the path Django forwards an owner/admin
+        // console decision to.
+        await decide(queued!.request_id, {
+            decision: 'approve',
+            decided_by: '00000000-0000-0000-0000-000000000001',
+        })
+
+        await c.drain()
+
+        const session = await c.queue.get(sid)
+        expect(session!.state).toBe('completed')
+        const approved = findApproval(session!.conversation, 'approved')
+        expect(approved).not.toBeNull()
+        expect(approved!.result).toMatchObject({ rows: [{ query: 'select 1' }] })
+        expect(approved!.decided_by).toBe('00000000-0000-0000-0000-000000000001')
     })
 
     // ─────────────────────────────────────────────────────────────

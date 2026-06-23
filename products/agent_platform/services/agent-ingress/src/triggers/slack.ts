@@ -21,6 +21,7 @@ import {
     AgentRevision,
     applyApprovalDecision,
     decodeApprovalActionValue,
+    effectiveApprovalType,
     principalsMatch,
     SessionPrincipal,
     SLACK_BOT_TOKEN_KEY,
@@ -455,7 +456,7 @@ export async function handleApprovalDecisionAction(
     // never trusted to choose whose principal must match. `agent`-type rows are
     // console-only; collapse them (and a missing row) to a not-found ephemeral.
     const row = await deps.approvals.getForApplication(requestId, ctx.resolved.application.id)
-    if (!row || row.approver_scope.type === 'agent') {
+    if (!row || effectiveApprovalType(row.approver_scope) === 'agent') {
         res.json({ ok: true })
         await notFound()
         return
