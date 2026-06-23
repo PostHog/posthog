@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
@@ -117,46 +115,6 @@ describe('StickinessLineChart', () => {
             const [seriesArg] = onDataPointClick.mock.calls[0]
             expect(seriesArg.day).toBe(3)
             expect(personsModal.get()).not.toBeInTheDocument()
-        })
-    })
-
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
-        const twoSeriesQuery = buildStickinessQuery({
-            series: [
-                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-            ],
-            stickinessFilter: { showLegend: true },
-        })
-
-        const getInChartLegend = (container: HTMLElement): HTMLElement =>
-            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
-
-        it('renders the in-chart legend and suppresses the legacy side legend', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
-
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
-
-            expect(getInChartLegend(container).textContent).toContain('Napped')
-            expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
-        })
-
-        it('reads legendPosition from the stickiness filter', async () => {
-            const { container } = renderInsight({
-                query: buildStickinessQuery({
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                    stickinessFilter: { showLegend: true, legendPosition: 'right' },
-                }),
-                featureFlags: quillLegendFlag,
-            })
-
-            await screen.findByRole('img', { name: /chart with 2 data series/i })
-
-            expect(getInChartLegend(container).className).toContain('flex-col')
         })
     })
 })

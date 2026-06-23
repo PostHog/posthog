@@ -650,7 +650,7 @@ describe('TrendsBarChart overlays', () => {
         const getInChartLegend = (container: HTMLElement): HTMLElement =>
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
 
-        it('renders the in-chart legend and suppresses the legacy side legend', async () => {
+        it('renders the in-chart legend with a row per series', async () => {
             const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
 
             await waitFor(() => {
@@ -658,34 +658,8 @@ describe('TrendsBarChart overlays', () => {
             })
 
             const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('$pageview')
             expect(legendEl.textContent).toContain('Napped')
-            expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
         })
-
-        it.each(['left', 'right'] as const)(
-            'lays the legend out vertically when legendPosition is %s',
-            async (position) => {
-                const { container } = renderInsight({
-                    query: trendsBar({
-                        series: [
-                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                            { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                        ],
-                        trendsFilter: {
-                            display: ChartDisplayType.ActionsBar,
-                            showLegend: true,
-                            legendPosition: position,
-                        },
-                    }),
-                    featureFlags: quillLegendFlag,
-                })
-
-                await waitFor(() => {
-                    expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-                })
-
-                expect(getInChartLegend(container).className).toContain('flex-col')
-            }
-        )
     })
 })

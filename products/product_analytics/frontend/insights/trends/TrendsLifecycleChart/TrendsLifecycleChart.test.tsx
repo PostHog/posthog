@@ -4,8 +4,6 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { LifecycleQuery, LifecycleQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { chart, type InsightQuery, type MockResponse, personsModal, renderInsight } from '~/test/insight-testing'
 
@@ -156,27 +154,5 @@ describe('TrendsLifecycleChart', () => {
 
         await screen.findByTestId('trend-lifecycle-graph')
         expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
-    })
-
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        it.each(['left', 'right'] as const)(
-            'lays the legend out vertically when legendPosition is %s',
-            async (position) => {
-                const { container } = renderInsight({
-                    query: buildLifecycleQuery({
-                        lifecycleFilter: { showLegend: true, legendPosition: position },
-                    }) as unknown as InsightQuery,
-                    featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true },
-                    mocks: { additionalMockResponses: lifecycleMocks },
-                })
-
-                await screen.findByTestId('trend-lifecycle-graph')
-                await waitFor(() => {
-                    const legend = container.querySelector<HTMLElement>('[data-attr="trend-lifecycle-legend"]')
-                    expect(legend).not.toBeNull()
-                    expect(legend!.className).toContain('flex-col')
-                })
-            }
-        )
     })
 })

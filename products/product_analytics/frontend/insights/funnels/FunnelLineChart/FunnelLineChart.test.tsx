@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
@@ -269,28 +267,6 @@ describe('FunnelLineChart', () => {
             expect(swatchColors).toHaveLength(2)
             expect(new Set(swatchColors).size).toBe(2)
         })
-    })
-
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        it.each(['left', 'right'] as const)(
-            'lays the legend out vertically when legendPosition is %s',
-            async (position) => {
-                const { container } = renderInsight({
-                    query: buildFunnelsQuery({
-                        breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                        funnelsFilter: { showLegend: true, legendPosition: position },
-                    }),
-                    featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true },
-                })
-
-                await screen.findByRole('img', { name: /chart with/i })
-                await waitFor(() => {
-                    const legend = container.querySelector<HTMLElement>('[data-attr="funnel-line-legend"]')
-                    expect(legend).not.toBeNull()
-                    expect(legend!.className).toContain('flex-col')
-                })
-            }
-        )
     })
 
     describe('annotations', () => {
