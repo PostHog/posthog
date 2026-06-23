@@ -83,7 +83,7 @@ Attributes = dict[str, str | int | float | bool]
 
 def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
     """Return a meter depending on in which context we are."""
-    basic_attributes = {}
+    basic_attributes: Attributes = {}
 
     if activity.in_activity():
         meter = activity.metric_meter()
@@ -104,7 +104,11 @@ def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricM
         raise RuntimeError("Not within workflow or activity context")
 
     if additional_attributes:
-        meter = meter.with_additional_attributes(additional_attributes)
+        attributes: Attributes = {**basic_attributes, **additional_attributes}
+    else:
+        attributes = basic_attributes
+
+    meter = meter.with_additional_attributes(attributes)
 
     return meter
 
