@@ -81,6 +81,11 @@ class TestShadowComparison(APIBaseTest):
         self._cm_patch = mock.patch.object(ducklake_shadow, "ph_scoped_capture", return_value=cm)
         self._cm_patch.start()
         self.addCleanup(self._cm_patch.stop)
+        server_patch = mock.patch.object(
+            ducklake_shadow, "get_duckgres_server_for_organization", return_value=mock.MagicMock()
+        )
+        server_patch.start()
+        self.addCleanup(server_patch.stop)
         return captured
 
     def test_emits_comparison_event_with_both_timings(self):
@@ -154,5 +159,26 @@ class TestShadowComparison(APIBaseTest):
             clickhouse_ms=12.5,
             clickhouse_row_count=1,
         )
+
+        assert captured == []
+
+    def test_no_duckgres_server_is_noop(self):
+        endpoint = create_endpoint_with_version(
+            name="cmp-noserver", team=self.team, query=HOGQL_QUERY, created_by=self.user
+        )
+        version = endpoint.get_version()
+        captured = self._capture_events()
+
+        with mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None):
+            ducklake_shadow.run_ducklake_shadow_comparison(
+                team_id=self.team.pk,
+                endpoint_id=str(endpoint.id),
+                version_id=str(version.id),
+                variables=None,
+                execution_type="inline",
+                clickhouse_cached=False,
+                clickhouse_ms=12.5,
+                clickhouse_row_count=1,
+            )
 
         assert captured == []

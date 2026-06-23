@@ -6,6 +6,7 @@ from structlog import get_logger
 from posthog.schema import EndpointRunRequest, HogQLQuery
 
 from posthog.ducklake.client import execute_ducklake_query
+from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 
@@ -64,6 +65,10 @@ def run_ducklake_shadow_comparison(
             endpoint_id=endpoint_id,
             version_id=version_id,
         )
+        return
+
+    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
+        logger.info("ducklake_shadow_skip_no_server", team_id=team_id)
         return
 
     data = EndpointRunRequest(variables=variables)

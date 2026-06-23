@@ -51,7 +51,6 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
-from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
@@ -387,28 +386,28 @@ class EndpointExecutionService(PydanticModelMixin):
         return True
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        """Whether to run a non-blocking DuckLake shadow of this execution for timing
-        comparison. ClickHouse always serves the response; the shadow never affects it."""
+        """Whether to dispatch a non-blocking DuckLake shadow of this execution. The flag is
+        scoped to orgs with a duckgres server, so the request path stays free of a DB lookup;
+        the worker re-checks the server before querying. ClickHouse always serves the response."""
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        ff_result = posthoganalytics.feature_enabled(
-            "endpoints-ducklake-shadow-execution",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
+        return bool(
+            posthoganalytics.feature_enabled(
+                "endpoints-ducklake-shadow-execution",
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
         )
-        if not ff_result:
-            return False
-        return get_duckgres_server_for_organization(str(self.team.organization_id)) is not None
 
     def _maybe_shadow_ducklake(
         self,
