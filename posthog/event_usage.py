@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from django.contrib.auth.models import AnonymousUser
 
+import structlog
 import posthoganalytics
 from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
@@ -391,6 +392,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
 
 
 _tracer = trace.get_tracer(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def report_user_action(
@@ -438,6 +440,57 @@ def report_user_action(
             groups=groups(organization or user.current_organization, team or user.current_team),
             send_feature_flags=send_feature_flags,
         )
+
+
+def report_legacy_endpoint_usage(
+    event: str,
+    reader: str,
+    *,
+    team: Team,
+    removal_type: str,
+    user: Optional[User | AnonymousUser | SyntheticUser] = None,
+    request: Optional["Request"] = None,
+    extra: Optional[dict] = None,
+) -> None:
+    """Best-effort, non-throwing telemetry that a legacy raw-ClickHouse reader was hit.
+
+    Measures, per team, which raw-ClickHouse code paths still receive traffic before we delete them
+    (these are being routed through HogQL). Pure measurement: never raises and never blocks the request.
+
+    `removal_type` is one of:
+    - "endpoint_deprecation" — the endpoint itself goes away (replaced by /query); direct callers need migration
+    - "impl_swap" — the endpoint stays, only its raw-ClickHouse internals are swapped for HogQL (transparent)
+    - "internal" — no endpoint, internal raw-ClickHouse code
+
+    Pass `user`+`request` from request handlers (enriches with access_method/user_agent). Omit both in
+    Celery/worker contexts so the event is captured team-scoped via a flushing client — the global
+    posthoganalytics client's background flush may never run there.
+    """
+    try:
+        properties: dict = {"reader": reader, "removal_type": removal_type}
+        if request is not None:
+            properties["path"] = request._request.path
+            properties["method"] = request._request.method
+        if extra:
+            properties.update(extra)
+
+        real_user = user if isinstance(user, User | SyntheticUser) and getattr(user, "distinct_id", None) else None
+        if real_user is not None:
+            report_user_action(real_user, event, properties, team=team, organization=team.organization, request=request)
+            return
+
+        # No request user (Celery task / Temporal worker): capture team-scoped via a client that flushes.
+        from posthog.ph_client import ph_scoped_capture
+
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=str(team.uuid),
+                event=event,
+                properties=properties,
+                groups=groups(team.organization, team),
+            )
+    except Exception:
+        logger.exception("legacy_endpoint_usage_capture_failed", reader=reader, event=event)
 
 
 def report_user_or_team_action(

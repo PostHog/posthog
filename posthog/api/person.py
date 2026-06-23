@@ -39,7 +39,7 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
-from posthog.event_usage import get_request_analytics_properties
+from posthog.event_usage import get_request_analytics_properties, report_legacy_endpoint_usage
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -536,6 +536,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filter = Filter(request=request, team=self.team)
 
         assert request.user.is_authenticated
+
+        report_legacy_endpoint_usage(
+            "legacy persons endpoint called",
+            "persons_list",
+            team=team,
+            removal_type="impl_swap",
+            user=request.user,
+            request=request,
+        )
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
@@ -1259,6 +1268,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
+        report_legacy_endpoint_usage(
+            "legacy persons endpoint called",
+            "persons_properties_timeline",
+            team=self.team,
+            removal_type="impl_swap",
+            user=request.user,
+            request=request,
+        )
+
         person = self.get_object()
         filter = PropertiesTimelineFilter(request=request, team=self.team)
 
@@ -1296,6 +1314,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=400,
             )
+
+        report_legacy_endpoint_usage(
+            "legacy insight endpoint called",
+            "persons_lifecycle_actors",
+            team=team,
+            removal_type="endpoint_deprecation",
+            user=request.user,
+            request=request,
+        )
 
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
         filter = prepare_actor_query_filter(filter)

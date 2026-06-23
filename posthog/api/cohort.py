@@ -44,7 +44,7 @@ from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
-from posthog.event_usage import report_user_action
+from posthog.event_usage import report_legacy_endpoint_usage, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import User
@@ -1533,6 +1533,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         team = self.team
         filter = Filter(request=request, team=self.team)
         assert request.user.is_authenticated
+
+        report_legacy_endpoint_usage(
+            "legacy persons endpoint called",
+            "cohort_persons",
+            team=team,
+            removal_type="impl_swap",
+            user=request.user,
+            request=request,
+        )
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:

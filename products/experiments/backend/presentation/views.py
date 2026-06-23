@@ -31,6 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.event_usage import report_legacy_endpoint_usage
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -408,6 +409,15 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
     def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
+
+        report_legacy_endpoint_usage(
+            "legacy experiment endpoint called",
+            "experiment_requires_flag",
+            team=self.team,
+            removal_type="impl_swap",
+            user=request.user,
+            request=request,
+        )
 
         warning = requires_flag_warning(filter, self.team)
 

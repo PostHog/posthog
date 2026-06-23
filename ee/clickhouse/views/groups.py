@@ -26,6 +26,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_legacy_endpoint_usage
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -790,11 +791,28 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         if not actor_id:
             raise ValidationError({"id": ["This query parameter is required."]})
 
+        report_legacy_endpoint_usage(
+            "legacy groups endpoint called",
+            "groups_related_actors",
+            team=self.team,
+            removal_type="endpoint_deprecation",
+            user=request.user,
+            request=request,
+        )
+
         results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
+        report_legacy_endpoint_usage(
+            "legacy groups endpoint called",
+            "groups_property_definitions",
+            team=self.team,
+            removal_type="endpoint_deprecation",
+            user=request.user,
+            request=request,
+        )
         tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
         rows = sync_execute(
             f"""
@@ -816,6 +834,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
+        report_legacy_endpoint_usage(
+            "legacy groups endpoint called",
+            "groups_property_values",
+            team=self.team,
+            removal_type="endpoint_deprecation",
+            user=request.user,
+            request=request,
+        )
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
             tracer.start_as_current_span("groups_api_property_values") as span,

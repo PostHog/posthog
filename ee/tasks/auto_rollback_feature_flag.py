@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from celery import shared_task
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.event_usage import report_legacy_endpoint_usage
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
@@ -53,6 +54,13 @@ def calculate_rolling_average(threshold_metric: dict, team: Team, timezone: str)
         },
         team=team,
     )
+    report_legacy_endpoint_usage(
+        "legacy feature flag rollback evaluated",
+        "feature_flag_auto_rollback_trends",
+        team=team,
+        removal_type="internal",
+    )
+
     trends_query = Trends()
     result = trends_query.run(filter, team)
 
