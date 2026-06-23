@@ -224,7 +224,7 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     the two precomputes coexist as distinct jobs."""
     if runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
         return _entry_breakdown_value_expr(runner)
-    path = ast.Field(chain=["events", "properties", "$pathname"])
+    path: ast.Expr = ast.Field(chain=["events", "properties", "$pathname"])
     if runner.query.includeHost:
         path = _prepend_host_nullif_empty(ast.Field(chain=["events", "properties", "$host"]), path)
     # Clean after the optional host prefix so the stored value matches what the
@@ -238,7 +238,7 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     inside the INSERT properly identifies sessions that entered on each path.
     Cleaning is applied identically (after the optional host prefix) so a cleaned
     pathname still matches its cleaned entry path."""
-    path = ast.Field(chain=["session", "$entry_pathname"])
+    path: ast.Expr = ast.Field(chain=["session", "$entry_pathname"])
     if runner.query.includeHost:
         path = _prepend_host_nullif_empty(ast.Field(chain=["session", "$entry_hostname"]), path)
     return runner._apply_path_cleaning(path)
