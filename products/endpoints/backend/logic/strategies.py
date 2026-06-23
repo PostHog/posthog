@@ -76,12 +76,28 @@ def apply_where_filter(
     op: ast.CompareOperationOp = ast.CompareOperationOp.Eq,
     value_wrapper_fns: list[str] | None = None,
     bucket_fn: str | None = None,
+    membership_sep: str | None = None,
 ) -> None:
     """Add a comparison filter to WHERE clause.
 
     When bucket_fn is set (range variables), wrap the filter value with the
     bucket function so the comparison matches the bucketed column values.
+
+    When membership_sep is set (optional-membership idiom), build
+    ``column IN splitByChar(sep, value)`` to match the lifted key column.
     """
+    if membership_sep is not None:
+        condition = ast.CompareOperation(
+            left=ast.Field(chain=[column]),
+            op=ast.CompareOperationOp.In,
+            right=ast.Call(
+                name="splitByChar",
+                args=[ast.Constant(value=membership_sep), ast.Constant(value=value)],
+            ),
+        )
+        add_where_condition(select_query, condition)
+        return
+
     right_expr: ast.Expr = ast.Constant(value=value)
     for fn in reversed(value_wrapper_fns or []):
         right_expr = ast.Call(name=fn, args=[right_expr])
@@ -541,6 +557,7 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
                     op=mat_var.operator,
                     value_wrapper_fns=mat_var.value_wrapper_fns,
                     bucket_fn=mat_var.bucket_fn,
+                    membership_sep=mat_var.membership_sep,
                 )
         return None
 

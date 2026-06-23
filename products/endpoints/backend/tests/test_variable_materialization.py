@@ -3051,3 +3051,217 @@ class TestMaterializationAnalyzerGaps(APIBaseTest):
             "doing so makes the other projected columns invalid (not aggregated, not grouped). "
             f"Got:\n{transformed_sql}"
         )
+
+
+class TestOptionalVariableIdiom(APIBaseTest):
+    """Layer 1: the optional-filter idiom `coalesce({var},'')='' OR col = {var}`.
+
+    Semantically equivalent to "group by col, filter at read time": var empty ->
+    OR is a tautology (no filter); var set -> OR collapses to `col = {var}`.
+    """
+
+    def test_optional_equality_idiom_is_materializable(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events "
+                "WHERE (coalesce({variables.group}, '') = '' "
+                "OR JSONExtractString(properties['$groups'], 'company') = {variables.group})"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "group", "value": "acme"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True, reason
+        assert reason == "OK"
+        assert len(var_infos) == 1
+        var = var_infos[0]
+        assert var.code_name == "group"
+        assert var.operator == ast.CompareOperationOp.Eq
+        assert var.membership_sep is None
+
+    def test_optional_membership_idiom_is_materializable(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events "
+                "WHERE (coalesce({variables.rcid}, '') = '' "
+                "OR properties['receipt-config-id'] IN splitByChar(',', {variables.rcid}))"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "rcid", "value": "a,b"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True, reason
+        assert len(var_infos) == 1
+        var = var_infos[0]
+        assert var.code_name == "rcid"
+        assert var.operator == ast.CompareOperationOp.In
+        assert var.membership_sep == ","
+
+    def test_genuine_or_with_variable_still_rejected(self):
+        # Not the optional idiom: the guard branch is a real filter, not a var-empty pass-through.
+        # Dropping the OR would silently keep `event = '$pageview'` rows the read filter can't gate.
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE event = {variables.e} OR event = '$pageview'",
+            "variables": {"v1": {"variableId": "v1", "code_name": "e", "value": "$identify"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "OR conditions" in reason
+
+    def test_optional_equality_idiom_transform_lifts_column(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() AS c FROM events "
+                "WHERE event = 'receipt:sent' "
+                "AND (coalesce({variables.group}, '') = '' "
+                "OR JSONExtractString(properties['$groups'], 'company') = {variables.group})"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "group", "value": "acme"}},
+        }
+
+        can_materialize, _reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+        sql = transformed["query"]
+
+        # OR idiom removed; the non-variable filter survives.
+        assert "coalesce" not in sql.lower()
+        assert "receipt:sent" in sql
+        # Variable column lifted into SELECT + GROUP BY, aliased by code_name.
+        assert "AS group" in sql
+        assert "GROUP BY" in sql.upper()
+        assert transformed["variables"] == {}
+
+    def test_optional_membership_idiom_transform_lifts_column(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() AS c FROM events "
+                "WHERE (coalesce({variables.rcid}, '') = '' "
+                "OR properties['receipt-config-id'] IN splitByChar(',', {variables.rcid}))"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "rcid", "value": "a,b"}},
+        }
+
+        can_materialize, _reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+        sql = transformed["query"]
+
+        assert "splitbychar" not in sql.lower()
+        assert "AS rcid" in sql
+        assert "GROUP BY" in sql.upper()
+
+
+class TestOptionalIdiomEndpointShapes(APIBaseTest):
+    """Realistic `email-open`-shaped queries: optional filters lifted from a CTE,
+    plus the Layer 1 safety boundary around non-re-aggregatable aggregates.
+    """
+
+    # email-open minus the date range and minus the membership filter: two equality
+    # optional filters in a CTE feeding uniqExactIf aggregates. Equality pins a single
+    # key row per read, so uniqExact stays correct -> Layer 1 materializable.
+    EQUALITY_ONLY = (
+        (
+            "WITH base AS («"
+            "  SELECT event, properties['receipt-id'] AS receipt_id"
+            "  FROM events"
+            "  WHERE event IN ('receipt:sent', 'email:opened')"
+            "    AND properties['receipt-id'] != 'fake-receipt-id'"
+            "    AND (coalesce({variables.group}, '') = '' OR JSONExtractString(properties['$groups'], 'company') = {variables.group})"
+            "    AND (coalesce({variables.receipt_type}, '') = '' OR properties['receipt-type'] = {variables.receipt_type})"
+            "»)"
+            " SELECT"
+            "   uniqExactIf(receipt_id, event = 'receipt:sent') AS sent,"
+            "   uniqExactIf(receipt_id, event = 'email:opened') AS opened"
+            " FROM base"
+        )
+        .replace("«", "")
+        .replace("»", "")
+    )
+
+    def test_equality_optional_filters_in_cte_are_materializable(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": self.EQUALITY_ONLY,
+            "variables": {
+                "v-group": {"variableId": "v-group", "code_name": "group", "value": ""},
+                "v-rtype": {"variableId": "v-rtype", "code_name": "receipt_type", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+        assert {v.code_name for v in var_infos} == {"group", "receipt_type"}
+        assert all(v.cte_name == "base" for v in var_infos)
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+        sql = transformed["query"]
+        assert "coalesce" not in sql.lower()
+        assert "AS group" in sql
+        assert "AS receipt_type" in sql
+        assert transformed["variables"] == {}
+
+    def test_membership_with_uniq_aggregate_is_rejected(self):
+        # IN matches multiple key rows; uniqExact can't be merged across them -> Layer 2.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT uniqExact(properties['receipt-id']) AS u FROM events "
+                "WHERE (coalesce({variables.rcid}, '') = '' "
+                "OR properties['receipt-config-id'] IN splitByChar(',', {variables.rcid}))"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "rcid", "value": "a,b"}},
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "re-aggregated" in reason
+
+    def test_membership_with_count_aggregate_is_allowed(self):
+        # count IS re-aggregatable (sum of partial counts), so membership is safe here.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() AS c FROM events "
+                "WHERE (coalesce({variables.rcid}, '') = '' "
+                "OR properties['receipt-config-id'] IN splitByChar(',', {variables.rcid}))"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "rcid", "value": "a,b"}},
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+
+
+class TestOptionalIdiomKnownGaps(APIBaseTest):
+    """Documents what Layer 1 does NOT yet cover (tracked for follow-up), so the
+    boundary is explicit rather than a silent surprise.
+    """
+
+    def test_function_form_comparison_not_yet_recognized(self):
+        # greaterOrEquals(col, {var}) parses as a Call, not a CompareOperation, so the
+        # WHERE finder doesn't see it. The full `email-open` query needs this for its
+        # date range. Tracked in the Layer 2 queue item (syntactic gaps).
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events "
+                "WHERE greaterOrEquals(properties['receipt-date'], toDateTime({variables.date_from}))"
+            ),
+            "variables": {"v1": {"variableId": "v1", "code_name": "date_from", "value": "2026-01-01"}},
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "WHERE" in reason

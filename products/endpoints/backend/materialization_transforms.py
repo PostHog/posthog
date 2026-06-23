@@ -139,6 +139,10 @@ class MaterializableVariable:
     value_wrapper_fns: Optional[list[str]] = None
     cte_name: Optional[str] = None  # CTE containing the variable; None = top-level query
 
+    # Set when the variable came from an optional-membership idiom
+    # (col IN splitByChar(<sep>, {var})); holds the separator. None = plain comparison.
+    membership_sep: Optional[str] = None
+
     bucket_fn: Optional[str] = None  # e.g. "toStartOfDay" for range variables on timestamp
 
     # Plans for propagating this variable's column through each downstream CTE.
@@ -156,6 +160,8 @@ class VariableUsageInWhere:
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
     in_or: bool = False  # True when this usage sits inside an OR within the WHERE clause
+    membership_sep: Optional[str] = None  # set for the optional-membership idiom (IN splitByChar)
+    optional_idiom: bool = False  # True when lifted from `coalesce({var},'')='' OR col <op> {var}`
 
 
 RANGE_OPS = frozenset(
@@ -335,7 +341,10 @@ def analyze_variables_for_materialization(
         # Use the first usage for column info (all usages of the same variable should be consistent)
         variable_usage = all_usages[0][1]
 
-        if variable_usage.operator not in SUPPORTED_MATERIALIZATION_OPS:
+        is_membership = (
+            variable_usage.operator == ast.CompareOperationOp.In and variable_usage.membership_sep is not None
+        )
+        if variable_usage.operator not in SUPPORTED_MATERIALIZATION_OPS and not is_membership:
             return (
                 False,
                 f"Unsupported operator {variable_usage.operator}, supported: =, >=, >, <, <=",
@@ -360,6 +369,7 @@ def analyze_variables_for_materialization(
                 column_ast=variable_usage.column_ast,
                 value_wrapper_fns=variable_usage.value_wrapper_fns,
                 cte_name=cte_name,
+                membership_sep=variable_usage.membership_sep,
             )
         )
 
@@ -368,15 +378,20 @@ def analyze_variables_for_materialization(
     # bucketed and filter at read time with the user's value.
     _detect_range_variables(result_vars, bucket_overrides=bucket_overrides)
 
-    # If range variables exist, ALL aggregate functions must be re-aggregatable
-    has_range_vars = any(v.bucket_fn is not None for v in result_vars)
-    if has_range_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.select:
+    # A variable that matches MORE THAN ONE materialized key row per read — a range
+    # (bucketed) var or a membership (IN) var — needs the aggregates collapsed back
+    # into one value at read time. That only works for re-aggregatable aggregates
+    # (count/sum/min/max). Non-additive aggregates (uniqExact, avg, ...) over a
+    # multi-row match need aggregate-state merging — deferred to Layer 2. Equality
+    # vars pin a single key row, so they're exempt.
+    has_multi_match_vars = any(v.bucket_fn is not None or v.membership_sep is not None for v in result_vars)
+    if has_multi_match_vars and isinstance(ast_node, ast.SelectQuery) and ast_node.select:
         for expr in ast_node.select:
             agg_name = _extract_aggregate_name(expr)
             if agg_name and get_reaggregation(agg_name) is None:
                 return (
                     False,
-                    f"Aggregate function '{agg_name}' cannot be re-aggregated for range variable materialization",
+                    f"Aggregate function '{agg_name}' cannot be re-aggregated for range/membership variable materialization",
                     [],
                 )
 
@@ -942,6 +957,123 @@ def _select_has_aggregate(node: ast.SelectQuery) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Optional-filter idiom: `coalesce({var}, '') = '' OR col <op> {var}`
+# ---------------------------------------------------------------------------
+#
+# The standard HogQL way to make a variable optional. It is provably equivalent
+# to "partition by col, filter at read time": when the variable is empty the
+# guard disjunct is true and the whole OR is a tautology (no filtering); when
+# set, the guard is false and the OR collapses to `col <op> {var}`. So the OR
+# can be lifted into a materialized key column exactly like a top-level
+# comparison. Anything not matching this exact shape falls back to the generic
+# OR-rejection path (fail-closed).
+
+
+@dataclass
+class _OptionalIdiomMatch:
+    column_chain: list[str]
+    column_expression: str
+    column_ast: Optional[ast.Expr]
+    operator: ast.CompareOperationOp
+    value_wrapper_fns: Optional[list[str]]
+    membership_sep: Optional[str]
+
+
+def _placeholder_chain_matches(node: ast.Expr, chain: list) -> bool:
+    return isinstance(node, ast.Placeholder) and list(node.chain or []) == list(chain)
+
+
+def _expr_references_placeholder_chain(node: ast.Expr, chain: list) -> bool:
+    if _placeholder_chain_matches(node, chain):
+        return True
+    if isinstance(node, ast.Call):
+        return any(_expr_references_placeholder_chain(arg, chain) for arg in node.args)
+    return False
+
+
+def _is_empty_coalesce_guard(node: ast.Expr, chain: list) -> bool:
+    """Match `coalesce({var}, '') = ''` (either operand order)."""
+    if not isinstance(node, ast.CompareOperation) or node.op != ast.CompareOperationOp.Eq:
+        return False
+    for guard_side, empty_side in ((node.left, node.right), (node.right, node.left)):
+        if (
+            isinstance(empty_side, ast.Constant)
+            and empty_side.value == ""
+            and isinstance(guard_side, ast.Call)
+            and guard_side.name == "coalesce"
+            and len(guard_side.args) == 2
+            and _placeholder_chain_matches(guard_side.args[0], chain)
+            and isinstance(guard_side.args[1], ast.Constant)
+            and guard_side.args[1].value == ""
+        ):
+            return True
+    return False
+
+
+def _extract_field_column(field_side: ast.Expr) -> tuple[list[str], str, Optional[ast.Expr]]:
+    """Return (column_chain, column_expression, column_ast) for the non-variable side.
+
+    A plain Field or JSONExtractString(Field, key) yields a flat column_chain; anything
+    else (e.g. ``properties['x']`` ArrayAccess) is carried verbatim as column_ast.
+    """
+    if isinstance(field_side, ast.Field):
+        chain = [str(item) for item in field_side.chain]
+        return chain, ".".join(chain), None
+    if (
+        isinstance(field_side, ast.Call)
+        and field_side.name == "JSONExtractString"
+        and len(field_side.args) >= 2
+        and isinstance(field_side.args[0], ast.Field)
+        and isinstance(field_side.args[1], ast.Constant)
+    ):
+        chain = [str(i) for i in field_side.args[0].chain] + [str(field_side.args[1].value)]
+        return chain, ".".join(chain), None
+    return [], field_side.to_hogql(), field_side
+
+
+def _match_optional_real_comparison(node: ast.Expr, chain: list) -> Optional[_OptionalIdiomMatch]:
+    """Match the non-guard disjunct: `col = {var}` or `col IN splitByChar(sep, {var})`."""
+    if not isinstance(node, ast.CompareOperation):
+        return None
+
+    if node.op == ast.CompareOperationOp.In:
+        right = node.right
+        if (
+            isinstance(right, ast.Call)
+            and right.name == "splitByChar"
+            and len(right.args) == 2
+            and isinstance(right.args[0], ast.Constant)
+            and _placeholder_chain_matches(right.args[1], chain)
+        ):
+            col_chain, col_expr, col_ast = _extract_field_column(node.left)
+            return _OptionalIdiomMatch(col_chain, col_expr, col_ast, node.op, None, str(right.args[0].value))
+        return None
+
+    if node.op not in SUPPORTED_MATERIALIZATION_OPS:
+        return None
+    if _expr_references_placeholder_chain(node.right, chain):
+        field_side, var_side = node.left, node.right
+    elif _expr_references_placeholder_chain(node.left, chain):
+        field_side, var_side = node.right, node.left
+    else:
+        return None
+    col_chain, col_expr, col_ast = _extract_field_column(field_side)
+    wrapper_fns = VariableInWhereFinder._extract_wrapper_fns(var_side)
+    return _OptionalIdiomMatch(col_chain, col_expr, col_ast, node.op, wrapper_fns, None)
+
+
+def match_optional_variable_idiom(or_node: ast.Or, chain: list) -> Optional[_OptionalIdiomMatch]:
+    """If ``or_node`` is the optional-filter idiom for the variable at ``chain``, return its lifted column."""
+    if len(or_node.exprs) != 2:
+        return None
+    a, b = or_node.exprs
+    for guard, real in ((a, b), (b, a)):
+        if _is_empty_coalesce_guard(guard, chain):
+            return _match_optional_real_comparison(real, chain)
+    return None
+
+
 class VariablePlaceholderFinder(TraversingVisitor):
     """Find all variable placeholders in the AST"""
 
@@ -1023,6 +1155,26 @@ class VariableInWhereFinder(TraversingVisitor):
         # Only OR nesting within a WHERE clause matters for materialization.
         track = self.in_where
         if track:
+            # An optional-filter idiom (`coalesce({var},'')='' OR col <op> {var}`) is liftable:
+            # record it as a single non-OR usage and don't descend into the disjuncts.
+            match = match_optional_variable_idiom(node, self.target.chain)
+            if match is not None:
+                self.all_results.append(
+                    (
+                        self._current_cte_name,
+                        VariableUsageInWhere(
+                            column_chain=match.column_chain,
+                            column_expression=match.column_expression,
+                            operator=match.operator,
+                            column_ast=match.column_ast,
+                            value_wrapper_fns=match.value_wrapper_fns,
+                            in_or=False,
+                            membership_sep=match.membership_sep,
+                            optional_idiom=True,
+                        ),
+                    )
+                )
+                return
             self._or_depth += 1
         for expr in node.exprs:
             self.visit(expr)
@@ -1513,6 +1665,7 @@ class MaterializationTransformer(CloningVisitor):
                 expr
                 for expr in where_node.exprs
                 if not (isinstance(expr, ast.CompareOperation) and self._is_variable_comparison(expr))
+                and not self._is_removable_optional_or(expr)
             ]
             if not filtered_exprs:
                 return None
@@ -1521,9 +1674,22 @@ class MaterializationTransformer(CloningVisitor):
             return ast.And(exprs=filtered_exprs)
 
         if isinstance(where_node, ast.Or):
+            if self._is_removable_optional_or(where_node):
+                return None
             raise MaterializationNotSupportedError("Variables in OR conditions not supported")
 
         return where_node
+
+    def _is_removable_optional_or(self, node: ast.Expr) -> bool:
+        """True if ``node`` is an optional-filter idiom OR for one of our variables.
+
+        The whole OR is dropped; the variable's column is lifted into SELECT/GROUP BY.
+        """
+        if not isinstance(node, ast.Or):
+            return False
+        return any(
+            match_optional_variable_idiom(node, ["variables", var.code_name]) is not None for var in self.variable_infos
+        )
 
     def _is_variable_comparison(self, node: ast.CompareOperation) -> bool:
         return any(self._expr_contains_variable(side) for side in (node.left, node.right))
