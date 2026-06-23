@@ -225,6 +225,36 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 1)
 
+    def test_window_excludes_observations_after_this_runs_scheduled_tick(self) -> None:
+        # The window is half-open [prev.scheduled_at, this.scheduled_at). An observation created after
+        # this run's scheduled tick (during the scheduling/execution lag) is deferred to the next run
+        # rather than summarized by both — guarding against double-counting across consecutive runs.
+        action = self._action()
+        previous = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="prev",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(days=2),
+        )
+        previous.save()
+        in_window = self._observation("inside the window", session_id="in")
+        ReplayObservation.objects.filter(pk=in_window.pk).update(created_at=datetime.now(UTC) - timedelta(hours=12))
+        after_tick = self._observation("created during execution lag", session_id="after")
+        ReplayObservation.objects.filter(pk=after_tick.pk).update(created_at=datetime.now(UTC))
+
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="k1",
+            scheduled_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        run.save()
+
+        result = self._synthesize(action, run)
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)  # only the in-window one; the post-tick one waits for next run
+
     def test_prompt_guide_passed_to_llm(self) -> None:
         self._observation("something")
         action = self._action(synthesis_config={"prompt_guide": "focus on rage clicks"})

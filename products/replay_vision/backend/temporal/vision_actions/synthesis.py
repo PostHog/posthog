@@ -131,6 +131,18 @@ def _window_start(team: Team, action: VisionAction, run: VisionActionRun) -> dat
     return previous_run_at or (datetime.now(UTC) - timedelta(hours=24))
 
 
+def _window_end(run: VisionActionRun) -> datetime:
+    """End of the observation window for this run: its scheduled tick (exclusive).
+
+    The next run anchors its window_start on this run's scheduled_at, so capping the upper bound on
+    the same value makes consecutive windows tile exactly: an observation created after a run's
+    scheduled tick but before the run actually executes (the scheduling/queue lag) is deferred to the
+    next run instead of being summarized by both. Falls back to now() when scheduled_at is unset
+    (non-scheduled runs), preserving the previous open-ended upper bound.
+    """
+    return run.scheduled_at or datetime.now(UTC)
+
+
 def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionActionRun) -> list[str]:
     """Fetch the bound scanner's observations since the last run and format them as untrusted-data lines.
 
@@ -146,6 +158,7 @@ def _fetch_observation_lines(team: Team, action: VisionAction, run: VisionAction
         scanner_id__in=scanner_ids,
         status=ObservationStatus.SUCCEEDED,
         created_at__gte=_window_start(team, action, run),
+        created_at__lt=_window_end(run),
     )
 
     rows = observations_qs.order_by("-created_at").values_list("scanner_result", "created_at")[:MAX_OBSERVATIONS]
