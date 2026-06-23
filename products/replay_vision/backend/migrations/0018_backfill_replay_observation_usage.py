@@ -44,9 +44,6 @@ def backfill_current_period(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Batched inserts shouldn't run in one long transaction.
-    atomic = False
-
     dependencies = [
         ("replay_vision", "0017_replayobservationusage"),
     ]
