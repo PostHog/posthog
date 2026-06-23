@@ -220,6 +220,7 @@ class BatchQueue:
         *,
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         """Fetch unprocessed batches whose (team_id, schema_id) advisory lock is acquirable.
 
@@ -248,6 +249,22 @@ class BatchQueue:
         schema's other queued runs from consuming the ``LIMIT`` window ahead of
         the advisory-lock filter and starving other schemas' claimable work.
         """
+        exclude_clause = ""
+        params: dict[str, Any] = {"limit": limit, "backoff": retry_backoff_base_seconds}
+        if exclude_keys:
+            value_placeholders = ",".join(
+                f"(%(xk_t_{i})s::bigint, %(xk_s_{i})s::text)" for i in range(len(exclude_keys))
+            )
+            exclude_clause = f"""
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (VALUES {value_placeholders}) AS excl(team_id, schema_id)
+                            WHERE excl.team_id = b.team_id AND excl.schema_id = b.schema_id
+                        )"""
+            for i, (t, s) in enumerate(exclude_keys):
+                params[f"xk_t_{i}"] = t
+                params[f"xk_s_{i}"] = s
+
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -300,6 +317,7 @@ class BatchQueue:
                                 AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND s_busy.job_state = 'executing'
                         )
+                        {exclude_clause}
                     ORDER BY b.created_at ASC, b.batch_index ASC
                     LIMIT %(limit)s
                 )
@@ -308,7 +326,7 @@ class BatchQueue:
                 WHERE pg_try_advisory_lock({ADVISORY_LOCK_NAMESPACE}, hashtext(c.team_id::text || ':' || c.schema_id))
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds},
+                params,
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
