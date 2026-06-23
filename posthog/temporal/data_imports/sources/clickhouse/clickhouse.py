@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
 from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter, render_named_conditions
 
@@ -975,6 +975,29 @@ def _build_select_list(columns: list[ClickHouseColumn]) -> str:
     return ", ".join(parts)
 
 
+def _project_columns(
+    columns: list[ClickHouseColumn],
+    enabled_columns: Optional[list[str]],
+    primary_keys: Optional[list[str]],
+    incremental_field: Optional[str],
+) -> list[ClickHouseColumn]:
+    """Restrict the SELECT to the user-enabled columns.
+
+    `enabled_columns is None` syncs every column. Otherwise we project to the
+    enabled set plus the primary keys and incremental cursor (always synced),
+    reusing the shared `compute_projected_columns` ordering and mapping the
+    names back to typed `ClickHouseColumn`s so toString casting is preserved.
+    Falls back to all columns if nothing resolves, so a sync never selects zero
+    columns.
+    """
+    projected_names = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    if projected_names is None:
+        return columns
+    by_name = {column.name: column for column in columns}
+    projected = [by_name[name] for name in projected_names if name in by_name]
+    return projected or columns
+
+
 def _build_query(
     *,
     database: str,
@@ -1060,6 +1083,7 @@ def clickhouse_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1092,6 +1116,9 @@ def clickhouse_source(
             primary_keys = _get_primary_keys(client, database, table_name)
             if primary_keys:
                 logger.debug(f"Found primary keys (sorting key): {primary_keys}")
+
+            # Project to the user-selected columns (always keeping PK + cursor).
+            projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
 
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
@@ -1167,7 +1194,7 @@ def clickhouse_source(
                 query, filter_params = _build_query(
                     database=database,
                     table_name=table_name,
-                    columns=list(table.columns),
+                    columns=projected_columns,
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
                     row_filters=row_filters,

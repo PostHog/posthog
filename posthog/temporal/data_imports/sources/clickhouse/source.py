@@ -57,6 +57,10 @@ ClickHouseErrors: dict[str, str] = {
 
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Lets users pick which columns to sync (and, in the wizard, surfaces the
+    # row-filter editor that shares the same column-selection modal).
+    supports_column_selection: bool = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
@@ -353,6 +357,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
+            enabled_columns=inputs.enabled_columns,
         )
 
     def reconcile_schema_metadata(

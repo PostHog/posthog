@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     _has_duplicate_primary_keys,
     _is_transient_connect_drop,
     _parse_mv_target,
+    _project_columns,
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
@@ -256,6 +257,43 @@ class TestBuildQuery:
         )
         assert "WHERE `country` IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
         assert params == {"row_filter_0_0": "US", "row_filter_0_1": "CA"}
+
+
+class TestProjectColumns:
+    @staticmethod
+    def _cols(*names: str) -> list[ClickHouseColumn]:
+        return [ClickHouseColumn(name=n, data_type="String", nullable=False) for n in names]
+
+    @staticmethod
+    def _names(cols: list[ClickHouseColumn]) -> list[str]:
+        return [c.name for c in cols]
+
+    def test_none_enabled_returns_all_columns(self):
+        cols = self._cols("a", "b", "c")
+        assert _project_columns(cols, None, ["a"], "b") == cols
+
+    def test_subset_keeps_only_enabled(self):
+        cols = self._cols("a", "b", "c", "d")
+        assert self._names(_project_columns(cols, ["b", "c"], None, None)) == ["b", "c"]
+
+    def test_always_includes_primary_keys_and_incremental(self):
+        cols = self._cols("id", "name", "created_at", "extra")
+        result = _project_columns(cols, ["name"], ["id"], "created_at")
+        assert set(self._names(result)) == {"name", "id", "created_at"}
+
+    def test_empty_enabled_selects_pk_and_incremental_only(self):
+        cols = self._cols("id", "name", "created_at")
+        result = _project_columns(cols, [], ["id"], "created_at")
+        assert set(self._names(result)) == {"id", "created_at"}
+
+    def test_unknown_enabled_names_are_ignored(self):
+        cols = self._cols("a", "b")
+        assert self._names(_project_columns(cols, ["a", "does_not_exist"], None, None)) == ["a"]
+
+    def test_empty_projection_falls_back_to_all_columns(self):
+        cols = self._cols("a", "b")
+        # enabled=[] with no PK/cursor resolves to nothing — never select zero columns.
+        assert _project_columns(cols, [], None, None) == cols
 
 
 class TestParseMvTarget:
