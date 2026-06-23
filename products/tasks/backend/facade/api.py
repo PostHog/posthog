@@ -8,9 +8,9 @@ Responsibilities:
 - Stay thin and stable.
 
 This module is deliberately light: it imports the models and small helpers only. The
-heavy behavioral surfaces (sandbox provisioning, the multi-turn agent machinery, temporal
-workflows, max tools) live in sibling facade submodules (``sandbox``, ``agents``,
-``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
+heavy behavioral surfaces (sandbox provisioning, warming, the multi-turn agent machinery,
+temporal workflows, max tools) live in sibling facade submodules (``sandbox``, ``warm``,
+``agents``, ``temporal``, ``max_tools``, ``webhooks``, ``streams``, ``repo_selection``) so a
 config-only importer never drags docker/temporalio onto the ``django.setup()`` path.
 Functions that bridge to those heavy surfaces import them lazily inside the function body.
 """
@@ -105,7 +105,10 @@ __all__ = [
     "create_sandbox_environment",
     "create_task",
     "create_task_automation",
+    "create_task_without_run",
     "create_task_run_connection_token",
+    "create_task_run_stream_read_token",
+    "resolve_stream_base_url",
     "claim_and_fail_stale_run",
     "delete_sandbox_environment",
     "delete_task_automation",
@@ -114,6 +117,7 @@ __all__ = [
     "finalize_task_staged_artifacts",
     "get_code_home",
     "get_code_workflow_config",
+    "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
     "get_sandbox_environment",
@@ -155,6 +159,7 @@ __all__ = [
     "save_code_workflow_bindings",
     "send_cancel",
     "send_user_message",
+    "select_repository_for_message",
     "set_task_run_output",
     "signal_report_queryset",
     "signal_task_run_user_message",
@@ -325,14 +330,21 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
     )
 
 
-def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
+def _task_detail_to_dto(task: Task, *, include_latest_run: bool = True) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO.
 
     Mirrors ``TaskSerializer`` output exactly. ``latest_run`` is the task's most-recent run
     (by ``created_at``) mapped to a ``TaskRunDetailDTO``; pass a queryset that has
     ``prefetch_related("runs")`` and ``select_related("created_by")`` to avoid N+1s.
+    Set ``include_latest_run=False`` for consumers that render the task envelope without
+    nested run details.
     """
-    latest_run = task.latest_run
+    latest_run = task.latest_run if include_latest_run else None
+    # Prefer a cheap `_latest_run_id` subquery annotation (conversation envelope); otherwise derive
+    # it from a populated nested run so the id is always consistent with `latest_run`.
+    latest_run_id = getattr(task, "_latest_run_id", None)
+    if latest_run_id is None and latest_run is not None:
+        latest_run_id = latest_run.id
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
@@ -354,6 +366,7 @@ def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
         created_at=task.created_at,
         updated_at=task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
+        latest_run_id=latest_run_id,
     )
 
 
@@ -444,21 +457,25 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(**task_run_filter) -> Exists:
-    """``Exists`` over runs matching ``task_run_filter`` that produced a non-empty output.pr_url.
+def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
+    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
 
-    The caller supplies the correlation filter (e.g. ``task__signal_report_tasks__report_id=
-    OuterRef("id")`` plus its own relationship value). Returns a query expression to embed in
-    the caller's queryset — no ORM instances cross the boundary, and the tasks facade stays
-    free of the caller's domain.
+    The caller supplies the report→run correlation as keyword lookups (e.g.
+    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
+    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
+    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
+    stays free of the caller's domain.
     """
-    return Exists(TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False).exclude(output__pr_url=""))
+    return Exists(
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
+    )
 
 
-def latest_task_run_pr_url_subquery(**task_run_filter) -> Subquery:
-    """``Subquery`` of the latest non-empty output.pr_url for runs matching ``task_run_filter``."""
+def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
+    """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
+    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
     return Subquery(
-        TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
         .order_by("-created_at")
         .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
@@ -608,6 +625,31 @@ def create_and_run_task(
         team_id=task.team_id,
         latest_run=_task_run_to_dto(latest, task=task) if latest is not None else None,
     )
+
+
+def create_task_without_run(
+    *,
+    team,
+    user_id: int,
+    origin_product: "Task.OriginProduct",
+    title: str = "",
+    description: str = "",
+    repository: str | None = None,
+) -> UUID:
+    """Create a Task row with no initial run, returning its id.
+
+    For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
+    run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
+    """
+    task = Task.create_without_run(
+        team=team,
+        title=title,
+        description=description,
+        origin_product=origin_product,
+        user_id=user_id,
+        repository=repository,
+    )
+    return task.id
 
 
 def create_run(
@@ -1662,6 +1704,52 @@ def create_task_run_connection_token(
     return _create(task_run=run, user_id=user_id, distinct_id=distinct_id)
 
 
+def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    """Mint a run-scoped token for reading a run's live event stream. ``None`` if the run isn't found."""
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_stream_read_token as _create,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return _create(task_run=run)
+
+
+def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) -> str | None:
+    """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
+
+    Returns the configured agent-proxy URL only when it is set for this environment AND the
+    read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
+    server owns this decision; clients just connect to whatever URL comes back.
+    """
+    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
+
+    from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
+
+    proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    if not proxy_url:
+        return None
+    # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
+    # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
+    if settings.DEBUG:
+        return proxy_url
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                STREAM_VIA_PROXY_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": str(organization_id)},
+                group_properties={"organization": {"id": str(organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return None
+    return proxy_url if enabled else None
+
+
 # --- Task run commands (user_message signal + sandbox proxy) ---
 
 
@@ -2030,7 +2118,9 @@ def _trigger_task_processing_workflow(
         parse_run_state,
     )
 
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL})
+    # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
+    # via the task:write artefact tools.
+    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
     run_source = parse_run_state(run.state).run_source
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
@@ -2273,6 +2363,31 @@ def get_task_detail(
     return _task_detail_to_dto(task) if task is not None else None
 
 
+def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> dict[UUID, contracts.TaskDetailDTO]:
+    """Task payloads for the Max conversation API, keyed by task id.
+
+    Intentionally team-scoped, with no ``task_visibility_q(user_id)`` gate: the conversation is the
+    read-share unit, so anyone who can ``retrieve`` a conversation may read its backing task. Broad
+    read here does not grant action — write/send to a task stays creator-gated in the conversation
+    viewset (``create``/``open``/``queue``) and at bind time (``validate_task_id``). Direct task reads
+    (``get_task_detail``) gate by creator because that is the task-enumeration path; this one is not.
+
+    ``latest_run`` (the nested run payload) stays excluded so conversation lists never presign per-row
+    log URLs; instead a single ``latest_run_id`` subquery carries the latest run id, which the frontend
+    needs to reconnect to sandbox logs.
+    """
+    if not task_ids:
+        return {}
+
+    latest_run_id_sq = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("id")[:1]
+    tasks = (
+        Task.objects.filter(team_id=team_id, id__in=task_ids)
+        .select_related("created_by", "team")
+        .annotate(_latest_run_id=Subquery(latest_run_id_sq))
+    )
+    return {task.id: _task_detail_to_dto(task, include_latest_run=False) for task in tasks}
+
+
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
@@ -2281,6 +2396,21 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool
     the original ordering.
     """
     return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+
+
+async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
+    """Pick the repository a free-form chat message is most likely about.
+
+    Kept as a lazy facade wrapper so API importers do not load the repo-selection agent or
+    sandbox/Temporal dependencies on their request import path.
+    """
+    from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
+        select_repository_for_message as select_repository_for_message_impl,
+    )
+
+    return await select_repository_for_message_impl(
+        team_id, user_id, message, origin_product=Task.OriginProduct(origin_product)
+    )
 
 
 def list_tasks(
@@ -2433,8 +2563,8 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        SignalReportTask,
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        record_implementation_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -2449,10 +2579,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    link_relationship = validated_data.pop(
-        "signal_report_task_relationship",
-        SignalReportTask.Relationship.IMPLEMENTATION,
-    )
+    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
+    # is recorded by record_implementation_task below.
+    validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -2486,11 +2615,12 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            SignalReportTask.objects.create(
+            # Dual-write the implementation gate row + task_run work-log artefact (see
+            # record_implementation_task) so a manually-started task matches autostarted ones.
+            record_implementation_task(
                 team_id=task.team_id,
-                report_id=task.signal_report_id,
-                task=task,
-                relationship=link_relationship,
+                report_id=str(task.signal_report_id),
+                task_id=str(task.id),
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))

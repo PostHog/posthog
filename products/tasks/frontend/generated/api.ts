@@ -26,6 +26,7 @@ import type {
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
+    StreamReadTokenResponseApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
@@ -1007,6 +1008,26 @@ export const tasksRunsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<string> => {
     return apiMutator<string>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsStreamTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream_token/`
+}
+
+/**
+ * Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.
+ * @summary Get task run stream read token
+ */
+export const tasksRunsStreamTokenRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<StreamReadTokenResponseApi> => {
+    return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })

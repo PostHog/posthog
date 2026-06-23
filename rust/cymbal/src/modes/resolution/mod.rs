@@ -70,7 +70,15 @@ pub async fn serve(
         service_config,
         draining,
     );
-    let auth_interceptor = InternalApiSecretInterceptor::new(resolver.internal_api_secret.clone());
+    let internal_api_secret_fallbacks = resolver
+        .internal_api_secret_fallbacks
+        .split(',')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let auth_interceptor = InternalApiSecretInterceptor::new(
+        resolver.internal_api_secret.clone(),
+        internal_api_secret_fallbacks,
+    );
 
     let listener = tokio::net::TcpListener::bind(res.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);

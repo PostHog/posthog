@@ -97,6 +97,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
@@ -386,6 +387,10 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "marketing_touchpoints_preaggregated": TableNode(
                         name="marketing_touchpoints_preaggregated",
                         table=MarketingTouchpointsPreaggregatedTable(),
+                    ),
+                    "marketing_conversions_preaggregated": TableNode(
+                        name="marketing_conversions_preaggregated",
+                        table=MarketingConversionsPreaggregatedTable(),
                     ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()

@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -60,6 +61,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
@@ -498,6 +500,47 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_count == 1
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_runs_source_discovery_outside_transaction(self, _mock_workflow_exists):
+        # `_is_webhook_only_schema` reaches the external source (e.g. Google Ads token refresh + field
+        # query). It must run before the per-schema transaction opens — running it inside update()'s
+        # transaction held the DB connection idle-in-transaction long enough for the server to close it.
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        # The bulk loop opens a per-schema transaction (a nested savepoint) around update(). Compare the
+        # savepoint depth at call time against the baseline before the request: equal ⇒ called from the
+        # pre-transaction warm step (the fix); baseline + 1 ⇒ called inside update()'s transaction.
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        savepoint_depth_at_call: list[int] = []
+
+        def record_savepoint_depth(_schema):
+            savepoint_depth_at_call.append(len(connection.savepoint_ids))
+            return False
+
+        with patch.object(ExternalDataSchemaSerializer, "_is_webhook_only_schema", side_effect=record_savepoint_depth):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "sync_type": "full_refresh"}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Called exactly once (memoized across warm + update), outside the per-schema transaction.
+        assert savepoint_depth_at_call == [baseline_savepoint_depth]
+        schema.refresh_from_db()
+        assert schema.should_sync is True
 
     @parameterized.expand(
         [
@@ -3127,6 +3170,86 @@ class TestExternalDataSource(APIBaseTest):
         # replication slot + publication on the source for a config we're about to refuse.
         mock_setup_cdc_resources.assert_not_called()
         mock_add_table.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_returns_400_when_pk_detection_connection_fails(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        _mock_is_cdc_enabled_for_team,
+        mock_capture_exception,
+    ):
+        # Credential validation connects with sslmode=prefer (falls back to unencrypted), but the
+        # CDC primary-key detection connection requires SSL. A database that doesn't support SSL
+        # raises SSLRequiredError here — a user/upstream connection problem, not a bug. It must
+        # surface as a clean 400, leave no source row behind, and not be captured as error noise.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="borrower",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="borrower",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.side_effect = SSLRequiredError(
+            "SSL/TLS connection is required but your database does not support it. "
+            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "borrower", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "change data capture" in response.json()["message"].lower()
+        # No source row left behind on a connection failure.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        # CDC slot setup must not run, and the expected connection failure isn't captured as noise.
+        mock_get_primary_key_columns.assert_not_called()
+        mock_setup_cdc_resources.assert_not_called()
+        mock_capture_exception.assert_not_called()
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -9133,6 +9256,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
         assert source.direct_query_enabled is False
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
+        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate

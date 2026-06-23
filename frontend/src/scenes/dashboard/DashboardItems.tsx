@@ -47,7 +47,6 @@ export function DashboardItems(): JSX.Element {
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
-        itemsLoading,
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
@@ -131,8 +130,13 @@ export function DashboardItems(): JSX.Element {
         }
     }, [scrollToBottomSignal])
     const className = clsx({
-        'dashboard-view-mode': !layoutEditMode,
-        'dashboard-edit-mode': layoutEditMode,
+        'dashboard-view-mode mb-8': !layoutEditMode,
+        // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
+        // content height — so there's nowhere to drag a tile into to create a new bottom row.
+        // box-content + padding-bottom grows clientHeight (padding only counts under content-box,
+        // since preflight defaults everything to border-box), opening up draggable space below the
+        // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
+        'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -445,7 +449,6 @@ export function DashboardItems(): JSX.Element {
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
                                         refresh={() => refreshDashboardItem({ tile })}
-                                        refreshEnabled={!itemsLoading}
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}

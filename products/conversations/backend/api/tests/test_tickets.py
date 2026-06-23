@@ -716,7 +716,7 @@ class TestTicketAPI(APIBaseTest):
         # count query, tickets query, persons query (batch), distinct_ids prefetch,
         # tagged_items prefetch
         # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

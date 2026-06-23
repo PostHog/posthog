@@ -69,6 +69,25 @@ def test_non_transient_status_raises_plain_exception(status: int, message: str) 
         assert message in str(exc_info.value)
 
 
+@pytest.mark.parametrize("status", [400, 403, 423])
+def test_portal_migration_in_progress_is_retryable(status: int) -> None:
+    # A portal mid-migration is a transient HubSpot state on a non-5xx status; it must back off
+    # and retry instead of failing the sync and disabling the schema.
+    message = "Migration in progress and the portal is not available for access."
+    session = MagicMock()
+    session.post.side_effect = [
+        _make_response(status, {"message": message}),
+        _make_response(status, {"message": message}),
+        _make_response(200, {"access_token": "new-token"}),
+    ]
+    with patch(
+        "posthog.temporal.data_imports.sources.hubspot.auth.make_tracked_session",
+        return_value=session,
+    ):
+        assert hubspot_refresh_access_token("refresh-token") == "new-token"
+    assert session.post.call_count == 3
+
+
 def test_transient_status_with_non_json_body_still_retryable() -> None:
     response = MagicMock()
     response.status_code = 429
