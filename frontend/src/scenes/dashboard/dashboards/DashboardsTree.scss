@@ -1,0 +1,17 @@
+.dashboards-tree-panel {
+    // Folder rows are accordion triggers, and ButtonPrimitives shades any open / expanded / active trigger.
+    // In this always-expanded panel that paints every folder so they all look selected. Drop the shading —
+    // the right-hand content + the Folder column show the scope — and mark the selected folder with weight
+    // instead of a heavy background.
+    .button-primitive {
+        background-color: transparent !important;
+
+        &:hover {
+            background-color: var(--color-bg-fill-button-tertiary-hover) !important;
+        }
+    }
+
+    .button-primitive--active {
+        font-weight: 600;
+    }
+}

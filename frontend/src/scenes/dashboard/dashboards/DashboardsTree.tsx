@@ -1,3 +1,5 @@
+import './DashboardsTree.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconFolder } from '@posthog/icons'
@@ -51,11 +53,14 @@ export function DashboardsTree(): JSX.Element {
                     <NewFolderButton />
                 </div>
                 <LemonTree
-                    className="px-0 py-1"
+                    // expandAllFolders seeds the expanded set once at mount; the folder rows load async, so
+                    // re-key when they arrive to re-run it with the full tree (otherwise it renders collapsed).
+                    key={folderTree.length > 0 ? 'loaded' : 'empty'}
+                    className="px-0 py-1 dashboards-tree-panel"
                     data={treeData}
                     expandAllFolders
                     defaultSelectedFolderOrNodeId={ROOT_ID}
-                    // Highlight only the actively-selected folder — never the whole tree. Empty at the root.
+                    // Mark only the selected folder (rendered as bold via the panel SCSS, not a background).
                     isItemActive={(item) => !!currentFolder && item.record?.path === currentFolder}
                     onFolderClick={(folder) => folder && navigateToFolder((folder.record?.path as string) ?? '')}
                 />
@@ -78,7 +83,11 @@ export function DashboardsTree(): JSX.Element {
                         ))}
                     </div>
                 ) : null}
-                <DashboardsTable dashboards={currentSubtreeDashboards} dashboardsLoading={dashboardsLoading} />
+                <DashboardsTable
+                    dashboards={currentSubtreeDashboards}
+                    dashboardsLoading={dashboardsLoading}
+                    showFolderColumn
+                />
             </div>
         </div>
     )
