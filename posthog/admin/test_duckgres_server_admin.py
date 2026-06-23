@@ -4,7 +4,9 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.http import Http404, HttpRequest
 from django.test import RequestFactory
+from django.urls import reverse
 
 from rest_framework.response import Response
 
@@ -31,8 +33,14 @@ class TestDuckgresServerAdminProvision(BaseTest):
         self.factory = RequestFactory()
         self.admin = DuckgresServerAdmin(DuckgresServer, AdminSite())
 
-    def _post(self, url: str, data: dict):
+    def _post(self, url: str, data: dict) -> HttpRequest:
         request = self.factory.post(url, data)
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _get(self, url: str) -> HttpRequest:
+        request = self.factory.get(url)
         request.user = self.user
         _attach_messages(request)
         return request
@@ -106,6 +114,12 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         mock_enable.assert_called_once_with(self.organization.id, self.team.id, "env_b", require_enabled=False)
 
+    def test_enable_backfill_invalid_server_returns_404(self) -> None:
+        request = self._get("/admin/posthog/duckgresserver/999999/enable-backfill/")
+
+        with self.assertRaises(Http404):
+            self.admin.enable_backfill_view(request, "999999")
+
     def test_deprovision_post_calls_helper_bypassing_flag(self) -> None:
         server = self._server()
         request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
@@ -113,3 +127,29 @@ class TestDuckgresServerAdminProvision(BaseTest):
             self.admin.deprovision_view(request, str(server.pk))
 
         mock_deprovision.assert_called_once_with(self.organization.id, require_enabled=False)
+
+    def test_deprovision_invalid_server_returns_404(self) -> None:
+        request = self._get("/admin/posthog/duckgresserver/999999/deprovision/")
+
+        with self.assertRaises(Http404):
+            self.admin.deprovision_view(request, "999999")
+
+    def test_deprovision_failure_returns_to_change_page_and_logs(self) -> None:
+        server = self._server()
+        request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
+
+        with (
+            patch(f"{MW}.deprovision", return_value=Response({"error": "still running"}, status=409)),
+            patch("posthog.admin.admins.duckgres_server_admin.logger.warning") as mock_warning,
+        ):
+            response = self.admin.deprovision_view(request, str(server.pk))
+
+        assert response.url == reverse("admin:posthog_duckgresserver_change", args=[server.pk])
+        assert any("Failed (status 409): still running" in message for message in _messages(request))
+        mock_warning.assert_called_once_with(
+            "admin_managed_warehouse_action_failed",
+            action=f"Deprovisioned managed warehouse for org {self.organization.id}",
+            triggered_by=self.user.email,
+            status_code=409,
+            error="still running",
+        )

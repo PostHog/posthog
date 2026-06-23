@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
-from django.http import HttpResponse
-from django.shortcuts import redirect, render
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 
 import structlog
@@ -126,7 +126,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
     def enable_backfill_view(self, request, object_id) -> HttpResponse:
         """Add another team to an already-provisioned org's warehouse with its own tables."""
-        server = DuckgresServer.objects.get(pk=object_id)
+        server = self._get_server_or_404(object_id)
         if not self.has_change_permission(request, server):
             raise PermissionDenied
 
@@ -158,7 +158,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
     def deprovision_view(self, request, object_id) -> HttpResponse:
         """Tear down an org's managed warehouse via the control-plane /deprovision call."""
-        server = DuckgresServer.objects.get(pk=object_id)
+        server = self._get_server_or_404(object_id)
         if not self.has_change_permission(request, server):
             raise PermissionDenied
 
@@ -177,7 +177,15 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")
-        return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+        if 200 <= resp.status_code < 300:
+            return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+        return redirect(reverse("admin:posthog_duckgresserver_change", args=[object_id]))
+
+    def _get_server_or_404(self, object_id: str) -> DuckgresServer:
+        try:
+            return get_object_or_404(DuckgresServer, pk=object_id)
+        except ValidationError as exc:
+            raise Http404("No DuckgresServer matches the given query.") from exc
 
     def _resolve_team(self, request, organization_id: str, team_id: str) -> Team | None:
         """Look up the team and confirm it belongs to the given org, messaging on failure."""
@@ -203,4 +211,11 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             messages.success(request, f"{success_message}. (status {resp.status_code})")
             return
         detail = resp.data.get("error") if isinstance(resp.data, dict) else resp.data
+        logger.warning(
+            "admin_managed_warehouse_action_failed",
+            action=success_message,
+            triggered_by=request.user.email,
+            status_code=resp.status_code,
+            error=detail,
+        )
         messages.error(request, f"Failed (status {resp.status_code}): {detail}")
