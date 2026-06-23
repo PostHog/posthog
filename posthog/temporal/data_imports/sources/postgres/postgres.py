@@ -301,7 +301,7 @@ def _retry_on_connection_dropped(
             attempt += 1
             if attempt >= max_attempts:
                 raise
-            logger.debug(f"Connection dropped ({e}). Retrying (attempt {attempt}/{max_attempts})")
+            logger.debug(f"Transient connection error ({e}). Retrying (attempt {attempt}/{max_attempts})")
             time.sleep(min(2 * attempt, 30))
 
 
@@ -2930,7 +2930,7 @@ def postgres_source(
                                 f"Hit {successive_conn_errors} successive connection errors. Aborting."
                             ) from e
                         logger.debug(
-                            f"Connection dropped ({e}). Reconnecting and retrying chunk at offset {offset} "
+                            f"Transient connection error ({e}). Reconnecting and retrying chunk at offset {offset} "
                             f"(attempt {successive_conn_errors})"
                         )
                         time.sleep(min(2 * successive_conn_errors, 30))
