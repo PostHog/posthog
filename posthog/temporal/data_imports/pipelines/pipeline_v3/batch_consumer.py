@@ -87,6 +87,7 @@ class BatchConsumerAdapter(Protocol):
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]: ...
 
     async def unlock(
@@ -182,6 +183,9 @@ class BatchConsumer:
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._last_stuck_log_monotonic = 0.0
+        # In-flight group tasks keyed by (team_id, schema_id). Prevents re-polling
+        # the same key (session advisory locks are re-entrant).
+        self._in_flight: dict[tuple[int, str], asyncio.Task[None]] = {}
 
     async def _connect(self) -> psycopg.AsyncConnection[Any]:
         return await psycopg.AsyncConnection.connect(
@@ -237,6 +241,10 @@ class BatchConsumer:
             while not self._shutdown.is_set():
                 self._report_health()
 
+                self._reap_finished_tasks()
+
+                exclude_keys = set(self._in_flight.keys())
+
                 poll_start = time.monotonic()
                 try:
                     conn = await self._ensure_main_conn()
@@ -244,6 +252,7 @@ class BatchConsumer:
                         conn,
                         limit=self._config.poll_limit,
                         retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+                        exclude_keys=exclude_keys,
                     )
                 except psycopg.OperationalError as e:
                     # Queue DB unreachable — keep the pod alive; the next iteration reconnects.
@@ -264,17 +273,41 @@ class BatchConsumer:
                     self._event("poll_returned"),
                     batch_count=len(batches),
                     group_count=len(groups),
+                    in_flight=len(self._in_flight),
                 )
 
-                self._metrics.active_groups.inc(len(groups))
-                try:
-                    await asyncio.gather(
-                        *[self._process_group(key, group_batches) for key, group_batches in groups.items()]
+                for key, group_batches in groups.items():
+                    task = asyncio.create_task(
+                        self._process_group_tracked(key, group_batches),
+                        name=f"group:{key[0]}:{key[1]}",
                     )
-                finally:
-                    self._metrics.active_groups.dec(len(groups))
+                    self._in_flight[key] = task
         finally:
+            if self._in_flight:
+                await asyncio.gather(*self._in_flight.values(), return_exceptions=True)
+                self._in_flight.clear()
             await self._close()
+
+    def _reap_finished_tasks(self) -> None:
+        """Remove completed tasks from the in-flight registry."""
+        done = [k for k, t in self._in_flight.items() if t.done()]
+        for k in done:
+            task = self._in_flight.pop(k)
+            if task.exception() is not None:
+                logger.exception(
+                    self._event("group_task_failed"),
+                    team_id=k[0],
+                    schema_id=k[1],
+                    error=str(task.exception()),
+                )
+
+    async def _process_group_tracked(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        """Wrapper that updates the active-groups gauge and removes self from in-flight on completion."""
+        self._metrics.active_groups.inc()
+        try:
+            await self._process_group(key, batches)
+        finally:
+            self._metrics.active_groups.dec()
 
     async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         team_id, schema_id = key
