@@ -18,7 +18,10 @@ class DuckLakeBackfillAdmin(admin.ModelAdmin):
     )
     list_filter = ("enabled",)
     search_fields = ("=team__id", "table_suffix")
-    readonly_fields = ("id", "created_at", "updated_at")
+    # `table_suffix` is write-once: it names a team's warehouse tables/schema, so changing it after
+    # data is written moves the target and orphans the old tables. It's set only through the
+    # validated enable flow (`enable_team_backfill`), never edited here.
+    readonly_fields = ("id", "table_suffix", "created_at", "updated_at")
     raw_id_fields = ("team", "created_by")
     actions = ("make_enabled", "make_disabled")
 
