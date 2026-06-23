@@ -113,7 +113,7 @@ class TestGetRows:
             return next(page_iter)
 
         monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda: MagicMock())
+        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
 
         rows: list[dict] = []
         for batch in get_rows(
@@ -162,7 +162,7 @@ class TestGetRows:
             return {"data": {"sources": [{"id": "s9"}], "pagination": {"next": None}}}
 
         monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda: MagicMock())
+        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
 
         rows: list[dict] = []
         for batch in get_rows(
@@ -186,7 +186,7 @@ class TestGetRows:
             return {"data": {"workspace": {"id": "w1", "name": "Acme", "slug": "acme"}}}
 
         monkeypatch.setattr(segment, "_fetch", fake_fetch)
-        monkeypatch.setattr(segment, "make_tracked_session", lambda: MagicMock())
+        monkeypatch.setattr(segment, "make_tracked_session", lambda *a, **k: MagicMock())
 
         rows: list[dict] = []
         for batch in get_rows(

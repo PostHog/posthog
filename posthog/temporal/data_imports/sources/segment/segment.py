@@ -110,7 +110,8 @@ def get_rows(
     base_url = _base_url(region)
     headers = _headers(api_token)
     # One session reused across pages so urllib3 keeps the connection alive instead of re-handshaking.
-    session = make_tracked_session()
+    # `redact_values` masks the bearer token in tracked request logs and captured HTTP samples.
+    session = make_tracked_session(redact_values=(api_token,))
 
     # `GET /` (Get Workspace) returns a single object, not a paginated list.
     if config.single_object_key is not None:
@@ -172,7 +173,7 @@ def segment_source(
 def validate_credentials(api_token: str, region: str) -> bool:
     """Cheapest probe that a token is genuine: Get Workspace (`GET /`) for the token's region."""
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_token,)).get(
             f"{_base_url(region)}/",
             headers=_headers(api_token),
             timeout=10,
