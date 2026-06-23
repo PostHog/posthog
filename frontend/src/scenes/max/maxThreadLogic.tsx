@@ -859,7 +859,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   • 400 conversation_idle: the reconnect landed after the turn already finished.
                     const isReconnectConflict = e instanceof ApiError && e.status === 409 && generationAttempt <= 5
                     const isIdleReconnectRace =
-                        e instanceof ApiError && e.status === 400 && e.code === 'conversation_idle'
+                        e instanceof ApiError && e.status === 400 && e.data?.code === 'conversation_idle'
 
                     if (!isReconnectConflict && !isIdleReconnectRace) {
                         posthog.captureException(e)

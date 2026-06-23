@@ -1327,7 +1327,7 @@ describe('maxThreadLogic', () => {
 
         it('treats a conversation_idle reconnect race as a completed turn, not an error', async () => {
             // A reconnect that lands after the turn already finished — the turn completed fine, so we
-            // sync from the server and finish quietly instead of surfacing a Failure message.
+            // finish the turn quietly instead of surfacing a Failure message.
             jest.spyOn(api.conversations, 'stream').mockRejectedValue(
                 new ApiError('Bad Request', 400, undefined, {
                     detail: 'Cannot continue streaming from an idle conversation',
@@ -1342,12 +1342,10 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.askMax('hello')
-            }).toDispatchActions(['askMax', 'loadConversation', 'completeThreadGeneration'])
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
 
             // No Failure message surfaced — the turn is treated as completed, not failed.
-            expect(
-                logic.values.threadGrouped.some((msg) => msg.type === AssistantMessageType.Failure)
-            ).toBe(false)
+            expect(logic.values.threadGrouped.some((msg) => msg.type === AssistantMessageType.Failure)).toBe(false)
         })
     })
 
