@@ -823,7 +823,9 @@ def _read_capped_text(response: Response) -> str:
     otherwise non-text body would decode to binary garbage, so it is omitted from the
     snippet rather than echoed into a user-facing error.
     """
-    if response.headers.get("Content-Encoding"):
+    # ``identity`` means "no transformation", so its body is plain bytes worth surfacing;
+    # any other encoding (gzip, br, …) would decode to garbage, so omit the snippet.
+    if response.headers.get("Content-Encoding", "").lower() not in ("", "identity"):
         return ""
     try:
         raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)

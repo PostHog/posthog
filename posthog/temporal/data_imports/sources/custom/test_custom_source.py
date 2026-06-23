@@ -438,18 +438,27 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         )
         assert _read_capped_text(response) == ""
 
-    def test_read_capped_text_omits_non_utf8_body(self):
-        # A body that isn't valid UTF-8 (binary, or still-encoded) is dropped rather than
-        # surfaced as replacement-character garbage.
+    @parameterized.expand(
+        [
+            # A body that isn't valid UTF-8 (binary, or still-encoded) is dropped rather than
+            # surfaced as replacement-character garbage.
+            ("non_utf8", b"\x1f\x8b\x08\x00garbage\xff\xfe", ""),
+            # A plain-text body is returned, stripped of surrounding whitespace.
+            ("plain_text", b"  forbidden: token expired  ", "forbidden: token expired"),
+        ]
+    )
+    def test_read_capped_text_non_compressed(self, _name, raw_bytes, expected):
         response = MagicMock()
         response.headers = {}
-        response.raw.read.return_value = b"\x1f\x8b\x08\x00garbage\xff\xfe"
-        assert _read_capped_text(response) == ""
+        response.raw.read.return_value = raw_bytes
+        assert _read_capped_text(response) == expected
 
-    def test_read_capped_text_returns_plain_text(self):
+    def test_read_capped_text_returns_identity_encoded_body(self):
+        # `Content-Encoding: identity` means no transformation, so the plain-text body
+        # is still readable and must be surfaced rather than dropped.
         response = MagicMock()
-        response.headers = {}
-        response.raw.read.return_value = b"  forbidden: token expired  "
+        response.headers = {"Content-Encoding": "identity"}
+        response.raw.read.return_value = b"forbidden: token expired"
         assert _read_capped_text(response) == "forbidden: token expired"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
