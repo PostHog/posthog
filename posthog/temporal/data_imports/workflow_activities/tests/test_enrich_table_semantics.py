@@ -18,6 +18,15 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = pytest.mark.django_db
 
+_USAGE = {"model": "claude-haiku-4-5", "prompt_tokens": 120, "completion_tokens": 40, "total_tokens": 160}
+
+
+@pytest.fixture(autouse=True)
+def _mock_capture_enrichment_event():
+    # Route enrichment analytics through a mock so tests never emit real events and can assert on them.
+    with patch.object(enrich, "capture_enrichment_event") as mock:
+        yield mock
+
 
 def _team() -> Team:
     return Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
@@ -183,6 +192,20 @@ class TestCanonicalDescriptionsResolver:
     def test_sql_source_ships_no_canonical_descriptions(self):
         assert enrich.get_canonical_descriptions_for_source(ExternalDataSourceType.POSTGRES) == {}
 
+    def test_stripe_canonical_covers_every_synced_endpoint(self):
+        from posthog.temporal.data_imports.sources.stripe.canonical_descriptions import CANONICAL_DESCRIPTIONS
+        from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS
+
+        missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
+        assert not missing, f"Stripe endpoints missing canonical descriptions: {sorted(missing)}"
+
+    def test_hubspot_canonical_covers_every_synced_endpoint(self):
+        from posthog.temporal.data_imports.sources.hubspot.canonical_descriptions import CANONICAL_DESCRIPTIONS
+        from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS
+
+        missing = set(ENDPOINTS) - set(CANONICAL_DESCRIPTIONS)
+        assert not missing, f"Hubspot endpoints missing canonical descriptions: {sorted(missing)}"
+
 
 class TestEnrichTableSemanticsSync:
     def test_skipped_when_flag_disabled(self):
@@ -257,7 +280,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
@@ -290,7 +313,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
@@ -334,7 +357,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", return_value=generated),
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
         ):
             enrich_table_semantics_sync(team.pk, schema.id)
 
@@ -385,7 +408,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
@@ -421,7 +444,7 @@ class TestEnrichTableSemanticsSync:
             patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
-            patch.object(enrich, "_generate_descriptions", return_value=generated) as mock_llm,
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
         ):
             result = enrich_table_semantics_sync(team.pk, schema.id)
 
@@ -448,6 +471,58 @@ class TestEnrichTableSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}
+
+    def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
+        team = _team()
+        schema, _table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        generated = {"table_description": "Stripe charges", "columns": {"status": "Charge status"}}
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
+        ):
+            enrich_table_semantics_sync(team.pk, schema.id)
+
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert enrich.EVENT_STARTED in events
+        assert events[enrich.EVENT_STARTED]["source_type"] == "Stripe"
+        assert events[enrich.EVENT_STARTED]["schema_name"] == "Charge"
+
+        llm = events[enrich.EVENT_LLM_CALL]
+        assert llm["success"] is True
+        assert llm["columns_requested"] == 1  # only the non-canonical column went to the LLM
+        assert llm["total_tokens"] == _USAGE["total_tokens"]
+        assert llm["model"] == _USAGE["model"]
+
+        completed = events[enrich.EVENT_COMPLETED]
+        assert completed["status"] == "done"
+        assert completed["canonical_annotations"] == 1
+        assert completed["ai_annotations"] == 1
+        assert completed["llm_called"] is True
+
+    def test_emits_llm_error_event_on_llm_failure(self, _mock_capture_enrichment_event):
+        team = _team()
+        schema, _table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        with (
+            patch.object(enrich, "enrichment_enabled", return_value=True),
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
+        ):
+            enrich_table_semantics_sync(team.pk, schema.id)
+
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert events[enrich.EVENT_LLM_CALL]["success"] is False
+        assert events[enrich.EVENT_COMPLETED]["status"] == "partial"
+        assert events[enrich.EVENT_COMPLETED]["llm_error"] is True
 
     def test_upsert_never_overwrites_user_edit_landing_in_race_window(self):
         # _upsert_annotation is only called for columns the caller's snapshot found unannotated, but a user

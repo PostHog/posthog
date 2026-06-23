@@ -50,6 +50,13 @@ ENRICHMENT_MODEL = "claude-haiku-4-5"
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
 
+# Product-analytics events — query these to track enrichment volume, LLM call count / token cost,
+# columns attributed, and errors across the pipeline.
+EVENT_STARTED = "data warehouse table enrichment started"
+EVENT_COMPLETED = "data warehouse table enrichment completed"
+EVENT_LLM_CALL = "data warehouse enrichment llm call"
+EVENT_ERROR = "data warehouse table enrichment error"
+
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -92,6 +99,22 @@ def enrichment_enabled(team: Team) -> bool:
     except Exception as e:
         capture_exception(e)
         return False
+
+
+def capture_enrichment_event(team: Team, event: str, properties: dict[str, Any]) -> None:
+    """Best-effort product-analytics capture, attributed to the team's org/project groups.
+
+    Telemetry must never break enrichment, so all failures are swallowed (and reported to Sentry).
+    """
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event=event,
+            properties={**properties, "team_id": team.id},
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+        )
+    except Exception as e:
+        capture_exception(e)
 
 
 def build_enrichment_prompt(
@@ -183,8 +206,8 @@ def _generate_descriptions(
     known_descriptions: dict[str, str],
     columns_needing_description: list[str],
     business_context: str,
-) -> dict[str, Any]:
-    """Call the LLM and return the parsed `{table_description, columns}` payload (or empty on failure)."""
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
     prompt = build_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
@@ -205,11 +228,18 @@ def _generate_descriptions(
         user=f"team-{team_id}",
         extra_headers={"x-posthog-property-source_product": "warehouse_semantic_enrichment"},
     )
+    usage_obj = getattr(response, "usage", None)
+    usage: dict[str, Any] = {
+        "model": ENRICHMENT_MODEL,
+        "prompt_tokens": getattr(usage_obj, "prompt_tokens", None),
+        "completion_tokens": getattr(usage_obj, "completion_tokens", None),
+        "total_tokens": getattr(usage_obj, "total_tokens", None),
+    }
     content = response.choices[0].message.content or "{}"
     parsed = json.loads(content)
     if not isinstance(parsed, dict):
-        return {}
-    return parsed
+        return {}, usage
+    return parsed, usage
 
 
 def _get_business_context(team: Team) -> str:
@@ -249,11 +279,20 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
         .get(id=team_id)
     )
+
+    # Context accumulated as we learn it; shared by the "started" and "completed" analytics events.
+    event_props: dict[str, Any] = {"schema_id": str(schema_id)}
+
+    def emit_completed(status: str, **props: Any) -> None:
+        capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
+
     if not enrichment_enabled(team):
+        emit_completed("skipped", reason="flag_disabled")
         return {"status": "skipped", "reason": "flag_disabled"}
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
     # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
     if team.organization.is_ai_data_processing_approved is not True:
+        emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
     schema = (
@@ -262,8 +301,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         .get(id=schema_id)
     )
     table = schema.table
+    event_props["source_type"] = schema.source.source_type
+    event_props["schema_name"] = schema.name
     if table is None:
+        emit_completed("skipped", reason="no_table")
         return {"status": "skipped", "reason": "no_table"}
+    event_props["table_id"] = str(table.id)
+    capture_enrichment_event(team, EVENT_STARTED, event_props)
 
     existing = {
         annotation.column_name: annotation
@@ -273,7 +317,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # Columns + types come from `table.columns`, populated for every source type after sync — so this
     # enriches REST sources (Stripe, Hubspot, …) as well as SQL ones. Foreign keys remain SQL-only.
     columns = [column for column in _columns_from_table(table) if column.get("name")]
+    event_props["columns_total"] = len(columns)
     if not columns:
+        emit_completed("skipped", reason="no_columns")
         return {"status": "skipped", "reason": "no_columns"}
     columns = columns[:MAX_COLUMNS_PER_TABLE]
     foreign_keys = schema.foreign_keys or []
@@ -297,7 +343,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # it into the idempotency guard so a table whose columns are all annotated but which still lacks a
     # table-level description isn't skipped.
     table_needs_description = not bool(schema.description) and "" not in existing
+    event_props["new_columns"] = len(new_columns)
     if not new_columns and not table_needs_description:
+        emit_completed("skipped", reason="already_enriched")
         return {"status": "skipped", "reason": "already_enriched"}
 
     # 1) Canonical descriptions are authoritative — persist them directly, no LLM.
@@ -319,6 +367,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     columns_needing_description = [column["name"] for column in new_columns if column["name"] not in canonical_columns]
 
     if not columns_needing_description and not table_needs_description:
+        emit_completed("done", canonical_annotations=canonical_count, ai_annotations=0, llm_called=False)
         return {"status": "done", "canonical_annotations": canonical_count, "ai_annotations": 0}
 
     # 2) LLM pass for everything still undescribed. Known descriptions (canonical + existing) give the
@@ -326,7 +375,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     known_descriptions = {**{name: a.description for name, a in existing.items() if name}, **canonical_columns}
     business_context = _get_business_context(team)
     try:
-        generated = _generate_descriptions(
+        generated, usage = _generate_descriptions(
             team_id=team_id,
             source_name=schema.source.source_type,
             table_name=table.name,
@@ -340,12 +389,31 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         )
     except Exception as e:
         log.warning("warehouse_enrichment.llm_failed", exc_info=e)
+        capture_enrichment_event(
+            team,
+            EVENT_LLM_CALL,
+            {
+                **event_props,
+                "success": False,
+                "error": str(e)[:300],
+                "columns_requested": len(columns_needing_description),
+            },
+        )
+        emit_completed(
+            "partial", canonical_annotations=canonical_count, ai_annotations=0, llm_called=True, llm_error=True
+        )
         return {
             "status": "partial",
             "canonical_annotations": canonical_count,
             "ai_annotations": 0,
             "error": "llm_failed",
         }
+
+    capture_enrichment_event(
+        team,
+        EVENT_LLM_CALL,
+        {**event_props, "success": True, "columns_requested": len(columns_needing_description), **usage},
+    )
 
     ai_count = 0
     generated_columns = generated.get("columns") or {}
@@ -370,6 +438,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         )
 
     log.info("warehouse_enrichment.done", canonical=canonical_count, ai=ai_count)
+    emit_completed(
+        "done", canonical_annotations=canonical_count, ai_annotations=ai_count, llm_called=True, llm_error=False
+    )
     return {"status": "done", "canonical_annotations": canonical_count, "ai_annotations": ai_count}
 
 
@@ -415,9 +486,27 @@ def _upsert_annotation(
 async def enrich_table_semantics_activity(inputs: EnrichTableSemanticsInputs) -> dict[str, Any]:
     """Activity wrapper. Heartbeats and runs the (sync) enrichment off the event loop."""
     async with Heartbeater():
-        return await database_sync_to_async(enrich_table_semantics_sync, thread_sensitive=False)(
-            inputs.team_id, inputs.schema_id
-        )
+        try:
+            return await database_sync_to_async(enrich_table_semantics_sync, thread_sensitive=False)(
+                inputs.team_id, inputs.schema_id
+            )
+        except Exception as e:
+            # Surface unexpected failures (DB errors, etc.) to Sentry and product analytics, then re-raise
+            # so Temporal applies its retry policy.
+            capture_exception(e)
+            try:
+                posthoganalytics.capture(
+                    distinct_id=f"team-{inputs.team_id}",
+                    event=EVENT_ERROR,
+                    properties={
+                        "team_id": inputs.team_id,
+                        "schema_id": str(inputs.schema_id),
+                        "error": str(e)[:300],
+                    },
+                )
+            except Exception as capture_error:
+                capture_exception(capture_error)
+            raise
 
 
 @workflow.defn(name="enrich-warehouse-table-semantics")
