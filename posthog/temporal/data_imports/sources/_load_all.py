@@ -285,6 +285,7 @@ from .ip2whois.source import IP2WhoisSource
 from .iterable.source import IterableSource
 from .jamf_pro.source import JamfProSource
 from .jira.source import JiraSource
+from .jobber.source import JobberSource
 from .jobnimbus.source import JobNimbusSource
 from .jotform.source import JotformSource
 from .judgeme_reviews.source import JudgeMeReviewsSource

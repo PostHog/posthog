@@ -4,9 +4,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
-import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
+import { GenericMcpToolRenderer } from 'products/posthog_ai/frontend/sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxDataToolRow'
+import type { SandboxToolRendererProps } from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+
 import { extractDashboard } from './extractors'
 
 /**

@@ -539,6 +539,7 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    "ee",
     "products.cohorts",
     "posthog",
     "products.actions",

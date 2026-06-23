@@ -60,12 +60,12 @@ describe('StickinessLineChart', () => {
             expect(tooltip.row('Pageview')).toMatch(/%/)
         })
 
-        it('uses "stickiness on {interval} {day}" as the tooltip title (not a calendar date)', async () => {
+        it('uses "Stickiness on {interval} {day}" as the tooltip title (not a calendar date)', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
             // Day at index 2 is 3 in the mock's 1-indexed stickiness days.
-            expect(tooltip.title()).toMatch(/stickiness on day 3/i)
+            expect(tooltip.title()).toMatch(/Stickiness on day 3/)
             // Critically — must NOT default to a Unix-epoch-derived calendar date.
             expect(tooltip.title()).not.toMatch(/1970/i)
         })
@@ -87,7 +87,7 @@ describe('StickinessLineChart', () => {
     })
 
     describe('click → persons modal', () => {
-        it('opens the modal with a "stickiness on {interval} {day}" title', async () => {
+        it('opens the modal with a "Stickiness on {interval} {day}" title', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             await chart.clickAtIndex(2)
@@ -96,7 +96,7 @@ describe('StickinessLineChart', () => {
                 expect(personsModal.get()).toBeInTheDocument()
             })
             // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
-            expect(personsModal.title()).toMatch(/stickiness on day 3/i)
+            expect(personsModal.title()).toMatch(/Stickiness on day 3/)
             expect(personsModal.title()).toMatch(/Pageview/i)
         })
 
