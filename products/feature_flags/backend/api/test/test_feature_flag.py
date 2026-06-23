@@ -77,6 +77,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         r = redis.get_client()
         for key in r.scan_iter("*"):
             r.delete(key)
+
+        # Temporary: keep the remote_config Rust shadow (phase 2) inert so endpoint tests never make
+        # a real outbound call. Delete with remote_config_shadow.py at the phase-3 cutover.
+        shadow_patcher = patch("products.feature_flags.backend.api.feature_flag.shadow_compare_remote_config")
+        shadow_patcher.start()
+        self.addCleanup(shadow_patcher.stop)
+
         return super().setUp()
 
     @staticmethod
@@ -2100,6 +2107,35 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    def test_remote_config_returns_response_even_if_shadow_raises(self):
+        # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+        self.client.logout()
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.shadow_compare_remote_config",
+            side_effect=RuntimeError("boom"),
+        ) as shadow:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), '{"test": true}')
+        shadow.assert_called_once()
+        self.assertEqual(shadow.call_args.kwargs["key"], "my-remote-config-flag")
+        self.assertIn("project_id", shadow.call_args.kwargs)
 
     # Encrypted remote config payloads are decrypted only for personal API keys; project
     # secret keys get the redacted marker. This is the parity oracle for the Rust port,
