@@ -76,6 +76,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_dropped_or_connect_timeout,
     _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
@@ -637,8 +638,8 @@ class TestPostgresSourceNonRetryableErrors:
             "could not serialize access due to conflict with recovery",
             # The connection-terminating variant is retried by the setup phase the same way.
             "terminating connection due to conflict with recovery",
-            # The connection-dropped abort is a separate, genuinely transient condition.
-            "Hit 10 successive connection-dropped errors. Aborting.",
+            # The connection-error abort is a separate, genuinely transient condition.
+            "Hit 10 successive connection errors. Aborting.",
         ],
     )
     def test_recovery_conflict_related_transients_stay_retryable(self, source, error_msg):
@@ -850,6 +851,41 @@ class TestIsConnectionDroppedError:
     def test_unrelated_errors_are_not_detected(self, error):
         assert _is_connection_dropped_error(error) is False
 
+    def test_connect_timeout_is_not_a_mid_stream_drop(self):
+        # A connect-time timeout is not a mid-stream drop, so the discovery/validation path
+        # (which uses `_is_connection_dropped_error`) keeps failing fast on it.
+        assert _is_connection_dropped_error(psycopg.errors.ConnectionTimeout("connection timeout expired")) is False
+
+
+class TestDroppedOrConnectTimeout:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Every mid-stream drop the base predicate already recognises stays recognised.
+            psycopg.OperationalError("consuming input failed: SSL connection has been closed unexpectedly"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            # The new case: the read-path reconnect that bootstraps offset-chunking recovery times
+            # out establishing the socket. Transient — the source was reachable moments earlier.
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+        ],
+    )
+    def test_transient_connect_path_errors_are_retryable(self, error):
+        assert _is_dropped_or_connect_timeout(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            # A statement timeout is not a connect timeout — it must not be absorbed here.
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
+        assert _is_dropped_or_connect_timeout(error) is False
+
 
 class TestRaiseIfSetupConnectionBroken:
     """A connection dropped mid-discovery must surface as a retryable error, not the masked
@@ -900,6 +936,23 @@ class TestConnectWithDroppedRetry:
 
         assert result is good_conn
         assert connect.call_count == 3
+
+    def test_retries_connect_timeout_then_succeeds(self, logger):
+        # The exact production sequence: a mid-stream SSL drop routes into offset-chunking recovery,
+        # and the reconnect that bootstraps it times out establishing the socket before succeeding.
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 2
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(
@@ -1408,6 +1461,74 @@ class TestOffsetChunkingConnectRecoveryConflict:
             list(cast(Iterable[Any], response.items()))
 
         # 1 setup + 1 initial read + 3 offset-chunking connects (2 conflicts + 1 success).
+        assert connect_mock.call_count == 5
+
+
+class TestOffsetChunkingConnectTimeout:
+    """The reconnect that bootstraps offset-chunking recovery can time out establishing the socket
+    (`ConnectionTimeout: connection timeout expired`). That's transient — the source was reachable
+    moments earlier — so it must be retried in-process, not escape `get_rows` and get misclassified
+    as the non-retryable "connection timeout expired" by `get_non_retryable_errors`.
+    """
+
+    def test_connect_timeout_on_offset_chunking_connect_is_retried_in_process(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        # Reuse the connect-conflict scaffolding: the named server cursor raises a recovery conflict
+        # to route get_rows into offset-chunking; the unnamed cursor then yields no rows.
+        connection = TestOffsetChunkingConnectRecoveryConflict._Connection()
+        connect_calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls["n"] += 1
+            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
+            # bootstrap connect times out twice before succeeding.
+            if connect_calls["n"] in (3, 4):
+                raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+            return connection
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: TestOffsetChunkingConnectRecoveryConflict._OffsetCursor(),
+            ),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            # Before the fix the connect-time timeout escaped offset_chunking and raised here.
+            list(cast(Iterable[Any], response.items()))
+
+        # 1 setup + 1 initial read + 3 offset-chunking connects (2 timeouts + 1 success).
         assert connect_mock.call_count == 5
 
 

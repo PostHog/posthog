@@ -239,6 +239,21 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
+    """Transient connect-path failures the import/read reconnect recovers from in process.
+
+    Either a mid-stream drop (`_is_connection_dropped_error`) or a connect-time timeout. psycopg
+    raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a connection,
+    never mid-query, so on the import/read path it's transient: the source was reachable moments
+    earlier in the same sync, and the reconnect just needs retrying. Used by the read/sync connect
+    retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The user-facing
+    validation path (`get_schemas`, via `_retry_on_connection_dropped` directly) deliberately keeps
+    failing fast on the same timeout, where it usually means an unreachable host / unconfigured
+    firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    """
+    return _is_connection_dropped_error(error) or isinstance(error, psycopg.errors.ConnectionTimeout)
+
+
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     """Surface a connection dropped during metadata discovery as a retryable error.
 
@@ -267,18 +282,21 @@ def _retry_on_connection_dropped(
     logger: FilteringBoundLogger,
     *,
     max_attempts: int = 5,
+    is_retryable: Callable[[BaseException], bool] = _is_connection_dropped_error,
 ) -> _T:
-    """Run `operation`, retrying transient connection-dropped errors with bounded backoff.
+    """Run `operation`, retrying transient connection errors with bounded backoff.
 
-    Permanent errors (auth failures, SSL-required) are re-raised immediately because
-    `_is_connection_dropped_error` only matches transient drops.
+    `is_retryable` decides which errors are transient; it defaults to `_is_connection_dropped_error`
+    (mid-stream drops only). The read/sync connect path widens it to also retry connect-time timeouts
+    (see `_connect_with_dropped_retry`). Permanent errors (auth failures, SSL-required) are re-raised
+    immediately because neither predicate matches them.
     """
     attempt = 0
     while True:
         try:
             return operation()
         except _CONNECTION_DROPPED_ERROR_TYPES as e:
-            if not _is_connection_dropped_error(e):
+            if not is_retryable(e):
                 raise
             attempt += 1
             if attempt >= max_attempts:
@@ -298,12 +316,14 @@ def _connect_with_dropped_retry(
     The streaming recovery path (offset chunking) is reached precisely because the
     source just dropped our connection (idle cull, failover, mid-stream SSL EOF), so
     the very reconnect that bootstraps the recovery can itself hit a still-recovering
-    source and fail with another connection-dropped error. Without this, that
-    transient failure escapes the recovery loop and fails the whole sync. Retry with
-    bounded backoff; permanent errors (auth failures, SSL-required) are re-raised
-    immediately because `_is_connection_dropped_error` only matches transient drops.
+    source and fail with another connection-dropped error — or time out establishing the
+    socket. Without this, that transient failure escapes the recovery loop and fails the
+    whole sync. Retry both transient classes with bounded backoff; permanent errors (auth
+    failures, SSL-required) are re-raised immediately because neither predicate matches them.
     """
-    return _retry_on_connection_dropped(connect, logger, max_attempts=max_attempts)
+    return _retry_on_connection_dropped(
+        connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
+    )
 
 
 def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
@@ -2895,18 +2915,19 @@ def postgres_source(
                             ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
-                        if not _is_connection_dropped_error(e):
+                        if not _is_dropped_or_connect_timeout(e):
                             _safe_close_connection(connection)
                             raise
 
-                        # The upstream connection died (idle cull, failover, etc.).
-                        # offset only advances after a fully fetched+yielded chunk,
+                        # The upstream connection died (idle cull, failover, etc.) or the
+                        # reconnect that bootstraps this fallback timed out establishing the
+                        # socket. offset only advances after a fully fetched+yielded chunk,
                         # so reopening and retrying the same offset resumes cleanly.
                         successive_conn_errors += 1
                         _safe_close_connection(connection)
                         if successive_conn_errors >= 10:
                             raise Exception(
-                                f"Hit {successive_conn_errors} successive connection-dropped errors. Aborting."
+                                f"Hit {successive_conn_errors} successive connection errors. Aborting."
                             ) from e
                         logger.debug(
                             f"Connection dropped ({e}). Reconnecting and retrying chunk at offset {offset} "
