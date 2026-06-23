@@ -2,7 +2,6 @@ import { BindLogic, useMountedLogic, useValues } from 'kea'
 import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { supportRouterLogic } from 'lib/components/Support/supportRouterLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
@@ -57,9 +56,17 @@ export function App(): JSX.Element | null {
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
-    // Unconditional so the support hash (#panel=support) is handled before routing, picking the
-    // side panel vs modal from the scene synchronously and avoiding the cold-load modal flash.
-    useMountedLogic(supportRouterLogic)
+
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+            unmount = supportRouterLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
 
     useThemedHtml()
 
