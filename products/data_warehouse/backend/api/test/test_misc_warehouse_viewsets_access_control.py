@@ -136,11 +136,13 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.editor_user)
 
         response = self.client.post(
-            self._path("provision/"), data={"database_name": "x"}, content_type="application/json"
+            self._path("provision/"),
+            data={"database_name": "x", "table_name": "x"},
+            content_type="application/json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        mock_provision.assert_called_once_with(self.team.organization_id, "x")
+        mock_provision.assert_called_once_with(self.team.organization_id, "x", self.team.id, "x")
 
     @patch("products.data_warehouse.backend.api.data_warehouse.managed_warehouse.reset_password")
     def test_reset_password_blocked_for_project_editor_who_is_not_org_admin(self, mock_reset_password):
