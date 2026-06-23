@@ -2482,6 +2482,11 @@ class QuickBooksSourceConfig(config.Config):
 
 
 @config.config
+class RB2BSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RDStationMarketingSourceConfig(config.Config):
     pass
 
@@ -3948,6 +3953,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
         ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
         ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+        ExternalDataSourceType.RB2B: RB2BSourceConfig,
         ExternalDataSourceType.RDSTATIONMARKETING: RDStationMarketingSourceConfig,
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
