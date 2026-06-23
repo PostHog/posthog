@@ -33,6 +33,7 @@ class EvaluationStatusReason(models.TextChoices):
     TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
     MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
+    NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
