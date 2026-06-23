@@ -1839,11 +1839,6 @@ export namespace Schemas {
       ActivityEventsList: 'activity_events_list',
     } as const;
 
-    /**
-     * Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `activity_events_list` - activity_events_list
-     */
     export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -1862,9 +1857,6 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      /** Widget type of the tile being updated (the config discriminator). Immutable.
-       *
-       * * `activity_events_list` - activity_events_list */
       widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
       /** New configuration for the recent events widget. Omit to leave unchanged. */
       config?: ActivityEventsListWidgetConfig;
@@ -19420,11 +19412,6 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `error_tracking_list` - error_tracking_list
-     */
     export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -19443,9 +19430,6 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      /** Widget type of the tile being updated (the config discriminator). Immutable.
-       *
-       * * `error_tracking_list` - error_tracking_list */
       widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
       /** New configuration for the top issues widget. Omit to leave unchanged. */
       config?: ErrorTrackingListWidgetConfig;
@@ -21202,11 +21186,6 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
     } as const;
 
-    /**
-     * Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `experiment_results` - experiment_results
-     */
     export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -21225,9 +21204,6 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      /** Widget type of the tile being updated (the config discriminator). Immutable.
-       *
-       * * `experiment_results` - experiment_results */
       widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
       /** New configuration for the experiment results widget. Omit to leave unchanged. */
       config?: ExperimentResultsWidgetConfig;
@@ -21291,11 +21267,6 @@ export namespace Schemas {
       ExperimentsList: 'experiments_list',
     } as const;
 
-    /**
-     * Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `experiments_list` - experiments_list
-     */
     export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -21314,9 +21285,6 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      /** Widget type of the tile being updated (the config discriminator). Immutable.
-       *
-       * * `experiments_list` - experiments_list */
       widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
       /** New configuration for the experiments list widget. Omit to leave unchanged. */
       config?: ExperimentsListWidgetConfig;
@@ -40650,11 +40618,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    /**
-     * Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `session_replay_list` - session_replay_list
-     */
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
 
 
@@ -40673,9 +40636,6 @@ export namespace Schemas {
       name?: string | null;
       /** New markdown description for the widget. Omit to leave unchanged. */
       description?: string;
-      /** Widget type of the tile being updated (the config discriminator). Immutable.
-       *
-       * * `session_replay_list` - session_replay_list */
       widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
       /** New configuration for the recent recordings widget. Omit to leave unchanged. */
       config?: SessionReplayListWidgetConfig;

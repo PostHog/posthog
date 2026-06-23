@@ -8210,11 +8210,6 @@ export interface AddDashboardWidgetsBatchResponseApi {
     tiles: DashboardTileApi[]
 }
 
-/**
- * Widget type of the tile being updated (the config discriminator). Immutable.
- *
- * * `activity_events_list` - activity_events_list
- */
 export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
     (typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType]
 
@@ -8233,19 +8228,11 @@ export interface ActivityEventsListWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    /** Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `activity_events_list` - activity_events_list */
     widget_type: ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType
     /** New configuration for the recent events widget. Omit to leave unchanged. */
     config?: ActivityEventsListWidgetConfigApi
 }
 
-/**
- * Widget type of the tile being updated (the config discriminator). Immutable.
- *
- * * `error_tracking_list` - error_tracking_list
- */
 export type ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType =
     (typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType]
 
@@ -8264,19 +8251,11 @@ export interface ErrorTrackingListWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    /** Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `error_tracking_list` - error_tracking_list */
     widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType
     /** New configuration for the top issues widget. Omit to leave unchanged. */
     config?: ErrorTrackingListWidgetConfigApi
 }
 
-/**
- * Widget type of the tile being updated (the config discriminator). Immutable.
- *
- * * `session_replay_list` - session_replay_list
- */
 export type SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType =
     (typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType]
 
@@ -8295,19 +8274,11 @@ export interface SessionReplayListWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    /** Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `session_replay_list` - session_replay_list */
     widget_type: SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType
     /** New configuration for the recent recordings widget. Omit to leave unchanged. */
     config?: SessionReplayListWidgetConfigApi
 }
 
-/**
- * Widget type of the tile being updated (the config discriminator). Immutable.
- *
- * * `experiments_list` - experiments_list
- */
 export type ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType =
     (typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType]
 
@@ -8326,19 +8297,11 @@ export interface ExperimentsListWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    /** Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `experiments_list` - experiments_list */
     widget_type: ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType
     /** New configuration for the experiments list widget. Omit to leave unchanged. */
     config?: ExperimentsListWidgetConfigApi
 }
 
-/**
- * Widget type of the tile being updated (the config discriminator). Immutable.
- *
- * * `experiment_results` - experiment_results
- */
 export type ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType =
     (typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType]
 
@@ -8357,9 +8320,6 @@ export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
     name?: string | null
     /** New markdown description for the widget. Omit to leave unchanged. */
     description?: string
-    /** Widget type of the tile being updated (the config discriminator). Immutable.
-     *
-     * * `experiment_results` - experiment_results */
     widget_type: ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType
     /** New configuration for the experiment results widget. Omit to leave unchanged. */
     config?: ExperimentResultsWidgetConfigApi
