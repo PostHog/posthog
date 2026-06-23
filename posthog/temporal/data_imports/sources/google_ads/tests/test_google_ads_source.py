@@ -507,11 +507,15 @@ class TestLoadClientTransientRetry:
         assert sleep.call_args_list == []
 
 
-def _grpc_unavailable_error() -> grpc.RpcError:
+class _UnavailableRpcError(grpc.RpcError):
     """A raw gRPC error whose ``code()`` reports ``UNAVAILABLE`` (502:Bad Gateway shape)."""
-    error = grpc.RpcError()
-    error.code = lambda: grpc.StatusCode.UNAVAILABLE  # type: ignore[method-assign]
-    return error
+
+    def code(self) -> grpc.StatusCode:
+        return grpc.StatusCode.UNAVAILABLE
+
+
+def _grpc_unavailable_error() -> grpc.RpcError:
+    return _UnavailableRpcError()
 
 
 class TestTransientGrpcUnavailableDetection:
