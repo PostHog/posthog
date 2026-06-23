@@ -181,6 +181,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Comment about the experiment conclusion.",
     )
     archived = serializers.BooleanField(
@@ -622,6 +623,7 @@ class EndExperimentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
     )
 

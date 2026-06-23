@@ -98,6 +98,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
         // Debounced server-side org-member search for the add-reviewer picker.
         searchAvailableReviewers: (query: string) => ({ query }),
+        // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
+        setSelectedTaskId: (taskId: string | null) => ({ taskId }),
     }),
 
     loaders(({ props }) => ({
@@ -166,6 +168,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 updateReviewers: (_, { optimistic }) => optimistic,
                 setOptimisticReviewers: (_, { reviewers }) => reviewers,
+            },
+        ],
+        // Explicit task selection for the run-log viewer. Reset when the report changes so a freshly
+        // opened run starts on its `primaryTask`.
+        selectedTaskId: [
+            null as string | null,
+            {
+                setSelectedTaskId: (_, { taskId }) => taskId,
+                setReport: () => null,
             },
         ],
     }),
@@ -266,6 +277,37 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })
                 return hasInFlight && hasPriorTerminal
             },
+        ],
+        // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
+        // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
+        primaryTask: [
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): ReportTaskEntry | null => {
+                if (!reportTasks || reportTasks.length === 0) {
+                    return null
+                }
+                return [...reportTasks].sort((a, b) => {
+                    const aInMotion = !TERMINAL_RUN_STATUSES.includes(
+                        a.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED
+                    )
+                    const bInMotion = !TERMINAL_RUN_STATUSES.includes(
+                        b.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED
+                    )
+                    if (aInMotion !== bInMotion) {
+                        return aInMotion ? -1 : 1
+                    }
+                    return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+                })[0]
+            },
+        ],
+        // The linked task the viewer renders: the explicit selection if it still exists, else `primaryTask`.
+        selectedTask: [
+            (s) => [s.reportTasks, s.selectedTaskId, s.primaryTask],
+            (
+                reportTasks: ReportTaskEntry[] | null,
+                selectedTaskId: string | null,
+                primaryTask: ReportTaskEntry | null
+            ): ReportTaskEntry | null => reportTasks?.find((rt) => rt.task.id === selectedTaskId) ?? primaryTask,
         ],
     }),
 

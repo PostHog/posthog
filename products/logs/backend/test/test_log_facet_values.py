@@ -69,6 +69,31 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             f"{other_filter_key} should re-scope {facet_field} counts",
         )
 
+    @parameterized.expand(
+        [
+            ("service_name", "aws"),
+            ("service_name", "AWS"),
+        ]
+    )
+    def test_facet_search_narrows_values_case_insensitively(self, facet_field, term):
+        """facetSearch keeps only values containing the term (case-insensitive), independent of count."""
+        base = self._facet(facet_field)
+        searched = self._facet(facet_field, facetSearch=term)
+
+        self.assertGreater(len(searched), 0)
+        self.assertTrue(set(searched).issubset(set(base)))
+        self.assertTrue(all(term.lower() in value.lower() for value in searched))
+
+    def test_facet_search_with_no_matches_returns_empty(self):
+        self.assertEqual(self._facet("service_name", facetSearch="no-such-service-xyz"), {})
+
+    @parameterized.expand([("%",), ("_",)])
+    def test_facet_search_treats_ilike_wildcards_literally(self, wildcard):
+        """ILIKE metacharacters are escaped, so a wildcard-only search matches literally (no match-all)."""
+        # No fixture service contains a literal % or _, so an escaped search returns nothing —
+        # whereas an unescaped wildcard would match every service.
+        self.assertEqual(self._facet("service_name", facetSearch=wildcard), {})
+
     def test_invalid_facet_field_is_rejected(self):
         body = {"query": {"facetField": "body", "dateRange": self.DATE_RANGE}}
         response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
