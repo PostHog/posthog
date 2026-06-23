@@ -32,6 +32,13 @@ logger = structlog.get_logger(__name__)
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
+# Patch ID for the ingestion quota gate. Buffer workflows run continuously (one per team) and
+# continue_as_new every batch, so in-flight runs drain fast — but a run mid-batch at deploy time
+# recorded its history without the quota activity, so guard the new activity behind
+# workflow.patched() to keep replay deterministic. Once all such runs have drained, replace this
+# with workflow.deprecate_patch() and eventually remove.
+_PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
+
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
 
 
@@ -207,29 +214,33 @@ class BufferSignalsWorkflow:
 
             # Ingestion gate: drop the batch when the team is over its Signals credits quota, before
             # any downstream LLM work (safety filter, grouping, report generation, implementation).
-            # Signals enforces its quota here rather than returning 429s from the LLM gateway.
-            if await workflow.execute_activity(
-                check_signals_quota_limited_activity,
-                CheckSignalsQuotaInput(team_id=input.team_id),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            ):
-                logger.info(
-                    "signals_buffer.dropped_batch_quota_limited",
-                    team_id=input.team_id,
-                    signal_count=len(batch),
+            # Signals enforces its quota here rather than returning 429s from the LLM gateway. Guarded
+            # by workflow.patched() so in-flight runs that recorded history before this change replay
+            # on the old path (no quota activity) instead of hitting a non-determinism error.
+            if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
+                over_quota = await workflow.execute_activity(
+                    check_signals_quota_limited_activity,
+                    CheckSignalsQuotaInput(team_id=input.team_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=len(batch))
-                # Compact history like the empty-batch path so a sustained over-quota stream
-                # doesn't grow Temporal history unboundedly.
-                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
-                    workflow.continue_as_new(
-                        BufferSignalsInput(
-                            team_id=input.team_id,
-                            pending_signals=list(self._signal_buffer),
-                        )
+                if over_quota:
+                    logger.info(
+                        "signals_buffer.dropped_batch_quota_limited",
+                        team_id=input.team_id,
+                        signal_count=len(batch),
                     )
-                continue
+                    metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=len(batch))
+                    # Compact history like the empty-batch path so a sustained over-quota stream
+                    # doesn't grow Temporal history unboundedly.
+                    if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                        workflow.continue_as_new(
+                            BufferSignalsInput(
+                                team_id=input.team_id,
+                                pending_signals=list(self._signal_buffer),
+                            )
+                        )
+                    continue
 
             # Filter out malicious signals
             safety_results = await asyncio.gather(
