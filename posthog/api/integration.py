@@ -723,18 +723,11 @@ class IntegrationViewSet(
             TeamMemberAccessPermission(),
         ]
 
-        # Any project member may ask an admin to connect an integration — connecting still requires admin.
         if self.action == "request_access":
             return base
 
-        # GitHub is the one integration any project member may connect, not just admins: the
-        # onboarding wizard runs as the current user and would otherwise abort for non-admins on a
-        # project with no GitHub connection yet. Light management still keeps unlinking (destroy)
-        # admin-only — members can connect and refresh, but not tear down. All other integration
-        # kinds remain admin-only for both connect and disconnect via the default strict permission.
-        if self.action in ("refresh_github_repos", "github_link_existing", "github_oauth_authorize") or (
-            self.action == "create" and self.request.data.get("kind") == "github"
-        ):
+        # Any project member may connect an integration; unlinking (destroy) stays admin-only.
+        if self.action in ("create", "refresh_github_repos", "github_link_existing", "github_oauth_authorize"):
             return [*base, TeamMemberLightManagementPermission()]
 
         raise NotImplementedError()

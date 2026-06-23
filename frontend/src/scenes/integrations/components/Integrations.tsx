@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { integrationConnectMinimumAccessLevel } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
@@ -16,9 +15,10 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
+    // Any project member may connect; unlinking stays admin-only (enforced on IntegrationView).
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
     return (
         <Integration kind="gitlab">
@@ -51,9 +51,10 @@ const OAuthIntegration = ({
     connectText: string
     next?: string
 }): JSX.Element => {
+    // Any project member may connect; unlinking stays admin-only (enforced on IntegrationView).
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: integrationConnectMinimumAccessLevel(kind),
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
     const authorizationUrl = api.integrations.authorizeUrl({
         next: next ?? urls.settings('environment-integrations'),

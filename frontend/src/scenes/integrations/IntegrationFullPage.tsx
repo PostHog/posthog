@@ -4,7 +4,7 @@ import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { integrationConnectMinimumAccessLevel } from 'lib/integrations/integrationPermissions'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -67,11 +67,10 @@ function ConnectView({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    // Connecting an integration requires project admin access — except GitHub, which any member may
-    // connect (enforced again in the backend). Non-admins on admin-only kinds get the request flow.
+    // Any project member may connect; unlinking stays admin-only (enforced on IntegrationView).
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: integrationConnectMinimumAccessLevel(definition.kind),
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
     const onConnectClick = (): void => {

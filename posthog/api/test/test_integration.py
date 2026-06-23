@@ -3740,8 +3740,7 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
 
 
 class TestIntegrationConnectPermissions(APIBaseTest):
-    """Members may connect GitHub (the onboarding wizard runs as the current user), but unlinking it
-    and connecting any other integration kind stay admin-only."""
+    """Any project member may connect an integration; unlinking (destroy) stays admin-only."""
 
     def setUp(self):
         super().setUp()
@@ -3784,10 +3783,11 @@ class TestIntegrationConnectPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
 
     @parameterized.expand(["slack", "linear", "google-ads"])
-    def test_member_cannot_connect_non_github(self, kind):
+    def test_member_can_connect_non_github(self, kind):
+        # Permission must let members through; an incomplete config may still 400, but never 403.
         response = self.client.post(self._url(), {"kind": kind, "config": {}}, format="json")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
 
     def test_member_cannot_disconnect_github(self):
         integration = Integration.objects.create(
