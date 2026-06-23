@@ -417,10 +417,13 @@ class EndpointExecutionService(PydanticModelMixin):
         clickhouse_ms: float,
         clickhouse_cached: bool,
         clickhouse_row_count: int | None,
+        limit: int | None,
+        offset: int | None,
     ) -> None:
         """Fire-and-forget DuckLake shadow for timing comparison; never affects the response."""
-        # Inline only: materialized reads a precomputed CH table with no DuckLake equivalent.
-        if execution_type != "inline":
+        # Only shadow what ClickHouse actually executed: an inline, non-cached run. Cache hits
+        # and materialized reads have no comparable DuckLake query and would amplify cost.
+        if execution_type != "inline" or clickhouse_cached:
             return
         if not self._should_shadow_ducklake(endpoint, version):
             return
@@ -434,6 +437,8 @@ class EndpointExecutionService(PydanticModelMixin):
                 clickhouse_cached=clickhouse_cached,
                 clickhouse_ms=clickhouse_ms,
                 clickhouse_row_count=clickhouse_row_count,
+                limit=limit,
+                offset=offset,
             )
         except Exception:
             logger.warning("Failed to dispatch DuckLake shadow comparison", endpoint_name=endpoint.name)
@@ -620,6 +625,8 @@ class EndpointExecutionService(PydanticModelMixin):
             clickhouse_ms=_ch_query_ms,
             clickhouse_cached=cache_outcome == "hit",
             clickhouse_row_count=result_row_count,
+            limit=limit,
+            offset=offset,
         )
 
         if isinstance(result.data, dict):

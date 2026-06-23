@@ -51,6 +51,52 @@ class TestShadowDispatch(APIBaseTest):
         assert kwargs["clickhouse_cached"] is False
         assert kwargs["clickhouse_row_count"] == 1
         assert isinstance(kwargs["clickhouse_ms"], float)
+        assert kwargs["limit"] is None
+        assert kwargs["offset"] is None
+
+    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        return_value=True,
+    )
+    def test_no_dispatch_on_cache_hit(self, _mock_should, mock_task):
+        create_endpoint_with_version(name="shadow-cached", team=self.team, query=HOGQL_QUERY, created_by=self.user)
+        cached = Response(
+            {"results": [[1]], "columns": ["cnt"], "hasMore": False, "is_cached": True},
+            status=status.HTTP_200_OK,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            return_value=cached,
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/shadow-cached/run/")
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_task.delay.assert_not_called()
+
+    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        return_value=True,
+    )
+    def test_dispatch_propagates_pagination(self, _mock_should, mock_task):
+        create_endpoint_with_version(name="shadow-paged", team=self.team, query=HOGQL_QUERY, created_by=self.user)
+
+        with mock.patch(
+            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            return_value=self._inline_response(),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/shadow-paged/run/",
+                data={"limit": 5, "offset": 2},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        kwargs = mock_task.delay.call_args.kwargs
+        assert kwargs["limit"] == 5
+        assert kwargs["offset"] == 2
 
     @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
     @mock.patch(
@@ -109,6 +155,8 @@ class TestShadowComparison(APIBaseTest):
                 clickhouse_cached=False,
                 clickhouse_ms=12.5,
                 clickhouse_row_count=1,
+                limit=None,
+                offset=None,
             )
 
         assert len(captured) == 1
@@ -141,6 +189,8 @@ class TestShadowComparison(APIBaseTest):
                 clickhouse_cached=False,
                 clickhouse_ms=12.5,
                 clickhouse_row_count=1,
+                limit=None,
+                offset=None,
             )
 
         assert len(captured) == 1
@@ -162,6 +212,8 @@ class TestShadowComparison(APIBaseTest):
             clickhouse_cached=False,
             clickhouse_ms=12.5,
             clickhouse_row_count=1,
+            limit=None,
+            offset=None,
         )
 
         assert captured == []
@@ -183,6 +235,8 @@ class TestShadowComparison(APIBaseTest):
                 clickhouse_cached=False,
                 clickhouse_ms=12.5,
                 clickhouse_row_count=1,
+                limit=None,
+                offset=None,
             )
 
         assert captured == []

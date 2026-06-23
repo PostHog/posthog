@@ -28,6 +28,8 @@ def shadow_compare_ducklake_execution(
     clickhouse_cached: bool,
     clickhouse_ms: float,
     clickhouse_row_count: int | None,
+    limit: int | None,
+    offset: int | None,
 ) -> None:
     run_ducklake_shadow_comparison(
         team_id=team_id,
@@ -38,6 +40,8 @@ def shadow_compare_ducklake_execution(
         clickhouse_cached=clickhouse_cached,
         clickhouse_ms=clickhouse_ms,
         clickhouse_row_count=clickhouse_row_count,
+        limit=limit,
+        offset=offset,
     )
 
 

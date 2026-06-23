@@ -19,11 +19,20 @@ SHADOW_EVENT = "ducklake_endpoint_exec_shadow"
 
 
 def build_ducklake_hogql_query(
-    endpoint: Endpoint, version: EndpointVersion, team: Team, data: EndpointRunRequest
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    team: Team,
+    data: EndpointRunRequest,
+    *,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> HogQLQuery:
-    """Build the HogQL an endpoint would run against DuckLake, with inline-variable overrides."""
+    """Build the HogQL an endpoint would run against DuckLake, matching the inline path's
+    variable overrides and pagination so the shadow mirrors what ClickHouse executed."""
     strategy = strategy_for(endpoint, version, team)
-    query = version.query.copy()
+    query = strategy.prepare_inline_query(version.query.copy())
+    if limit is not None:
+        query, _ = strategy.apply_pagination(query, limit, offset or 0)
     plan = strategy.build_inline_plan(query, data)
 
     hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
@@ -44,6 +53,8 @@ def run_ducklake_shadow_comparison(
     clickhouse_cached: bool,
     clickhouse_ms: float,
     clickhouse_row_count: int | None,
+    limit: int | None,
+    offset: int | None,
 ) -> None:
     """Re-run an endpoint's HogQL against DuckLake and emit a comparison event. Runs in a
     Celery worker off the request path; must never raise into the caller."""
@@ -72,7 +83,7 @@ def run_ducklake_shadow_comparison(
     ducklake_row_count: int | None = None
     ducklake_error: str | None = None
     try:
-        hogql_query = build_ducklake_hogql_query(endpoint, version, team, data)
+        hogql_query = build_ducklake_hogql_query(endpoint, version, team, data, limit=limit, offset=offset)
         _start = time.monotonic()
         result = execute_ducklake_query(
             team_id,
