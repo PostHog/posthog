@@ -20675,6 +20675,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -20779,6 +20784,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       /** Whether the experiment is archived. */
       archived?: boolean;
       /** @nullable */
@@ -35717,6 +35727,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
