@@ -326,6 +326,18 @@ def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+    # Snowflake has no read-only session/transaction switch — the Postgres path sets
+    # default_transaction_read_only on the connection, but Snowflake offers no equivalent.
+    # So this single-read-only-SELECT gate is the enforcement boundary (backed at runtime
+    # by the MULTI_STATEMENT_COUNT=1 session pin). As defense in depth, reject any DDL, or
+    # any DML keyword other than SELECT, appearing anywhere in the statement — e.g. a write
+    # smuggled into a subquery. String values and quoted identifiers aren't tagged DML/DDL,
+    # so a literal or alias like 'DELETE' is unaffected.
+    for token in statements[0].flatten():
+        if token.ttype in sqlparse_tokens.DDL:
+            raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
+            raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
     return sql
 
 
@@ -923,12 +935,14 @@ class HogQLQueryExecutor:
     def _execute_direct_snowflake_query(self) -> None:
         """Execute a single read-only statement against the source's Snowflake account.
 
-        Write safety has two layers. The statement is parsed and rejected unless it is a
-        single SELECT (`ensure_read_only_raw_snowflake_statement`), and HogQL-authored
-        queries only ever emit SELECT. Snowflake has no read-only transaction mode (the
-        backstop the Postgres/MySQL paths use), so the configured connection role MUST be
-        granted SELECT-only on the queried objects — that least-privilege role is the
-        authoritative guard if the parser is ever bypassed.
+        Snowflake has no read-only session/transaction switch — the Postgres path sets
+        default_transaction_read_only on the connection, but Snowflake offers no equivalent.
+        So PostHog enforces read-only itself rather than trusting the connection's role:
+        the statement is rejected unless it is a single read-only SELECT
+        (`ensure_read_only_raw_snowflake_statement`), HogQL-authored queries only ever emit
+        SELECT, and the session pins MULTI_STATEMENT_COUNT=1 so the server refuses any
+        stacked statement. A least-privilege SELECT-only role is still recommended as
+        defense in depth, but is not the boundary we rely on.
         """
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
@@ -952,6 +966,9 @@ class HogQLQueryExecutor:
             with self.timings.measure("snowflake_execute"), observe_direct_query("snowflake"):
                 with snowflake_implementation.connect(source_config) as connection:
                     with connection.cursor() as cursor:
+                        # Server-side backstop: refuse stacked statements regardless of what the
+                        # connector default is, so the single-statement parse gate can't be bypassed.
+                        cursor.execute("ALTER SESSION SET MULTI_STATEMENT_COUNT = 1")
                         cursor.execute(f"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {statement_timeout_seconds}")
                         cursor.execute(self.direct_sql, self.direct_values or None)
                         results = self._fetch_capped_snowflake_rows(cursor)

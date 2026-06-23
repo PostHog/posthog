@@ -166,7 +166,10 @@ class TestDirectSnowflakeQuery(APIBaseTest):
                 response = executor.execute()
 
         executed_statements = [call.args[0] for call in cursor.execute.call_args_list]
-        self.assertTrue(executed_statements[0].startswith("ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS"))
+        # Read-only is enforced our side: pin single-statement and the statement timeout
+        # on the session before the query runs.
+        self.assertEqual(executed_statements[0], "ALTER SESSION SET MULTI_STATEMENT_COUNT = 1")
+        self.assertTrue(executed_statements[1].startswith("ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS"))
         self.assertEqual(executor.direct_dialect, "snowflake")
         self.assertEqual(response.results, [(1, "100.50")])
         # FIXED with scale 0 → Int64; scale 2 → Decimal (the bug that showed C_ACCTBAL as String).
@@ -200,12 +203,26 @@ class TestDirectSnowflakeQuery(APIBaseTest):
 
     @parameterized.expand(
         [
+            # Leading-keyword writes (rejected by the SELECT classification).
             ("delete", "DELETE FROM CUSTOMER WHERE C_ID = 1"),
             ("insert", "INSERT INTO CUSTOMER VALUES (1)"),
             ("update", "UPDATE CUSTOMER SET C_NAME = 'x'"),
             ("drop", "DROP TABLE CUSTOMER"),
+            ("create", "CREATE TABLE t (c int)"),
+            ("alter", "ALTER TABLE CUSTOMER ADD COLUMN c int"),
+            ("truncate", "TRUNCATE TABLE CUSTOMER"),
             ("multiple_statements", "SELECT 1; DROP TABLE CUSTOMER"),
             ("merge", "MERGE INTO CUSTOMER USING staging ON CUSTOMER.C_ID = staging.id WHEN MATCHED THEN DELETE"),
+            # Snowflake side-effecting statements that classify as UNKNOWN, not SELECT.
+            ("call_procedure", "CALL my_writing_proc()"),
+            ("copy_into", "COPY INTO CUSTOMER FROM @my_stage"),
+            ("put_file", "PUT file:///tmp/x @my_stage"),
+            ("get_file", "GET @my_stage file:///tmp/x"),
+            ("grant", "GRANT SELECT ON CUSTOMER TO ROLE reporting"),
+            ("use_database", "USE DATABASE other_db"),
+            # Writes smuggled into an otherwise SELECT-classified statement.
+            ("write_in_subquery", "SELECT * FROM (DELETE FROM CUSTOMER RETURNING C_ID)"),
+            ("write_in_cte", "WITH x AS (INSERT INTO CUSTOMER VALUES (1) RETURNING C_ID) SELECT * FROM x"),
         ]
     )
     def test_raw_query_rejects_non_select(self, _name: str, query: str):
@@ -225,3 +242,38 @@ class TestDirectSnowflakeQuery(APIBaseTest):
         # The statement is rejected before any connection is opened.
         mock_validate.assert_not_called()
         self.assertIsNone(executor.direct_sql)
+
+    @parameterized.expand(
+        [
+            ("plain_select", "SELECT C_ID FROM CUSTOMER"),
+            ("cte_select", "WITH x AS (SELECT 1 AS v) SELECT v FROM x"),
+            # UDFs are read-only in Snowflake; a function call in a SELECT is fine.
+            ("udf_call", "SELECT my_udf(C_ID) FROM CUSTOMER"),
+            # A write keyword inside a string literal must not trip the token scan.
+            ("write_word_in_string", "SELECT C_ID FROM CUSTOMER WHERE C_STATUS = 'DELETE'"),
+        ]
+    )
+    def test_raw_query_allows_read_only_selects(self, _name: str, query: str):
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query=query,
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        implementation, _cursor = self._mock_snowflake_connection(
+            rows=[(1,)],
+            description=[("C_ID", FIXED, None, None, None, 0, None)],
+        )
+
+        with patch(
+            "posthog.hogql.query.validate_direct_snowflake_source_config",
+            return_value=(implementation, MagicMock()),
+        ):
+            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
+                executor.execute()
+
+        # The statement passed the read-only gate and reached execution unchanged.
+        self.assertEqual(executor.direct_sql, query)
