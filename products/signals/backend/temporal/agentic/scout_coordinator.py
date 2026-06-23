@@ -367,9 +367,12 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
       has configs and the tick skips the expensive seed/reconcile for it. If a team is in both, the
       explicit tag wins (it gets the seed pass).
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
+    Skip is subtracted AFTER canonicalizing both sides, so listing a child env in `guaranteed_team_ids`
+    and its parent project in `skip_team_ids` (or the reverse) still hard-excludes the project — the
+    raw ids differ but their canonical parent matches.
     """
-    explicit = _canonicalize_team_ids(enrollment.explicit - enrollment.skip)
     skip_canonical = _canonicalize_team_ids(enrollment.skip)
+    explicit = _canonicalize_team_ids(enrollment.explicit) - skip_canonical
 
     wildcard_ids: set[int] = set()
     if enrollment.wildcard:

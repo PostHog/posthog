@@ -348,20 +348,28 @@ def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
     return _resolve_withheld_skills(canonical_team_id, team_configs, _default_team_config(payload))
 
 
-def seed_config_layers_for_team(canonical_team_id: int) -> list[dict]:
-    """Resolve a team's seed-posture config layers (most-specific first) in one flag-payload read.
+def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[str]]:
+    """One flag-payload read → `(seed_config_layers, withheld_skills)` for the on-demand `sync` path.
 
-    Mirrors how the coordinator builds `seed_config_layers` for the scheduled path — the team's
-    `team_configs` override layered over the fleet `default_team_config` — so the on-demand `sync`
+    The `sync` endpoint needs both the seed posture and the holdback denylist; resolving them from a
+    single read keeps them on the same snapshot (the same single-read discipline the coordinator
+    uses), so the withheld set and the seed layers can't be derived from two different flag states if
+    the flag changes mid-request.
+
+    `seed_config_layers` (most-specific first: the team's `team_configs` override over the fleet
+    `default_team_config`) mirror what the coordinator builds for the scheduled path, so the on-demand
     materialization (the product-autonomy-gated wizard's self-driving program) seeds the SAME launch
-    posture (e.g. general-only, daily) the coordinator would, instead of the full fleet enabled.
-    Without this the self-serve path silently bypassed the launch cost posture. `canonical_team_id`
-    must be the parent/project id; `team_configs` keys are canonicalized so a child-keyed override
-    still resolves. A missing/unreadable payload yields `[{}, {}]` → the historical full-fleet seed.
+    posture (e.g. general-only, daily) instead of the full fleet enabled — without this the self-serve
+    path silently bypassed the launch cost posture. `canonical_team_id` must be the parent/project id;
+    `team_configs` keys are canonicalized so a child-keyed override still resolves. A missing/unreadable
+    payload yields `([{}, {}], set())` → the historical full-fleet seed, nothing withheld.
     """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    return [team_configs.get(canonical_team_id) or {}, _default_team_config(payload)]
+    default_team_config = _default_team_config(payload)
+    seed_config_layers = [team_configs.get(canonical_team_id) or {}, default_team_config]
+    withheld = _resolve_withheld_skills(canonical_team_id, team_configs, default_team_config)
+    return seed_config_layers, withheld
 
 
 def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int, int]:

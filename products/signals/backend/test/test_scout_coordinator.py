@@ -325,6 +325,32 @@ async def test_wildcard_honors_skip_team_ids(ateam):
     assert all(p.team_id != ateam.id for p in planned)
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+@pytest.mark.parametrize("guaranteed_child,skip_child", [(True, False), (False, True)])
+async def test_skip_canonicalizes_across_parent_child(ateam, aorganization, guaranteed_child, skip_child):
+    # The kill switch must bite even when guaranteed_team_ids and skip_team_ids reference the same
+    # project via DIFFERENT ids — one the child env, one the parent. Skip is applied after both sides
+    # canonicalize to the parent, so a raw `explicit - skip` (which would miss the cross-id case)
+    # can't let a hard-excluded project slip through and run.
+    child = await sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsCoordinatorSkipChild-{random.randint(1, 99999)}",
+        parent_team=ateam,
+    )
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-errors", enabled=True)
+
+    guaranteed_id = child.id if guaranteed_child else ateam.id
+    skip_id = child.id if skip_child else ateam.id
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [guaranteed_id], "skip_team_ids": [skip_id]}):
+        planned = await _run_activity()
+
+    assert all(p.team_id != ateam.id for p in planned)
+    await sync_to_async(child.delete)()
+
+
 # ── Enrollment metadata reflects the wildcard ──────
 
 

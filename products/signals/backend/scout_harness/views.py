@@ -82,8 +82,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunSummarySerializer,
 )
 from products.signals.backend.scout_harness.team_limits import (
+    resolve_sync_seed_inputs,
     resolve_team_metadata,
-    seed_config_layers_for_team,
     withheld_skills_for_team,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
@@ -1001,15 +1001,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # seed and register against that team so child-environment requests don't fork
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
-        # Honor the per-scout holdback denylist on this on-demand path too, so a held-back scout
-        # can't be seeded/enabled by a manual fleet materialization (the coordinator already gates
-        # the scheduled path).
-        withheld = withheld_skills_for_team(team.id)
+        # Resolve the holdback denylist + the launch seed posture from a single flag read so they
+        # can't disagree if the flag changes mid-request (the coordinator reads once and threads the
+        # snapshot too). Holdback: a held-back scout can't be seeded/enabled by a manual fleet
+        # materialization (the coordinator already gates the scheduled path). Posture: seed the same
+        # launch shape the coordinator applies (general-only / daily etc., team_configs over
+        # default_team_config) so a self-serve materialization doesn't bypass the launch cost posture
+        # by enabling the full fleet.
+        seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
         sync_canonical_skills(team, withheld_skill_names=withheld)
-        # Seed with the same launch posture the coordinator applies (general-only / daily etc.,
-        # resolved from the flag's `team_configs` over `default_team_config`) so a self-serve
-        # materialization doesn't bypass the launch cost posture by enabling the full fleet.
-        register_missing_configs(team.id, seed_config_layers_for_team(team.id), withheld_skill_names=withheld)
+        register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
         # Exclude held-back scouts from the materialized fleet response too: a scout that was
         # previously seeded and later withheld still has a row, and surfacing it here would
         # advertise an unreleased scout despite the holdback. Storage is left untouched (no
