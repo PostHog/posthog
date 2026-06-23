@@ -377,6 +377,19 @@ class TestValidateAlertConfig:
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
 
+    def test_detector_config_rejected_for_any_row_hogql_alert(self) -> None:
+        # any_row rows are entities, not a time series — reject anomaly detection at config time
+        # so the alert can't be saved only to fail every check.
+        with pytest.raises(ValueError, match="Anomaly detection isn't supported for any-row SQL alerts"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition(),
+                {"type": "HogQLAlertConfig", "evaluation": "any_row"},
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
+
     def test_detector_config_rejected_for_unsupported_insight(self) -> None:
         # Funnels have no detector extractor, so a detector_config is rejected at config time.
         with pytest.raises(ValueError, match="Anomaly detection alerts aren't supported"):

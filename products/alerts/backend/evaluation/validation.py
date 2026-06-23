@@ -86,6 +86,10 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
     ):
         # Rows are entities in any_row mode, not a time axis — relative change is meaningless.
         raise ValueError("Any-row SQL alerts only support absolute value conditions")
+    if ctx.detector_config is not None and parsed.evaluation == HogQLAlertEvaluation.ANY_ROW:
+        # Same reason anomaly detection rejects any_row at evaluation time: its rows aren't a time
+        # series. Reject at config time so the alert can't be saved only to fail every check.
+        raise ValueError("Anomaly detection isn't supported for any-row SQL alerts — use last-row or first-row")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
     if ctx.require_threshold_bounds and ctx.detector_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
