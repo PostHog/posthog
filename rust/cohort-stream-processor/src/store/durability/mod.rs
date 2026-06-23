@@ -52,3 +52,48 @@ pub use uploader::CheckpointUploader;
 pub use error::{
     DownloadCancelledError, ImportTimeoutError, PlanningCancelledError, UploadCancelledError,
 };
+
+use std::path::PathBuf;
+use tracing::{info, warn};
+
+/// Removes `path` on drop (failure, timeout, cancellation, or panic) unless defused. Shared by both
+/// disaster-restore materializers — the S3 import ([`import`]) and the PVC copy ([`recovery`]) — so a
+/// failed restore never leaves a partial store directory behind. That guarantee is what lets the next
+/// boot's cold-start *outcome* actually start cold rather than reopening a torn store.
+pub(super) struct DirCleanupGuard {
+    path: PathBuf,
+    defused: bool,
+}
+
+impl DirCleanupGuard {
+    pub(super) fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            defused: false,
+        }
+    }
+
+    /// Defuse the guard so the directory survives the drop. Call on success.
+    pub(super) fn defuse(mut self) -> PathBuf {
+        self.defused = true;
+        std::mem::take(&mut self.path)
+    }
+}
+
+impl Drop for DirCleanupGuard {
+    fn drop(&mut self) {
+        if !self.defused && self.path.exists() {
+            match std::fs::remove_dir_all(&self.path) {
+                Ok(_) => info!(
+                    path = %self.path.display(),
+                    "Dir cleanup guard: removed incomplete store directory"
+                ),
+                Err(e) => warn!(
+                    path = %self.path.display(),
+                    error = ?e,
+                    "Dir cleanup guard: failed to remove directory, orphan cleaner will handle it"
+                ),
+            }
+        }
+    }
+}

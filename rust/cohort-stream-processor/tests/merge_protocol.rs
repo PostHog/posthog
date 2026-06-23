@@ -603,7 +603,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
 
     let store = temp_store_in(&dir);
     let recovered = store
-        .scan_pending_transfers(p_old_part, usize::MAX)
+        .scan_pending_transfers(p_old_part, None, usize::MAX)
         .unwrap();
     assert_eq!(
         recovered.len(),
@@ -634,7 +634,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
         .unwrap();
     assert!(
         store
-            .scan_pending_transfers(p_old_part, usize::MAX)
+            .scan_pending_transfers(p_old_part, None, usize::MAX)
             .unwrap()
             .is_empty(),
         "the outbox is cleared post-apply"
@@ -1694,7 +1694,7 @@ fn checkpoint_then_restore(dir: &TempDir, store: CohortStore) -> CohortStore {
 
 fn only_pending(store: &CohortStore, partition_id: u16) -> Vec<(PendingTransferKey, Vec<u8>)> {
     store
-        .scan_pending_transfers(partition_id, usize::MAX)
+        .scan_pending_transfers(partition_id, None, usize::MAX)
         .unwrap()
 }
 

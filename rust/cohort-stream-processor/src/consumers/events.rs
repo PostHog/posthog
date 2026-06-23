@@ -54,10 +54,11 @@ pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 /// few seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
 const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Per-partition scan cap for the eager boot redrive. The outbox only ever holds transfers stranded by
-/// inline-retry exhaustion (rare), so a large bound drains it in one pass while capping memory against a
-/// pathological backlog; any remainder beyond the cap is recovered by the periodic redrive.
-const EAGER_BOOT_REDRIVE_SCAN_LIMIT: usize = 100_000;
+/// Page size for the eager boot redrive's paginated scan of `cf_pending_transfers`. The outbox only
+/// ever holds transfers stranded by inline-retry exhaustion (rare), so this large page drains a
+/// typical outbox in a single round; a larger backlog is drained across successive pages, bounding
+/// peak memory per page.
+const EAGER_BOOT_REDRIVE_PAGE_SIZE: usize = 100_000;
 
 /// One re-keyed event as published to `cohort_stream_events`. Field names mirror the shuffler
 /// envelope exactly.
@@ -312,6 +313,14 @@ impl EventDispatcher {
                 if self.draining.load(Ordering::SeqCst) {
                     return;
                 }
+                // Durable restart only: wipe a post-boot move-in's stale on-disk slice (left by a
+                // revoke-delete that failed before the partition returned to this pod) before the
+                // worker rebuilds its eviction queue from it. Runs under the shard guard, so the wipe
+                // strictly precedes the spawn. `reclaim_stale_slice` must never touch `self.workers` —
+                // a `contains_key`/`entry` on the same shard while this write guard is held deadlocks.
+                if self.durable_restore_enabled() {
+                    self.reclaim_stale_slice(partition);
+                }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
                         let worker = Stage1Worker::spawn(
@@ -471,12 +480,14 @@ impl EventDispatcher {
     }
 
     /// Delete a moving-in partition's stale on-disk slice so the worker cold-rebuilds from the
-    /// committed offset. Skipped for live workers (slice is current) and for any partition in the
-    /// boot snapshot (boot sweep already kept it) — only genuine post-boot move-ins are reclaimed.
-    pub(crate) fn reclaim_stale_partition_on_assign(&self, partition: i32) {
-        if self.workers.contains_key(&partition) {
-            return;
-        }
+    /// committed offset. Called from [`Self::ensure_worker`] under the partition's shard guard, right
+    /// before the worker spawns, so the wipe deterministically precedes the eviction-queue rebuild.
+    ///
+    /// Boot-snapshot partitions are kept (the boot sweep is the authority and reopen-live is intact),
+    /// and pre-boot calls (snapshot not yet recorded) are kept too — only genuine post-boot move-ins
+    /// are reclaimed. Must not touch `self.workers`: the caller holds a DashMap shard write guard for
+    /// `partition`, so a `contains_key`/`entry` on the same shard would deadlock.
+    fn reclaim_stale_slice(&self, partition: i32) {
         match self.boot_assignment.get() {
             // Pre-boot: the sweep is the authority — never wipe.
             None => return,
@@ -546,12 +557,14 @@ impl EventDispatcher {
     }
 
     /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
-    /// without spawning workers. An idle partition never spawns a worker, so the periodic redrive
-    /// never fires for it; this scans the outbox directly and re-produces it.
+    /// without spawning workers. An idle partition never spawns a worker — and the periodic redrive
+    /// routes through `route_to_owned` → `NoWorker` for worker-less partitions, so it never fires for
+    /// one either; this paginates the whole outbox directly and re-produces every entry regardless of
+    /// backlog size.
     ///
     /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
-    /// so marking would clamp to 0 and trip `CappedAheadOfDispatch`. A produce failure leaves the
-    /// entry for the periodic redrive. Must run after the boot staleness reconcile.
+    /// so marking would clamp to 0 and trip `CappedAheadOfDispatch`. A per-entry produce failure
+    /// leaves that entry for the periodic redrive. Must run after the boot staleness reconcile.
     pub async fn eager_redrive_pending_transfers_on_boot(&self, assignment: &HashSet<i32>) {
         for &partition in assignment {
             let Some(store_partition) = partition_to_store_id(partition) else {
@@ -561,27 +574,56 @@ impl EventDispatcher {
                 );
                 continue;
             };
-            let entries = match self
-                .store
-                .scan_pending_transfers(store_partition, EAGER_BOOT_REDRIVE_SCAN_LIMIT)
-            {
-                Ok(entries) => entries,
+            let recovered = self
+                .eager_redrive_partition(partition, store_partition, EAGER_BOOT_REDRIVE_PAGE_SIZE)
+                .await;
+            if recovered > 0 {
+                counter!(DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL).increment(1);
+                info!(
+                    partition,
+                    recovered, "eager boot redrive: re-produced stranded pending transfers",
+                );
+            }
+        }
+    }
+
+    /// Paginate one partition's `cf_pending_transfers` outbox, re-producing and clearing each entry;
+    /// returns the count re-produced. `page_size` is a parameter so tests can force multi-page
+    /// pagination without seeding a full [`EAGER_BOOT_REDRIVE_PAGE_SIZE`] page.
+    async fn eager_redrive_partition(
+        &self,
+        partition: i32,
+        store_partition: u16,
+        page_size: usize,
+    ) -> usize {
+        let mut cursor: Option<Vec<u8>> = None;
+        let mut recovered = 0usize;
+        loop {
+            let page = match self.store.scan_pending_transfers(
+                store_partition,
+                cursor.as_deref(),
+                page_size,
+            ) {
+                Ok(page) => page,
                 Err(error) => {
                     warn!(
                         partition,
                         error = %error,
                         "eager boot redrive: pending-transfer scan failed; the periodic redrive retries it",
                     );
-                    continue;
+                    break;
                 }
             };
-            if entries.is_empty() {
-                continue;
+            if page.is_empty() {
+                break;
             }
-            let scanned = entries.len();
+            let page_len = page.len();
+            // Advance past the whole page before processing it: an entry left in place (decode or
+            // produce failure) is never re-scanned this boot, so the loop always terminates and the
+            // stranded entry defers to the periodic redrive.
+            let next_cursor = page.last().map(|(key, _)| key.encode().to_vec());
 
-            let mut recovered = 0usize;
-            for (key, bytes) in entries {
+            for (key, bytes) in page {
                 let pending = match PendingTransfer::decode(&bytes) {
                     Ok(pending) => pending,
                     Err(error) => {
@@ -623,21 +665,12 @@ impl EventDispatcher {
                 recovered += 1;
             }
 
-            if scanned == EAGER_BOOT_REDRIVE_SCAN_LIMIT {
-                warn!(
-                    partition,
-                    scanned,
-                    "eager boot redrive: hit the per-partition scan cap; the periodic redrive recovers the remainder",
-                );
-            }
-            if recovered > 0 {
-                counter!(DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL).increment(1);
-                info!(
-                    partition,
-                    recovered, "eager boot redrive: re-produced stranded pending transfers",
-                );
+            cursor = next_cursor;
+            if page_len < page_size {
+                break;
             }
         }
+        recovered
     }
 
     fn tracker(&self) -> &OffsetTracker {
@@ -1444,7 +1477,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reclaim_stale_partition_on_assign_deletes_when_no_worker_keeps_when_one_exists() {
+    async fn reclaim_stale_slice_wipes_move_in_keeps_boot_partition() {
         let (_dir, store) = temp_store();
         let catalog = behavioral_catalog();
         let lsk = behavioral_lsk(&catalog);
@@ -1452,22 +1485,78 @@ mod tests {
         seed_slice(&store, 5, lsk);
         seed_slice(&store, 6, lsk);
 
-        // Boot snapshot excludes 5 (move-in); partition_count 5 keeps the boot wipe off 5 and 6.
+        // Boot snapshot includes 6 (reopen-live) but not 5 (post-boot move-in); partition_count 5
+        // keeps the boot sweep off both 5 and 6.
         dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
 
-        dispatcher.reclaim_stale_partition_on_assign(5);
+        dispatcher.reclaim_stale_slice(5);
         assert!(
             !slice_present(&store, 5, lsk),
-            "a moving-in partition with no worker has its stale slice deleted",
+            "a post-boot move-in has its stale slice wiped",
         );
 
-        dispatcher.assign_partition(6);
-        dispatcher.ensure_worker(6);
-        dispatcher.reclaim_stale_partition_on_assign(6);
+        dispatcher.reclaim_stale_slice(6);
         assert!(
             slice_present(&store, 6, lsk),
-            "a partition with a live worker keeps its (current, not stale) slice",
+            "a boot-snapshot partition keeps its slice (the boot sweep is the authority)",
         );
+    }
+
+    #[tokio::test]
+    async fn ensure_worker_wipes_stale_move_in_slice_before_spawn() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+        dispatcher.enable_durable_restore();
+
+        seed_slice(&store, 5, lsk);
+        // Boot excludes 5 (a post-boot move-in); partition_count 5 keeps the boot sweep off 5.
+        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+        dispatcher.assign_partition(5);
+
+        dispatcher.ensure_worker(5);
+        assert!(
+            dispatcher.workers.contains_key(&5),
+            "the moved-in partition spawned a worker",
+        );
+        assert!(
+            !slice_present(&store, 5, lsk),
+            "the stale slice was wiped before the worker read it (cold rebuild)",
+        );
+
+        // A second delivery finds the worker already live: the Entry::Occupied arm is a no-op, so a
+        // freshly-written (current, not stale) slice is never re-wiped.
+        seed_slice(&store, 5, lsk);
+        dispatcher.ensure_worker(5);
+        assert!(
+            slice_present(&store, 5, lsk),
+            "an existing worker keeps its current slice (ensure_worker does not re-reclaim)",
+        );
+
+        dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn ensure_worker_with_durable_restore_off_keeps_slice() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+        // Durable restore left off: ensure_worker must never reclaim — wipe-on-start handles staleness.
+
+        seed_slice(&store, 5, lsk);
+        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+        dispatcher.assign_partition(5);
+
+        dispatcher.ensure_worker(5);
+        assert!(dispatcher.workers.contains_key(&5), "the worker spawned");
+        assert!(
+            slice_present(&store, 5, lsk),
+            "with durable restore off, ensure_worker leaves the on-disk slice untouched",
+        );
+
+        dispatcher.shutdown().await;
     }
 
     #[test]
@@ -3191,6 +3280,49 @@ mod tests {
         assert!(
             store.get_pending_transfer(&unowned_key).unwrap().is_some(),
             "the unowned partition's outbox entry was left untouched",
+        );
+    }
+
+    #[tokio::test]
+    async fn eager_boot_redrive_paginates_until_the_whole_outbox_is_drained() {
+        let (_dir, store) = temp_store();
+        let (dispatcher, _sink, transfer_sink, _merge) = dispatcher_full(
+            &store,
+            behavioral_catalog(),
+            CaptureSink::new(),
+            CaptureTransferSink::new(),
+        );
+
+        let partition = 3;
+        let store_partition = partition_to_store_id(partition).unwrap();
+        // Seed five entries so a page size of two spans three pages (2 + 2 + 1).
+        let mut expected = Vec::new();
+        for n in 1..=5u128 {
+            let (_key, transfer) =
+                stage_pending(&store, partition, person(n), person(100 + n), 40 + n as i64);
+            expected.push(transfer);
+        }
+
+        let recovered = dispatcher
+            .eager_redrive_partition(partition, store_partition, 2)
+            .await;
+
+        assert_eq!(
+            recovered, 5,
+            "every staged entry was re-produced across pages"
+        );
+        // Production follows key order across pages; sort both sides on the stable old-person key so
+        // the assertion does not depend on the seeding order.
+        let mut produced = transfer_sink.transfers();
+        produced.sort_by_key(|t| t.old_person_uuid);
+        expected.sort_by_key(|t| t.old_person_uuid);
+        assert_eq!(produced, expected);
+        assert!(
+            store
+                .scan_pending_transfers(store_partition, None, usize::MAX)
+                .unwrap()
+                .is_empty(),
+            "the outbox is fully drained — no entry stranded past the first page",
         );
     }
 }

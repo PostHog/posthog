@@ -433,7 +433,7 @@ fn delete_partition_reclaims_the_merge_cfs() {
         .unwrap()
         .is_none());
     assert!(store
-        .scan_pending_transfers(0, usize::MAX)
+        .scan_pending_transfers(0, None, usize::MAX)
         .unwrap()
         .is_empty());
 
@@ -442,7 +442,10 @@ fn delete_partition_reclaims_the_merge_cfs() {
         .unwrap()
         .is_some());
     assert_eq!(
-        store.scan_pending_transfers(1, usize::MAX).unwrap().len(),
+        store
+            .scan_pending_transfers(1, None, usize::MAX)
+            .unwrap()
+            .len(),
         1
     );
 }
@@ -462,7 +465,7 @@ fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
         })
         .unwrap();
 
-    let scanned = store.scan_pending_transfers(5, usize::MAX).unwrap();
+    let scanned = store.scan_pending_transfers(5, None, usize::MAX).unwrap();
     assert_eq!(scanned.len(), 2, "only partition 5's entries");
     // Person UUIDs from `Uuid::from_u128` sort by their big-endian bytes, so 10 precedes 30.
     assert_eq!(scanned[0].0, pending_transfer_key(5, 100, 10));
@@ -471,16 +474,22 @@ fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
     assert_eq!(scanned[1].1, b"p30");
 
     assert_eq!(
-        store.scan_pending_transfers(4, usize::MAX).unwrap().len(),
+        store
+            .scan_pending_transfers(4, None, usize::MAX)
+            .unwrap()
+            .len(),
         1
     );
     assert_eq!(
-        store.scan_pending_transfers(6, usize::MAX).unwrap().len(),
+        store
+            .scan_pending_transfers(6, None, usize::MAX)
+            .unwrap()
+            .len(),
         1
     );
     assert!(
         store
-            .scan_pending_transfers(7, usize::MAX)
+            .scan_pending_transfers(7, None, usize::MAX)
             .unwrap()
             .is_empty(),
         "an empty partition scans to nothing",
@@ -502,7 +511,7 @@ fn scan_pending_transfers_caps_at_the_limit() {
         })
         .unwrap();
 
-    let scanned = store.scan_pending_transfers(2, limit).unwrap();
+    let scanned = store.scan_pending_transfers(2, None, limit).unwrap();
     assert_eq!(
         scanned.len(),
         limit,
@@ -514,6 +523,45 @@ fn scan_pending_transfers_caps_at_the_limit() {
         firsts,
         (0..limit as u128).map(person).collect::<Vec<_>>(),
         "returns the `limit` smallest keys, in key order",
+    );
+}
+
+#[test]
+fn scan_pending_transfers_resumes_after_the_cursor() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    store
+        .write_batch(|b| {
+            for old in 0..5u128 {
+                b.put_pending_transfer(&pending_transfer_key(2, 100, old), b"v");
+            }
+        })
+        .unwrap();
+
+    // Walk the slice two at a time, resuming strictly after the last key of each page. The cursor is
+    // exclusive, so the union of the pages is every key exactly once with no overlap and no gap.
+    let mut seen = Vec::new();
+    let mut cursor: Option<Vec<u8>> = None;
+    loop {
+        let page = store
+            .scan_pending_transfers(2, cursor.as_deref(), 2)
+            .unwrap();
+        if page.is_empty() {
+            break;
+        }
+        cursor = Some(page.last().unwrap().0.encode().to_vec());
+        let last_was_short = page.len() < 2;
+        seen.extend(page.into_iter().map(|(k, _)| k.old_person));
+        if last_was_short {
+            break;
+        }
+    }
+
+    assert_eq!(
+        seen,
+        (0..5u128).map(person).collect::<Vec<_>>(),
+        "paginating with the cursor yields every key once, in key order",
     );
 }
 
@@ -557,6 +605,8 @@ fn merge_cf_values_survive_reopen_without_wipe() {
         reopened.get_tombstone(&tombstone).unwrap().as_deref(),
         Some(&b"s"[..]),
     );
-    let scanned = reopened.scan_pending_transfers(2, usize::MAX).unwrap();
+    let scanned = reopened
+        .scan_pending_transfers(2, None, usize::MAX)
+        .unwrap();
     assert_eq!(scanned, vec![(pending, b"t".to_vec())]);
 }

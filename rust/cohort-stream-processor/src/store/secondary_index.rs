@@ -8,6 +8,12 @@
 //! - **Operand** — a 17-byte `[tag u8][lsk 16]` ([`IndexOp`]); a concatenation of several is itself
 //!   a valid operand.
 //!
+//! Maintained on the hot path even though its only readers are the merge drain (enumerating P_old's
+//! leaves on a person merge, [`crate::merge::drain_handler`]) and Stage 2 composition: writing it
+//! eagerly gives the non-associative merge operator production bake time on real compaction/flush
+//! threads before readers depend on it, and lets readers inherit a fully-built person→leaf-state
+//! index with no historical backfill pass.
+//!
 //! Two correctness rules:
 //!
 //! 1. **Never panic.** The merge fns run on RocksDB compaction/flush threads; a panic across that

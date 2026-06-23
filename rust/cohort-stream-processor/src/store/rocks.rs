@@ -243,23 +243,33 @@ impl CohortStore {
         self.write_batch(|batch| batch.delete_pending_transfer(key))
     }
 
-    /// Scan up to `limit` of one partition's `cf_pending_transfers` slice, returning `(key, value)` in
-    /// key order. The redrive consumes only a small per-tick cap, so the caller passes a bounded
-    /// `limit` to avoid copying the whole outbox each tick (mirrors [`Self::scan_merge_cf`]).
+    /// Scan up to `limit` of one partition's `cf_pending_transfers` slice, returning `(key, value)`
+    /// in key order, resuming strictly *after* `start_after` (exclusive) when given. The per-tick
+    /// redrive passes a bounded `limit` and no cursor; the eager boot redrive paginates with a cursor
+    /// to drain the whole outbox (mirrors [`Self::scan_stage1`] / [`Self::scan_merge_cf`]).
     pub fn scan_pending_transfers(
         &self,
         partition_id: u16,
+        start_after: Option<&[u8]>,
         limit: usize,
     ) -> Result<Vec<(PendingTransferKey, Vec<u8>)>, StoreError> {
-        let (start, end) = keys::partition_range(partition_id);
+        let (prefix_start, prefix_end) = keys::partition_range(partition_id);
         let handle = self.cf(Cf::PendingTransfers)?;
 
+        // Resume after the cursor when it falls inside this partition, else at the prefix start.
+        let begin: Vec<u8> = match start_after {
+            Some(cursor) if cursor >= prefix_start.as_slice() && cursor < prefix_end.as_slice() => {
+                successor(cursor)
+            }
+            _ => prefix_start.clone(),
+        };
+
         let mut read_opts = ReadOptions::default();
-        read_opts.set_iterate_upper_bound(end);
+        read_opts.set_iterate_upper_bound(prefix_end);
         let iter = self.db.iterator_cf_opt(
             handle,
             read_opts,
-            IteratorMode::From(&start, Direction::Forward),
+            IteratorMode::From(&begin, Direction::Forward),
         );
 
         let mut out = Vec::with_capacity(limit.min(1024));

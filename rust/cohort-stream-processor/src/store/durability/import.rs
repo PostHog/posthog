@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::error::{DownloadCancelledError, ImportTimeoutError};
-use super::{CheckpointDownloader, CheckpointMetadata, STORE_TOPIC};
+use super::{CheckpointDownloader, CheckpointMetadata, DirCleanupGuard, STORE_TOPIC};
 use crate::observability::metrics::{
     CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS, CHECKPOINT_IMPORT_DURATION_SECONDS,
 };
@@ -10,51 +10,6 @@ use crate::observability::metrics::{
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-
-/// Removes the import directory on drop (failure, timeout, cancellation, or panic) unless defused.
-struct ImportCleanupGuard {
-    path: PathBuf,
-    defused: bool,
-}
-
-impl ImportCleanupGuard {
-    fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            defused: false,
-        }
-    }
-
-    /// Defuse the guard so the directory survives the drop. Call on import success.
-    fn defuse(mut self) -> PathBuf {
-        self.defused = true;
-        std::mem::take(&mut self.path)
-    }
-}
-
-impl Drop for ImportCleanupGuard {
-    fn drop(&mut self) {
-        if !self.defused && self.path.exists() {
-            match std::fs::remove_dir_all(&self.path) {
-                Ok(_) => {
-                    info!(
-                        store = STORE_TOPIC,
-                        path = %self.path.display(),
-                        "Import cleanup guard: removed incomplete import directory"
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        store = STORE_TOPIC,
-                        path = %self.path.display(),
-                        error = ?e,
-                        "Import cleanup guard: failed to remove directory, orphan cleaner will handle it"
-                    );
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct CheckpointImporter {
@@ -205,7 +160,7 @@ impl CheckpointImporter {
                 });
             }
 
-            let guard = ImportCleanupGuard::new(target_path.to_path_buf());
+            let guard = DirCleanupGuard::new(target_path.to_path_buf());
 
             // A failed file cancels siblings, but the parent token survives so the next attempt can proceed.
             let attempt_token = cancel_token
@@ -674,7 +629,7 @@ mod tests {
         let test_file = test_path.join("test_file.txt");
         std::fs::write(&test_file, b"test content").unwrap();
 
-        let guard = ImportCleanupGuard::new(test_path.clone());
+        let guard = DirCleanupGuard::new(test_path.clone());
         let returned_path = guard.defuse();
 
         assert_eq!(returned_path, test_path);
@@ -691,7 +646,7 @@ mod tests {
         std::fs::write(&test_file, b"test content").unwrap();
 
         {
-            let _guard = ImportCleanupGuard::new(test_path.clone());
+            let _guard = DirCleanupGuard::new(test_path.clone());
         }
 
         assert!(

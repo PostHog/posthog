@@ -75,7 +75,8 @@ pub(crate) async fn handle_cascade(
         return;
     }
 
-    // The capped remainder self-heals on each dropped referrer's next event/sweep.
+    // The capped remainder is recovered only when each dropped referrer is re-evaluated on its next
+    // event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf.
     let referrers: &[CohortId] = if referrers.len() > merge.cascade.fanout_cap {
         let dropped = (referrers.len() - merge.cascade.fanout_cap) as u64;
         counter!(CASCADE_FANOUT_CAPPED_TOTAL).increment(dropped);

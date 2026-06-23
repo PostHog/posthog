@@ -26,7 +26,8 @@ use chrono::Utc;
 use tracing::{info, warn};
 
 use super::{
-    CheckpointImporter, OffsetManifest, S3Downloader, MANIFEST_FILENAME, METADATA_FILENAME,
+    CheckpointImporter, DirCleanupGuard, OffsetManifest, S3Downloader, MANIFEST_FILENAME,
+    METADATA_FILENAME,
 };
 use crate::config::Config;
 use crate::observability::metrics::{
@@ -219,15 +220,29 @@ fn restore_from_pvc(checkpoint_dir: &Path, store_path: &Path) -> RestoreOutcome 
             return cold_downgrade();
         }
     }
+
+    // `copy_dir_recursive` is non-atomic: a mid-copy failure (disk full, transient I/O) leaves a
+    // half-written dir at `store_path`. Without cleanup the next boot would keep it (the wipe is
+    // skipped once the dir exists) and `decide_restore_source` would pick ReopenLive over a fresh
+    // restore — silently empty if `CURRENT` was missed, crash-looping if its SSTs were. The guard
+    // wipes the partial dir on every early return so a cold-start *outcome* actually starts cold.
+    //
+    // Residual: a SIGKILL *mid-copy* runs no Rust code, so the guard cannot fire; closing that needs
+    // a crash-safe copy (temp dir + atomic rename, or copy `CURRENT` last). Deferred follow-up.
+    let guard = DirCleanupGuard::new(store_path.to_path_buf());
+
     if let Err(e) = copy_dir_recursive(checkpoint_dir, store_path) {
         warn!(error = %e, from = %checkpoint_dir.display(), "PVC checkpoint copy failed; cold start");
         return cold_downgrade();
     }
     match OffsetManifest::load_from_dir(store_path) {
-        Ok(manifest) => RestoreOutcome {
-            source: RestoreSource::PvcCheckpoint(checkpoint_dir.to_path_buf()),
-            manifest: Some(manifest),
-        },
+        Ok(manifest) => {
+            guard.defuse();
+            RestoreOutcome {
+                source: RestoreSource::PvcCheckpoint(checkpoint_dir.to_path_buf()),
+                manifest: Some(manifest),
+            }
+        }
         Err(e) => {
             warn!(error = %e, "PVC checkpoint manifest unreadable after copy; cold start");
             cold_downgrade()
@@ -540,6 +555,42 @@ mod tests {
         assert_eq!(manifest.offset_for("cohort_stream_events", 0), Some(42));
         assert!(store_path.join("000001.sst").is_file());
         assert!(store_path.join(MANIFEST_FILENAME).is_file());
+    }
+
+    #[test]
+    fn restore_from_pvc_wipes_a_partial_store_when_the_copy_fails() {
+        let tmp = TempDir::new().unwrap();
+        let store_path = tmp.path().join("store");
+        // A leftover partial store from a prior torn restore that the copy must not preserve.
+        std::fs::create_dir_all(&store_path).unwrap();
+        std::fs::write(store_path.join("000001.sst"), b"torn").unwrap();
+
+        // A non-existent checkpoint dir makes `copy_dir_recursive`'s `read_dir` fail mid-restore.
+        let missing = tmp.path().join("nonexistent_checkpoint");
+
+        let outcome = restore_from_pvc(&missing, &store_path);
+        assert_eq!(outcome.source, RestoreSource::ColdStart);
+        assert!(
+            !store_path.exists(),
+            "the guard must wipe the partial store so the cold-start outcome actually starts cold",
+        );
+    }
+
+    #[test]
+    fn restore_from_pvc_wipes_the_store_when_the_manifest_is_unreadable() {
+        let tmp = TempDir::new().unwrap();
+        let store_path = tmp.path().join("store");
+        // A checkpoint dir that copies cleanly but carries no offsets.json → manifest load fails.
+        let checkpoint_dir = tmp.path().join("ckpt");
+        std::fs::create_dir_all(&checkpoint_dir).unwrap();
+        std::fs::write(checkpoint_dir.join("CURRENT"), b"MANIFEST-000001\n").unwrap();
+
+        let outcome = restore_from_pvc(&checkpoint_dir, &store_path);
+        assert_eq!(outcome.source, RestoreSource::ColdStart);
+        assert!(
+            !store_path.exists(),
+            "an unreadable manifest after copy must leave no partial store behind",
+        );
     }
 
     #[test]

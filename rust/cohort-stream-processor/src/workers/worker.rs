@@ -762,7 +762,7 @@ async fn handle_sweep(
         warn!(
             partition_id,
             errors = cascade_errors,
-            "sweep cascade produce failed; dropping (at-most-once, self-heals on next event/sweep)",
+            "sweep cascade produce failed; dropping (at-most-once). Recovery depends on each referrer being re-evaluated on its next event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf",
         );
     }
 }

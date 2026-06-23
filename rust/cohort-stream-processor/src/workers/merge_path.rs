@@ -388,17 +388,18 @@ pub(crate) async fn handle_redrive(
     store: &CohortStore,
     merge: &MergeWorkerDeps,
 ) {
-    let entries = match store.scan_pending_transfers(partition_id, SCAN_PENDING_TRANSFERS_LIMIT) {
-        Ok(entries) => entries,
-        Err(error) => {
-            warn!(
-                partition_id,
-                error = %error,
-                "pending-transfer redrive scan failed; retrying next tick",
-            );
-            return;
-        }
-    };
+    let entries =
+        match store.scan_pending_transfers(partition_id, None, SCAN_PENDING_TRANSFERS_LIMIT) {
+            Ok(entries) => entries,
+            Err(error) => {
+                warn!(
+                    partition_id,
+                    error = %error,
+                    "pending-transfer redrive scan failed; retrying next tick",
+                );
+                return;
+            }
+        };
     // Saturates at the scan limit, so this reflects `min(backlog, SCAN_PENDING_TRANSFERS_LIMIT)` — it
     // still distinguishes an empty outbox from a backed-up one, just not the exact backlog depth.
     gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition_id.to_string())
@@ -577,7 +578,7 @@ async fn produce_merge_transitions(
         warn!(
             partition_id,
             errors = cascade_errors,
-            "merge cascade produce failed; dropping (at-most-once, self-heals on next event/sweep)",
+            "merge cascade produce failed; dropping (at-most-once). Recovery depends on each referrer being re-evaluated on its next event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf",
         );
     }
 }
