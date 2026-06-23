@@ -3123,7 +3123,7 @@ class TinyemailSourceConfig(config.Config):
 
 @config.config
 class TodoistSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
