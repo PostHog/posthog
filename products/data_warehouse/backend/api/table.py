@@ -216,6 +216,11 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        # Callers that don't consume columns (e.g. the source list) skip the expensive HogQL
+        # field serialization entirely by passing include_columns=False.
+        if not self.context.get("include_columns", True):
+            return []
+
         database = self.context.get("database", None)
         team_id = self.context.get("team_id", None)
 

@@ -1365,12 +1365,54 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
 
         # A cached instance setting lookup can shave off one query depending on test order.
-        with self.assertNumQueries(FuzzyInt(23, 25)):
+        # The list no longer builds the full HogQL Database (only needed to serialize table columns,
+        # which the list omits), so it's much cheaper than the single-source read path.
+        with self.assertNumQueries(FuzzyInt(13, 15)):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
+
+    def test_list_omits_table_columns_but_retrieve_includes_them(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="Accounts",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"clickhouse": "Int32", "hogql": "integer", "valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="Accounts",
+            should_sync=True,
+            table=table,
+        )
+
+        # The list view never reads schemas[].table.columns, so it skips the expensive
+        # HogQL field serialization and returns an empty column list.
+        list_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()
+        list_table = list_payload["results"][0]["schemas"][0]["table"]
+        self.assertEqual(list_table["name"], "Accounts")
+        self.assertEqual(list_table["columns"], [])
+
+        # The single-source read still populates columns for the schema detail page.
+        retrieve_payload = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
+        retrieve_columns = retrieve_payload["schemas"][0]["table"]["columns"]
+        self.assertTrue(any(column["key"] == "id" for column in retrieve_columns))
 
     def _create_searchable_source(self, source_type: str, prefix: str) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
