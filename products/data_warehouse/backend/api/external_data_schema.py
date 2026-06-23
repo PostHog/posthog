@@ -559,7 +559,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
-        if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+        if self._webhook_only_check_applies():
             if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
                     f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
@@ -936,7 +936,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
-    def warm_webhook_only_check(self, instance: ExternalDataSchema, payload: dict[str, Any]) -> None:
+    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
         """Pre-run the webhook-only validation that reaches the external source, caching the result.
 
         `_is_webhook_only_schema` calls the source's `get_schemas`, which is a network round-trip (e.g.
@@ -946,9 +946,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         first (outside the transaction) does the network work up front; update() then reads the cached
         result and still raises per-schema, so failures stay isolated to one schema.
         """
-        sync_type = payload.get("sync_type")
-        if "sync_type" in payload and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+        if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
+
+    def _webhook_only_check_applies(self) -> bool:
+        # Single source of truth for when the webhook-only check runs, so update() and the
+        # pre-transaction warm step can't drift apart and push the network call back into the
+        # transaction. Reads `initial_data` (the raw request payload), like update() does.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        return "sync_type" in data and data.get("sync_type") != ExternalDataSchema.SyncType.WEBHOOK
 
     def _is_webhook_only_schema_cached(self, schema: ExternalDataSchema) -> bool:
         if "_webhook_only_result" not in self.__dict__:

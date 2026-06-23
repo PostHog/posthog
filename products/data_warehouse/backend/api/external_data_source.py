@@ -3599,7 +3599,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.
-            schema_serializer.warm_webhook_only_check(schema, schema_payload)
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch
