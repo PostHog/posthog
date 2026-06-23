@@ -2192,6 +2192,143 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         finally:
             sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
 
+    def test_nested_boolean_single_scan_and_merged_leaf_membership(self) -> None:
+        """Exercise the AND-merged leaf (countIf(...) = N) inside the boolean tree.
+
+        `(email~@gmail AND email~.com) AND plan` nested under a top-level OR: the same-key email
+        pair merges into one AND-merged leaf, which the tree must render as
+        `countIf(latest_matches = 1 AND condition IN (g, c)) = 2` — a person matching only one of
+        the two merged hashes must be excluded.
+        """
+
+        def leaf(key: str, value: str, operator: str, condition_hash: str) -> dict:
+            return {
+                "key": key,
+                "type": "person",
+                "value": value,
+                "negation": False,
+                "operator": operator,
+                "conditionHash": condition_hash,
+            }
+
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            both, one_only, country_only = uuid4(), uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    (both, "m_g", True),
+                    (both, "m_c", True),
+                    (both, "plan_x", True),  # matches the AND-merged email pair + plan
+                    (one_only, "m_g", True),
+                    (one_only, "m_c", False),
+                    (one_only, "plan_x", True),  # missed one of the merged hashes
+                    (country_only, "country_y", True),  # matches the other OR branch
+                ]
+            )
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="and-merged",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "type": "AND",
+                                                "values": [
+                                                    leaf("email", "@gmail", "icontains", "m_g"),
+                                                    leaf("email", ".com", "icontains", "m_c"),
+                                                ],
+                                            },
+                                            {"type": "AND", "values": [leaf("plan", "x", "exact", "plan_x")]},
+                                        ],
+                                    },
+                                    {"type": "AND", "values": [leaf("country", "y", "exact", "country_y")]},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+            self.assertNotIn("intersect distinct", query_str)
+            self.assertNotIn("union distinct", query_str)
+            self.assertIn("countif(", query_str)  # AND-merged leaf renders as countIf(...) = N
+
+            members = self._realtime_cohort_members(cohort)
+            self.assertIn(str(both), members)  # matched both merged hashes + plan
+            self.assertIn(str(country_only), members)  # other OR branch
+            self.assertNotIn(str(one_only), members)  # missed one merged hash → AND-merged leaf fails
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    def test_nested_negated_leaf_falls_through(self) -> None:
+        """A negated leaf buried in a nested group must force the parent multi-subquery path.
+
+        The single-scan tree can't express negation, so any nested negated person property must
+        make `_build_boolean_tree_query` return None and fall through — not silently drop the
+        negation and produce a wrong cohort.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="nested-negated",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nn_h1",
+                                        }
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nn_h2",
+                                        },
+                                        {
+                                            "key": "name",
+                                            "type": "person",
+                                            "value": "spam",
+                                            "negation": True,
+                                            "operator": "icontains",
+                                            "conditionHash": "nn_h3",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+        # Tree path must NOT fire — a negated leaf forces the parent set-operation path.
+        self.assertNotIn("maxif(latest_matches", query_str)
+
     @parameterized.expand(
         [
             # A merged child's internal boolean type must match the top-level operator to flatten.

@@ -1473,12 +1473,16 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         For cohorts backed entirely by precalculated_person_properties, the parent would produce
         N separate subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full
         table and the set operations materialise large intermediate person sets — a common source
-        of OOMs for large cohorts (seen at 37 GiB in production). We instead read the table once.
+        of OOMs for large cohorts. We instead read the table once.
 
         Two shapes qualify, tried in order:
           1. Flat AND/OR of leaves → count matched conditions per person (HAVING countIf >= N).
           2. Arbitrarily nested AND/OR of leaves → evaluate the boolean tree per person in the
              HAVING (maxIf/countIf leaves combined with AND/OR).
+
+        Shape 1 is a strict subset of shape 2 (the tree would produce an equivalent AND/OR of
+        per-leaf maxIf predicates), but it's kept as a faster path: one `countIf >= N` over the
+        whole group is cheaper than N separate `maxIf` leaves.
 
         Cohorts with any non-person leaf (behavioral, dynamic-cohort, static-cohort) or a negated
         person property fall through to the parent's multi-subquery path unchanged.
