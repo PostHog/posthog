@@ -68,6 +68,30 @@ describe('dashboardsFileSystemLogic', () => {
         }).toDispatchActions(['moveItem'])
     })
 
+    it('refetches entries when a move lands so the view reflects the new path', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        expect(logic.values.entryByRef['1']?.path).toEqual('Marketing/A')
+        // The server now reports the dashboard under its new folder; the refetch should pick that up.
+        ;(api.fileSystem.list as jest.Mock).mockImplementation(
+            async ({ type }: { type?: string } = {}) =>
+                (type === 'folder'
+                    ? { count: 0, results: [], users: [] }
+                    : {
+                          count: 1,
+                          results: [{ id: 'fs-1', type: 'dashboard', ref: '1', path: 'Product/A' }],
+                          users: [],
+                      }) as any
+        )
+        await expectLogic(logic, () => {
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
+                'Marketing/A',
+                'Product/A'
+            )
+        }).toDispatchActions(['loadDashboardFileSystemEntries', 'loadDashboardFileSystemEntriesSuccess'])
+        expect(logic.values.entryByRef['1']?.path).toEqual('Product/A')
+    })
+
     it('navigates folders and exposes a breadcrumb', async () => {
         await expectLogic(logic, () => logic.actions.navigateToFolder('Marketing')).toMatchValues({
             currentFolder: 'Marketing',
@@ -124,7 +148,7 @@ describe('dashboardsFileSystemLogic', () => {
         logic.actions.renameDashboard(1, name)
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(dashboardsModel).toFinishAllListeners()
-        expect((api.update as jest.Mock).mock.calls.length > 0).toBe(shouldUpdate)
+        expect(api.update).toHaveBeenCalledTimes(shouldUpdate ? 1 : 0)
     })
 
     it('startRenaming sets and stopRenaming / renameDashboard clear the renaming id', async () => {
@@ -142,6 +166,8 @@ describe('dashboardsFileSystemLogic', () => {
         ;(api.fileSystem.create as jest.Mock).mockClear()
         await expectLogic(logic, () => logic.actions.createFolder('Ideas')).toDispatchActions([
             'createFolder',
+            // Syncs the sidebar's shared store, then refreshes our own folder rows.
+            'createSavedItem',
             'loadFolderEntries',
         ])
         expect(api.fileSystem.create).toHaveBeenCalledWith({ type: 'folder', path: 'Marketing/Ideas' })
@@ -162,6 +188,16 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadDashboardFileSystemEntries()
         }).toDispatchActions(['loadDashboardFileSystemEntriesFailure'])
+        expect(error).toHaveBeenCalled()
+    })
+
+    it('toasts an error when loading folder rows fails', async () => {
+        await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+        ;(api.fileSystem.list as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+        await expectLogic(logic, () => {
+            logic.actions.loadFolderEntries()
+        }).toDispatchActions(['loadFolderEntriesFailure'])
         expect(error).toHaveBeenCalled()
     })
 })

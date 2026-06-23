@@ -12,8 +12,8 @@ import { DashboardCardMenu } from './DashboardCardMenu'
 import { DraggableDashboard } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
-// Shared dashboard card for the explorer + tree arms: draggable onto a folder, with an inline-rename
-// input (a single onBlur commit path) and the per-card actions menu.
+// Dashboard card for the explorer arm: draggable onto a folder, with an inline-rename input
+// (a single onBlur commit path) and the per-card actions menu.
 export function DashboardCard({
     dashboard,
     isRenaming,

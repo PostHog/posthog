@@ -71,7 +71,7 @@ export function buildFolderTree(
 
 // dnd-kit ids for the explorer's drag-to-folder: dashboards are draggable, folder cards are droppable. We
 // namespace and round-trip the dashboard id / folder path through the id so the drag-end handler can resolve them.
-const DRAG_PREFIX = 'dashboards-grid'
+const DRAG_PREFIX = 'dashboards-explorer-dnd'
 const DASH_PREFIX = `${DRAG_PREFIX}:dash:`
 const FOLDER_PREFIX = `${DRAG_PREFIX}:folder:`
 
@@ -83,7 +83,7 @@ export function folderDroppableId(folder: string): string {
     return `${FOLDER_PREFIX}${folder}`
 }
 
-// Resolve a drag-end (dragged card → dropped-on folder header) to a move, or null if it isn't a
+// Resolve a drag-end (dragged card → dropped-on folder card) to a move, or null if it isn't a
 // valid card-onto-folder drop.
 export function parseDashboardDragEnd(
     activeId: string | number | undefined | null,

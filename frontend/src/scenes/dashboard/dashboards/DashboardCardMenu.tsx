@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
-// Per-card actions for the explorer/tree arms.
+// Per-card actions for the explorer arm.
 export function DashboardCardMenu({ dashboardId }: { dashboardId: number }): JSX.Element {
     const { cutDashboard, copyDashboard, startRenaming, deleteDashboardWithConfirm } =
         useActions(dashboardsFileSystemLogic)

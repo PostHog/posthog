@@ -132,6 +132,35 @@ describe('DashboardsExplorer', () => {
         expect(renameDashboard).not.toHaveBeenCalled()
     })
 
+    it('shows an empty-folder message while keeping the breadcrumb navigable', () => {
+        mockValues({
+            currentFolderContents: { subfolders: [], dashboards: [] },
+            compactedSubfolders: [],
+            breadcrumbWithSiblings: [
+                { label: 'All dashboards', path: '', siblings: [] },
+                { label: 'Ideas', path: 'Ideas', siblings: [] },
+            ],
+        })
+        render(<DashboardsExplorer />)
+        expect(screen.getByText('This folder is empty.')).toBeInTheDocument()
+        // The breadcrumb still renders so the empty folder is not a dead end.
+        fireEvent.click(screen.getByText('All dashboards'))
+        expect(navigateToFolder).toHaveBeenCalledWith('')
+    })
+
+    it('shows a loading spinner before data arrives (no folder body yet)', () => {
+        mockValues({
+            dashboardsLoading: true,
+            currentFolderContents: { subfolders: [], dashboards: [] },
+            compactedSubfolders: [],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
+        })
+        render(<DashboardsExplorer />)
+        // The spinner branch returns before the body, so the filters bar / breadcrumb are not rendered.
+        expect(screen.queryByText('filters-bar')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Folder breadcrumb')).not.toBeInTheDocument()
+    })
+
     it('shows a flat list of matches and hides folders when a search query is active', () => {
         mockValues({
             filters: { search: 'rev' },

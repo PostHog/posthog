@@ -26,8 +26,7 @@ import {
 import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
-// Opaque per-caller tag for projectTreeDataLogic's move queue. Distinct from the dnd-kit DRAG_PREFIX
-// ('dashboards-grid') so the two unrelated uses of that string don't read as coupled.
+// Opaque per-caller tag for projectTreeDataLogic's move queue (distinct from the dnd-kit DRAG_PREFIX).
 const DASHBOARDS_FS_LOGIC_KEY = 'dashboards-file-system'
 
 export interface ClipboardItem {
@@ -37,15 +36,16 @@ export interface ClipboardItem {
 
 // View state for the explorer arm: the dashboards-subtree folder structure (read from the same FileSystem
 // rows that back the sidebar tree — both dashboard and folder rows), folder navigation state, and a
-// clipboard. Writes delegate to projectTreeDataLogic (moves) and dashboardsModel (duplicate/rename/delete)
-// so the sidebar stays consistent and there is no second folder model to sync.
+// clipboard. Writes delegate to projectTreeDataLogic (moves) and dashboardsModel (duplicate/rename/delete);
+// folder creation calls api.fileSystem.create then projectTreeDataLogic.createSavedItem so the sidebar's
+// in-memory store stays consistent — there is no second folder model to sync.
 export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
         actions: [
             projectTreeDataLogic,
-            ['moveItem'],
+            ['moveItem', 'createSavedItem'],
             dashboardsModel,
             ['duplicateDashboard', 'updateDashboard'],
             deleteDashboardLogic,
@@ -92,6 +92,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             {
                 loadFolderEntries: async (): Promise<FileSystemEntry[]> => {
                     const response = await api.fileSystem.list({ type: 'folder', limit: DASHBOARD_FS_PAGE_LIMIT })
+                    if (response.results.length >= DASHBOARD_FS_PAGE_LIMIT) {
+                        // Same single-page cap as the dashboard loader; warn so truncation is detectable.
+                        console.warn(
+                            `dashboardsFileSystemLogic: hit the ${DASHBOARD_FS_PAGE_LIMIT}-entry folder page limit — some folders may not appear.`
+                        )
+                    }
                     return response.results
                 },
             },
@@ -209,10 +215,21 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
         },
+        // A move (drag, clipboard cut-paste, or any sidebar move) lands as movedItem AFTER the server
+        // commit; refetch so entryByRef reflects the new path and the moved dashboard leaves its old folder.
+        [projectTreeDataLogic.actionTypes.movedItem]: () => {
+            actions.loadDashboardFileSystemEntries()
+            actions.loadFolderEntries()
+        },
         loadDashboardFileSystemEntriesFailure: () => {
             // Without this the folder structure silently collapses to Unfiled (kea-loaders only
             // console.errors), so the degraded state would look like a genuinely flat project.
             lemonToast.error('Could not load dashboard folders — they may appear unorganized. Refresh to retry.')
+        },
+        loadFolderEntriesFailure: () => {
+            // Mirror the dashboard-entries failure toast: without it, empty folders silently disappear
+            // and the degraded structure looks like a genuinely flat project.
+            lemonToast.error('Could not load folders — empty folders may not appear. Refresh to retry.')
         },
         createFolder: async ({ name }) => {
             const trimmed = name.trim()
@@ -221,7 +238,10 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             }
             const path = joinPath([...(values.currentFolder ? splitPath(values.currentFolder) : []), trimmed])
             try {
-                await api.fileSystem.create({ type: 'folder', path } as FileSystemEntry)
+                const created = await api.fileSystem.create({ type: 'folder', path } as FileSystemEntry)
+                // Sync the sidebar's shared store the same way the project-tree create path does, then
+                // refresh our own folder rows and drill into the new folder.
+                actions.createSavedItem(created)
                 actions.loadFolderEntries()
                 actions.navigateToFolder(path)
                 lemonToast.success(`Created folder "${trimmed}"`)

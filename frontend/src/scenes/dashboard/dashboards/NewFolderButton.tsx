@@ -8,7 +8,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
-// Shared "New folder" affordance for the explorer + tree arms. Prompts for a name and creates the folder
+// "New folder" affordance for the explorer arm. Prompts for a name and creates the folder
 // inside the currently-selected folder (the logic owns the create + refetch).
 export function NewFolderButton(): JSX.Element {
     const { createFolder } = useActions(dashboardsFileSystemLogic)

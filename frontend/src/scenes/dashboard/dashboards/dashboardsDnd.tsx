@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { dashboardDraggableId, folderDroppableId, parseDashboardDragEnd } from './dashboardsFileSystemUtils'
 
-// Shared drag-to-folder wiring for the grid and finder arms: a card is draggable, a folder is droppable,
+// Drag-to-folder wiring for the explorer arm: a card is draggable, a folder is droppable,
 // and dropping resolves to onMove(dashboardId, folder). The 10px mouse activation distance keeps a plain
 // click a navigation/open and a longer movement a drag.
 export function DashboardsDndContext({
