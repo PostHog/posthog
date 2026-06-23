@@ -70,6 +70,7 @@ class Product(StrEnum):
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_CODE = "posthog_code"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     REPLAY_VISION = "replay_vision"

@@ -302,7 +302,7 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
 # v0.11.0-posthog.N tag, and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.1" }
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.6" }
 
 
 [tool.isort]
@@ -532,20 +532,6 @@ ignore_imports = [
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
-    # TODO: error_tracking presentation wave — these views still reach internals directly.
-    # Thin each view to parse -> facade -> serialize and delete its entry. backend:contract-check
-    # stays off until this list (and the frozen-migration DDL leak) is resolved.
-    "products.error_tracking.backend.presentation.views.issues -> products.cohorts.backend.models.cohort",
-    "products.error_tracking.backend.presentation.views.issues -> products.error_tracking.backend.issue_serializers",
-    "products.error_tracking.backend.presentation.views.issues -> products.error_tracking.backend.models",
-    "products.error_tracking.backend.presentation.views.issues -> products.error_tracking.backend.notifications",
-    "products.error_tracking.backend.presentation.views.query -> products.error_tracking.backend.hogql_queries.error_tracking_query_runner",
-    "products.error_tracking.backend.presentation.views.query -> products.error_tracking.backend.models",
-    "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.logic.recommendations",
-    "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.logic.recommendations.refresh",
-    "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.models",
-    "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.tasks",
-    "products.error_tracking.backend.presentation.views.symbol_sets -> products.error_tracking.backend.models",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
@@ -553,6 +539,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
@@ -572,13 +559,7 @@ ignore_imports = [
     # TODO: customer_analytics presentation wave — these views still reach internals directly.
     # Thin each view to parse -> facade -> serialize and delete its entry. backend:contract-check
     # stays off until this list is empty.
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.constants",
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models",
-    "products.customer_analytics.backend.presentation.views.external -> products.customer_analytics.backend.models.account",
     "products.customer_analytics.backend.presentation.views.organization_members -> products.customer_analytics.backend.constants",
-    "products.customer_analytics.backend.presentation.views.serializers -> products.customer_analytics.backend.models",
-    "products.customer_analytics.backend.presentation.views.utils -> products.customer_analytics.backend.models",
-    "products.customer_analytics.backend.presentation.views.views -> products.customer_analytics.backend.models",
 ]
 
 [tool.ty.rules]

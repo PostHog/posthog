@@ -1,6 +1,7 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonCalendarSelectInput, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DESTINATIONS } from './destinations'
@@ -36,7 +37,7 @@ export function BatchExportGeneralEditFields({
                         }
                     >
                         {({ value, onChange }) => (
-                            <LemonCalendarSelectInput
+                            <DatePicker
                                 value={value}
                                 onChange={onChange}
                                 placeholder="Select end date (optional)"

@@ -100,6 +100,16 @@ def has_real_facade(backend_dir: Path) -> bool:
     return facade_api.exists() and has_any_function_defs(facade_api)
 
 
+def has_routes_module(backend_dir: Path) -> bool:
+    """The product-local route-registration entry point (a routes.py file or routes/ package).
+
+    Core imports it to assemble the API router, so it is public contract surface — not an
+    internal. That is why it does not mark a product as un-isolatable (see
+    pattern_targets_public_surface), but it does need watching once turbo inputs are narrowed.
+    """
+    return (backend_dir / "routes.py").exists() or (backend_dir / "routes").is_dir()
+
+
 def has_tach_interface(name: str, tach_content: str | None = None) -> bool:
     """True if the product is named in a tach [[interfaces]] block (inline or global).
 
@@ -167,19 +177,60 @@ def has_contract_check_script(product_dir: Path) -> bool:
     return "backend:contract-check" in scripts
 
 
-def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
+def contract_check_inputs(product_dir: Path) -> list[str]:
+    """The product's backend:contract-check `inputs` globs (empty if no override)."""
     turbo_json = product_dir / "turbo.json"
     if not turbo_json.exists():
-        return False
+        return []
     try:
         tasks = json.loads(turbo_json.read_text()).get("tasks", {})
     except json.JSONDecodeError:
-        return False
+        return []
     contract_task = tasks.get("backend:contract-check")
     if not contract_task:
+        return []
+    return contract_task.get("inputs", [])
+
+
+# A contract-check input is "on the public surface" when it targets the facade, the presentation
+# layer, or the routes registration module. Anchored on the path separator so a near-miss like
+# backend/facade_legacy/** can't pass; removeprefix (not lstrip, which strips a char set) trims
+# only a literal "./" so a "../escape/**" can't be normalized into a surface path.
+_FACADE_PRESENTATION_PREFIXES = ("backend/facade/", "backend/presentation/")
+_ROUTES_PREFIXES = ("backend/routes.py", "backend/routes/")
+
+
+def _input_targets_facade_or_presentation(glob: str) -> bool:
+    return glob.removeprefix("./").startswith(_FACADE_PRESENTATION_PREFIXES)
+
+
+def _input_targets_surface(glob: str) -> bool:
+    return glob.removeprefix("./").startswith(_FACADE_PRESENTATION_PREFIXES + _ROUTES_PREFIXES)
+
+
+def has_narrowed_turbo_inputs(product_dir: Path) -> bool:
+    """True only when contract-check inputs are confined to the public surface AND at least one
+    targets facade/presentation. A broad glob like backend/** alongside a facade entry keeps the
+    skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
+    Negated globs ('!...') are excluded from the surface test."""
+    inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
+    if not inputs:
         return False
-    inputs = contract_task.get("inputs", [])
-    return any("facade" in i or "presentation" in i for i in inputs)
+    return all(_input_targets_surface(i) for i in inputs) and any(
+        _input_targets_facade_or_presentation(i) for i in inputs
+    )
+
+
+def routes_in_turbo_inputs(product_dir: Path) -> bool:
+    """True if contract-check inputs watch the routes module specifically — backend/routes.py or a
+    backend/routes/ package. Anchored and negation-aware, so a glob that merely contains 'routes',
+    or a negated exclusion like !backend/routes.py, doesn't falsely count the routes module as
+    watched (without it, a routes-only change is invisible to the skip and runs no Django suite)."""
+    return any(
+        i.removeprefix("./").startswith(_ROUTES_PREFIXES)
+        for i in contract_check_inputs(product_dir)
+        if not i.startswith("!")
+    )
 
 
 # ---------------------------------------------------------------------------

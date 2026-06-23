@@ -25,7 +25,7 @@ export function EvalsTabContent({
     event: string
     distinctId?: string
 }): JSX.Element {
-    const generationRunsLogic = generationEvaluationRunsLogic({ generationEventId })
+    const generationRunsLogic = generationEvaluationRunsLogic({ lookupBy: 'generation', generationEventId })
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
 
     useAttachedLogic(generationRunsLogic, traceLogic)

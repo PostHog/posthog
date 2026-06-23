@@ -195,7 +195,8 @@ export interface EvaluationReportRun {
     created_at: string
 }
 
-export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
+export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
+export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
 
 export interface EvaluationPattern {
     title: string

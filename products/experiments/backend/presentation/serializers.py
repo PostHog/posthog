@@ -181,6 +181,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Comment about the experiment conclusion.",
     )
     archived = serializers.BooleanField(
@@ -622,7 +623,18 @@ class EndExperimentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ArchiveExperimentSerializer(serializers.Serializer):
+    disable_feature_flag = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When the linked feature flag is still enabled, also disable and archive it along with "
+            "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
+        ),
     )
 
 
