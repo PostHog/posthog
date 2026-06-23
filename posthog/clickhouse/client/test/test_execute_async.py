@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from posthog.hogql.errors import QueryError, SyntaxError
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -135,6 +136,35 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @parameterized.expand(
+        [
+            ("query_error_not_captured", QueryError("bad query"), False),
+            ("syntax_error_not_captured", SyntaxError("bad syntax"), False),
+            ("value_error_captured", ValueError("boom"), True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.capture_exception")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_skips_capture_for_exposed_hogql_errors(
+        self, _name, raised_exc, expected_captured, mock_process_query_dict, mock_redis_client, mock_capture
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = raised_exc
+
+        # execute_process_query swallows the error (it doesn't re-raise) — it's the task's
+        # only signal — so the capture decision lives entirely here.
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        if expected_captured:
+            mock_capture.assert_called_once_with(raised_exc)
+        else:
+            mock_capture.assert_not_called()
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):

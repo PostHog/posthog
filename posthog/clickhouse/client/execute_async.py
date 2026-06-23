@@ -250,7 +250,11 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        # ExposedHogQLError (QueryError, SyntaxError, ...) are user-facing query-validation
+        # errors, not platform faults — surface the message to the user but keep them out of
+        # error tracking, where they'd be noise.
+        if not isinstance(err, ExposedHogQLError):
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

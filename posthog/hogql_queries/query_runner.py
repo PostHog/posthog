@@ -76,6 +76,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1491,7 +1492,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # capture_exceptions=False: we capture manually in the handler below so that
+        # ExposedHogQLError subclasses (QueryError, SyntaxError, ...) — which are correct,
+        # user-facing rejections of malformed queries, not platform faults — don't pollute
+        # error tracking. Genuine platform failures are still captured.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1670,6 +1675,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                    # new_context() no longer auto-captures (capture_exceptions=False), so
+                    # capture here while the context tags are still active. Skip
+                    # ExposedHogQLError (QueryError, SyntaxError, ...): those are user-facing
+                    # query-validation errors, not platform faults, and only add noise.
+                    if not isinstance(exc, ExposedHogQLError):
+                        posthoganalytics.capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(

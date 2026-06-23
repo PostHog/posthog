@@ -42,6 +42,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError, SyntaxError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -637,6 +638,42 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+    @parameterized.expand(
+        [
+            ("query_error_not_captured", lambda: QueryError("bad query"), False),
+            ("syntax_error_not_captured", lambda: SyntaxError("bad syntax"), False),
+            ("value_error_captured", lambda: ValueError("boom"), True),
+            (
+                "access_control_error_captured",
+                lambda: UserAccessControlError("query", "viewer", None),
+                True,
+            ),
+        ]
+    )
+    def test_run_skips_error_tracking_capture_for_exposed_hogql_errors(
+        self, _name, exception_factory, expected_captured
+    ):
+        # ExposedHogQLError (QueryError, SyntaxError, ...) are user-facing query-validation
+        # errors, not platform faults, so they must not pollute error tracking. Everything
+        # else still gets captured.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = exception_factory()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch("posthog.hogql_queries.query_runner.posthoganalytics.capture_exception") as mock_capture:
+            with pytest.raises(type(raised_exc)):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        if expected_captured:
+            mock_capture.assert_called_once_with(raised_exc)
+        else:
+            mock_capture.assert_not_called()
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
