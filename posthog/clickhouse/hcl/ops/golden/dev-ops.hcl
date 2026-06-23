@@ -1,5 +1,6 @@
 node "dev-us-iad-ch-1a-ops" {
   macros = {
+    cluster         = "ops"
     hostClusterRole = "ops"
     hostClusterType = "offline"
     replica         = "a"
@@ -63,7 +64,8 @@ database "posthog" {
 
   table "prom_metrics" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "timestamp" {
       type = "DateTime64(3)"
@@ -155,12 +157,14 @@ database "posthog" {
   }
 
   table "prom_metrics_tags" {
-    order_by = ["metric_name", "id"]
+    primary_key = ["metric_name"]
+    order_by    = ["metric_name", "id"]
     settings = {
       index_granularity = "8192"
     }
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "metric_name" {
       type = "LowCardinality(String)"
@@ -278,190 +282,252 @@ database "posthog" {
       type = "Map(String, UInt64)"
     }
     column "exception_name" {
-      type = "String"
+      type  = "String"
+      alias = "errorCodeToName(exception_code)"
     }
     column "ProfileEvents_RealTimeMicroseconds" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['RealTimeMicroseconds']"
     }
     column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['OSCPUVirtualTimeMicroseconds']"
     }
     column "ProfileEvents_S3Clients" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3Clients']"
     }
     column "ProfileEvents_S3DeleteObjects" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3DeleteObjects']"
     }
     column "ProfileEvents_S3CopyObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CopyObject']"
     }
     column "ProfileEvents_S3ListObjects" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3ListObjects']"
     }
     column "ProfileEvents_S3HeadObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3HeadObject']"
     }
     column "ProfileEvents_S3GetObjectAttributes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3GetObjectAttributes']"
     }
     column "ProfileEvents_S3CreateMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CreateMultipartUpload']"
     }
     column "ProfileEvents_S3UploadPartCopy" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3UploadPartCopy']"
     }
     column "ProfileEvents_S3UploadPart" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3UploadPart']"
     }
     column "ProfileEvents_S3AbortMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3AbortMultipartUpload']"
     }
     column "ProfileEvents_S3CompleteMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CompleteMultipartUpload']"
     }
     column "ProfileEvents_S3PutObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3PutObject']"
     }
     column "ProfileEvents_S3GetObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3GetObject']"
     }
     column "ProfileEvents_ReadBufferFromS3Bytes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['ReadBufferFromS3Bytes']"
     }
     column "ProfileEvents_WriteBufferFromS3Bytes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['WriteBufferFromS3Bytes']"
     }
     column "lc_workflow" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.workflow"
     }
     column "lc_kind" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.kind"
     }
     column "lc_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.id, 'String')"
     }
     column "lc_route_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.route_id, 'String')"
     }
     column "lc_access_method" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.access_method"
     }
     column "lc_api_key_label" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.api_key_label, 'String')"
     }
     column "lc_api_key_mask" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.api_key_mask, 'String')"
     }
     column "lc_query_type" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.query_type"
     }
     column "lc_product" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.product"
     }
     column "lc_chargeable" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.chargeable"
     }
     column "lc_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.name, 'String')"
     }
     column "lc_request_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.request_name, 'String')"
     }
     column "lc_client_query_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.client_query_id, 'String')"
     }
     column "lc_org_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.org_id, 'String')"
     }
     column "lc_user_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.user_id"
     }
     column "lc_is_impersonated" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.is_impersonated"
     }
     column "lc_session_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.session_id, 'String')"
     }
     column "lc_dashboard_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.dashboard_id"
     }
     column "lc_insight_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.insight_id"
     }
     column "lc_cohort_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.cohort_id"
     }
     column "lc_batch_export_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.batch_export_id, 'String')"
     }
     column "lc_experiment_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.experiment_id"
     }
     column "lc_experiment_feature_flag_key" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.experiment_feature_flag_key, 'String')"
     }
     column "lc_alert_config_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.alert_config_id, 'String')"
     }
     column "lc_feature" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.feature"
     }
     column "lc_table_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.table_id, 'String')"
     }
     column "lc_warehouse_query" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.warehouse_query"
     }
     column "lc_person_on_events_mode" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.person_on_events_mode"
     }
     column "lc_service_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.service_name, 'String')"
     }
     column "lc_workload" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.workload"
     }
     column "lc_query__kind" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "if(JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'kind'), JSONExtractString(toString(log_comment), 'query', 'kind'))"
     }
     column "lc_query__query" {
-      type = "String"
+      type  = "String"
+      alias = "multiIf(NOT is_initial_query, '', JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'), JSONExtractString(toString(log_comment), 'query', 'query'))"
     }
     column "lc_query" {
-      type = "String"
+      type  = "String"
+      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), '')"
     }
     column "lc_temporal__workflow_namespace" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_namespace`, 'String')"
     }
     column "lc_temporal__workflow_type" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_type`, 'String')"
     }
     column "lc_temporal__workflow_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_id`, 'String')"
     }
     column "lc_temporal__workflow_run_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_run_id`, 'String')"
     }
     column "lc_temporal__activity_type" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.activity_type`, 'String')"
     }
     column "lc_temporal__activity_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.activity_id`, 'String')"
     }
     column "lc_temporal__attempt" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.`temporal.attempt`"
     }
     column "lc_dagster__job_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.job_name`, 'String')"
     }
     column "lc_dagster__run_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.run_id`, 'String')"
     }
     column "lc_dagster__owner" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.tags.owner`, 'String')"
     }
     column "lc_modifiers" {
-      type = "String"
+      type  = "String"
+      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
     }
     engine "distributed" {
       cluster_name    = "ops"
@@ -679,190 +745,252 @@ database "posthog" {
       type = "Map(String, UInt64)"
     }
     column "exception_name" {
-      type = "String"
+      type  = "String"
+      alias = "errorCodeToName(exception_code)"
     }
     column "ProfileEvents_RealTimeMicroseconds" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['RealTimeMicroseconds']"
     }
     column "ProfileEvents_OSCPUVirtualTimeMicroseconds" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['OSCPUVirtualTimeMicroseconds']"
     }
     column "ProfileEvents_S3Clients" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3Clients']"
     }
     column "ProfileEvents_S3DeleteObjects" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3DeleteObjects']"
     }
     column "ProfileEvents_S3CopyObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CopyObject']"
     }
     column "ProfileEvents_S3ListObjects" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3ListObjects']"
     }
     column "ProfileEvents_S3HeadObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3HeadObject']"
     }
     column "ProfileEvents_S3GetObjectAttributes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3GetObjectAttributes']"
     }
     column "ProfileEvents_S3CreateMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CreateMultipartUpload']"
     }
     column "ProfileEvents_S3UploadPartCopy" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3UploadPartCopy']"
     }
     column "ProfileEvents_S3UploadPart" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3UploadPart']"
     }
     column "ProfileEvents_S3AbortMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3AbortMultipartUpload']"
     }
     column "ProfileEvents_S3CompleteMultipartUpload" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3CompleteMultipartUpload']"
     }
     column "ProfileEvents_S3PutObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3PutObject']"
     }
     column "ProfileEvents_S3GetObject" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['S3GetObject']"
     }
     column "ProfileEvents_ReadBufferFromS3Bytes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['ReadBufferFromS3Bytes']"
     }
     column "ProfileEvents_WriteBufferFromS3Bytes" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "ProfileEvents['WriteBufferFromS3Bytes']"
     }
     column "lc_workflow" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.workflow"
     }
     column "lc_kind" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.kind"
     }
     column "lc_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.id, 'String')"
     }
     column "lc_route_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.route_id, 'String')"
     }
     column "lc_access_method" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.access_method"
     }
     column "lc_api_key_label" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.api_key_label, 'String')"
     }
     column "lc_api_key_mask" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.api_key_mask, 'String')"
     }
     column "lc_query_type" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.query_type"
     }
     column "lc_product" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.product"
     }
     column "lc_chargeable" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.chargeable"
     }
     column "lc_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.name, 'String')"
     }
     column "lc_request_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.request_name, 'String')"
     }
     column "lc_client_query_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.client_query_id, 'String')"
     }
     column "lc_org_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.org_id, 'String')"
     }
     column "lc_user_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.user_id"
     }
     column "lc_is_impersonated" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.is_impersonated"
     }
     column "lc_session_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.session_id, 'String')"
     }
     column "lc_dashboard_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.dashboard_id"
     }
     column "lc_insight_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.insight_id"
     }
     column "lc_cohort_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.cohort_id"
     }
     column "lc_batch_export_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.batch_export_id, 'String')"
     }
     column "lc_experiment_id" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.experiment_id"
     }
     column "lc_experiment_feature_flag_key" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.experiment_feature_flag_key, 'String')"
     }
     column "lc_alert_config_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.alert_config_id, 'String')"
     }
     column "lc_feature" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.feature"
     }
     column "lc_table_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.table_id, 'String')"
     }
     column "lc_warehouse_query" {
-      type = "Bool"
+      type  = "Bool"
+      alias = "log_comment.warehouse_query"
     }
     column "lc_person_on_events_mode" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.person_on_events_mode"
     }
     column "lc_service_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.service_name, 'String')"
     }
     column "lc_workload" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "log_comment.workload"
     }
     column "lc_query__kind" {
-      type = "LowCardinality(String)"
+      type  = "LowCardinality(String)"
+      alias = "if(JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'kind'), JSONExtractString(toString(log_comment), 'query', 'kind'))"
     }
     column "lc_query__query" {
-      type = "String"
+      type  = "String"
+      alias = "multiIf(NOT is_initial_query, '', JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'), JSONExtractString(toString(log_comment), 'query', 'query'))"
     }
     column "lc_query" {
-      type = "String"
+      type  = "String"
+      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), '')"
     }
     column "lc_temporal__workflow_namespace" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_namespace`, 'String')"
     }
     column "lc_temporal__workflow_type" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_type`, 'String')"
     }
     column "lc_temporal__workflow_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_id`, 'String')"
     }
     column "lc_temporal__workflow_run_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.workflow_run_id`, 'String')"
     }
     column "lc_temporal__activity_type" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.activity_type`, 'String')"
     }
     column "lc_temporal__activity_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`temporal.activity_id`, 'String')"
     }
     column "lc_temporal__attempt" {
-      type = "Int64"
+      type  = "Int64"
+      alias = "log_comment.`temporal.attempt`"
     }
     column "lc_dagster__job_name" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.job_name`, 'String')"
     }
     column "lc_dagster__run_id" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.run_id`, 'String')"
     }
     column "lc_dagster__owner" {
-      type = "String"
+      type  = "String"
+      alias = "CAST(log_comment.`dagster.tags.owner`, 'String')"
     }
     column "lc_modifiers" {
-      type = "String"
+      type  = "String"
+      alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_query_log_archive"
@@ -872,7 +1000,8 @@ database "posthog" {
 
   table "writable_prom_metrics" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "timestamp" {
       type = "DateTime64(3)"
@@ -971,7 +1100,8 @@ database "posthog" {
 
   table "writable_prom_metrics_tags" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "metric_name" {
       type = "LowCardinality(String)"
@@ -1201,47 +1331,38 @@ database "posthog" {
   }
 
   view "custom_metrics" {
-    query          = "SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_test UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_replication_queue UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_server_crash UNION ALL SELECT * FROM posthog.custom_metrics_table_sizes UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_part_counts UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_dictionaries UNION ALL SELECT 'ClickHouseCustomMetric_S3DiskBytesUsed' AS name, map('instance', hostname(), 'disk', disk_name) AS labels, toFloat64(sum(bytes_on_disk)) AS value, 'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help, 'gauge' AS type FROM system.parts WHERE disk_name IN ('s3disk', 'cache') GROUP BY disk_name UNION ALL SELECT 'ClickHouseCustomMetric_MergeFailures15m' AS name, map('instance', hostname()) AS labels, toFloat64(count()) AS value, 'Number of failed merge operations in the last 15 minutes' AS help, 'gauge' AS type FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') UNION ALL SELECT 'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name, map('instance', hostname()) AS labels, toFloat64(max(cnt)) AS value, 'Max failed merge retries for any single table in the last 15 minutes' AS help, 'gauge' AS type FROM (SELECT count() AS cnt FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') GROUP BY database, `table`, partition_id)"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_test UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_replication_queue UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_server_crash UNION ALL SELECT * FROM posthog.custom_metrics_table_sizes UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_part_counts UNION ALL SELECT * REPLACE(toFloat64(value) AS value) FROM posthog.custom_metrics_dictionaries UNION ALL SELECT 'ClickHouseCustomMetric_S3DiskBytesUsed' AS name, map('instance', hostname(), 'disk', disk_name) AS labels, toFloat64(sum(bytes_on_disk)) AS value, 'Bytes currently used by ClickHouse parts on S3-backed disks on this node' AS help, 'gauge' AS type FROM system.parts WHERE disk_name IN ('s3disk', 'cache') GROUP BY disk_name UNION ALL SELECT 'ClickHouseCustomMetric_MergeFailures15m' AS name, map('instance', hostname()) AS labels, toFloat64(count()) AS value, 'Number of failed merge operations in the last 15 minutes' AS help, 'gauge' AS type FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) UNION ALL SELECT 'ClickHouseCustomMetric_MergeRetriesMaxPerTable15m' AS name, map('instance', hostname()) AS labels, toFloat64(max(cnt)) AS value, 'Max failed merge retries for any single table in the last 15 minutes' AS help, 'gauge' AS type FROM (SELECT count() AS cnt FROM system.part_log WHERE (event_time >= (now() - toIntervalMinute(15))) AND (event_type = 'MergeParts') AND (error > 0) AND (merge_reason != 'NotAMerge') AND (error != 40) GROUP BY database, `table`, partition_id)"
   }
 
   view "custom_metrics_backups" {
-    query          = "WITH ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names, [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values, ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions, ['gauge', 'gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.backup_log WHERE event_date = today() GROUP BY event_date"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "WITH ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names, [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values, ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions, ['gauge', 'gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.backup_log WHERE event_date = today() GROUP BY event_date"
   }
 
   view "custom_metrics_dictionaries" {
-    query          = "SELECT 'ClickHouseCustomMetric_DictionariesFailed' AS name, map('instance', hostname(), 'database', d.database, 'dictionary', d.dict_name, 'uuid', toString(d.uuid), 'status', toString(d.status)) AS labels, toUInt64(1) AS value, 'Dictionary is in FAILED or FAILED_AND_RELOADING status' AS help, 'gauge' AS type FROM (SELECT name AS dict_name, database, uuid, status FROM system.dictionaries WHERE status IN ('FAILED', 'FAILED_AND_RELOADING')) AS d"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT 'ClickHouseCustomMetric_DictionariesFailed' AS name, map('instance', hostname(), 'database', d.database, 'dictionary', d.dict_name, 'uuid', toString(d.uuid), 'status', toString(d.status)) AS labels, toUInt64(1) AS value, 'Dictionary is in FAILED or FAILED_AND_RELOADING status' AS help, 'gauge' AS type FROM (SELECT name AS dict_name, database, uuid, status FROM system.dictionaries WHERE status IN ('FAILED', 'FAILED_AND_RELOADING')) AS d"
   }
 
   view "custom_metrics_part_counts" {
-    query          = "SELECT 'ClickHouseCustomMetric_MaxPartCountPerPartition' AS name, map('instance', hostname(), 'database', database, 'table', `table`, 'partition', partition) AS labels, part_count AS value, 'Maximum number of active parts for any partition in a PostHog table' AS help, 'gauge' AS type FROM (SELECT database, `table`, partition, count() AS part_count FROM system.parts WHERE active AND (database = 'posthog') GROUP BY database, `table`, partition ORDER BY database ASC, `table` ASC, part_count DESC, partition ASC LIMIT 1 BY database, `table`)"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT 'ClickHouseCustomMetric_MaxPartCountPerPartition' AS name, map('instance', hostname(), 'database', database, 'table', `table`, 'partition', partition) AS labels, part_count AS value, 'Maximum number of active parts for any partition in a PostHog table' AS help, 'gauge' AS type FROM (SELECT database, `table`, partition, count() AS part_count FROM system.parts WHERE active AND (database = 'posthog') GROUP BY database, `table`, partition ORDER BY database ASC, `table` ASC, part_count DESC, partition ASC LIMIT 1 BY database, `table`)"
   }
 
   view "custom_metrics_replication_queue" {
-    query          = "WITH ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names, [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values, ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions, ['gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('table', `table`, 'instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.replication_queue GROUP BY `table` HAVING value > 0"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "WITH ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names, [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values, ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions, ['gauge', 'gauge', 'gauge'] AS types, arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl SELECT tpl.1 AS name, map('table', `table`, 'instance', hostname()) AS labels, tpl.2 AS value, tpl.3 AS help, tpl.4 AS type FROM system.replication_queue GROUP BY `table` HAVING value > 0"
   }
 
   view "custom_metrics_server_crash" {
-    query          = "SELECT 'ClickHouseCustomMetric_ServerCrash' AS name, map('instance', hostname()) AS labels, count() AS value, 'Number of server crashes for current date' AS help, 'gauge' AS type FROM system.crash_log WHERE event_date = today() GROUP BY hostname()"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT 'ClickHouseCustomMetric_ServerCrash' AS name, map('instance', hostname()) AS labels, count() AS value, 'Number of server crashes for current date' AS help, 'gauge' AS type FROM system.crash_log WHERE event_date = today() GROUP BY hostname()"
   }
 
   view "custom_metrics_table_sizes" {
-    query          = "SELECT 'ClickHouseCustomMetric_TableTotalBytes' AS name, map('instance', hostname(), 'database', database, 'table', `table`) AS labels, CAST(total_bytes, 'Float64') AS value, 'Size of a database table on a given node (need a sum for sharded)' AS help, 'gauge' AS type FROM system.tables WHERE (database NOT IN ('INFORMATION_SCHEMA', 'information_schema')) AND (total_bytes IS NOT NULL)"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT 'ClickHouseCustomMetric_TableTotalBytes' AS name, map('instance', hostname(), 'database', database, 'table', `table`) AS labels, CAST(total_bytes, 'Float64') AS value, 'Size of a database table on a given node (need a sum for sharded)' AS help, 'gauge' AS type FROM system.tables WHERE (database NOT IN ('INFORMATION_SCHEMA', 'information_schema')) AND (total_bytes IS NOT NULL)"
   }
 
   view "custom_metrics_test" {
-    query          = "SELECT 'ClickHouseCustomMetric_Test' AS name, map('instance', hostname()) AS labels, 1 AS value, 'Test to check that the metric endpoint is working' AS help, 'gauge' AS type"
-    column_aliases = ["name", "labels", "value", "help", "type"]
+    query = "SELECT 'ClickHouseCustomMetric_Test' AS name, map('instance', hostname()) AS labels, 1 AS value, 'Test to check that the metric endpoint is working' AS help, 'gauge' AS type"
   }
 
   view "daily_aggregated_query_log_archive" {
-    query          = "SELECT event_date AS day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label, count() AS query_count, sum(read_bytes) AS read_bytes, sum(read_rows) AS read_rows, sum(query_duration_ms) AS query_duration_ms, sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds, countIf(exception_code != 0) AS error_count, countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count FROM posthog.sharded_query_log_archive WHERE is_initial_query AND (event_date < today()) GROUP BY day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label"
-    column_aliases = ["day", "team_id", "user", "current_database", "query_kind", "lc_kind", "lc_access_method", "lc_query_type", "lc_product", "lc_name", "lc_feature", "lc_query__kind", "lc_api_key_label", "query_count", "read_bytes", "read_rows", "query_duration_ms", "cpu_microseconds", "error_count", "timeout_oom_count"]
+    query = "SELECT event_date AS day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label, count() AS query_count, sum(read_bytes) AS read_bytes, sum(read_rows) AS read_rows, sum(query_duration_ms) AS query_duration_ms, sum(ProfileEvents_OSCPUVirtualTimeMicroseconds) AS cpu_microseconds, countIf(exception_code != 0) AS error_count, countIf(exception_code IN (159, 160, 241)) AS timeout_oom_count FROM posthog.sharded_query_log_archive WHERE is_initial_query AND (event_date < today()) GROUP BY day, team_id, user, current_database, query_kind, lc_kind, lc_access_method, lc_query_type, lc_product, lc_name, lc_feature, lc_query__kind, lc_api_key_label"
   }
 }
