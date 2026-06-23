@@ -14,7 +14,6 @@ use crate::{
         CUSTOM_GROUPED_EVENTS, GROUPING_RULES_DISABLED, GROUPING_RULES_FOUND,
         GROUPING_RULES_PROCESSING_TIME, GROUPING_RULES_TRIED,
     },
-    modes::processing::rules::assignment::NewAssignment,
     teams::TeamManager,
 };
 
@@ -126,10 +125,6 @@ impl GroupingRule {
 
         Err(VmError::OutOfResource("steps".to_string()))
     }
-
-    pub fn assignment(&self) -> Option<NewAssignment> {
-        NewAssignment::try_new(self.user_id, self.role_id)
-    }
 }
 
 pub async fn evaluate_grouping_rules(
@@ -175,8 +170,6 @@ pub async fn evaluate_grouping_rules(
 
     timing.label("outcome", "no_match").fin();
 
-    // If none of the rules matched, grab the existing assignment, in case one exists,
-    // and return that (or None)
     Ok(None)
 }
 
@@ -251,23 +244,6 @@ mod test {
         let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
 
         assert_eq!(fingerprint.value, expected_fingerprint);
-        assert!(fingerprint.assignment.is_none()); // The rule has no assignment associated with it
-
-        // Make sure if a rule has an assignment associated with it, it's returned in the fingerprint
-        let mut rule = get_test_rule();
-        let expected_fingerprint = format!("custom-rule:{}", rule.id);
-        rule.user_id = Some(1);
-        ctx.team_manager
-            .grouping_rules
-            .insert(test_team_id, vec![rule]);
-
-        let matched = evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, props)
-            .await
-            .unwrap();
-        let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
-
-        assert_eq!(fingerprint.value, expected_fingerprint);
-        assert!(fingerprint.assignment.is_some());
 
         // Insert a different value - simply removing the value would cause the rule to be disabled, since it
         // tries to access an undefined global

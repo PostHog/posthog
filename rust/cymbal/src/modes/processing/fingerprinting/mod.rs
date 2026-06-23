@@ -1,5 +1,5 @@
 use crate::modes::processing::rules::grouping::GroupingRule;
-use crate::{modes::processing::rules::assignment::NewAssignment, types::ExceptionList};
+use crate::types::ExceptionList;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use uuid::Uuid;
@@ -32,9 +32,6 @@ pub trait FingerprintComponent {
 pub struct Fingerprint {
     pub value: String,
     pub record: Vec<FingerprintRecordPart>,
-    // DEPRECATED: assignment is never used
-    #[serde(skip)]
-    pub assignment: Option<NewAssignment>, // If this fingerprint came from a custom rule, it might carry an assignment with it
 }
 
 #[derive(Debug, Clone, Default)]
@@ -58,7 +55,6 @@ impl FingerprintBuilder {
         Fingerprint {
             value: content,
             record: self.record,
-            assignment: None,
         }
     }
 }
@@ -69,7 +65,6 @@ impl Fingerprint {
         Fingerprint {
             value: content,
             record: vec![FingerprintRecordPart::Custom { rule_id: rule.id }],
-            assignment: rule.assignment(),
         }
     }
 
