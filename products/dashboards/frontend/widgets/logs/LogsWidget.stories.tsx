@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactNode } from 'react'
 
-import { DashboardPlacement } from '~/types'
-
 import { mswDecorator } from '~/mocks/browser'
+import { DashboardPlacement } from '~/types'
 
 import { WidgetCard } from '../../components/WidgetCard/WidgetCard'
 import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
@@ -17,8 +16,8 @@ import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '..
 import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { LogsWidget } from './LogsWidget'
-import { LogsWidgetTileFilters } from './LogsWidgetTileFilters'
 import { logsWidgetSampleLogLines } from './logsWidgetSampleData'
+import { LogsWidgetTileFilters } from './LogsWidgetTileFilters'
 
 const LOGS_CATALOG = getDashboardWidgetCatalogEntry('logs_list')!
 const DEFAULT_CONFIG = LOGS_CATALOG.defaultConfig as Record<string, unknown>

@@ -11,13 +11,13 @@ import {
     getWidgetEditModalTileDefaults,
 } from '../editWidgetModalBuilders'
 import type { DashboardWidgetEditModalProps } from '../registry'
+import type { editLogsWidgetModalLogicType } from './editLogsWidgetModalLogicType'
 import {
     LOGS_DEFAULT_DATE_FROM,
     parseLogsWidgetConfig,
     validateLogsWidgetConfigInput,
     type LogsWidgetFieldErrors,
 } from './logsWidgetConfigValidation'
-import type { editLogsWidgetModalLogicType } from './editLogsWidgetModalLogicType'
 
 export type EditLogsWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 
@@ -51,9 +51,9 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
             },
         ],
         dateFrom: [
-            LOGS_DEFAULT_DATE_FROM as string,
+            LOGS_DEFAULT_DATE_FROM as WidgetDateFromValue,
             {
-                setDateFrom: (_: string, { dateFrom }: { dateFrom: string }) => dateFrom,
+                setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: WidgetDateFromValue }) => dateFrom,
             },
         ],
         tileName: [
@@ -73,10 +73,7 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
             {
                 setFieldErrors: (_: LogsWidgetFieldErrors, { fieldErrors }: { fieldErrors: LogsWidgetFieldErrors }) =>
                     fieldErrors,
-                clearFieldError: (
-                    state: LogsWidgetFieldErrors,
-                    { field }: { field: keyof LogsWidgetFieldErrors }
-                ) => {
+                clearFieldError: (state: LogsWidgetFieldErrors, { field }: { field: keyof LogsWidgetFieldErrors }) => {
                     if (!state[field]) {
                         return state
                     }
@@ -104,7 +101,7 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
             (limit, dateFrom, widgetConfig) =>
                 validateLogsWidgetConfigInput({
                     limit,
-                    dateFrom: dateFrom as WidgetDateFromValue,
+                    dateFrom,
                     baseConfig: widgetConfig,
                 }),
         ],

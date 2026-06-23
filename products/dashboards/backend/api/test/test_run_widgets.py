@@ -91,13 +91,15 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
 
-    def test_validate_logs_list_config_rejects_invalid_order_by(self) -> None:
+    @parameterized.expand(
+        [
+            ("invalid_order_by", {"orderBy": "not_a_field"}),
+            ("invalid_severity_level", {"severityLevels": ["not_a_level"]}),
+        ]
+    )
+    def test_validate_logs_list_config_rejects_invalid_values(self, _label: str, config: dict) -> None:
         with self.assertRaises(Exception):
-            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"orderBy": "not_a_field"})
-
-    def test_validate_logs_list_config_rejects_invalid_severity_level(self) -> None:
-        with self.assertRaises(Exception):
-            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"severityLevels": ["not_a_level"]})
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
 
     def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:
         validated = validate_widget_config(

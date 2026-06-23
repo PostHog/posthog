@@ -1,10 +1,11 @@
 import { useRef } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 
 import type { DateRange, LogMessage } from '~/queries/schema/schema-general'
+
+import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
+import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 
 import type { WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
@@ -44,7 +45,11 @@ function servicesReadOnlyLabel(services: string[]): string {
     return `${services.length} services`
 }
 
-export function LogsWidgetTileFilters({ config, onUpdateConfig, disabledReason }: LogsWidgetTileFiltersProps): JSX.Element {
+export function LogsWidgetTileFilters({
+    config,
+    onUpdateConfig,
+    disabledReason,
+}: LogsWidgetTileFiltersProps): JSX.Element {
     const parsed = parseLogsWidgetConfig(config)
     const severityLevels = (parsed.severityLevels ?? []) as LogsSeverityLevel[]
     const serviceNames = parsed.serviceNames ?? []

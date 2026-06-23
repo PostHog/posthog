@@ -20,7 +20,9 @@ DEFAULT_LOGS_WIDGET_DATE_FROM = "-1h"
 
 # Compact subset of the log row the widget renders; the full attribute maps are dropped via
 # `excludeAttributes` to keep the tile payload small.
-LOGS_WIDGET_RESULT_FIELDS = ("uuid", "timestamp", "severity_text", "level", "body", "trace_id")
+# Required fields are read directly so a missing value fails fast; optional fields stay lenient.
+LOGS_WIDGET_REQUIRED_FIELDS = ("uuid", "timestamp", "body")
+LOGS_WIDGET_OPTIONAL_FIELDS = ("severity_text", "level", "trace_id")
 
 
 def _resolve_date_from(config: ValidatedLogsListWidgetConfig) -> str:
@@ -52,7 +54,10 @@ def _run_logs_query(team: Team, query: LogsQuery) -> dict[str, Any]:
 
 
 def _transform_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {field: row.get(field) for field in LOGS_WIDGET_RESULT_FIELDS}
+    return {
+        **{field: row[field] for field in LOGS_WIDGET_REQUIRED_FIELDS},
+        **{field: row.get(field) for field in LOGS_WIDGET_OPTIONAL_FIELDS},
+    }
 
 
 def run_logs_list_widget(

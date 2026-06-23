@@ -14,8 +14,17 @@ import type { DashboardWidgetEditModalProps } from '../registry'
 import { editLogsWidgetModalLogic } from './editLogsWidgetModalLogic'
 
 function EditLogsWidgetModalContents(): JSX.Element {
-    const { limit, dateFrom, tileName, tileDescription, activeFieldErrors, saving, saveDisabledReason, onClose, defaultTitle } =
-        useValues(editLogsWidgetModalLogic)
+    const {
+        limit,
+        dateFrom,
+        tileName,
+        tileDescription,
+        activeFieldErrors,
+        saving,
+        saveDisabledReason,
+        onClose,
+        defaultTitle,
+    } = useValues(editLogsWidgetModalLogic)
     const { setLimit, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } =
         useActions(editLogsWidgetModalLogic)
 

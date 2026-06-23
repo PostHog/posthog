@@ -51,10 +51,7 @@ export function patchLogsWidgetFilterFields(
     })
 }
 
-export function buildLogsWidgetConfig(
-    formInput: LogsWidgetFormInput,
-    baseConfig: LogsWidgetConfig
-): LogsWidgetConfig {
+export function buildLogsWidgetConfig(formInput: LogsWidgetFormInput, baseConfig: LogsWidgetConfig): LogsWidgetConfig {
     return logsWidgetConfigSchema.parse({
         ...baseConfig,
         ...formInput,
