@@ -118,7 +118,7 @@ class TestOffsetPagination:
         assert rows[0]["created_at"] == 1609869152
 
     def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        pages = {"https://api.mux.com/video/v1/live-streams?limit=100&page=1": {"data": []}}
+        pages: dict[str, Any] = {"https://api.mux.com/video/v1/live-streams?limit=100&page=1": {"data": []}}
         rows, fetched = _collect(_FakeResumableManager(), monkeypatch, "live_streams", pages)
         assert rows == []
         assert fetched == ["https://api.mux.com/video/v1/live-streams?limit=100&page=1"]
@@ -223,21 +223,24 @@ class TestCursorPagination:
 
 
 class TestRetryableError:
+    # Call the undecorated function so the test isn't slowed by tenacity's retry/backoff. tenacity
+    # exposes the original via __wrapped__ (functools.wraps), which the type stub doesn't model.
+    _fetch_once = staticmethod(mux._fetch_page.__wrapped__)  # type: ignore[attr-defined]
+
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=status_code, ok=False)
         with pytest.raises(mux.MuxRetryableError):
-            # Reach past the tenacity retry wrapper's reraise by calling the underlying once.
-            mux._fetch_page.__wrapped__(session, "https://api.mux.com/video/v1/assets", MagicMock())
+            self._fetch_once(session, "https://api.mux.com/video/v1/assets", MagicMock())
 
     def test_client_error_raises_for_status(self) -> None:
         response = MagicMock(status_code=403, ok=False)
-        response.raise_for_status.side_effect = requests.HTTPError("403")
+        response.raise_for_status.side_effect = requests.HTTPError("403", response=MagicMock())
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
-            mux._fetch_page.__wrapped__(session, "https://api.mux.com/video/v1/assets", MagicMock())
+            self._fetch_once(session, "https://api.mux.com/video/v1/assets", MagicMock())
 
 
 class TestMuxSourceResponse:

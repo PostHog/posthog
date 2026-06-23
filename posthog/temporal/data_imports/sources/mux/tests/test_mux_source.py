@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MuxSourceConfig
 from posthog.temporal.data_imports.sources.mux import source as source_module
@@ -25,13 +27,17 @@ class TestMuxSourceConfig:
     def test_source_config_fields(self) -> None:
         config = MuxSource().get_source_config
         assert config.name.value == "Mux"
-        field_names = {f.name for f in config.fields}  # type: ignore[union-attr]
+        field_names = {f.name for f in config.fields}
         assert field_names == {"access_token_id", "secret_key"}
 
     def test_secret_key_is_marked_secret(self) -> None:
-        fields = {f.name: f for f in MuxSource().get_source_config.fields}  # type: ignore[union-attr]
-        assert fields["secret_key"].secret is True
-        assert fields["access_token_id"].secret is False
+        fields = {f.name: f for f in MuxSource().get_source_config.fields}
+        secret_field, token_field = fields["secret_key"], fields["access_token_id"]
+        # Narrow the FieldType union so `.secret` is statically visible.
+        assert isinstance(secret_field, SourceFieldInputConfig)
+        assert isinstance(token_field, SourceFieldInputConfig)
+        assert secret_field.secret is True
+        assert token_field.secret is False
 
 
 class TestMuxSchemas:
@@ -114,10 +120,11 @@ class TestMuxResumableWiring:
 
     def test_source_for_pipeline_plumbs_config_and_schema(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
+        sentinel = MagicMock()
 
-        def fake_mux_source(**kwargs: Any) -> str:
+        def fake_mux_source(**kwargs: Any) -> Any:
             captured.update(kwargs)
-            return "SOURCE_RESPONSE"
+            return sentinel
 
         monkeypatch.setattr(source_module, "mux_source", fake_mux_source)
 
@@ -126,7 +133,7 @@ class TestMuxResumableWiring:
         manager = MagicMock()
         result = MuxSource().source_for_pipeline(_config(), manager, inputs)
 
-        assert result == "SOURCE_RESPONSE"
+        assert result is sentinel
         assert captured["access_token_id"] == "my-token-id"
         assert captured["secret_key"] == "my-secret"
         assert captured["endpoint"] == "assets"
