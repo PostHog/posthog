@@ -1,27 +1,9 @@
 use std::collections::HashMap;
 
-use common_types::ClickHouseEvent;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
-use crate::{
-    error::{EventError, UnhandledError},
-    types::exception_properties::ExceptionProperties,
-};
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct AnyEvent {
-    pub uuid: Uuid,
-    pub event: String,
-    pub team_id: i32,
-    pub timestamp: String,
-
-    pub properties: Value,
-
-    #[serde(flatten)]
-    pub others: HashMap<String, Value>,
-}
+pub use crate::core::types::event::AnyEvent;
+use crate::{error::UnhandledError, types::exception_properties::ExceptionProperties};
 
 pub trait PropertiesContainer: Send + Clone + 'static {
     fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError>;
@@ -50,33 +32,14 @@ impl PropertiesContainer for AnyEvent {
     }
 }
 
-impl TryFrom<ClickHouseEvent> for AnyEvent {
-    type Error = EventError;
-    fn try_from(value: ClickHouseEvent) -> Result<Self, Self::Error> {
-        let properties = match &value.properties {
-            Some(p) => serde_json::from_str(p)
-                .map_err(|e| EventError::InvalidProperties(value.uuid, e.to_string()))?,
-            None => Value::Null,
-        };
-
-        Ok(AnyEvent {
-            uuid: value.uuid,
-            event: value.event,
-            team_id: value.team_id,
-            timestamp: value.timestamp,
-            properties,
-            // We don't preserve all properties from ClickhouseEvent
-            others: HashMap::new(),
-        })
-    }
-}
-
 #[cfg(test)]
 mod test {
+    use common_types::ClickHouseEvent;
+    use uuid::Uuid;
+
     use crate::types::exception_properties::MAX_EXCEPTION_VALUE_LENGTH;
 
     use super::*;
-    use uuid::Uuid;
 
     fn make_exception_event(exception_value: &str) -> ClickHouseEvent {
         let props = serde_json::json!({

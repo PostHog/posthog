@@ -16,7 +16,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::modes::processing::types::notification::IngestionNotification;
+use crate::core::{shutdown::wait_for_shutdown, types::notification::IngestionNotification};
 
 pub mod config;
 
@@ -145,18 +145,6 @@ async fn readiness(draining: Arc<AtomicBool>) -> (StatusCode, &'static str) {
     }
 
     (StatusCode::OK, "ok")
-}
-
-async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
-    if *shutdown_rx.borrow() {
-        return;
-    }
-
-    while shutdown_rx.changed().await.is_ok() {
-        if *shutdown_rx.borrow() {
-            return;
-        }
-    }
 }
 
 #[cfg(unix)]

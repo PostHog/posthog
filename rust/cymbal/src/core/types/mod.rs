@@ -4,9 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod event;
 pub mod exception;
 pub mod frames;
 pub mod langs;
+pub mod notification;
 pub mod stacktrace;
 
 pub use exception::*;
