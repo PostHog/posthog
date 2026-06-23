@@ -42,9 +42,10 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-// Flat grey for the first step's non-drop-off backdrop, matching the horizontal chart's filler.
-function getNeutralTrackColor(): string {
-    return 'rgba(0, 0, 0, 0.08)'
+// Neutral backdrop for the first step's non-drop-off track. Light mode keeps 8% black; dark mode
+// mirrors it to 8% white so the track stays visible on dark surfaces.
+function getNeutralTrackColor(isDarkModeOn: boolean): string {
+    return isDarkModeOn ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'
 }
 
 export function FunnelStepsBarChart({
@@ -66,7 +67,7 @@ export function FunnelStepsBarChart({
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const steps = visibleStepsWithConversionMetrics
 
-    const neutralTrackColor = useMemo(() => getNeutralTrackColor(), [isDarkModeOn])
+    const neutralTrackColor = useMemo(() => getNeutralTrackColor(isDarkModeOn), [isDarkModeOn])
 
     const { series, labels } = useMemo(
         () =>
