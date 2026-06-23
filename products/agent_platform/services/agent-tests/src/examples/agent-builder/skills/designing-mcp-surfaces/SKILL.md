@@ -52,6 +52,9 @@ reason })` as a typed entry; the connecting LLM routes to it
 - The agent is going to be called **programmatically** by another
   system, not by a human conversational LLM.
 
+If the exposed MCP/tools act on a third-party API as the user, wire an
+identity provider — see `skills/authenticating-as-the-user`.
+
 Don't add curated tools when:
 
 - The agent's job is genuinely conversational

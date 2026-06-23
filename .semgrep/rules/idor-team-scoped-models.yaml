@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -255,6 +257,7 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |WarehouseColumnAnnotation
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -320,6 +323,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -512,6 +517,7 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |WarehouseColumnAnnotation
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
@@ -615,6 +621,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -683,6 +690,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

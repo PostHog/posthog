@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.sentry.sentry import (
     sentry_source,
     validate_credentials,
 )
+from posthog.temporal.data_imports.sources.sentry.settings import REQUIRED_SENTRY_SCOPES
 from posthog.temporal.data_imports.sources.sentry.source import SentrySource
 
 
@@ -241,6 +242,18 @@ class TestSentryTransport:
             False,
             "API base URL must be one of https://sentry.io, https://us.sentry.io, or https://de.sentry.io.",
         )
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_403_names_required_scopes(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _response(None, status_code=403)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error is not None
+        assert error.startswith("Sentry token is missing required scopes")
+        for scope in REQUIRED_SENTRY_SCOPES:
+            assert scope in error
 
     def test_sentry_source_rejects_unknown_api_base_url_at_runtime(self) -> None:
         with pytest.raises(

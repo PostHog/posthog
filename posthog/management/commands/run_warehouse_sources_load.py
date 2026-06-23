@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from django.core.management.base import BaseCommand
 
@@ -21,8 +22,14 @@ async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
     `merge_temporal_context` no-ops outside an actual workflow/activity, and the per-batch contextvars
     set in `BatchConsumer._process_single` carry the keys `LogMessagesRenderer` needs (`workflow_type`,
     `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
+
+    `sync_to_async(thread_sensitive=False)` dispatches batch loading to the default executor.
+    Setting it to a `ThreadPoolExecutor` sized to `max_concurrency` ensures the thread pool
+    matches the async concurrency limit, preventing unbounded thread creation.
     """
-    configure_logger(loop=asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=config.max_concurrency))
+    configure_logger(loop=loop)
     consumer = BatchConsumer(config=config, process_batch=process_batch, health_reporter=health_reporter)
     await consumer.run()
 

@@ -1,5 +1,4 @@
 import { getDefaultClickhouseConfig } from '~/common/clickhouse-config'
-import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/common/outputs'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -10,6 +9,7 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '~/config/kafka-topics'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/producers'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,

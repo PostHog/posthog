@@ -1,11 +1,13 @@
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, ProducerName } from '.'
-
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+
 import {
+    INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
+    INGESTION_UPSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
-} from '~/ingestion/common/config'
+    ProducerName,
+} from './producers'
 
 /**
  * The consolidated UPSTREAM/DOWNSTREAM producer slots, for the analytics-family servers
@@ -13,6 +15,10 @@ import {
  * charts — an unconfigured slot falls through to the schema-default broker (`kafka:9092`),
  * which is reachable in dev/hobby but not in prod, so a missing wire fails fast there.
  * Session replay composes its own set instead.
+ *
+ * Lives in its own module (not producers.ts) so that importing the producer slot
+ * names/maps — which config files do at module-eval time — does not transitively pull in
+ * the Kafka producer machinery (and the logger → defaultConfig cycle behind it).
  */
 export function createIngestionProducerRegistry(kafkaClientRack: string | undefined) {
     return new KafkaProducerRegistryBuilder(kafkaClientRack)

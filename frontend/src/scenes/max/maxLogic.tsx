@@ -130,6 +130,9 @@ const CHAT_TITLE_HISTORY = 'Chat history'
 // Fixed panelId for the floating side panel chat, which is not a scene tab.
 export const SIDE_PANEL_PANEL_ID = 'sidepanel'
 
+// Fallback panelId for the bare /ai scene, which has no tab id and no side panel chrome.
+export const SCENE_PANEL_ID = 'scene'
+
 export interface MaxLogicProps {
     panelId?: string
     initialFrontendConversationId?: string
@@ -148,7 +151,7 @@ function sceneTabId(panelId?: string, syncUrl?: boolean): string | null {
 
 export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
-    key((props) => props.panelId || 'scene'),
+    key((props) => props.panelId || SCENE_PANEL_ID),
     path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({

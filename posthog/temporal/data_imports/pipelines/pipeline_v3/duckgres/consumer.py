@@ -103,6 +103,7 @@ class DuckgresBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
@@ -115,6 +116,7 @@ class DuckgresBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
+            exclude_keys=exclude_keys,
         )
 
     async def unlock(

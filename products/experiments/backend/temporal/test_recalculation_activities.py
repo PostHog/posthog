@@ -215,7 +215,7 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # name, end_date_offset_days (None = running experiment), expect query_to clamped to end_date
+            # name, end_date_offset_days (None = running experiment), expect query_to == end_date
             ("running_uses_now", None, False),
             ("stopped_uses_end_date", -5, True),
             ("future_end_uses_now", 5, False),
