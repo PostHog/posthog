@@ -334,16 +334,56 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(include_scroll_depth=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
+    def _set_path_cleaning_rules(self) -> None:
+        self.team.path_cleaning_filters = [
+            {"alias": "/project/<id>", "regex": "\\/project\\/\\d+", "order": 0},
+            {"alias": "/insights/<id>", "regex": "\\/insights\\/[0-9a-zA-Z]+", "order": 1},
+        ]
+        self.team.save()
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_path_cleaning_uses_lazy_path(self):
-        # Path cleaning is applied at READ time, so the precompute is
-        # rule-independent — cleaning rules can change without invalidating
-        # stored rows, and the lazy_computation query_hash doesn't carry the
-        # regex. A path-cleaning query should create a precompute job.
+        # Path cleaning is baked into the precompute at INSERT time, so a
+        # path-cleaning query is still lazy-eligible and creates a precompute job.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(do_path_cleaning=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    def test_path_cleaning_baked_into_insert_expr(self):
+        # With team rules + doPathCleaning, the insert breakdown/entry exprs carry
+        # the cleaning regex chain; without it (or without rules) they store raw.
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+            _breakdown_value_expr,
+            _entry_breakdown_value_expr,
+        )
+
+        self._set_path_cleaning_rules()
+        for fn in (_breakdown_value_expr, _entry_breakdown_value_expr):
+            cleaned = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=True)))
+            raw = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=False)))
+            assert "replaceRegexpAll" in repr(cleaned), f"{fn.__name__} must bake cleaning into the insert"
+            assert "replaceRegexpAll" not in repr(raw), f"{fn.__name__} must store raw paths when cleaning is off"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_path_cleaning_gets_distinct_cache_entry(self):
+        # Cleaning is part of the insert AST now, so doPathCleaning on/off map to
+        # distinct query_hashes / jobs (a rules change spawns a fresh job).
+        self._seed_two_sessions()
+        self._set_path_cleaning_rules()
+        with self._enable_lazy():
+            self._run(self._build_query(do_path_cleaning=False))
+            raw_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(do_path_cleaning=True))
+            cleaned_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert raw_hashes, "expected raw run to create at least one job"
+        assert cleaned_hashes, "expected cleaned run to create at least one job"
+        assert raw_hashes.isdisjoint(cleaned_hashes), (
+            f"doPathCleaning on/off must produce distinct cache keys, got overlap: {raw_hashes & cleaned_hashes}"
+        )
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
