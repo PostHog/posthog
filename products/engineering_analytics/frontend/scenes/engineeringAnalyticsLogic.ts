@@ -212,7 +212,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-            setWorkflowFilter: (workflowName: string | null) => ({ workflowName }),
+            // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
+            // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
+            setBranchFilter: (branch: string) => ({ branch }),
+            applyBranchFilter: true,
+            setAppliedBranch: (branch: string) => ({ branch }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -280,6 +284,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.workflowDateFrom ?? undefined,
                             date_to: values.workflowDateTo ?? undefined,
+                            branch: values.appliedBranch || undefined,
                             source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
@@ -335,12 +340,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
             ],
             workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
-            // Client-side lens over the loaded workflow rows (the endpoint already caps at 100). Cleared
-            // when the date range reloads, since the chosen workflow may not exist in the new window.
-            workflowFilter: [
-                null as string | null,
-                { setWorkflowFilter: (_, { workflowName }) => workflowName, setWorkflowDateRange: () => null },
-            ],
+            // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
+            // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
+            // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
+            branchInput: ['', { setBranchFilter: (_, { branch }) => branch }],
+            appliedBranch: ['', { setAppliedBranch: (_, { branch }) => branch }],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -431,18 +435,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (pullRequests): string[] =>
                     Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
             ],
-            // Distinct workflow names across the loaded rows; the same name can span repos, so the
-            // filter matches by name and may show that workflow from more than one repo.
-            workflowNameOptions: [
-                (s) => [s.workflowHealth],
-                (workflowHealth): string[] =>
-                    Array.from(new Set(workflowHealth.map((row) => row.workflowName).filter(Boolean))).sort(),
-            ],
-            filteredWorkflowHealth: [
-                (s) => [s.workflowHealth, s.workflowFilter],
-                (workflowHealth, workflowFilter): WorkflowHealthRow[] =>
-                    workflowFilter ? workflowHealth.filter((row) => row.workflowName === workflowFilter) : workflowHealth,
-            ],
             anyLoading: [
                 (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading],
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading): boolean =>
@@ -491,6 +483,17 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Cards, the PR list, and workflow health are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
             setWorkflowDateRange: () => {
+                actions.loadWorkflowHealth()
+            },
+            applyBranchFilter: () => {
+                const next = values.branchInput.trim()
+                // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).
+                if (next === values.appliedBranch) {
+                    return
+                }
+                actions.setAppliedBranch(next)
+            },
+            setAppliedBranch: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {

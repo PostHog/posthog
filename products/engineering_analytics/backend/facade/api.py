@@ -5,7 +5,8 @@ runtime PR/CI analytics. Public functions take a team plus PostHog-convention
 parameters and return canonical contract types.
 
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
-identity (mapped from ``base.repo.full_name``). ``date_from`` / ``date_to`` accept
+identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
+``head_branch`` filter for workflow health. ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
 one; it defaults to the oldest connected source. ``user_access_control`` enforces the
@@ -81,11 +82,15 @@ def list_workflow_health(
     team: Team,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowHealthItem]:
     return logic.build_workflow_health(
-        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, date_to=date_to
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
     )
 
 

@@ -1,9 +1,9 @@
 """Curated query: per-workflow CI health over a window.
 
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
-started within ``[date_from, date_to]`` (``date_to`` optional). Rates and
-percentiles are over completed runs only, so they are ``None`` for a window with
-no completed runs.
+started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
+a single ``head_branch``. Rates and percentiles are over completed runs only, so they
+are ``None`` for a window with no completed runs.
 """
 
 import math
@@ -29,7 +29,7 @@ _SELECT = f"""
         quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
         max(if(conclusion = 'failure', run_started_at, NULL)) AS last_failure_at
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
@@ -45,7 +45,7 @@ _DAILY_SELECT = f"""
         countIf(status = 'completed') AS completed,
         countIf(status = 'completed' AND conclusion = 'success') AS successes
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name, day
     LIMIT {_DAILY_LIMIT}
 """
@@ -56,14 +56,24 @@ def query_workflow_health(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
+    branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
+    # An empty/whitespace branch is "no filter", not a literal match on ''.
+    branch = branch.strip() if branch else None
+    branch_clause = "AND head_branch = {branch}" if branch else ""
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
+    if branch:
+        placeholders["branch"] = ast.Constant(value=branch)
 
     runs_source = curated.run_source()
-    sql = _SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
+    sql = (
+        _SELECT.replace("__RUNS_SOURCE__", runs_source)
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause)
+    )
     response = curated.run(
         sql,
         query_type="engineering_analytics.workflow_health",
@@ -72,7 +82,11 @@ def query_workflow_health(
     if not response.results:
         return []
 
-    daily_sql = _DAILY_SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
+    daily_sql = (
+        _DAILY_SELECT.replace("__RUNS_SOURCE__", runs_source)
+        .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause)
+    )
     daily_response = curated.run(
         daily_sql,
         query_type="engineering_analytics.workflow_health_daily",

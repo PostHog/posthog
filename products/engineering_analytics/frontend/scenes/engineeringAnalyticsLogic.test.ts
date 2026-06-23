@@ -270,35 +270,41 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
-    it('filters loaded workflow rows by name and clears the filter when the date range changes', async () => {
-        mockWorkflowHealth.mockResolvedValue([
-            WORKFLOWS[0],
-            {
-                ...WORKFLOWS[0],
-                repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
-                workflow_name: 'Release',
-            },
-            {
-                ...WORKFLOWS[0],
-                repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-                workflow_name: 'Release',
-            },
-        ])
+    it('filters workflow health by branch server-side, only reloading on a real change', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
 
-        // Distinct, sorted names — "Release" spans two repos but appears once in the options.
-        expect(logic.values.workflowNameOptions).toEqual(['CI', 'Release'])
-        expect(logic.values.filteredWorkflowHealth).toHaveLength(3)
+        // Typing only stages the value — no reload until applied.
+        logic.actions.setBranchFilter('main')
+        expect(logic.values.branchInput).toBe('main')
+        expect(logic.values.appliedBranch).toBe('')
 
-        // Filtering by name matches that workflow across every repo.
-        logic.actions.setWorkflowFilter('Release')
-        expect(logic.values.filteredWorkflowHealth.map((row) => row.repoName)).toEqual(['posthog-js', 'posthog'])
+        // Applying promotes it and reloads with the branch param (trimmed).
+        logic.actions.setBranchFilter('  main  ')
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('main')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', branch: 'main' })
 
-        // Reloading the window clears the filter — the chosen workflow may not exist in the new range.
+        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
+        mockWorkflowHealth.mockClear()
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
+        expect(mockWorkflowHealth).not.toHaveBeenCalled()
+
+        // The applied branch persists across a date-range reload.
         logic.actions.setWorkflowDateRange('-90d', null)
-        expect(logic.values.workflowFilter).toBeNull()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+
+        // Clearing the box and applying drops the filter.
+        logic.actions.setBranchFilter('')
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
     it('exposes source options and the multi-source flag only when more than one source exists', async () => {

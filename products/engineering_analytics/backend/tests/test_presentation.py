@@ -151,6 +151,13 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
 
+    def test_workflow_health_passes_branch_through(self) -> None:
+        with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
+            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert list_health.call_args.kwargs["branch"] == "main"
+
     def test_pr_lifecycle_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=_pr_lifecycle()) as get:
             response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10", "repo": "PostHog/posthog"})

@@ -564,6 +564,38 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
 
+    def test_workflow_health_branch_filter(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(20, "alice", "open", 0, _ago(1), head_sha="sha20")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(5001, "CI", "sha-m1", "completed", "success", _ago(2), _ago(2), head_branch="main"),
+                _run_row(5002, "CI", "sha-m2", "completed", "failure", _ago(1), _ago(1), head_branch="main"),
+                _run_row(5003, "CI", "sha-f1", "completed", "success", _ago(1), _ago(1), head_branch="feature/x"),
+            ],
+        )
+        # Unfiltered: every branch's runs aggregate together.
+        assert next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI").run_count == 3
+
+        # Scoped to a branch: only that branch's runs count, and rates recompute over them.
+        main_only = next(i for i in api.list_workflow_health(team=self.team, branch="main") if i.workflow_name == "CI")
+        assert main_only.run_count == 2
+        assert main_only.success_rate == 0.5
+
+        # A blank branch is treated as "no filter", not a literal match on ''.
+        assert (
+            next(i for i in api.list_workflow_health(team=self.team, branch="  ") if i.workflow_name == "CI").run_count
+            == 3
+        )
+
+        # A branch with no runs yields no rows.
+        assert api.list_workflow_health(team=self.team, branch="nope") == []
+
     def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
         # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
         # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI

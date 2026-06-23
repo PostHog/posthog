@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -53,16 +53,17 @@ function successRateClass(rate: number | null): string {
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
-        filteredWorkflowHealth,
+        workflowHealth,
         workflowHealthLoading,
         notConnected,
         workflowHealthLoadError,
         workflowDateFrom,
         workflowDateTo,
-        workflowFilter,
-        workflowNameOptions,
+        branchInput,
+        appliedBranch,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, setWorkflowFilter, refresh } = useActions(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } =
+        useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -170,33 +171,38 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onChange={setWorkflowDateRange}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
-                <LemonSelect
+                <LemonInput
+                    type="search"
                     size="small"
-                    placeholder="Workflow: all"
-                    value={workflowFilter}
-                    onChange={setWorkflowFilter}
-                    allowClear
-                    options={workflowNameOptions.map((name) => ({ value: name, label: name }))}
-                    data-attr="engineering-analytics-workflow-filter"
+                    className="w-56"
+                    placeholder="Branch: all (e.g. main)"
+                    value={branchInput}
+                    onChange={setBranchFilter}
+                    onPressEnter={applyBranchFilter}
+                    onBlur={applyBranchFilter}
+                    data-attr="engineering-analytics-branch-filter"
                 />
             </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
                 size="small"
                 columns={columns}
-                dataSource={filteredWorkflowHealth}
+                dataSource={workflowHealth}
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
                 emptyState={
-                    workflowFilter ? 'No runs for this workflow in this window.' : 'No workflow runs in this window.'
+                    appliedBranch
+                        ? `No workflow runs on '${appliedBranch}' in this window.`
+                        : 'No workflow runs in this window.'
                 }
                 nouns={['workflow', 'workflows']}
             />
             <div className="text-xs text-tertiary">
                 Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: {windowLabel}.
+                excluded, not counted as a failure. Window: {windowLabel}
+                {appliedBranch ? ` · branch: ${appliedBranch}` : ''}.
             </div>
         </div>
     )

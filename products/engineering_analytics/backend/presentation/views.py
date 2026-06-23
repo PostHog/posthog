@@ -56,6 +56,15 @@ _DATE_TO = OpenApiParameter(
     description="Window end: relative or ISO8601. Defaults to now.",
 )
 
+_BRANCH = OpenApiParameter(
+    name="branch",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. "
+    "Omit or leave blank to aggregate across all branches.",
+)
+
 _SOURCE_ID = OpenApiParameter(
     name="source_id",
     type=OpenApiTypes.UUID,
@@ -153,7 +162,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
+        parameters=[_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -163,8 +172,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description=(
             "Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success "
             "rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. "
-            "Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to "
-            "get a trend."
+            "Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and "
+            "'which workflow is the long pole'; compare two windows to get a trend."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -174,6 +183,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
