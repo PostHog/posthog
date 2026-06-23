@@ -27,7 +27,7 @@ def test_update_cdc_state_initializes_from_none(team):
 
     source.refresh_from_db()
     assert source.cdc_state == {"lag_bytes": 10}
-    assert returned == {"lag_bytes": 10}
+    assert returned == {"lag_bytes": 10}  # type: ignore[unreachable]
 
 
 def test_update_cdc_state_merges_keys(team):
