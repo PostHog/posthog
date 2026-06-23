@@ -1,19 +1,11 @@
-"""Early ClickHouse pass: normalize a literal `JSONExtractString(properties, 'x')` into a property-access read.
+"""Normalize a literal `JSONExtractString(properties, 'x')` into a `properties.x` property-access read.
 
-Users sometimes write `JSONExtractString(properties, '$browser')` (or a typed `JSONExtract(properties, 'x', 'T')`)
-directly instead of `properties.$browser`. When the property is backed by a materialized column, decompressing the
-whole JSON blob is wasted I/O. This pass rewrites such a call into the same property-access `Field` that
-`properties.$browser` produces, so the rest of the pipeline (lazy-table resolution, lowering, ClickHouse property
-resolution) treats the two forms identically and routes both to the materialized column.
+Runs before `resolve_lazy_tables` so the rewritten read flows through the same pipeline as chain access and reaches its
+materialized column, including inside the lazy persons/groups subquery — which the old in-place rewrite, running after
+lazy resolution, could not.
 
-It runs *before* `resolve_lazy_tables`, so the produced read flows through the lazy-table machinery the same way a chain
-access does — that is what lets a read off the lazy `persons`/`groups` tables reach its materialized column inside the
-generated subquery, rather than being stranded as a raw JSON extract.
-
-Behavior-preserving: it only rewrites when a static materialized column already exists and its physical type matches the
-requested JSON type. A call with no materialized column is left untouched and prints as the raw JSON extract, so its
-ClickHouse semantics (e.g. `''` for a missing key) are unchanged. The choice of which physical column to read, and the
-access-control NULLing of restricted properties, are left entirely to the downstream resolution pass.
+Only rewrites when a static materialized column exists and its type matches; an unbacked call stays a raw JSON extract.
+Column choice and restricted-property NULLing are left to the downstream resolution pass.
 """
 
 from typing import cast
@@ -55,7 +47,6 @@ class JSONExtractToPropertyNormalizer(CloningVisitor):
         if property_name is None:
             return None
 
-        # Unwrap Alias if present (the resolver wraps fields in Alias nodes).
         field_arg = node.args[0]
         if isinstance(field_arg, ast.Alias):
             field_arg = field_arg.expr
@@ -72,13 +63,10 @@ class JSONExtractToPropertyNormalizer(CloningVisitor):
         if not isinstance(database_field, StringJSONDatabaseField):
             return None
 
-        # resolve_database_table is polymorphic across concrete, lazy, alias, and virtual table types, so one call
-        # resolves the ClickHouse table name for a read off `events`, `raw_persons`, the lazy `persons`/`groups` tables,
-        # or the person-on-events virtual table alike. The materialized-column registry is keyed by that ClickHouse name
-        # (RawPersonsTable is "raw_persons" in HogQL but "person" in ClickHouse), which is why we don't use the HogQL name.
         table_type = field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return None
+        # Registry is keyed by the ClickHouse name, not the HogQL name (raw_persons -> person); resolve_database_table covers lazy and virtual tables too.
         table_name = table_type.resolve_database_table(self.context).to_printed_clickhouse(self.context)
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
@@ -118,9 +106,7 @@ def _simple_json_extract_property_name(node: ast.Call) -> str | None:
 
 def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
     if node.name == "JSONExtractString":
-        # JSONExtractString has string semantics, so it only matches a string-backed column.
-        # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
-        # to the bare typed column, dropping the string type the surrounding query expects.
+        # JSONExtractString is string-typed, so only a string-backed column is an equivalent rewrite.
         return parse_sql_runtime_type(mat_col.type).family == "string"
 
     if node.name != "JSONExtract" or len(node.args) != 3:
@@ -130,10 +116,7 @@ def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: Mate
     if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
         return False
 
-    # Normalize before comparing so formatting differences in the type spelling
-    # (whitespace, quoting) don't block the rewrite; semantic differences
-    # (nullability, width, timezone) still do, because JSON helper semantics for
-    # missing keys and out-of-range values differ from bare column semantics.
+    # Normalize spellings so formatting differences don't block the rewrite, while real type differences (nullability, width, tz) still do.
     requested_type = normalized_runtime_type(parse_sql_runtime_type(type_arg.value))
     materialized_type = normalized_runtime_type(parse_sql_runtime_type(mat_col.type))
     return requested_type.family != "unknown" and requested_type == materialized_type

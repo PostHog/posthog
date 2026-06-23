@@ -197,10 +197,7 @@ def prepare_ast_for_printing(
             if context.property_swapper is None:
                 return None
 
-            # Normalize literal JSONExtractString/JSONExtract(properties, 'x') calls into property-access reads BEFORE
-            # lazy-table resolution, so they flow through the same machinery as `properties.x` chain access (including
-            # the lazy persons/groups subquery) and reach their materialized column. Only rewrites when a static mat
-            # column exists, so no-mat calls keep their raw-JSONExtract semantics.
+            # Before resolve_lazy_tables, so rewritten reads flow through the lazy persons/groups subquery like chain access.
             with context.timings.measure("normalize_json_extract_to_property"):
                 node = normalize_json_extract_to_property(node, context)
 

@@ -485,8 +485,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_person_on_events_property_rewritten_to_mat_column(self):
-        # In person-on-events mode person.properties physically lives on the events table's person_properties
-        # column, so the rewrite should read that materialized column (mat_pp_) and return the same value.
+        # Under PoE, person.properties lives on the events person_properties column, hence mat_pp_.
         _create_event(team=self.team, distinct_id="u1", event="pageview", person_properties={"$browser": "Chrome"})
         flush_persons_and_events()
         with materialized("events", "$browser", table_column="person_properties"):
@@ -500,8 +499,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_persons_table_property_rewritten_to_mat_column(self):
-        # The persons table is "raw_persons" in HogQL but "person" in ClickHouse, and its materialized column is
-        # pmat_. The rewrite must key off the ClickHouse name to find it (regression guard for the table-name fix).
+        # raw_persons is "person" in ClickHouse; guards that the rewrite keys off the ClickHouse name, not the HogQL one.
         _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
         with materialized("person", "$browser"):
             results, sql = self._execute("select JSONExtractString(properties, '$browser') from raw_persons")
@@ -511,9 +509,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_lazy_persons_table_property_rewritten_to_mat_column(self):
-        # Normalizing the call into a property-access read before lazy-table resolution lets it flow through the
-        # argMax subquery the same way `properties.$browser` chain access does, so the materialized column is read
-        # inside the subquery rather than the raw JSON blob.
+        # The lazy persons table reads the mat column inside its argMax subquery, like chain access.
         _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
         with materialized("person", "$browser"):
             results, sql = self._execute("select JSONExtractString(properties, '$browser') from persons")
@@ -521,11 +517,11 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert results == [("Chrome",)], results
         assert "pmat_$browser" in sql, sql
         assert "JSONExtractString" not in sql, sql
-        # The literal form and chain access produce the same subquery (only the outer column alias differs).
+        # Same subquery as chain access; only the outer column alias differs.
         literal_shape = self._print_select("select JSONExtractString(properties, '$browser') from persons")
         assert literal_shape.split(" FROM ", 1)[1] == chain.split(" FROM ", 1)[1]
 
-    # --- property-chain access (`properties.foo`), the canonical form the literal JSONExtract normalizes into ---
+    # --- property-chain access (`properties.foo`): the canonical form the literal call normalizes into ---
 
     @snapshot_clickhouse_queries
     def test_event_property_chain_access_uses_mat_column(self):
@@ -539,7 +535,6 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_person_on_events_chain_access_uses_mat_column(self):
-        # person.properties.foo in person-on-events mode reads the events table's person_properties column.
         _create_event(team=self.team, distinct_id="u1", event="pageview", person_properties={"$browser": "Chrome"})
         flush_persons_and_events()
         with materialized("events", "$browser", table_column="person_properties"):
@@ -553,8 +548,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_person_chain_access_joined_uses_mat_column(self):
-        # Non-PoE (joined) mode: person.properties.foo joins from the persons table, reading its materialized column
-        # inside the argMax subquery.
+        # Joined mode reads person.properties from the persons table's mat column via the argMax subquery.
         _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
         _create_event(team=self.team, distinct_id="u1", event="pageview")
         flush_persons_and_events()
