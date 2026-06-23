@@ -1589,7 +1589,9 @@ class JobberSourceConfig(config.Config):
 
 @config.config
 class JotformSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "hipaa"] = config.value(default="us")
+    enterprise_domain: str | None = None
 
 
 @config.config
