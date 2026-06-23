@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from toolbox.kubernetes import select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
 from toolbox.telemetry import capture_invocation, prompt_for_reason
-from toolbox.user import get_current_user
+from toolbox.user import ensure_write_access, get_current_user
 
 # `default_namespace` is where the pool lives when KUBE_NAMESPACE isn't set.
 #
@@ -126,6 +126,11 @@ def main():
         else:
             selected_context = select_context()
         print(f"🔄 Using kubernetes context: {selected_context}")  # noqa: T201
+
+        # Gate on write access before doing anything else: claiming and deleting
+        # pods needs write RBAC, so a read-only identity would only fail later
+        # with an opaque permission error.
+        ensure_write_access(context=selected_context)
 
         # Get current user labels
         user_labels = get_current_user(claimed_label_key=claimed_label_key, context=selected_context)

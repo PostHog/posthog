@@ -8,17 +8,25 @@ import subprocess
 
 from toolbox.kubernetes import kubectl_cmd
 
+# Kubernetes groups that grant write access to the cluster. The toolbox claims
+# pods by patching their labels and deletes them on exit, so a read-only
+# identity can't actually use it — membership in at least one of these is
+# required. These mirror the EKS access-entry / aws-auth group mappings; update
+# this set if the cluster's group names change.
+WRITE_ACCESS_GROUPS = frozenset({"eks-developers", "eks-admins"})
 
-def get_current_user(*, claimed_label_key: str, context: str | None = None) -> dict:
-    """Get user identity from kubectl auth and parse it into labels.
+# Slack channel users ping to elevate their permissions, and the runbook that
+# explains how. Kept as constants so they're easy to adjust in one place.
+ELEVATE_PERMISSIONS_CHANNEL = "<#C09ULM0E6SW>"
+TOOLBOX_ACCESS_RUNBOOK_URL = "https://posthog.com/handbook/engineering/toolbox-access"  # TODO: confirm exact runbook URL
 
-    Args:
-        claimed_label_key: Label key under which the sanitized session name is
-            placed in the returned dict. Pool-specific (e.g. ``toolbox-claimed``
-            for the toolbox-django pool, ``flags-jumphost-claimed`` for the
-            flags-cache-jumphost pool); see ``POOLS`` in ``toolbox.py``.
-        context: Optional kubernetes context to scope the whoami call to,
-            instead of relying on the default kubeconfig context.
+
+def _get_user_info(*, context: str | None = None) -> dict:
+    """Return the ``status.userInfo`` block from ``kubectl auth whoami``.
+
+    Centralizes the whoami call and its error handling so both identity parsing
+    (``get_current_user``) and the write-access gate (``ensure_write_access``)
+    share one code path. Exits the process on failure.
     """
     try:
         print("Attempting to get user identity...")  # noqa: T201
@@ -28,20 +36,7 @@ def get_current_user(*, claimed_label_key: str, context: str | None = None) -> d
             text=True,
             check=True,
         )
-
-        user_info = json.loads(whoami.stdout)
-        user_info = user_info["status"]["userInfo"]  # Navigate to the correct nesting level
-
-        # First try to get the ARN from the extra info
-        if "extra" in user_info and "arn" in user_info["extra"]:
-            return parse_arn(user_info["extra"]["arn"][0], claimed_label_key=claimed_label_key)  # ARN is in a list
-
-        # Fallback to sessionName if available
-        if "extra" in user_info and "sessionName" in user_info["extra"]:
-            return {claimed_label_key: sanitize_label(user_info["extra"]["sessionName"][0])}
-
-        # Final fallback to username
-        return {claimed_label_key: sanitize_label(f"k8s-user/{user_info['username']}")}
+        return json.loads(whoami.stdout)["status"]["userInfo"]
 
     except subprocess.CalledProcessError as e:
         print(f"Command failed with return code {e.returncode}")  # noqa: T201
@@ -58,6 +53,54 @@ def get_current_user(*, claimed_label_key: str, context: str | None = None) -> d
         print(f"Error: Failed to get user identity: {k8s_error}")  # noqa: T201
         print(f"Error type: {type(k8s_error)}")  # noqa: T201
         sys.exit(1)
+
+
+def ensure_write_access(*, context: str | None = None) -> None:
+    """Exit early unless the caller belongs to a write-access kubernetes group.
+
+    Claiming and deleting toolbox pods needs write RBAC, so a read-only identity
+    would only fail later with an opaque permission error. We check group
+    membership from ``kubectl auth whoami`` up front and bail out with an
+    actionable message instead.
+    """
+    user_info = _get_user_info(context=context)
+    groups = set(user_info.get("groups", []))
+
+    if WRITE_ACCESS_GROUPS.isdisjoint(groups):
+        print("\n❌ You don't have write access to this kubernetes cluster.")  # noqa: T201
+        print(f"   Your groups: {sorted(groups) or '(none)'}")  # noqa: T201
+        print(f"   Toolbox requires membership in one of: {sorted(WRITE_ACCESS_GROUPS)}")  # noqa: T201
+        print(  # noqa: T201
+            f"\n   You need to elevate your permissions with {ELEVATE_PERMISSIONS_CHANNEL} "
+            "to k8s + toolbox (or admin) at least."
+        )
+        print(f"   Runbook: {TOOLBOX_ACCESS_RUNBOOK_URL}")  # noqa: T201
+        sys.exit(1)
+
+
+def get_current_user(*, claimed_label_key: str, context: str | None = None) -> dict:
+    """Get user identity from kubectl auth and parse it into labels.
+
+    Args:
+        claimed_label_key: Label key under which the sanitized session name is
+            placed in the returned dict. Pool-specific (e.g. ``toolbox-claimed``
+            for the toolbox-django pool, ``flags-jumphost-claimed`` for the
+            flags-cache-jumphost pool); see ``POOLS`` in ``toolbox.py``.
+        context: Optional kubernetes context to scope the whoami call to,
+            instead of relying on the default kubeconfig context.
+    """
+    user_info = _get_user_info(context=context)
+
+    # First try to get the ARN from the extra info
+    if "extra" in user_info and "arn" in user_info["extra"]:
+        return parse_arn(user_info["extra"]["arn"][0], claimed_label_key=claimed_label_key)  # ARN is in a list
+
+    # Fallback to sessionName if available
+    if "extra" in user_info and "sessionName" in user_info["extra"]:
+        return {claimed_label_key: sanitize_label(user_info["extra"]["sessionName"][0])}
+
+    # Final fallback to username
+    return {claimed_label_key: sanitize_label(f"k8s-user/{user_info['username']}")}
 
 
 def parse_arn(arn: str, *, claimed_label_key: str) -> dict:
