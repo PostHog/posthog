@@ -126,7 +126,7 @@ def get_rows(
     # Tenacity owns retries (so it can honor the tight rate limit), so disable the adapter's own
     # status/transport retries to avoid retrying twice. One session is reused across every page so
     # the connection is kept alive.
-    session = make_tracked_session(headers=_get_headers(api_token), retry=Retry(total=0))
+    session = make_tracked_session(headers=_get_headers(api_token), retry=Retry(total=0), redact_values=(api_token,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
@@ -207,9 +207,9 @@ def validate_credentials(subdomain: str, api_token: str, path: str = "/jobs") ->
     """Probe a Workable endpoint. Returns ``(status_code, ok)``; ``status_code`` is ``0`` on a transport error."""
     try:
         url = f"{_base_url(subdomain)}{path}?{urlencode({'limit': 1})}"
-        response = make_tracked_session(headers=_get_headers(api_token), retry=Retry(total=0)).get(
-            url, timeout=DEFAULT_TIMEOUT
-        )
+        response = make_tracked_session(
+            headers=_get_headers(api_token), retry=Retry(total=0), redact_values=(api_token,)
+        ).get(url, timeout=DEFAULT_TIMEOUT)
         return response.status_code, response.ok
     except ValueError:
         # Invalid subdomain — surface as a non-transport failure.
