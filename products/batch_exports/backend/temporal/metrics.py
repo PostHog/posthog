@@ -2,11 +2,13 @@ import time
 import typing
 import asyncio
 import datetime as dt
+import collections.abc
 from contextlib import contextmanager
 
 from django.conf import settings
 
 import structlog
+from opentelemetry import trace
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
@@ -79,6 +81,36 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
 Attributes = dict[str, str | int | float | bool]
 
 
+def get_span_attributes_from_batch_export_inputs(batch_export_inputs: collections.abc.Mapping) -> Attributes:
+    span_attributes: Attributes = {}
+
+    # Should always have team_id but this helps the type checker
+    if (team_id := getattr(batch_export_inputs, "team_id", None)) is not None:
+        span_attributes["batch_exports.team_id"] = team_id
+
+    if (_id := getattr(batch_export_inputs, "batch_export_id", None)) is not None:
+        # Same as above
+        span_attributes["batch_exports.id"] = str(_id)
+
+    if (run_id := getattr(batch_export_inputs, "run_id", None)) is not None:
+        # Same as above
+        span_attributes["batch_exports.run_id"] = str(run_id)
+
+    if (model := getattr(batch_export_inputs, "batch_export_model", None)) is not None:
+        # Same as above
+        span_attributes["batch_exports.model.name"] = str(model.name)
+
+    span_attributes["batch_exports.is_backfill"] = bool(getattr(batch_export_inputs, "is_backfill", False))
+    span_attributes["batch_exports.on_demand"] = bool(getattr(batch_export_inputs, "on_demand", False))
+
+    span_attributes["batch_exports.data_interval_start"] = str(
+        getattr(batch_export_inputs, "data_interval_start", "START")
+    )
+    span_attributes["batch_exports.data_interval_end"] = str(getattr(batch_export_inputs, "data_interval_start", "END"))
+
+    return span_attributes
+
+
 class BatchExportsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for batch exports."""
 
@@ -123,6 +155,21 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
                 activity_type,
             )
             return await super().execute_activity(input)
+
+        batch_export_inputs = getattr(input.args[0], "batch_export", input.args[0])
+        span_attributes = get_span_attributes_from_batch_export_inputs(batch_export_inputs)
+        span_attributes["batch_exports.interval"] = interval
+
+        # Temporal sets activity/workflow as part of the name of the span
+        # but having them as attributes can be useful for searching.
+        span_attributes["batch_exports.activity_type"] = activity_type
+        if (workflow_type := activity.info().workflow_type) is not None:
+            # Again, in info we should always have this as we don't use
+            # standalone activities
+            span_attributes["batch_exports.workflow_type"] = workflow_type
+
+        span = trace.get_current_span()
+        span.set_attributes(span_attributes)
 
         histogram_attributes: Attributes = {
             "interval": interval,
