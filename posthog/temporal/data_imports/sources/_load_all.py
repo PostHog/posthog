@@ -489,6 +489,7 @@ from .salesflare.source import SalesflareSource
 from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
+from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
 from .sap_fieldglass.source import SAPFieldglassSource
