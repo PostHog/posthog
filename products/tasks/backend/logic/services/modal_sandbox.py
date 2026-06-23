@@ -42,6 +42,7 @@ from products.tasks.backend.logic.services.agentsh import (
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
+    _hostname_from_url,
     build_exec_prefix,
     build_setup_script,
     generate_bash_env_script,
@@ -85,6 +86,13 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 
+SESSION_INIT_PROBE_HOSTS = (
+    "gateway.us.posthog.com",
+    "gateway.eu.posthog.com",
+    "api.anthropic.com",
+    "mcp.posthog.com",
+)
+
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
     "EU": "eu-west",
@@ -112,8 +120,12 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
+
+    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
+    if config.is_vm:
+        return {"cpu": cpu_value, "memory": memory_limit_mb}
     return {
-        "cpu": (min(float(config.cpu_request_cores), cpu_limit), cpu_limit),
+        "cpu": cpu_value,
         "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
     }
 
@@ -398,7 +410,7 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
-            if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
+            if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
             if config.outbound_domain_allowlist:
@@ -698,6 +710,53 @@ class ModalSandbox(SandboxBase):
             return False
         return self._wait_for_health_check()
 
+    def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
+        diagnostics: dict[str, str] = {}
+        try:
+            if not self.is_running():
+                poll = self._sandbox.poll()
+                diagnostics["sandbox_terminated"] = "true"
+                diagnostics["failure_reason"] = (
+                    f"sandbox terminated before becoming healthy (poll={poll}); "
+                    "the VM/container exited (OOM, init exit, or reaping) rather than egress being blocked"
+                )
+                return diagnostics
+
+            diagnostics["sandbox_terminated"] = "false"
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            diagnostics["log"] = log_result.stdout
+            health_result = self.execute(
+                f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
+                timeout_seconds=5,
+            )
+            diagnostics["health_response"] = health_result.stdout.strip()[:500]
+
+            egress = self._probe_session_init_egress()
+            diagnostics["egress_probe"] = egress
+            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
+            if blocked:
+                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
+            else:
+                diagnostics["failure_reason"] = (
+                    "agent server alive but never reported hasSession=true; no egress block detected, "
+                    "inspect agent-server log"
+                )
+        except Exception as e:
+            diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
+        return diagnostics
+
+    def _probe_session_init_egress(self) -> str:
+        hosts = list(SESSION_INIT_PROBE_HOSTS)
+        gateway_host = _hostname_from_url(getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None))
+        if gateway_host and gateway_host not in hosts:
+            hosts.insert(0, gateway_host)
+        checks = "; ".join(
+            f"printf '%s ' {shlex.quote(host)}; "
+            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
+            for host in hosts
+        )
+        return self.execute(checks, timeout_seconds=30).stdout.strip()
+
     def start_agent_server(
         self,
         repository: str | None,
@@ -763,11 +822,11 @@ class ModalSandbox(SandboxBase):
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
         if not self._launch_and_check(command):
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            diagnostics = self._diagnose_startup_failure(allowed_domains)
             raise SandboxExecutionError(
                 "Agent-server failed to start",
-                {"sandbox_id": self.id, "log": log_result.stdout},
-                cause=RuntimeError("Health check failed after retries"),
+                {"sandbox_id": self.id, **diagnostics},
+                cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
             )
 
         logger.info(f"Agent-server started in sandbox {self.id}")
