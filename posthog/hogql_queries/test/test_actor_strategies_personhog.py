@@ -12,7 +12,6 @@ from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.person import Person
-from posthog.test.personhog_fake import get_active_fake
 
 
 def _make_strategy(team) -> PersonStrategy:
@@ -125,15 +124,9 @@ class TestPersonStrategyGetActors(BaseTest):
         Person.objects.filter(pk=p_old.pk).update(created_at=now - timedelta(hours=3))
         Person.objects.filter(pk=p_mid.pk).update(created_at=now - timedelta(hours=1))
         Person.objects.filter(pk=p_new.pk).update(created_at=now)
-
-        fake = get_active_fake()
-        fake._persons_by_uuid[(self.team.pk, str(p_old.uuid))].created_at = int(
-            (now - timedelta(hours=3)).timestamp() * 1000
-        )
-        fake._persons_by_uuid[(self.team.pk, str(p_mid.uuid))].created_at = int(
-            (now - timedelta(hours=1)).timestamp() * 1000
-        )
-        fake._persons_by_uuid[(self.team.pk, str(p_new.uuid))].created_at = int(now.timestamp() * 1000)
+        for p in [p_old, p_mid, p_new]:
+            p.refresh_from_db()
+            p.save()
 
         strategy = _make_strategy(self.team)
         result = strategy.get_actors(
