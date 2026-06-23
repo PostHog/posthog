@@ -3,7 +3,7 @@ import uuid
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
@@ -270,6 +270,33 @@ class TestBuildBoundedEnrichmentPrompt:
         assert columns[0]["name"] in prompt
         assert columns[-1]["name"] not in prompt
 
+    def test_prunes_foreign_keys_for_dropped_columns(self):
+        # FKs for trimmed columns must be pruned too, so the prompt never references a column it no
+        # longer lists.
+        long_name = "n" * 5_000
+        columns: list[dict[str, Any]] = [
+            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
+        ]
+        foreign_keys = [
+            {"column": columns[0]["name"], "target_table": "kept_target", "target_column": "id"},
+            {"column": columns[-1]["name"], "target_table": "dropped_target", "target_column": "id"},
+        ]
+        prompt = build_bounded_enrichment_prompt(
+            source_name="Postgres",
+            table_name="t",
+            endpoint_name="",
+            docs_url=None,
+            columns=columns,
+            foreign_keys=foreign_keys,
+            known_descriptions={},
+            columns_needing_description=[str(c["name"]) for c in columns],
+            business_context="",
+        )
+        assert len(prompt) <= MAX_PROMPT_CHARS
+        # The surviving column's FK stays; the dropped column's FK is gone.
+        assert "kept_target" in prompt
+        assert "dropped_target" not in prompt
+
 
 class TestExtractJsonObject:
     @pytest.mark.parametrize(
@@ -291,6 +318,45 @@ class TestExtractJsonObject:
     @pytest.mark.parametrize("content", ["", "   ", "not json at all", "```\nstill not json\n```", "[1, 2, 3]"])
     def test_returns_none_when_no_json_object_present(self, content):
         assert _extract_json_object(content) is None
+
+
+class TestGenerateDescriptions:
+    def _response(self, content: str | None) -> MagicMock:
+        response = MagicMock()
+        response.choices = [MagicMock()]
+        response.choices[0].message.content = content
+        response.usage = MagicMock(prompt_tokens=1, completion_tokens=0, total_tokens=1)
+        return response
+
+    def _call(self) -> tuple[dict, dict]:
+        return enrich._generate_descriptions(
+            team_id=1,
+            source_name="Stripe",
+            table_name="t",
+            endpoint_name="Charge",
+            docs_url=None,
+            columns=[{"name": "a", "data_type": "String", "is_nullable": False}],
+            foreign_keys=[],
+            known_descriptions={},
+            columns_needing_description=["a"],
+            business_context="",
+        )
+
+    @pytest.mark.parametrize("content", [None, "", "   ", "not json", "```\nnope\n```"])
+    def test_raises_on_unparseable_response(self, content):
+        # An empty or non-JSON reply must surface as an error (→ "partial"), not silently persist nothing.
+        client = MagicMock()
+        client.chat.completions.create.return_value = self._response(content)
+        with patch.object(enrich, "get_llm_client", return_value=client):
+            with pytest.raises(ValueError):
+                self._call()
+
+    def test_parses_fenced_response(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = self._response('```json\n{"columns": {"a": "desc"}}\n```')
+        with patch.object(enrich, "get_llm_client", return_value=client):
+            parsed, _usage = self._call()
+        assert parsed == {"columns": {"a": "desc"}}
 
 
 class TestCanonicalDescriptionsResolver:

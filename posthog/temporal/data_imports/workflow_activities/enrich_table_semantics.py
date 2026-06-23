@@ -226,6 +226,7 @@ def build_bounded_enrichment_prompt(
     """
     business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
     shown_columns = columns
+    shown_fks = foreign_keys
     needing = columns_needing_description
     while True:
         prompt = build_enrichment_prompt(
@@ -234,18 +235,20 @@ def build_bounded_enrichment_prompt(
             endpoint_name=endpoint_name,
             docs_url=docs_url,
             columns=shown_columns,
-            foreign_keys=foreign_keys,
+            foreign_keys=shown_fks,
             known_descriptions=known_descriptions,
             columns_needing_description=needing,
             business_context=business_context,
         )
         if len(prompt) <= MAX_PROMPT_CHARS or len(shown_columns) <= 1:
             return prompt
-        # Drop ~10% of the tail columns (from both the listing and the ask list) and re-measure.
+        # Drop ~10% of the tail columns and re-measure. Prune the ask list and the foreign keys to the
+        # surviving columns too, so the prompt never references a column it no longer lists.
         cut = max(1, len(shown_columns) // 10)
         shown_columns = shown_columns[:-cut]
         kept_names = {column["name"] for column in shown_columns}
         needing = [name for name in needing if name in kept_names]
+        shown_fks = [fk for fk in foreign_keys if fk.get("column") in kept_names]
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -317,7 +320,7 @@ def _generate_descriptions(
         "completion_tokens": getattr(usage_obj, "completion_tokens", None),
         "total_tokens": getattr(usage_obj, "total_tokens", None),
     }
-    parsed = _extract_json_object(response.choices[0].message.content or "{}")
+    parsed = _extract_json_object(response.choices[0].message.content or "")
     if parsed is None:
         # Surface as an LLM failure (caught by the caller → "partial") rather than silently
         # persisting nothing, so the error stays visible in analytics.
