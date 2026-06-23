@@ -424,6 +424,7 @@ class TestModalSandboxAgentServer:
             model="gpt-5.3-codex",
             reasoning_effort="high",
             event_ingest_token="ingest-token",
+            event_ingest_url="https://agent-proxy.example.com",
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
@@ -432,6 +433,8 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
+        # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0

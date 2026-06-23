@@ -436,6 +436,7 @@ doesn't conflict with concurrent PRs.
 - invoiceninja
 - ip2whois
 - jamf_pro
+- jobber
 - jobnimbus
 - jotform
 - judgeme_reviews
@@ -449,9 +450,11 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - klaus
+- knock
 - kyve
 - lago
 - leadfeeder
+- leexi
 - lemlist
 - less_annoying_crm
 - lever
@@ -567,6 +570,7 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - railz
 - razorpay
+- rb2b
 - rd_station_marketing
 - recreation
 - recruitee

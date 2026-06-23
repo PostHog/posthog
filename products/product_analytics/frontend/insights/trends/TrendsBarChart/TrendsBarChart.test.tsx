@@ -4,6 +4,8 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
@@ -695,4 +697,30 @@ describe('TrendsBarChart overlays', () => {
             )
         }
     )
+
+    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
+        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+        const twoSeriesBar = trendsBar({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            trendsFilter: { display: ChartDisplayType.ActionsBar, showLegend: true },
+        })
+
+        const getInChartLegend = (container: HTMLElement): HTMLElement =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
+
+        it('renders the in-chart legend with a row per series', async () => {
+            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('$pageview')
+            expect(legendEl.textContent).toContain('Napped')
+        })
+    })
 })
