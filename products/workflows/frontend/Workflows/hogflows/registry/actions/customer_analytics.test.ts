@@ -86,13 +86,18 @@ describe('customer analytics action registry', () => {
     describe('buildAccountExternalIdInputs', () => {
         it('builds a name-based group key expression from the account group type index', () => {
             const inputs = buildAccountExternalIdInputs(2, groupTypesMap([0, 'project'], [2, 'organization']))
-            expect(inputs).toEqual({ external_id: { value: '{groups["organization"].id}' } })
+            expect(inputs).toEqual({ external_id: { value: '{groups.`organization`.id}' } })
         })
 
-        it('quotes the group type so a name with template delimiters is escaped, not injected', () => {
+        it('backtick-quotes the group type so a name with template delimiters is escaped, not injected', () => {
             const malicious = '"].id} + inject {groups["x'
             const inputs = buildAccountExternalIdInputs(0, groupTypesMap([0, malicious]))
-            expect(inputs).toEqual({ external_id: { value: `{groups[${JSON.stringify(malicious)}].id}` } })
+            expect(inputs).toEqual({ external_id: { value: '{groups.`"].id} + inject {groups["x`.id}' } })
+        })
+
+        it('escapes backticks in the group type by doubling them', () => {
+            const inputs = buildAccountExternalIdInputs(0, groupTypesMap([0, 'we`ird']))
+            expect(inputs).toEqual({ external_id: { value: '{groups.`we``ird`.id}' } })
         })
 
         it.each([null, undefined])('returns undefined when the account group type index is %s', (index) => {
