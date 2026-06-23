@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -14,6 +14,7 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -23,6 +24,7 @@ import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
@@ -132,6 +134,7 @@ export function InboxScene(): JSX.Element {
         selectedScoutSkillName,
     } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
     // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
@@ -145,7 +148,13 @@ export function InboxScene(): JSX.Element {
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-2 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
-                    description="Work done by your agents – pull requests, reports, and live runs."
+                    // The takeover's hero carries its own headline + pitch, so the scene description
+                    // would be redundant there; keep it for the normal/banner states.
+                    description={
+                        onboardingMode === 'takeover'
+                            ? null
+                            : 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
+                    }
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (
@@ -167,7 +176,20 @@ export function InboxScene(): JSX.Element {
                 />
 
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    <InboxListView />
+                    {onboardingMode === 'loading' ? (
+                        // Neutral loader until we know self-driving's state – never the inbox skeleton,
+                        // so a not-set-up user isn't jolted from skeleton to the takeover.
+                        <div className="flex flex-1 items-center justify-center">
+                            <Spinner className="text-2xl text-secondary" />
+                        </div>
+                    ) : onboardingMode === 'takeover' ? (
+                        <InboxOnboardingTakeover />
+                    ) : (
+                        <>
+                            {onboardingMode === 'banner' && <InboxOnboardingBanner />}
+                            <InboxListView />
+                        </>
+                    )}
                 </div>
             </div>
 

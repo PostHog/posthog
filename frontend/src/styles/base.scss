@@ -2101,12 +2101,12 @@
 }
 
 .rainbow-text.rainbow-text-animating {
-    animation: rainbow-scroll 3s linear infinite;
+    animation: rainbow-scroll 6s linear infinite;
 }
 
 .rainbow-text-fading.rainbow-text-animating {
     animation:
-        rainbow-scroll 3s linear infinite,
+        rainbow-scroll 6s linear infinite,
         rainbow-fade-in 300ms ease-out;
 }
 
