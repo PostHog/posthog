@@ -31,6 +31,7 @@ import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/re
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { DetailSection, RightColumnSection } from './DetailSection'
 import { ReportDetailBadges } from './ReportDetail'
+import { ReportTasksSection } from './ReportTasksSection'
 import { RELATIONSHIP_LABEL, TaskRunStatusDot } from './taskRunDisplay'
 
 /**
@@ -351,6 +352,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                             )}
                         </RightColumnSection>
                     )}
+                    <ReportTasksSection report={report} />
                 </div>
             </div>
         </div>

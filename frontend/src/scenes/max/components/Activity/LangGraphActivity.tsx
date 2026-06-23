@@ -32,6 +32,7 @@ export function LangGraphActivity({
     toolCall?: EnhancedToolCall | null
 }): JSX.Element {
     const result = toolCall?.result
+    const resultContent = result?.content
     const uiPayload = result?.ui_payload
     const executedSQLQuery =
         typeof uiPayload?.execute_sql === 'string'
@@ -65,13 +66,16 @@ export function LangGraphActivity({
                     title={toolCall?.args.summary_title as string | undefined}
                 />
             )}
-            {uiPayloadBody.length > 0 && <div className="flex flex-col gap-2 mt-1">{uiPayloadBody}</div>}
         </>
     )
 
+    // The tool call's details — UI payload, SQL, args, and result — live behind the chevron and only
+    // surface once the call has produced a result. An in-flight call shows just the shimmering title,
+    // with no expandable child.
     const details =
-        toolCall || executedSQLQuery ? (
+        toolCall && resultContent ? (
             <div className="flex flex-col gap-1">
+                {uiPayloadBody.length > 0 && <div className="flex flex-col gap-2">{uiPayloadBody}</div>}
                 {executedSQLQuery && (
                     <div className="flex flex-col gap-1">
                         <b className="text-secondary">SQL query</b>
@@ -80,32 +84,28 @@ export function LangGraphActivity({
                         </CodeSnippet>
                     </div>
                 )}
-                {toolCall && (
-                    <ActivityToggleSection
-                        title="Tool called:"
-                        summary={<span>{toolCall.name}</span>}
-                        tooltip="Tool call arguments as JSON"
-                    >
-                        <CodeSnippet language={Language.JSON} className="text-xs">
-                            {JSON.stringify(toolCall.args, null, 2)}
-                        </CodeSnippet>
-                    </ActivityToggleSection>
-                )}
-                {toolCall && result?.content && (
-                    <ActivityToggleSection
-                        title="Tool result:"
-                        summary={<span>{result.content.slice(0, 20)}...</span>}
-                        tooltip="Show tool call results"
-                    >
-                        <div className="border rounded p-2 bg-surface-primary">
-                            <MarkdownMessage
-                                id={`${toolCall.id}-result`}
-                                content={result.content}
-                                className="text-xs [&_code]:text-xs"
-                            />
-                        </div>
-                    </ActivityToggleSection>
-                )}
+                <ActivityToggleSection
+                    title="Tool called:"
+                    summary={<span>{toolCall.name}</span>}
+                    tooltip="Tool call arguments as JSON"
+                >
+                    <CodeSnippet language={Language.JSON} className="text-xs">
+                        {JSON.stringify(toolCall.args, null, 2)}
+                    </CodeSnippet>
+                </ActivityToggleSection>
+                <ActivityToggleSection
+                    title="Tool result:"
+                    summary={<span>{resultContent.slice(0, 20)}...</span>}
+                    tooltip="Show tool call results"
+                >
+                    <div className="border rounded p-2 bg-surface-primary">
+                        <MarkdownMessage
+                            id={`${toolCall.id}-result`}
+                            content={resultContent}
+                            className="text-xs [&_code]:text-xs"
+                        />
+                    </div>
+                </ActivityToggleSection>
             </div>
         ) : null
 
