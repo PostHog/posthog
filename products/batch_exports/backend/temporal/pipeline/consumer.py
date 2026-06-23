@@ -231,7 +231,9 @@ class Consumer:
         current position. Silent when the total is unknown (e.g. the stage couldn't
         report a count).
         """
-        if not self.records_total:
+        # `_start_monotonic` is set by `start()` before the consume loop, and this is only
+        # called from within it, so it should always be set during a run.
+        if not self.records_total or self._start_monotonic is None:
             return
 
         records = min(self.total_records_count, self.records_total)
@@ -239,12 +241,11 @@ class Consumer:
         if pct < self._next_progress_pct:
             return
 
-        start_monotonic = self._start_monotonic if self._start_monotonic is not None else time.monotonic()
-        elapsed = time.monotonic() - start_monotonic
-        rows_per_second = records / elapsed if elapsed > 0 else 0.0
+        elapsed = time.monotonic() - self._start_monotonic
+        rows_per_second = int(records / elapsed) if elapsed > 0 else 0
         self.logger.info(
             f"Exported ~{int(pct)}% to destination "
-            f"({records:,} of ~{self.records_total:,} records), ~{rows_per_second:,.0f} rows/s"
+            f"({records:,} of ~{self.records_total:,} records), ~{rows_per_second:,} rows/s"
         )
         self._next_progress_pct = (int(pct // PROGRESS_LOG_STEP_PCT) + 1) * PROGRESS_LOG_STEP_PCT
 

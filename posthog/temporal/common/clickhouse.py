@@ -591,6 +591,12 @@ class ClickHouseClient:
         `wait_end_of_query=1` so the summary reflects the completed query and is sent as a
         regular response header (rather than a trailer). Returns the parsed summary, or
         `None` if the header is absent or cannot be parsed.
+
+        `wait_end_of_query` is an HTTP-interface URL parameter (not a SQL setting); it makes
+        ClickHouse buffer the whole response server-side until the query finishes. Only use
+        this for queries whose client-bound response is small — e.g. `INSERT INTO FUNCTION
+        s3(...)`, whose response body is empty (rows go to S3, counts come back in the
+        header) — so the buffering is negligible regardless of `http_response_buffer_size`.
         """
         async with self.apost_query(
             query,

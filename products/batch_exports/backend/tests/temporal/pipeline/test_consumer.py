@@ -36,6 +36,12 @@ class FakeTransformer:
 
 
 def get_progress_logs(cap_logs) -> list[str]:
+    """Returns the captured logs that are related to progress logging.
+
+    `capture_logs` grabs the structured event dict before rendering, so the message is under
+    "event". In production these go through LogMessagesRenderer and are emitted as JSON strings,
+    so this dict-indexing only works under the test logging setup.
+    """
     return [log["event"] for log in cap_logs if log["event"].startswith("Exported ~")]
 
 
