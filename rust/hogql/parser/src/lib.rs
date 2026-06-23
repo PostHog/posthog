@@ -165,28 +165,19 @@ fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObj
     })
 }
 
-/// Standalone string-literal/identifier unquoter — the byte-for-byte twin of
-/// the C++ wheel's `parse_string_literal_text`. Given a quoted literal (quotes
-/// included), returns the decoded inner text. Closes the last cpp/rust API gap.
-///
-/// On error, routes the `ParseError` through the same JSON-envelope → exception
-/// converter the `parse_*_py` entry points use ([`run_py`]'s error path), so a
-/// mismatched-quote `SyntaxError` and an empty-input `ParsingError` surface as
-/// the matching `posthog.hogql.errors` classes the C++ wheel raises.
+/// Byte-for-byte twin of the C++ wheel's `parse_string_literal_text`, closing the last cpp/rust API gap.
+/// Errors route through the shared converter so `SyntaxError`/`ParsingError` match the C++ wheel's classes.
 #[pyfunction]
 fn parse_string_literal_text(py: Python<'_>, text: &str) -> PyResult<String> {
     parse::parse_string_literal_text(text).map_err(|err| raise_parse_error(py, err))
 }
 
-/// Convert a [`error::ParseError`] into the matching Python exception via the
-/// shared [`pyobject::Converter`]. `convert_root` on an `{"error": true, …}`
-/// envelope always returns `Err(PyErr)`; the `Ok` / converter-construction
-/// arms are unreachable in practice but keep this total without crossing the
-/// FFI boundary with a panic.
+/// Raise the matching Python exception for `err` via the shared [`pyobject::Converter`].
 fn raise_parse_error(py: Python<'_>, err: error::ParseError) -> PyErr {
     let value = err.to_json_value();
     match pyobject::Converter::new(py) {
         Ok(converter) => match converter.convert_root(&value) {
+            // Unreachable: an error envelope always raises; fall back without an FFI-crossing panic.
             Ok(_) => PyValueError::new_err("internal: parser error envelope did not raise"),
             Err(e) => e,
         },

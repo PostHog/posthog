@@ -975,19 +975,8 @@ pub(crate) fn identifier_text(src: &str, kind: TokenKind) -> String {
     }
 }
 
-/// Standalone, LENIENT string-literal/identifier unquoter — the byte-for-byte
-/// twin of cpp's `parse_string_literal_text` in
-/// [`common/hogql_parser/string.cpp`], exposed via the
-/// `parse_string_literal_text` PyO3 entry point for cpp-wheel API parity.
-///
-/// Deliberately NOT routed through [`decode_quoted_body`] /
-/// [`unquote_single_string`] / [`identifier_text`], which implement the
-/// STRICTER in-parser quoted body: those reject a backslash-escaped quote
-/// (e.g. `` \` `` stays `` \` ``), whereas this accepts BOTH the doubled-quote
-/// and backslash-escaped-quote forms for all four quote types — including the
-/// `{...}` placeholder quoting the in-parser path never encounters. Mirrors
-/// cpp's `replace_all`-based collapse exactly so callers get a true drop-in
-/// twin.
+/// Lenient cpp `parse_string_literal_text` twin (`string.cpp`), exposed via PyO3 for cpp-wheel API parity.
+/// Accepts doubled + backslash-escaped quotes (4 quote types, incl. `{...}`) unlike the strict [`decode_quoted_body`].
 pub(crate) fn parse_string_literal_text(text: &str) -> Result<String, ParseError> {
     if text.is_empty() {
         return Err(ParseError::parsing(
@@ -999,10 +988,7 @@ pub(crate) fn parse_string_literal_text(text: &str) -> Result<String, ParseError
     let bytes = text.as_bytes();
     let first = bytes[0];
     let last = bytes[bytes.len() - 1];
-    // Strip the surrounding quotes, then collapse the doubled- and
-    // backslash-escaped-quote forms. The quote bytes are ASCII, so byte 1 and
-    // byte `len-1` are valid char boundaries once an arm matches; the `_` arm
-    // never slices, so a non-ASCII single char can't panic the strip.
+    // Quote bytes are ASCII, so the byte 1/len-1 slice is char-boundary-safe; the `_` arm never slices.
     let stripped = match (first, last) {
         (b'\'', b'\'') => inner_between_quotes(text)
             .replace("''", "'")
@@ -1029,11 +1015,7 @@ pub(crate) fn parse_string_literal_text(text: &str) -> Result<String, ParseError
     Ok(replace_common_escape_characters(&stripped))
 }
 
-/// Drop the first and last byte (the surrounding quotes). Mirrors cpp's
-/// `text.substr(1, size - 2)`: a length-1 input (a lone quote) yields `""`
-/// rather than panicking on the reversed byte range. Only called after the
-/// caller has confirmed both ends are ASCII quote bytes, so byte 1 and byte
-/// `len-1` are char boundaries.
+/// Drop the surrounding quote bytes, cpp `substr(1, size-2)`-style: a length-1 input yields `""`, not a panic.
 fn inner_between_quotes(text: &str) -> &str {
     if text.len() < 2 {
         ""
@@ -1042,13 +1024,7 @@ fn inner_between_quotes(text: &str) -> &str {
     }
 }
 
-/// Byte-for-byte twin of cpp's `replace_common_escape_characters`
-/// ([`common/hogql_parser/string.cpp`]): a single left-to-right pass where a
-/// consumed `\\` is decoded before the next char is inspected. `\0` is dropped
-/// (NUL ignored); `\b \f \r \n \t \a \v \\` map to their control chars; any
-/// other `\X` (or a trailing lone `\\`) keeps the backslash verbatim. The
-/// escape targets are all ASCII, so a char-wise scan matches cpp's byte scan
-/// and never splits a multibyte char.
+/// Twin of cpp's `replace_common_escape_characters`: single pass, `\0` dropped, unknown `\X` keeps the backslash.
 fn replace_common_escape_characters(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -1486,10 +1462,7 @@ mod tests {
     use super::*;
     use crate::error::ErrorKind;
 
-    /// `parse_string_literal_text` is the byte-for-byte twin of cpp's
-    /// `parse_string_literal_text`. These cases mirror the cross-backend
-    /// parity factory in `posthog/hogql/test/_test_parse_string.py` (which
-    /// can't run without a DB) so the unquoting logic is pinned DB-free.
+    /// Parity cases mirroring the DB-bound `_test_parse_string.py` factory, pinned DB-free here.
     #[test]
     fn parse_string_literal_text_matches_cpp() {
         let f = |s: &str| parse_string_literal_text(s).expect("should decode");
@@ -1507,8 +1480,7 @@ mod tests {
         assert_eq!(f("{a{{sd}"), "a{sd");
         assert_eq!(f("{a}sd}"), "a}sd");
 
-        // Backslash-escaped quotes (the lenient form the strict in-parser
-        // decoder rejects).
+        // Backslash-escaped quotes (the lenient form the strict in-parser decoder rejects).
         assert_eq!(f("`a\\`sd`"), "a`sd");
         assert_eq!(f("'a\\'sd'"), "a'sd");
         assert_eq!(f("\"a\\\"sd\""), "a\"sd");
@@ -1541,8 +1513,7 @@ mod tests {
         assert_eq!(f("{ünïcödé}"), "ünïcödé");
     }
 
-    /// Mismatched quotes raise `SyntaxError`; an empty input raises
-    /// `ParsingError` (the class cpp's `parse_string_literal_text` throws).
+    /// Mismatched quotes raise `SyntaxError`; empty input raises `ParsingError` (cpp's declared class).
     #[test]
     fn parse_string_literal_text_error_paths() {
         let mismatched = parse_string_literal_text("`asd'").expect_err("mismatched quotes");

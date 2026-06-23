@@ -77,11 +77,7 @@ import traceback
 from collections import Counter
 from typing import Any
 
-# The parser core reads `settings.TEST` (in posthog/hogql/parser.py) but never
-# touches the app registry, so configuring the settings module is enough — we
-# deliberately skip `django.setup()`. Calling it would run every app's `ready()`
-# hook (DB queries, redis, self-capture token init) just to fuzz a parser, which
-# fails noisily when Postgres/redis are down and adds startup latency for nothing.
+# Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 
 from hypothesis import (
@@ -121,26 +117,16 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
 # ---------------------------------------------------------------------------
 # string_literal strategy
 # ---------------------------------------------------------------------------
-#
-# `parse_string_literal_text` is the standalone unquoter, not a grammar rule,
-# so it has no auto-generated strategy. Generate quoted literals directly,
-# biasing the alphabet toward the chars that drive the unquoter's branches:
-# the four quote chars, backslash, the escape letters cpp recognises
-# (b f r n t 0 a v), a few it doesn't (x y o), braces, and a couple of
-# multibyte chars (so the byte-level quote strip is checked against the
-# char-level Rust scan).
+# No generated strategy (the unquoter isn't a grammar rule): build quoted literals over a branch-driving alphabet.
 _SL_QUOTE_PAIRS = [("'", "'"), ('"', '"'), ("`", "`"), ("{", "}")]
-# Deliberately excludes the NUL byte: the cpp wheel's `PyArg_ParseTuple("s")`
-# rejects embedded nulls (ValueError) while PyO3's `&str` accepts them, an
-# arg-parsing quirk unrelated to the decode logic this grind targets.
+# Excludes NUL: the cpp wheel's PyArg_ParseTuple("s") rejects it (ValueError) while PyO3's &str accepts it.
 _SL_ALPHABET = "'\"`{}\\bfrnt0avxyo ab\n\té£"
 
 
 def string_literal_strategy() -> st.SearchStrategy[str]:
     body = st.text(alphabet=_SL_ALPHABET, max_size=12)
     quoted = st.builds(lambda pair, b: pair[0] + b + pair[1], st.sampled_from(_SL_QUOTE_PAIRS), body)
-    # Raw, never-empty forms (often mismatched/unquoted) exercise the
-    # SyntaxError parity path. `min_size=1` so the cpp wheel never sees "".
+    # Raw never-empty forms (mismatched/unquoted) exercise the SyntaxError path; min_size=1 so cpp never sees "".
     raw = st.text(alphabet=_SL_ALPHABET, min_size=1, max_size=14)
     return st.one_of(quoted, raw)
 
