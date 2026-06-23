@@ -293,8 +293,14 @@ class BatchConsumer:
         done = [k for k, t in self._in_flight.items() if t.done()]
         for k in done:
             task = self._in_flight.pop(k)
-            if task.exception() is not None:
-                logger.exception(
+            if task.cancelled():
+                logger.error(
+                    self._event("group_task_cancelled"),
+                    team_id=k[0],
+                    schema_id=k[1],
+                )
+            elif task.exception() is not None:
+                logger.error(
                     self._event("group_task_failed"),
                     team_id=k[0],
                     schema_id=k[1],
