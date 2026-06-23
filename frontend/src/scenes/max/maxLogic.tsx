@@ -29,10 +29,10 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
 
 /** Maximum age for restored prompts (5 minutes) */
@@ -49,6 +49,14 @@ interface StoredMaxContext {
     context: Partial<MaxUIContext>
     timestamp: number
 }
+
+/**
+ * `/ai` query param carrying a sandbox Task to bind a fresh chat to (set by inbox "Open task").
+ * A URL param (rather than sessionStorage) so the binding survives opening the chat in a new tab or
+ * window. The side panel — which doesn't sync the URL — receives the same binding via a direct
+ * `setPendingBindTaskId` (see `maxGlobalLogic.openSidePanelMaxWithTaskBind`).
+ */
+export const SANDBOX_BIND_TASK_PARAM = 'bind_task'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -220,6 +228,7 @@ export const maxLogic = kea<maxLogicType>([
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
+        setPendingBindTaskId: (taskId: string | null) => ({ taskId }),
     }),
 
     reducers(({ props }) => ({
@@ -245,6 +254,17 @@ export const maxLogic = kea<maxLogicType>([
                 setConversationId: (_, { conversationId }) => conversationId,
                 startNewConversation: () => null,
                 toggleConversationHistory: (state, { visible }) => (visible ? null : state),
+            },
+        ],
+
+        // A pending Task to bind a new sandbox conversation to (set by inbox "Open task"). Consumed by
+        // maxThreadLogic on the first message, which sends it as `task_id` so the open resumes that
+        // Task's run. Cleared once consumed, or when an explicit new chat starts without a bind.
+        pendingBindTaskId: [
+            null as string | null,
+            {
+                setPendingBindTaskId: (_, { taskId }) => taskId,
+                startNewConversation: () => null,
             },
         ],
 
@@ -691,6 +711,15 @@ export const maxLogic = kea<maxLogicType>([
                 actions.openConversation(search.chat)
             } else if (values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
+            }
+
+            // A fresh chat (no `chat` param) may carry a task to bind via the URL (inbox "Open task").
+            // Read it after the `startNewConversation` above (which clears it) so it survives, and the
+            // first message resumes that task's run. The param naturally drops once `setConversationId`
+            // rewrites the URL to `?chat=<id>` after the first message.
+            const bindTaskId = search[SANDBOX_BIND_TASK_PARAM]
+            if (!search.chat && bindTaskId) {
+                actions.setPendingBindTaskId(String(bindTaskId))
             }
         },
     })),
