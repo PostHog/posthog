@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.sources.paddle.paddle import PADDLE_BASE_URL,
 
 class TestPaddleSession:
     def test_session_retries_rate_limits(self):
-        session = _get_paddle_session()
+        session = _get_paddle_session("pdl_test_key")
         retry = cast(HTTPAdapter, session.get_adapter(PADDLE_BASE_URL)).max_retries
 
         # A transient 429 must back off and retry rather than failing the whole sync.
@@ -18,7 +18,7 @@ class TestPaddleSession:
         assert retry.raise_on_status is False
 
     def test_auth_failures_are_not_retried(self):
-        session = _get_paddle_session()
+        session = _get_paddle_session("pdl_test_key")
         retry = cast(HTTPAdapter, session.get_adapter(PADDLE_BASE_URL)).max_retries
 
         # 401/403/400 are credential/config problems handled by get_non_retryable_errors;
