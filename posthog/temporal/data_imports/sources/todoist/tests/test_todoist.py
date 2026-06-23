@@ -200,7 +200,7 @@ class TestTopLevelPagination:
         assert rows == [{"id": "T9"}]
 
     def test_empty_first_page_terminates(self, monkeypatch: Any) -> None:
-        pages = {
+        pages: dict[str, Any] = {
             f"https://api.todoist.com/api/v1/labels?limit={PAGE_LIMIT}": {"results": [], "next_cursor": None},
         }
         manager = _FakeResumableManager()
@@ -321,6 +321,6 @@ class TestFetchPageRetryClassification:
 
     def test_success_returns_json_body(self) -> None:
         session = MagicMock()
-        body = {"results": [], "next_cursor": None}
+        body: dict[str, Any] = {"results": [], "next_cursor": None}
         session.get.return_value = MagicMock(status_code=200, ok=True, **{"json.return_value": body})
         assert self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock()) == body
