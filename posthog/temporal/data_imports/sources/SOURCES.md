@@ -454,6 +454,7 @@ doesn't conflict with concurrent PRs.
 - kyve
 - lago
 - leadfeeder
+- leexi
 - lemlist
 - less_annoying_crm
 - lever

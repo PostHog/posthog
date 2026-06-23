@@ -93,8 +93,6 @@ async def prepare_s3_files_for_querying(
                 all_file_values = all_files.values() if isinstance(all_files, dict) else all_files
                 directories = [f["Key"] for f in all_file_values if f["type"] == "directory"]
 
-                await _log(f"Found existing directories: {directories}")
-
                 timestamped_query_folders: list[tuple[str, int]] = []
                 for directory in directories:
                     match = query_folder_pattern.match(directory)
@@ -103,6 +101,10 @@ async def prepare_s3_files_for_querying(
 
                 timestamped_query_folders.sort(key=lambda x: x[1])
                 total_dirs = len(timestamped_query_folders)
+                await _log(
+                    f"Found {len(directories)} existing directories; "
+                    f"{total_dirs} match query folders for table {normalized_table_name}"
+                )
 
                 for index, directory in enumerate(timestamped_query_folders):
                     directory_path, directory_timestamp = directory

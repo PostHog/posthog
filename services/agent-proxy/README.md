@@ -33,7 +33,7 @@ newest available entry.
 
 | Variable                          | Required   | Default                   | Description                                                                                                                                                                      |
 | --------------------------------- | ---------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REDIS_URL`                       | yes (prod) | `localhost:6379`          | Redis connection URL (unencrypted local Redis by default; use a TLS URL in production)                                                                                           |
+| `TASKS_REDIS_URL`                 | yes (prod) | `localhost:6379`          | Redis connection URL (unencrypted local Redis by default; use a TLS URL in production)                                                                                           |
 | `SANDBOX_JWT_PUBLIC_KEY`          | yes        | —                         | RS256 public key PEM (`\n` literals in env vars are normalized to real newlines before use)                                                                                      |
 | `AGENT_PROXY_DJANGO_CALLBACK_URL` | yes (prod) | —                         | Base URL of the Django service for side-effect callbacks (Temporal heartbeat, awaiting-input push), e.g. `http://web:8000`                                                       |
 | `AGENT_PROXY_CALLBACK_SECRET`     | no         | `''`                      | Shared secret sent as `X-Agent-Proxy-Secret` on the Django callback; Django enforces it when the same value is set on both sides, so a sandbox cannot call the callback directly |
@@ -96,7 +96,7 @@ TASKS_AGENT_PROXY_CORS_ORIGINS=http://localhost:8010
 AGENT_PROXY_DJANGO_CALLBACK_URL=http://localhost:8000   # heartbeat + awaiting-input callbacks; omit to skip them
 ```
 
-`REDIS_URL` is optional locally — it defaults to `localhost:6379`, the
+`TASKS_REDIS_URL` is optional locally — it defaults to `localhost:6379`, the
 same instance Django uses (the `redis7` host maps to localhost).
 
 ### 3. Start
