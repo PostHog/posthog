@@ -39,6 +39,7 @@ from . import (
     event_schema,
     health_issue,
     hog,
+    identity_provider_config,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -47,7 +48,6 @@ from . import (
     object_media_preview,
     organization,
     organization_domain,
-    organization_identity_provider_config,
     organization_integration,
     organization_invite,
     organization_member,
@@ -350,7 +350,7 @@ organizations_router.register(
 )
 organizations_router.register(
     r"identity_provider_configs",
-    organization_identity_provider_config.IdentityProviderConfigViewSet,
+    identity_provider_config.IdentityProviderConfigViewSet,
     "organization_identity_provider_configs",
     ["organization_id"],
 )
