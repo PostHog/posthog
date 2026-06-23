@@ -72,6 +72,9 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                     case 'StickinessQuery':
                         data = await queryClient.stickinessActors({ query })
                         break
+                    case 'FunnelsQuery':
+                        data = await queryClient.funnelActors({ query })
+                        break
                     default:
                         throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)
                 }

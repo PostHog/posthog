@@ -202,21 +202,30 @@
     display: flex;
     flex: 1;
     flex-direction: column;
+    height: var(--insight-viz-min-height);
+
+    // Explicit height (not just min/max) so a top/bottom in-chart legend's max-height: 40% cap resolves —
+    // a flex-derived used size does not count, and without it the legend stretches the chart taller.
     min-height: var(--insight-viz-min-height);
+    max-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        height: auto;
         min-height: auto;
+        max-height: none;
     }
 
     &--ActionsTable,
     &--WorldMap,
     &--BoldNumber,
     &--Metric {
+        height: auto;
         min-height: auto;
+        max-height: none;
         margin: 0;
     }
 

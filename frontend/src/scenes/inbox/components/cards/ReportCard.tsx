@@ -200,7 +200,7 @@ export function ReportCard({
                     {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
                     <div
                         className={clsx(
-                            'min-w-0 break-words font-semibold text-sm leading-snug',
+                            'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                             hasPr && 'pr-14 @lg:pr-0'
                         )}
                     >
@@ -211,17 +211,25 @@ export function ReportCard({
                     </div>
 
                     {headline ? (
-                        <div className={clsx('mt-0.5 min-w-0', !hasPr && !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-secondary leading-snug m-0">
-                                {headline}
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !hasPr && !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            )}
+                        >
+                            {headline}
+                        </p>
                     ) : !hasPr ? (
-                        <div className={clsx('mt-0.5 min-w-0', !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0">
-                                No summary yet – still collecting context.
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            )}
+                        >
+                            No summary yet – still collecting context.
+                        </p>
                     ) : null}
 
                     {showMeta ? (

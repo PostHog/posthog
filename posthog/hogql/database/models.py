@@ -120,6 +120,15 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class MapStringDatabaseField(StringJSONDatabaseField):
+    """A physical ClickHouse `Map(String, String)` column presented like a JSON blob.
+
+    Behaves as JSON for resolution, lowering, and property-group routing (suffix-keyed maps such as logs
+    `attributes_map_str`), but a key with no precomputed column is read via a native Map subscript instead of
+    JSONExtract — which ClickHouse rejects on a Map. See `clickhouse_property_resolution._substitute_value_read`.
+    """
+
+
 class StructDatabaseField(DatabaseField):
     fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
 

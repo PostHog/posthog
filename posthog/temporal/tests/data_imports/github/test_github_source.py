@@ -1,5 +1,7 @@
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -18,6 +20,8 @@ from posthog.temporal.data_imports.sources.github.github import (
     _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
+    _iter_jobs_for_run,
+    _iter_pages,
     _parse_next_url,
     _should_stop_desc,
     get_rows,
@@ -496,6 +500,17 @@ class TestGithubSourceSortMode:
                 datetime(2026, 1, 15, tzinfo=UTC),
                 "desc",
             ),
+            # workflow_jobs fans out over workflow_runs newest-first, so it emits
+            # desc on every sync — same as its parent.
+            ("workflow_jobs_full_refresh", "workflow_jobs", False, None, "desc"),
+            ("workflow_jobs_first_sync_no_cutoff", "workflow_jobs", True, None, "desc"),
+            (
+                "workflow_jobs_incremental_with_cutoff",
+                "workflow_jobs",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
         ]
     )
     def test_sort_mode(
@@ -955,3 +970,474 @@ class TestGithubSourceNonRetryableErrors:
         # Mirrors the substring match done in external_data_job.update_external_data_job_model.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(pattern in error_message for pattern in non_retryable_errors) == expected_match
+
+
+class _RoutingSession:
+    """Routes GitHub GET calls by URL so two-level runs->jobs fan-out can be mocked
+    without depending on request order. Records every requested URL."""
+
+    def __init__(
+        self,
+        runs_pages: list[tuple[Any, str]],
+        jobs_by_run: dict[int, tuple[Any, str]],
+    ) -> None:
+        self._runs_pages = list(runs_pages)
+        self._jobs_by_run = jobs_by_run
+        self.calls: list[str] = []
+
+    def get(self, url: str, headers: Any = None, timeout: Any = None) -> Any:
+        self.calls.append(url)
+        if "/jobs" in url:
+            run_id = int(urlparse(url).path.split("/")[-2])
+            body, link = self._jobs_by_run.get(run_id, ({"total_count": 0, "jobs": []}, ""))
+            return _make_response(body=body, link=link)
+        body, link = self._runs_pages.pop(0)
+        return _make_response(body=body, link=link)
+
+
+def _run(created_at: str, run_id: int) -> dict[str, Any]:
+    return {"id": run_id, "created_at": created_at}
+
+
+def _runs_envelope(*runs: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": len(runs), "workflow_runs": list(runs)}
+
+
+def _jobs_envelope(*jobs: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": len(jobs), "jobs": list(jobs)}
+
+
+class TestFanOutJobs:
+    """workflow_jobs fans out over workflow_runs and emits each run's jobs."""
+
+    def _patch_batcher(self) -> Any:
+        return mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.Batcher",
+            autospec=False,
+            side_effect=lambda logger, chunk_size, chunk_size_bytes: _ImmediateBatcher(),
+        )
+
+    def _fan_out(self, session: _RoutingSession, **kwargs: Any) -> list[Any]:
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+        ):
+            return list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_jobs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=_make_manager(),
+                    **kwargs,
+                )
+            )
+
+    def test_each_job_carries_run_id_and_nested_steps(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-22T00:00:00Z", 1002), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1002: (
+                    _jobs_envelope(
+                        {
+                            "id": 3,
+                            "run_id": 1002,
+                            "steps": [{"name": "test", "number": 1}],
+                            "labels": ["depot-ubuntu-latest-4"],
+                        }
+                    ),
+                    "",
+                ),
+                1001: (
+                    _jobs_envelope(
+                        {"id": 1, "run_id": 1001, "steps": [{"name": "build", "number": 1}], "labels": []},
+                        {"id": 2, "run_id": 1001, "steps": []},
+                    ),
+                    "",
+                ),
+            },
+        )
+
+        rows = self._fan_out(session, should_use_incremental_field=False)
+
+        assert [row["id"] for row in rows] == [3, 1, 2]
+        assert all("run_id" in row for row in rows)
+        # steps[] and labels[] are yielded nested (lists), not pre-flattened or
+        # stringified — the pipeline JSON-serializes them on write.
+        assert rows[0]["steps"] == [{"name": "test", "number": 1}]
+        assert rows[0]["labels"] == ["depot-ubuntu-latest-4"]
+        assert isinstance(rows[1]["steps"], list)
+        assert isinstance(rows[1]["labels"], list)
+
+    def test_child_request_uses_filter_all_and_per_page_only(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={1001: (_jobs_envelope({"id": 1, "run_id": 1001}), "")},
+        )
+
+        self._fan_out(session, should_use_incremental_field=False)
+
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert len(jobs_calls) == 1
+        assert "/repos/owner/repo/actions/runs/1001/jobs" in jobs_calls[0]
+        params = parse_qs(urlparse(jobs_calls[0]).query)
+        assert params["filter"] == ["all"]
+        assert params["per_page"] == ["100"]
+        # No params that would trip the parent's 1,000-result search cap or are
+        # unsupported on the jobs endpoint.
+        assert "since" not in params
+        assert "created" not in params
+        assert "sort" not in params
+        assert "state" not in params
+
+    def test_null_jobs_envelope_does_not_crash_or_truncate(self) -> None:
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-22T00:00:00Z", 1002), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1002: ({"total_count": 0, "jobs": None}, ""),  # run with no jobs yet
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        rows = self._fan_out(session, should_use_incremental_field=False)
+
+        # Empty/null envelope for one run contributes nothing; the other run's
+        # jobs still land.
+        assert [row["id"] for row in rows] == [1]
+
+    def test_incremental_fans_out_only_runs_at_or_above_cutoff(self) -> None:
+        cutoff = datetime(2026, 1, 22, tzinfo=UTC)
+        # Runs are newest-first. 1003 is above the cutoff; 1001 is below it.
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-25T00:00:00Z", 1003), _run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        rows = self._fan_out(
+            session,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="created_at",
+        )
+
+        # Only the run above the cutoff is fanned out; the older run is skipped
+        # entirely — no jobs request is made for it.
+        assert [row["id"] for row in rows] == [9]
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert any("/runs/1003/jobs" in c for c in jobs_calls)
+        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+
+    def test_first_incremental_sync_floors_fan_out_to_lookback_window(self) -> None:
+        # First incremental sync (watermark configured, nothing synced yet): the
+        # backfill is floored at settings' initial_lookback_days instead of crawling
+        # all history. Runs are newest-first; 1003 lands a day before the frozen now
+        # (inside any small window) and 1001 over a month back (outside).
+        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github._now_utc",
+            return_value=frozen_now,
+        ):
+            rows = self._fan_out(
+                session,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+            )
+
+        # Only the run inside the lookback window is fanned out; the older one is
+        # skipped without a jobs request.
+        assert [row["id"] for row in rows] == [9]
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert any("/runs/1003/jobs" in c for c in jobs_calls)
+        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+
+    def test_resume_starts_from_saved_parent_page_url(self) -> None:
+        saved_url = "https://api.github.com/repos/owner/repo/actions/runs?per_page=100&page=3"
+        manager = _make_manager(can_resume=True, resume_state=GithubResumeConfig(next_url=saved_url))
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-01-20T00:00:00Z", 1001)), "")],
+            jobs_by_run={1001: (_jobs_envelope({"id": 1, "run_id": 1001}), "")},
+        )
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+                return_value=session,
+            ),
+        ):
+            list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_jobs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert session.calls[0] == saved_url
+        manager.load_state.assert_called_once()
+
+
+class TestIterPages:
+    """Generic paginator shared by the fan-out: envelope unwrap, Link following,
+    and the per-parent page cap."""
+
+    def test_unwraps_envelope_and_follows_link(self) -> None:
+        responses = [
+            _make_response(
+                body={"total_count": 3, "jobs": [{"id": 1}]},
+                link='<https://api.github.com/x?page=2>; rel="next"',
+            ),
+            _make_response(body={"total_count": 3, "jobs": [{"id": 2}]}, link=""),
+        ]
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
+
+        assert [items for items, _url in pages] == [[{"id": 1}], [{"id": 2}]]
+
+    @parameterized.expand(
+        [
+            ("null_body", {"total_count": 0, "jobs": None}),
+            ("empty_dict", {}),
+            ("empty_list", {"total_count": 0, "jobs": []}),
+        ]
+    )
+    def test_empty_or_null_envelope_yields_no_pages(self, _name: str, body: Any) -> None:
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = [_make_response(body=body, link="")]
+            pages = list(_iter_pages("https://api.github.com/x", {}, "jobs", mock.Mock()))
+
+        assert pages == []
+
+    def test_page_cap_stops_and_logs(self) -> None:
+        # Every page links to a next page; the cap must halt pagination.
+        responses = [
+            _make_response(body={"jobs": [{"id": i}]}, link='<https://api.github.com/x?page=n>; rel="next"')
+            for i in range(5)
+        ]
+        logger = mock.Mock()
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            pages = list(
+                _iter_pages(
+                    "https://api.github.com/x",
+                    {},
+                    "jobs",
+                    logger,
+                    max_pages=2,
+                    page_cap_context={"repository": "owner/repo", "run_id": 1001},
+                )
+            )
+
+        assert len(pages) == 2
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.kwargs["max_pages"] == 2
+        assert logger.warning.call_args.kwargs["run_id"] == 1001
+
+    def test_iter_jobs_for_run_builds_path_and_passes_cap(self) -> None:
+        config = dataclasses.replace(GITHUB_ENDPOINTS["workflow_jobs"], max_pages_per_parent=1)
+        responses = [
+            _make_response(
+                body=_jobs_envelope({"id": 1, "run_id": 1001}),
+                link='<https://api.github.com/x?page=2>; rel="next"',
+            ),
+        ]
+        logger = mock.Mock()
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            jobs = list(_iter_jobs_for_run("owner/repo", 1001, {}, logger, config))
+
+        assert [job["id"] for job in jobs] == [1]
+        url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert "/repos/owner/repo/actions/runs/1001/jobs" in url
+        assert "filter=all" in url
+        # Cap of 1 page reached (a next link exists) → warning emitted.
+        logger.warning.assert_called_once()
+
+
+def _pat_config() -> GithubSourceConfig:
+    return GithubSourceConfig(
+        auth_method=GithubAuthMethodConfig(selection="pat", personal_access_token="test-token"),
+        repository="owner/repo",
+    )
+
+
+class TestGithubWebhookSource:
+    """The WebhookSource surface: event mapping, schema flags, and the create/
+    delete/info round-trips that mint and reconcile the repo webhook."""
+
+    def setup_method(self) -> None:
+        self.source = GithubSource()
+
+    def test_webhook_resource_map(self) -> None:
+        assert self.source.webhook_resource_map == {
+            "workflow_jobs": "workflow_job",
+            "workflow_runs": "workflow_run",
+        }
+
+    def test_webhook_template_identity(self) -> None:
+        template = self.source.webhook_template
+        assert template is not None
+        assert template.id == "template-warehouse-source-github"
+        assert template.type == "warehouse_source_webhook"
+
+    def test_get_schemas_marks_only_workflow_schemas_webhook_capable(self) -> None:
+        schemas = self.source.get_schemas(_pat_config(), team_id=1)
+        webhook_capable = {s.name for s in schemas if s.supports_webhooks}
+        assert webhook_capable == {"workflow_jobs", "workflow_runs"}
+
+    @parameterized.expand(
+        [
+            ("both", ["workflow_jobs", "workflow_runs"], ["workflow_job", "workflow_run"]),
+            ("jobs_only", ["workflow_jobs"], ["workflow_job"]),
+            ("drops_non_webhook_schemas", ["workflow_jobs", "issues", "commits"], ["workflow_job"]),
+        ]
+    )
+    def test_get_desired_webhook_events(self, _name: str, eligible: list[str], expected_events: list[str]) -> None:
+        assert self.source.get_desired_webhook_events(_pat_config(), eligible) == expected_events
+
+    def test_create_webhook_sends_secret_and_returns_it_as_extra_input(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def post(url: str, headers: Any = None, json: Any = None, timeout: Any = None) -> Any:
+            captured["url"] = url
+            captured["json"] = json
+            return _make_response(status=201, body={"id": 99})
+
+        session = mock.Mock()
+        session.post.side_effect = post
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.create_webhook(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
+
+        assert "/repos/owner/repo/hooks" in captured["url"]
+        sent_secret = captured["json"]["config"]["secret"]
+        assert sent_secret  # a non-empty secret is minted and handed to GitHub
+        assert result.success is True
+        # GitHub never echoes the secret, so create_webhook returns the minted one
+        # for the framework to persist as the hog function's signing_secret.
+        assert result.extra_inputs["signing_secret"] == sent_secret
+
+    def test_create_webhook_permission_error_falls_back_to_manual(self) -> None:
+        session = mock.Mock()
+        session.post.return_value = _make_response(status=403, body={"message": "Forbidden"})
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.create_webhook(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
+
+        assert result.success is False
+        assert result.error is not None
+        assert "admin:repo_hook" in result.error
+
+    def test_delete_webhook_lists_then_deletes_matching_hook(self) -> None:
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session.delete.return_value = _make_response(status=204)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.delete_webhook(_pat_config(), webhook_url, team_id=1)
+
+        assert result.success is True
+        delete_url = session.delete.call_args.args[0]
+        assert "/repos/owner/repo/hooks/42" in delete_url
+
+    def test_get_external_webhook_info_reports_existing_hook(self) -> None:
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200,
+            body=[
+                {
+                    "id": 42,
+                    "active": True,
+                    "events": ["workflow_job", "workflow_run"],
+                    "config": {"url": webhook_url},
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            info = self.source.get_external_webhook_info(_pat_config(), webhook_url, team_id=1)
+
+        assert info.exists is True
+        assert info.url == webhook_url
+        assert info.status == "active"
+        assert info.enabled_events == ["workflow_job", "workflow_run"]
+
+    def test_delete_webhook_treats_404_as_success(self) -> None:
+        # The hook is found in the list but DELETE races a concurrent removal and
+        # 404s — the desired end state, so it must not surface as a permission error.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session.delete.return_value = _make_response(status=404, body={"message": "Not Found"})
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.delete_webhook(_pat_config(), webhook_url, team_id=1)
+
+        assert result.success is True
+        assert result.error is None
+
+    def test_get_external_webhook_info_skips_hook_with_null_config(self) -> None:
+        # A hook whose `config` is present-but-null must be skipped, not crash the
+        # match loop — the real hook still resolves.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200,
+            body=[
+                {"id": 7, "config": None},
+                {"id": 42, "active": True, "events": ["workflow_job"], "config": {"url": webhook_url}},
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            info = self.source.get_external_webhook_info(_pat_config(), webhook_url, team_id=1)
+
+        assert info.exists is True
+        assert info.url == webhook_url

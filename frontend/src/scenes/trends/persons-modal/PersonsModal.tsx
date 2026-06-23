@@ -35,7 +35,7 @@ import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -396,6 +396,9 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
         : isSession && actor.person
           ? asDisplay(actor.person)
           : asDisplay(actor)
+    // The most human-readable distinct ID, for the person row's copyable subtitle
+    const bestDistinctId =
+        !isGroupType(actor) && !isSessionType(actor) ? pickBestPersonDistinctId(actor.distinct_ids) : undefined
 
     const onOpenRecordingClick = (): void => {
         if (!actor.matched_recordings) {
@@ -435,14 +438,14 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             <div className="font-bold flex items-start">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
-                            {actor.distinct_ids?.[0] && (
+                            {bestDistinctId && (
                                 <CopyToClipboardInline
-                                    explicitValue={actor.distinct_ids[0]}
+                                    explicitValue={bestDistinctId}
                                     iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
                                     className="text-xs text-secondary"
                                 >
-                                    {midEllipsis(actor.distinct_ids[0], 32)}
+                                    {midEllipsis(bestDistinctId, 32)}
                                 </CopyToClipboardInline>
                             )}
                         </>

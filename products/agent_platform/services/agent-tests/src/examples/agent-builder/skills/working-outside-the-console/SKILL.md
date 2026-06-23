@@ -18,7 +18,7 @@ tools, every navigation has to happen in text.
 
 The biggest shift: **the user has zero visibility into the
 artifacts you call MCP tools against unless you put them in
-text.** A `agent-applications-revisions-bundle-retrieve` that
+text.** A `posthog__agent-applications-revisions-bundle-retrieve` that
 returns 5 files in PostHog Code can be opened in the panel; over
 MCP, you have to summarize.
 

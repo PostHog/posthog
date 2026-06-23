@@ -22,7 +22,13 @@ class KlaviyoRetryableError(Exception):
 
 @dataclasses.dataclass
 class KlaviyoResumeConfig:
-    next_url: str
+    # Next page URL to fetch. None means "start the list at its first page" — used when the bookmark
+    # advances to a fan-out list whose first page URL isn't known until it's built.
+    next_url: str | None = None
+    # The fan-out list currently being processed. A stable list-ID bookmark (not a positional index)
+    # so lists added/removed between a crash and the retry can't resume us into the wrong list. None
+    # for the standard (non-fan-out) endpoints.
+    list_id: str | None = None
 
 
 def _format_datetime_z(dt: datetime) -> str:
@@ -153,6 +159,111 @@ def _build_initial_params(
     return params
 
 
+@retry(
+    retry=retry_if_exception_type((KlaviyoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_page(
+    session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger
+) -> dict:
+    response = session.get(page_url, headers=headers, timeout=60)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+
+    if not response.ok:
+        # 404 is expected and handled during the list_profiles fan-out (a list deleted mid-sync).
+        log = logger.warning if response.status_code == 404 else logger.error
+        log(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
+        response.raise_for_status()
+
+    return response.json()
+
+
+def _iter_list_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
+    """Page through /lists and yield each list's id, following the cursor links."""
+    # Klaviyo caps the /lists endpoint at a page size of 10 (larger values 400).
+    url = _build_url(f"{KLAVIYO_BASE_URL}/lists", {"page[size]": 10})
+    while True:
+        data = _fetch_page(session, url, headers, logger)
+        for item in data.get("data", []):
+            yield item["id"]
+
+        next_url = data.get("links", {}).get("next")
+        if not next_url:
+            break
+        url = next_url
+
+
+def _get_list_profile_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
+) -> Iterator[Any]:
+    """Fan out over every list, materializing list<->profile membership as {list_id, profile_id} rows.
+
+    Klaviyo's `/lists/{id}/relationships/profiles` returns bare {type, id} reference stubs, so each row
+    is built explicitly rather than flattened. Full refresh only — the relationship API has no
+    server-side incremental filter — so re-pulled rows on resume are deduped by the [list_id, profile_id]
+    primary key on merge.
+    """
+    list_ids = list(_iter_list_ids(session, headers, logger))
+
+    # Resolve the saved list-ID bookmark to the slice of lists still to process. If the bookmarked list
+    # no longer exists (deleted between runs), start over from the first list — merge dedupes the
+    # re-pulled rows on the primary key. `resume_url` is consumed by the first list only.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = list_ids
+    resume_url: str | None = None
+    if resume is not None and resume.list_id is not None and resume.list_id in list_ids:
+        remaining = list_ids[list_ids.index(resume.list_id) :]
+        resume_url = resume.next_url
+        logger.debug(f"Klaviyo: resuming list_profiles from list_id={resume.list_id}, url={resume_url}")
+
+    for index, list_id in enumerate(remaining):
+        # The relationships endpoint caps page size at 100 (larger values 400).
+        url = resume_url or _build_url(
+            f"{KLAVIYO_BASE_URL}/lists/{list_id}/relationships/profiles", {"page[size]": 100}
+        )
+        resume_url = None  # only the resumed-into list uses the saved URL; the rest start fresh
+
+        try:
+            while True:
+                data = _fetch_page(session, url, headers, logger)
+                items = data.get("data", [])
+                next_url = data.get("links", {}).get("next")
+
+                for item in items:
+                    batcher.batch({"list_id": list_id, "profile_id": item["id"]})
+
+                    if batcher.should_yield():
+                        yield batcher.get_table()
+                        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the
+                        # last page rather than skipping it — merge dedupes on the primary key.
+                        if next_url:
+                            resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=next_url, list_id=list_id))
+
+                if not next_url:
+                    break
+                url = next_url
+        except requests.HTTPError as exc:
+            # A list deleted between enumeration and this fetch 404s. Skip it rather than failing the
+            # whole sync — the membership is genuinely gone. Any other HTTP error is re-raised.
+            if exc.response is not None and exc.response.status_code == 404:
+                logger.warning(f"Klaviyo: list {list_id} not found while fetching profiles, skipping")
+            else:
+                raise
+
+        # Advance the bookmark to the next list so a crash between lists resumes correctly. Its first
+        # page URL is built fresh when the loop reaches it.
+        if index + 1 < len(remaining):
+            resumable_source_manager.save_state(KlaviyoResumeConfig(next_url=None, list_id=remaining[index + 1]))
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -165,6 +276,15 @@ def get_rows(
     config = KLAVIYO_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    # One session reused across every page (and, for fan-out, every list) so urllib3 keeps the
+    # connection alive instead of re-handshaking per request.
+    session = make_tracked_session()
+
+    if config.fan_out_over_lists:
+        yield from _get_list_profile_rows(session, headers, logger, batcher, resumable_source_manager)
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+        return
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -173,32 +293,14 @@ def get_rows(
     # Check for resume state
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if resume_config is not None:
+    if resume_config is not None and resume_config.next_url:
         url = resume_config.next_url
         logger.debug(f"Klaviyo: resuming from URL: {url}")
     else:
         url = _build_url(f"{KLAVIYO_BASE_URL}{config.path}", params)
 
-    @retry(
-        retry=retry_if_exception_type((KlaviyoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
     while True:
-        data = fetch_page(url)
+        data = _fetch_page(session, url, headers, logger)
 
         items = data.get("data", [])
         if not items:
@@ -250,7 +352,7 @@ def klaviyo_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
         ),
-        primary_keys=["id"],
+        primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

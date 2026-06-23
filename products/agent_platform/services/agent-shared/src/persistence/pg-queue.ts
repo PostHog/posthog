@@ -576,6 +576,12 @@ function buildSessionFilter(
         params.push(opts.revisionId)
         where.push(`revision_id = $${params.length}`)
     }
+    if (opts.agentUserId) {
+        // Match the agent_user_id stamped on the principal JSON. Only slack
+        // sessions carry it today; other kinds simply won't match.
+        params.push(opts.agentUserId)
+        where.push(`principal->>'agent_user_id' = $${params.length}`)
+    }
     if (opts.createdAfter) {
         params.push(opts.createdAfter)
         where.push(`created_at >= $${params.length}`)

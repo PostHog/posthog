@@ -10,7 +10,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    InsightQueryNode,
+    LifecycleQuery,
+    NodeKind,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
@@ -19,25 +26,43 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
+const pageviewSeries = [
+    {
+        kind: NodeKind.EventsNode,
+        name: '$pageview',
+        event: '$pageview',
+        math: BaseMathType.TotalCount,
+    },
+] as const
+
 function makeTrendsQuery(
     display?: ChartDisplayType,
     trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {}
 ): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                name: '$pageview',
-                event: '$pageview',
-                math: BaseMathType.TotalCount,
-            },
-        ],
+        series: [...pageviewSeries],
         trendsFilter: {
             display,
             ...trendsFilter,
         },
     }
+}
+
+function makeRetentionQuery(): RetentionQuery {
+    return { kind: NodeKind.RetentionQuery, retentionFilter: {} }
+}
+
+function makeStickinessQuery(): StickinessQuery {
+    return { kind: NodeKind.StickinessQuery, series: [...pageviewSeries] }
+}
+
+function makeLifecycleQuery(): LifecycleQuery {
+    return { kind: NodeKind.LifecycleQuery, series: [...pageviewSeries] }
+}
+
+function getSectionTitles(): string[] {
+    return screen.getAllByRole('heading', { level: 5 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim() ?? '')
 }
 
 async function openOptionsMenu(): Promise<void> {
@@ -47,8 +72,8 @@ async function openOptionsMenu(): Promise<void> {
 
 function getDisplaySectionItems(): string[] {
     const displaySection = screen.getByTestId('options-display-section').closest('section')!
-    const listItems = within(displaySection).getAllByRole('listitem')
-    return listItems.map((li) => li.textContent?.trim() || '')
+    const listItems = within(displaySection).queryAllByRole('listitem')
+    return listItems.map((li) => li.textContent?.trim() || '').filter(Boolean)
 }
 
 describe('InsightDisplayConfig', () => {
@@ -67,7 +92,7 @@ describe('InsightDisplayConfig', () => {
         cleanup()
     })
 
-    function setupAndRender(query: TrendsQuery): void {
+    function setupAndRender(query: InsightQueryNode): void {
         insightLogic(insightProps).mount()
         insightDataLogic(insightProps).mount()
         const vizDataLogic = insightVizDataLogic(insightProps)
@@ -82,6 +107,155 @@ describe('InsightDisplayConfig', () => {
             </Provider>
         )
     }
+
+    describe('Options menu sections per insight/chart type', () => {
+        // For each type: the section headers in the Options menu, and the toggles inside the "Display"
+        // section. Empty `displayItems` means the Display header renders with no options under it.
+        const cases: [string, InsightQueryNode, { sections: string[]; displayItems: string[] }][] = [
+            [
+                'trends line graph',
+                makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
+                {
+                    sections: [
+                        'Display',
+                        'Color customization by',
+                        'Y-axis unit',
+                        'Y-axis scale',
+                        'Statistical analysis',
+                        'Axis labels',
+                    ],
+                    displayItems: [
+                        'Show values on series',
+                        'Show legend',
+                        'Show alert threshold lines',
+                        'Show multiple Y-axes',
+                        'Show trend lines',
+                        'Show annotations',
+                    ],
+                },
+            ],
+            [
+                'trends bar chart',
+                makeTrendsQuery(ChartDisplayType.ActionsBar),
+                {
+                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show legend',
+                        'Show alert threshold lines',
+                        'Show multiple Y-axes',
+                        'Show trend lines',
+                        'Show annotations',
+                    ],
+                },
+            ],
+            [
+                'trends area graph',
+                makeTrendsQuery(ChartDisplayType.ActionsAreaGraph),
+                {
+                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show legend',
+                        'Show alert threshold lines',
+                        'Show multiple Y-axes',
+                        'Show trend lines',
+                        'Show annotations',
+                    ],
+                },
+            ],
+            [
+                'trends number',
+                makeTrendsQuery(ChartDisplayType.BoldNumber),
+                { sections: ['Display', 'Unit'], displayItems: [] },
+            ],
+            [
+                'trends pie',
+                makeTrendsQuery(ChartDisplayType.ActionsPie),
+                {
+                    sections: ['Display', 'Unit'],
+                    displayItems: [
+                        'Show values on series',
+                        'Show as % of total',
+                        'Show legend',
+                        'Show total below chart',
+                    ],
+                },
+            ],
+            [
+                'trends table',
+                makeTrendsQuery(ChartDisplayType.ActionsTable),
+                { sections: ['Display', 'Unit'], displayItems: [] },
+            ],
+            [
+                'trends bar value (horizontal)',
+                makeTrendsQuery(ChartDisplayType.ActionsBarValue),
+                { sections: ['Display', 'X-axis unit', 'Axis labels'], displayItems: ['Show values on series'] },
+            ],
+            [
+                'trends world map',
+                makeTrendsQuery(ChartDisplayType.WorldMap),
+                { sections: ['Display', 'Unit'], displayItems: [] },
+            ],
+            [
+                'box plot',
+                makeTrendsQuery(ChartDisplayType.BoxPlot),
+                { sections: ['Display', 'Unit', 'Y-axis scale'], displayItems: ['Show legend', 'Exclude outliers'] },
+            ],
+            [
+                'slope graph',
+                makeTrendsQuery(ChartDisplayType.SlopeGraph),
+                { sections: ['Display', 'Unit'], displayItems: ['Show legend'] },
+            ],
+            [
+                'retention',
+                makeRetentionQuery(),
+                {
+                    sections: ['Display', 'On dashboards', 'Cohort labels start at'],
+                    displayItems: ['Show trend lines'],
+                },
+            ],
+            [
+                'stickiness',
+                makeStickinessQuery(),
+                {
+                    sections: ['Display'],
+                    displayItems: ['Show values on series', 'Show legend', 'Show multiple Y-axes'],
+                },
+            ],
+            [
+                'lifecycle',
+                makeLifecycleQuery(),
+                {
+                    sections: ['Display'],
+                    displayItems: ['Stack bars', 'Show values on series', 'Show percentages on series', 'Show legend'],
+                },
+            ],
+        ]
+
+        it.each(cases)('%s shows the expected sections and display options', async (_name, query, expected) => {
+            setupAndRender(query)
+            await openOptionsMenu()
+
+            expect(getSectionTitles()).toEqual(expected.sections)
+            expect(getDisplaySectionItems()).toEqual(expected.displayItems)
+        })
+    })
+
+    describe('section header tooltips', () => {
+        it('renders an info tooltip on tooltip-backed headers but not on plain ones', async () => {
+            setupAndRender(makeRetentionQuery())
+            await openOptionsMenu()
+
+            const tooltipHeader = screen.getByText('Cohort labels start at').closest('h5')!
+            expect(tooltipHeader.querySelector('svg')).toBeInTheDocument()
+
+            const plainHeader = screen.getByText('On dashboards').closest('h5')!
+            expect(plainHeader.querySelector('svg')).not.toBeInTheDocument()
+        })
+    })
 
     describe('box plot display options', () => {
         it('only shows "Show legend" in the Display section', async () => {

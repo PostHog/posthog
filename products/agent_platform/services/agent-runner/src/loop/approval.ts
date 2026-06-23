@@ -26,23 +26,25 @@ import {
     AgentSession,
     ApprovalRequest,
     ApprovalStore,
+    type ApprovalType,
     AssistantMessageRecord,
     CLIENT_KIND_POSTHOG_CODE,
     ConversationMessage,
     hashCanonicalArgs,
+    parseApprovalDecidedMarker,
     readSessionClientKind,
 } from '@posthog/agent-shared'
 
-import { parseApprovalDecidedMarker } from './approval-marker'
 import type { RealToolExecute, ToolResultDetails } from './build-agent-tools'
 
-const APPROVER_HINT_TEAM_ADMINS = 'an authorized admin on this team'
+// Who the model should tell the user to expect a decision from, by approval type.
+const APPROVER_HINT_PRINCIPAL = 'you — the person who started this session'
+const APPROVER_HINT_AGENT = 'an owner or admin of this agent'
 
 /** `ToolRef.approval_policy` after Zod parsing. */
 export interface ApprovalPolicy {
-    approvers: readonly string[]
+    type: ApprovalType
     allow_edit: boolean
-    allow_agent_approver: boolean
     ttl_ms: number
 }
 
@@ -95,9 +97,8 @@ export async function queueApprovalResult(input: {
             timestamp: Date.now(),
         },
         approver_scope: {
-            approvers: [...input.policy.approvers],
+            type: input.policy.type,
             allow_edit: input.policy.allow_edit,
-            allow_agent_approver: input.policy.allow_agent_approver,
         },
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
@@ -115,7 +116,7 @@ export async function queueApprovalResult(input: {
         state: 'queued',
     }
     if (!suppressApprovalChannel) {
-        approval.approver_hint = APPROVER_HINT_TEAM_ADMINS
+        approval.approver_hint = input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL
         approval.approval_url = buildUrl(upsert.request.id)
     }
     if (!upsert.deduped && previous && isTerminal(previous.state)) {
@@ -124,7 +125,7 @@ export async function queueApprovalResult(input: {
 
     return {
         content: [{ type: 'text', text: JSON.stringify({ approval }) }],
-        details: { queued: true, requestId: upsert.request.id },
+        details: { queued: true, requestId: upsert.request.id, deduped: upsert.deduped },
         terminate: false,
     }
 }

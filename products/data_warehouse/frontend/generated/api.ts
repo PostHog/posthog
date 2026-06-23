@@ -31,6 +31,7 @@ import type {
     PaginatedQueryTabStateListApi,
     PaginatedTableListApi,
     PaginatedViewLinkListApi,
+    PaginatedWarehouseColumnAnnotationListApi,
     PatchedDataWarehouseSavedQueryApi,
     PatchedDataWarehouseSavedQueryDraftApi,
     PatchedDataWarehouseSavedQueryFolderApi,
@@ -38,6 +39,7 @@ import type {
     PatchedQueryTabStateApi,
     PatchedTableApi,
     PatchedViewLinkApi,
+    PatchedWarehouseColumnAnnotationApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
@@ -46,6 +48,8 @@ import type {
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
+    WarehouseColumnAnnotationApi,
+    WarehouseColumnAnnotationsListParams,
     WarehouseModelPathsListParams,
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
@@ -768,6 +772,164 @@ export const queryTabStateUserRetrieve = async (
     return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseColumnAnnotationsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnAnnotationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_annotations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsList = async (
+    projectId: string,
+    params?: WarehouseColumnAnnotationsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnAnnotationListApi> => {
+    return apiMutator<PaginatedWarehouseColumnAnnotationListApi>(
+        getWarehouseColumnAnnotationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnAnnotationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsCreate = async (
+    projectId: string,
+    warehouseColumnAnnotationApi: NonReadonly<WarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseColumnAnnotationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsUpdate = async (
+    projectId: string,
+    id: string,
+    warehouseColumnAnnotationApi: NonReadonly<WarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedWarehouseColumnAnnotationApi?: NonReadonly<PatchedWarehouseColumnAnnotationApi>,
+    options?: RequestInit
+): Promise<WarehouseColumnAnnotationApi> => {
+    return apiMutator<WarehouseColumnAnnotationApi>(getWarehouseColumnAnnotationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWarehouseColumnAnnotationApi),
+    })
+}
+
+export const getWarehouseColumnAnnotationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_annotations/${id}/`
+}
+
+/**
+ * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
+ *
+ * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a
+ * user edit (`is_user_edited=True`), which protects the row from being overwritten by automatic
+ * enrichment.
+ */
+export const warehouseColumnAnnotationsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseColumnAnnotationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
