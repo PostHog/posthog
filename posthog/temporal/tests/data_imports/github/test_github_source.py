@@ -1133,6 +1133,37 @@ class TestFanOutJobs:
         assert any("/runs/1003/jobs" in c for c in jobs_calls)
         assert not any("/runs/1001/jobs" in c for c in jobs_calls)
 
+    def test_first_incremental_sync_floors_fan_out_to_lookback_window(self) -> None:
+        # First incremental sync (watermark configured, nothing synced yet): the
+        # backfill is floored at settings' initial_lookback_days instead of crawling
+        # all history. Runs are newest-first; 1003 lands a day before the frozen now
+        # (inside any small window) and 1001 over a month back (outside).
+        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github._now_utc",
+            return_value=frozen_now,
+        ):
+            rows = self._fan_out(
+                session,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+            )
+
+        # Only the run inside the lookback window is fanned out; the older one is
+        # skipped without a jobs request.
+        assert [row["id"] for row in rows] == [9]
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert any("/runs/1003/jobs" in c for c in jobs_calls)
+        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+
     def test_resume_starts_from_saved_parent_page_url(self) -> None:
         saved_url = "https://api.github.com/repos/owner/repo/actions/runs?per_page=100&page=3"
         manager = _make_manager(can_resume=True, resume_state=GithubResumeConfig(next_url=saved_url))

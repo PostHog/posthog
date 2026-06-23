@@ -28,6 +28,11 @@ class GithubEndpointConfig:
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway
     # pagination. A structured warning is logged if the cap is reached.
     max_pages_per_parent: int = 50
+    # First-sync floor: when set, the very first incremental sync only fans out
+    # over parents created within this many days, instead of crawling the whole
+    # repo history. The webhook carries steady-state, so only the one-off backfill
+    # needs a bound; later syncs advance from the stored watermark and ignore this.
+    initial_lookback_days: Optional[int] = None
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -159,6 +164,12 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # filter=all returns jobs across every run_attempt (retries), not just the
         # latest execution — required for retry/runner-utilization analysis.
         extra_params={"filter": "all"},
+        # One /jobs call per run makes an unbounded first sync a multi-day,
+        # rate-limited crawl of the whole repo history (the OAuth budget is shared
+        # with Tasks/Code/deploys). A busy repo merges ~100 PRs/day, so even a few
+        # days seeds plenty of rows to start from; the webhook carries everything
+        # after. Keep the initial backfill tiny — just enough to not start empty.
+        initial_lookback_days=3,
     ),
 }
 

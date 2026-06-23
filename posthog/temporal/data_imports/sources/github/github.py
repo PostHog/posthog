@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
@@ -172,6 +172,11 @@ def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def _now_utc() -> datetime:
+    """Wall clock as UTC. Wrapped so the first-sync lookback floor is patchable in tests."""
+    return datetime.now(UTC)
 
 
 def _is_older_than_cutoff(value: Any, cutoff: datetime) -> bool:
@@ -409,6 +414,18 @@ def _fan_out_get_rows(
 
     parent_field = incremental_field or parent_config.default_incremental_field or "created_at"
     parent_cutoff = db_incremental_field_last_value if should_use_incremental_field else None
+
+    # First incremental sync (watermark set up, but nothing synced yet): floor the
+    # backfill at a recent window instead of fanning out over the repo's entire run
+    # history. Scoped to the incremental first run on purpose — an explicit full
+    # refresh still pulls everything, and later syncs advance from their watermark.
+    if (
+        should_use_incremental_field
+        and db_incremental_field_last_value is None
+        and child_config.initial_lookback_days is not None
+    ):
+        parent_cutoff = _now_utc() - timedelta(days=child_config.initial_lookback_days)
+        logger.debug(f"Github: flooring {endpoint} first-sync fan-out at {parent_cutoff.isoformat()}")
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
