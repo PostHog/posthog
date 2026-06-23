@@ -1217,6 +1217,25 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form.
+            str(
+                pymysql.err.OperationalError(
+                    1130,
+                    "Host 'ec2-52-4-194-122.compute-1.amazonaws.com' is not allowed to connect to this MySQL server",
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different host, same stable phrase.
+            "OperationalError: (1130, \"Host '10.0.1.5' is not allowed to connect to this MySQL server\")",
+        ],
+    )
+    def test_host_not_privileged_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-not-privileged error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",

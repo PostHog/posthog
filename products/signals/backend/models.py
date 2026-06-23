@@ -105,7 +105,7 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P2)
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -421,6 +421,10 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+        indexes = [
+            # Billing and PR-URL lookups traverse this bridge by report filtered on relationship.
+            models.Index(fields=["report", "relationship"], name="signals_report_task_rel_idx"),
+        ]
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
@@ -471,14 +475,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
-    # 180 = every 3 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # 1440 = every 24 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
-    # Default chosen for run economics: most runs close out without a finding, so hourly mostly
-    # pays to re-confirm "nothing new"; a 3h cadence cuts per-scout spend materially with
-    # negligible detection latency for non-spike findings. Tune per scout via the config API.
+    # Default chosen for run economics: most runs close out without a finding, so a tighter
+    # cadence mostly pays to re-confirm "nothing new"; a daily cadence cuts per-scout spend
+    # materially with negligible detection latency for non-spike findings. The flag's
+    # `enabled_interval_minutes` can still override this per launch posture, and any scout is
+    # tunable per row via the config API.
     run_interval_minutes = models.PositiveIntegerField(
-        default=180,
-        db_default=180,
+        default=1440,
+        db_default=1440,
         validators=[MinValueValidator(10), MaxValueValidator(43200)],
     )
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every

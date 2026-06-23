@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -131,6 +132,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 
 # Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
+NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -567,20 +569,53 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
 
-        trigger_refresh = False
-        # Update the validated_data with incremental fields
-        if sync_type in (
+        # The sync type the schema will end up with: the new one if the request changes it, else the
+        # existing one. Incremental-style config (incremental_field, incremental_field_type,
+        # primary_key_columns, lookback) is keyed off this so a PATCH that edits only those fields —
+        # without re-sending sync_type — still persists. Previously the whole block below was gated on
+        # `sync_type` being in the request, so a bare `{"incremental_field": ...}` PATCH was silently
+        # dropped while the 200 response still echoed the submitted value from the in-memory config.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        incremental_style_types = (
             ExternalDataSchema.SyncType.INCREMENTAL,
             ExternalDataSchema.SyncType.APPEND,
             ExternalDataSchema.SyncType.WEBHOOK,
-        ):
+        )
+
+        # A bare edit (no sync_type in the request) of sync-config fields on a schema whose sync type
+        # can't apply them would otherwise be an unpersisted no-op that still returns 200 — only the
+        # incremental-style branch below writes these, and a non-incremental schema falls through it.
+        # Reject it so the caller gets a clear error instead of a response that looks applied but isn't.
+        # (primary_key_columns is included: CDC/xmin do use it, but only when sync_type is sent, so a
+        # bare PK edit on those is dropped just like on full_refresh.)
+        if "sync_type" not in data and resulting_sync_type not in incremental_style_types:
+            unappliable_fields = [
+                field
+                for field in (
+                    "incremental_field",
+                    "incremental_field_type",
+                    "incremental_field_lookback_seconds",
+                    "primary_key_columns",
+                )
+                if field in data and data.get(field) is not None
+            ]
+            if unappliable_fields:
+                raise ValidationError(
+                    f"{', '.join(unappliable_fields)} cannot be applied to a schema with sync type "
+                    f"{resulting_sync_type or 'not set'} on its own. "
+                    "Include sync_type in the same request to change the sync type."
+                )
+
+        trigger_refresh = False
+        # Update the validated_data with incremental fields
+        if resulting_sync_type in incremental_style_types:
             payload = instance.sync_type_config
 
             if "primary_key_columns" in data:
                 new_pk = data.get("primary_key_columns")
                 old_pk = instance.sync_type_config.get("primary_key_columns")
                 if (
-                    sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
                     and new_pk != old_pk
                     and instance.table is not None
                 ):
@@ -593,7 +628,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Detect incremental field changes before mutating payload
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
-            if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
                 if "incremental_field" in data:
                     incremental_field_changed = (
                         payload.get("incremental_field") != incremental_field
@@ -607,7 +642,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
             # idempotent. `null` clears it.
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+            if (
+                resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and "incremental_field_lookback_seconds" in data
+            ):
                 payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
@@ -670,10 +708,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            raise ValidationError(
-                "A 1-minute sync frequency is only available for CDC schemas. "
-                "The fastest frequency for other sync types is 5 minutes."
-            )
+            if sync_frequency:
+                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
+                # contradiction, so reject it.
+                raise ValidationError(
+                    "A 1-minute sync frequency is only available for CDC schemas. "
+                    "The fastest frequency for other sync types is 5 minutes."
+                )
+            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
+            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
+            # the sync_frequency handling below.
+            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -715,6 +760,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 f"CDC requires a primary key on table '{instance.name}'. "
                 "Add a primary key on the source table and retry."
             )
+
+        # Switching sync type across the xmin boundary changes the physical Delta schema: xmin
+        # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
+        # Reusing the existing Delta table fails the write — the column is missing on the way in, or
+        # lingers on the way out — so force a full resync to rebuild the table from scratch.
+        if (
+            "sync_type" in data
+            and sync_type != instance.sync_type
+            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
+        ):
+            if is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Monthly sync limit reached. Please increase your billing limit before changing "
+                    "the sync type — a full re-sync would be required."
+                )
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
+            validated_data["sync_type_config"]["reset_pipeline"] = True
+            if should_sync if should_sync is not None else instance.should_sync:
+                trigger_refresh = True
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
@@ -1010,7 +1074,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "incremental_fields",
         "delete_data",
     ]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
@@ -1043,6 +1107,30 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.soft_delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(parameters=[LogEntryRequestSerializer])
+    @action(methods=["GET"], detail=True, filter_backends=[])
+    def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        param_serializer = LogEntryRequestSerializer(data=request.query_params)
+        if not param_serializer.is_valid():
+            raise ValidationError(param_serializer.errors)
+        params = param_serializer.validated_data
+        data = fetch_log_entries(
+            team_id=self.team_id,
+            log_source="external_data_jobs",
+            log_source_id=str(instance.id),
+            limit=params["limit"],
+            instance_id=params.get("instance_id"),
+            after=params.get("after"),
+            before=params.get("before"),
+            search=params.get("search"),
+            level=params["level"].split(",") if params.get("level") else None,
+        )
+        page = self.paginate_queryset(data)
+        if page is not None:
+            return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
+        return Response(LogEntrySerializer(data, many=True).data)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):

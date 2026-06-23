@@ -1344,6 +1344,8 @@ export interface _LogAttributeValueApi {
     id: string
     /** Display name — currently identical to `id`. */
     name: string
+    /** Number of log records with this attribute value, scoped to the current date range, service, and resource filters. */
+    count?: number
 }
 
 export interface _LogsValuesResponseApi {

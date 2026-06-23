@@ -57,6 +57,8 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
+                        - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
@@ -143,6 +145,16 @@ jobs:
 
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint
+
+            # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
+            # imports. Presence-checked so branches without the guard yet are unaffected.
+            - name: Check ingestion boundaries
+              run: |
+                  if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
+                      node nodejs/bin/check-ingestion-boundaries.mjs
+                  else
+                      echo "Ingestion boundary guard not present on this branch; skipping."
+                  fi
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
@@ -249,16 +261,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -448,16 +452,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'

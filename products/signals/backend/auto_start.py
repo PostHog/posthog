@@ -16,7 +16,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -173,7 +173,7 @@ async def maybe_autostart_implementation_task(
 
     team = await Team.objects.select_related("organization").aget(id=team_id)
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
+    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P4
 
     task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
         team_id, priority.priority, reviewers_content, team_default_priority
@@ -185,27 +185,27 @@ async def maybe_autostart_implementation_task(
     if repository and team_config:
         base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
 
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
+    created = await database_sync_to_async(tasks_facade.create_and_run_task, thread_sensitive=False)(
         team=team,
         title=title,
         description=_build_autostart_task_description(
             report_id=report_id, summary=summary, repository=repository, priority=priority
         ),
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,
         branch=base_branch,
         signal_report_id=report_id,
         posthog_mcp_scopes="read_only",
         interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+        ai_stage="implementation",
     )
-    task_run = await task.runs.order_by("-created_at").afirst()
-    if task_run is None:
-        raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
+    if created.latest_run is None:
+        raise RuntimeError(f"Task {created.task_id} auto-started without producing a TaskRun")
 
     await SignalReportTask.objects.acreate(
         team_id=team_id,
         report_id=report_id,
-        task=task,
+        task_id=created.task_id,
         relationship=SignalReportTask.Relationship.IMPLEMENTATION,
     )
