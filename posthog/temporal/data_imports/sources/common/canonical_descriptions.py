@@ -28,13 +28,19 @@ class CanonicalEndpoint(TypedDict, total=False):
 CanonicalDescriptions = dict[str, CanonicalEndpoint]
 
 
-def get_canonical_descriptions_for_source(source_type: "ExternalDataSourceType") -> CanonicalDescriptions:
-    """Resolve a source's curated descriptions via the registry. ``{}`` when the source ships none."""
+def get_canonical_descriptions_for_source(source_type: "ExternalDataSourceType | str") -> CanonicalDescriptions:
+    """Resolve a source's curated descriptions via the registry. ``{}`` when the source ships none.
+
+    Accepts the raw `ExternalDataSource.source_type` string (or the enum) and normalizes it; an
+    unknown value resolves to ``{}``.
+    """
     # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
     from posthog.temporal.data_imports.sources.common.registry import SourceRegistry  # noqa: PLC0415
 
+    from products.data_warehouse.backend.types import ExternalDataSourceType  # noqa: PLC0415
+
     try:
-        source = SourceRegistry.get_source(source_type)
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception:
         return {}
     try:
