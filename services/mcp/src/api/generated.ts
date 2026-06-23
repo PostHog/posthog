@@ -15756,6 +15756,7 @@ export namespace Schemas {
      * * `Metronome` - Metronome
      * * `Jobber` - Jobber
      * * `Knock` - Knock
+     * * `Leexi` - Leexi
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16398,6 +16399,7 @@ export namespace Schemas {
       Metronome: 'Metronome',
       Jobber: 'Jobber',
       Knock: 'Knock',
+      Leexi: 'Leexi',
     } as const;
 
     /**
@@ -17046,7 +17048,8 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22175,7 +22178,8 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -26107,6 +26111,12 @@ export namespace Schemas {
       model_version: string;
       /** Number of links this model produced in the run. */
       link_count: number;
+      /** Links from this model in the 'high' tier. */
+      high_confidence: number;
+      /** Links from this model in the 'medium' tier. */
+      medium_confidence: number;
+      /** Links from this model in the 'low' tier. */
+      low_confidence: number;
     }
 
     export interface IdentityMatchingRun {
@@ -26116,6 +26126,16 @@ export namespace Schemas {
       computed_at: string;
       /** Link counts per scoring model in this run. */
       models: IdentityMatchingRunModelCount[];
+      /** Total links across all models in this run. */
+      total_links: number;
+      /** Distinct anonymous visitors that were linked. */
+      unique_orphans: number;
+      /** Links where a paid ad click was recovered for an anonymous visitor. */
+      paid_touches: number;
+      /** Earliest link computed_at in the run (UTC). */
+      first_link_at: string;
+      /** Latest link computed_at in the run (UTC). */
+      last_link_at: string;
     }
 
     export interface IdentityMatchingRunsResponse {
@@ -47448,7 +47468,8 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48123,7 +48144,8 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50478,6 +50500,8 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' that day. */
       successes: number;
+      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      failures: number;
     }
 
     export interface WorkflowHealthItem {
@@ -50505,7 +50529,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent run with conclusion 'failure' started, or null.
+         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
          * @nullable
          */
       last_failure_at: string | null;
@@ -58386,6 +58410,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */

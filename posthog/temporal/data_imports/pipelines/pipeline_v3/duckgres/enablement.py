@@ -30,6 +30,11 @@ def duckgres_sink_team_ids() -> list[int] | None:
     Runs sync (Django ORM + flag evaluation); call via sync_to_async from the
     consumer. Raises on app-DB errors — the caller keeps its previous cached
     set so a transient app-DB blip doesn't blind the sink.
+
+    The flag is evaluated only-locally (no per-team network round-trip) with the
+    org/project group properties supplied inline, matching the data-warehouse-scene
+    gate and the legacy copy-workflow gate. A team that can't be resolved locally
+    evaluates falsy and is skipped (safe direction).
     """
     if is_dev_mode():
         return None
@@ -52,6 +57,11 @@ def duckgres_sink_team_ids() -> list[int] | None:
                 DUCKGRES_BATCH_SINK_FLAG,
                 str(team_uuid),
                 groups={"organization": str(org_id), "project": str(team_id)},
+                group_properties={
+                    "organization": {"id": str(org_id)},
+                    "project": {"id": str(team_id)},
+                },
+                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             ):
                 enabled.append(team_id)

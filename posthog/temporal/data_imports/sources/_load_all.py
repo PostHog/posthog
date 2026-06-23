@@ -307,6 +307,7 @@ from .lago.source import LagoSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .leadfeeder.source import LeadfeederSource
+from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
