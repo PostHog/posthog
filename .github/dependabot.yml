@@ -1,8 +1,9 @@
+# Version updates are disabled here (open-pull-requests-limit: 0 everywhere); they're owned
+# by Renovate (.github/renovate.json5). schedule is a required key, so it stays on every entry.
+# cooldown was removed: it applies to version updates only, so it's a no-op under limit 0.
 version: 2
 updates:
     - package-ecosystem: 'github-actions'
-      cooldown:
-          default-days: 7
       directory: '/'
       schedule:
           interval: weekly
@@ -12,8 +13,6 @@ updates:
     # Without this, automatic security updates may try to update from subdirectories
     # which fails with "Updating workspaces from inside a workspace subdirectory is not supported"
     - package-ecosystem: 'npm'
-      cooldown:
-          default-days: 7
       directory: '/'
       schedule:
           interval: weekly
@@ -23,16 +22,11 @@ updates:
     # uv updates both pyproject.toml and uv.lock
     - package-ecosystem: 'uv'
       directory: '/'
-      open-pull-requests-limit: 0
       schedule:
           interval: weekly
+      open-pull-requests-limit: 0
       reviewers:
           - 'PostHog/team-devex'
-
-      # Cooldown period - avoid packages released in last 7 days (applies to version updates only)
-      cooldown:
-          default-days: 7
-
       ignore:
           # Exclude Django core from updates
           - dependency-name: 'django'
