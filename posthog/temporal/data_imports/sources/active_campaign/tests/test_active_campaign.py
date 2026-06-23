@@ -268,6 +268,7 @@ class TestValidateCredentials:
             mock_session = MockSession.return_value
             response = MagicMock()
             response.status_code = status_code
+            response.is_redirect = False
             mock_session.get.return_value = response
 
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
@@ -312,6 +313,7 @@ class TestValidateCredentials:
             mock_session = MockSession.return_value
             response = MagicMock()
             response.status_code = 302
+            response.is_redirect = True
             mock_session.get.return_value = response
 
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
@@ -319,6 +321,30 @@ class TestValidateCredentials:
             assert valid is False
             assert error is not None
             assert mock_session.get.call_args.kwargs["allow_redirects"] is False
+
+    def test_redirect_returns_actionable_account_name_message(self) -> None:
+        # A redirect means the account name in the URL is likely wrong — surface that
+        # instead of a bare status code.
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
+            mock_session = MockSession.return_value
+            response = MagicMock()
+            response.status_code = 302
+            response.is_redirect = True
+            mock_session.get.return_value = response
+
+            valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
+
+            assert valid is False
+            assert error is not None and "account name" in error
+            assert "status code" not in error
 
 
 class TestSsrfProtection:
