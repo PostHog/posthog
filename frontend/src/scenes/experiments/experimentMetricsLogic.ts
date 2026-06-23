@@ -360,6 +360,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
 
                     /**
+                     * We have no per-metric staleness signal, so a results + failures count short of the total
+                     * means a shared metric diverged: re-run to heal it.
+                     */
+                    if (
+                        recalculation.status === RECALCULATION_STATUSES.completed &&
+                        recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
+                    ) {
+                        actions.triggerRecalculation('config_change')
+                        return
+                    }
+
+                    /**
                      * if the recalculation resutls are stale, trigger a new recalculation
                      * without hiding the existing resutls.
                      */

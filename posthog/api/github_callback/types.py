@@ -23,7 +23,7 @@ MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
 # ``connect_from`` values for first-party clients that use the lightweight app
 # linking flow (OAuth-only when the team already has the GitHub App installed,
 # otherwise discover/install) and return to a client-specific destination.
-APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile")
+APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile", "slack")
 
 # GitHub App installation IDs are always positive integers. Reject anything else
 # before it touches URL construction.

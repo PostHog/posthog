@@ -227,6 +227,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -485,6 +486,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
