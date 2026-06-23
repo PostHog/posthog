@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from products.dashboards.backend.constants import ACTIVITY_EVENTS_DEFAULT_LIMIT, DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
+    WidgetDateRangeConfigBase,
     WidgetLimit,
     WidgetListConfigBase,
     WidgetOrderDirection,
@@ -17,6 +18,7 @@ ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
+LOGS_LIST_WIDGET_TYPE = "logs_list"
 
 ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
@@ -26,6 +28,9 @@ SessionReplayOrderBy = Literal[
 WidgetAssigneeType = Literal["user", "role"]
 ExperimentsWidgetStatus = Literal["draft", "running", "paused", "stopped", "all"]
 ExperimentsWidgetOrderBy = Literal["created_at", "name", "start_date"]
+# Matches the logs scene: `earliest` sorts ascending by timestamp, `latest` (default) descending.
+LogsOrderBy = Literal["latest", "earliest"]
+LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -92,4 +97,17 @@ class ExperimentResultsWidgetConfig(BaseModel):
     experimentId: int | None = Field(
         default=None,
         description="Experiment to show results for. Null until the user picks one in the widget settings.",
+    )
+
+
+class LogsListWidgetConfig(WidgetDateRangeConfigBase):
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of log lines to return.")
+    orderBy: LogsOrderBy = Field(default="latest", description="Sort by newest (latest) or oldest (earliest) first.")
+    severityLevels: list[LogSeverityLevel] = Field(
+        default_factory=list,
+        description="Only show logs at these severity levels. Empty shows all levels.",
+    )
+    serviceNames: list[str] = Field(
+        default_factory=list,
+        description="Only show logs from these services. Empty shows all services.",
     )

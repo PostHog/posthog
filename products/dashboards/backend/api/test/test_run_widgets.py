@@ -36,6 +36,7 @@ from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, W
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
+    LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
@@ -81,6 +82,7 @@ class TestWidgetRegistry(APIBaseTest):
         [
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, "occurrences"),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, "start_time"),
+            ("logs", LOGS_LIST_WIDGET_TYPE, "latest"),
         ]
     )
     def test_validate_list_config_defaults(self, _label: str, widget_type: str, default_order_by: str) -> None:
@@ -88,6 +90,28 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
         assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
+
+    def test_validate_logs_list_config_rejects_invalid_order_by(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"orderBy": "not_a_field"})
+
+    def test_validate_logs_list_config_rejects_invalid_severity_level(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"severityLevels": ["not_a_level"]})
+
+    def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:
+        validated = validate_widget_config(
+            LOGS_LIST_WIDGET_TYPE,
+            {"severityLevels": ["error", "warn"], "serviceNames": ["api", "web"], "orderBy": "earliest"},
+        )
+        assert validated["severityLevels"] == ["error", "warn"]
+        assert validated["serviceNames"] == ["api", "web"]
+        assert validated["orderBy"] == "earliest"
+
+    def test_validate_logs_list_config_rejects_test_account_filter(self) -> None:
+        # Logs queries have no test-account concept, so the field must not be accepted.
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, cast(dict[str, object], {"filterTestAccounts": True}))
 
     def test_validate_activity_events_list_config_defaults(self) -> None:
         validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {})
@@ -122,6 +146,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_high_limit(self, _label: str, widget_type: str) -> None:
@@ -132,6 +157,7 @@ class TestWidgetRegistry(APIBaseTest):
         [("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("logs", LOGS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
     )
     def test_validate_list_config_accepts_short_date_ranges(
         self, _label: str, widget_type: str, date_from: str
@@ -147,6 +173,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_unsupported_date_range(self, _label: str, widget_type: str) -> None:
@@ -161,6 +188,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_strips_unknown_date_range_keys(self, _label: str, widget_type: str) -> None:
@@ -342,6 +370,50 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.select, ACTIVITY_EVENTS_WIDGET_SELECT)
         self.assertEqual(query.orderBy, ["timestamp DESC"])
         self.assertEqual(query.after, "-24h")
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_for_requested_tile(self, mock_runner_cls: MagicMock) -> None:
+        log_row = {
+            "uuid": "0196e9ab-0000-0000-0000-000000000000",
+            "timestamp": "2026-05-26T08:00:00Z",
+            "severity_text": "error",
+            "level": "error",
+            "body": "Boom",
+            "trace_id": "abc123",
+        }
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [log_row], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="logs_list",
+            config={
+                "limit": 10,
+                "severityLevels": ["error"],
+                "serviceNames": ["api"],
+                "orderBy": "earliest",
+            },
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["results"][0]["tile_id"], tile_id)
+        self.assertEqual(body["results"][0]["widget_type"], LOGS_LIST_WIDGET_TYPE)
+        self.assertIsNone(body["results"][0]["error"])
+        result = body["results"][0]["result"]
+        self.assertEqual(result["limit"], 10)
+        self.assertEqual(result["results"][0], log_row)
+        self.assertEqual(result["totalCount"], 1)
+        self.assertFalse(result["totalCountCapped"])
+        mock_runner_cls.assert_called_once()
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.orderBy, "earliest")
+        self.assertEqual(query.severityLevels, ["error"])
+        self.assertEqual(query.serviceNames, ["api"])
+        self.assertTrue(query.excludeAttributes)
         self.assertEqual(query.limit, 10)
 
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")

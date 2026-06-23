@@ -205,6 +205,7 @@ depends_on = [
     "products.error_tracking",
     "products.experiments",
     "products.feature_flags",
+    "products.logs",
     "products.mcp_analytics",
     "products.product_analytics",
 ]

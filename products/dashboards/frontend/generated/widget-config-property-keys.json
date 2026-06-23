@@ -21,7 +21,8 @@
             "widgetFilters"
         ],
         "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
-        "experiment_results": ["experimentId"]
+        "experiment_results": ["experimentId"],
+        "logs_list": ["dateRange", "limit", "orderBy", "serviceNames", "severityLevels"]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -278,6 +279,29 @@
         "experiment_results": {
             "experimentId": {
                 "$type": "integer"
+            }
+        },
+        "logs_list": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "limit": {
+                "$type": "integer"
+            },
+            "orderBy": {
+                "$enum": ["earliest", "latest"]
+            },
+            "severityLevels": {
+                "$array": {
+                    "$enum": ["debug", "error", "fatal", "info", "trace", "warn"]
+                }
+            },
+            "serviceNames": {
+                "$array": {
+                    "$type": "string"
+                }
             }
         }
     }
