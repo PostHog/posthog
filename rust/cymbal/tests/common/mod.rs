@@ -24,11 +24,11 @@ use cymbal::stages::resolution::{
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
-    symbol::SymbolResolver,
     ResolutionStage,
 };
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
     batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
     Exception, ExceptionList, Stacktrace,

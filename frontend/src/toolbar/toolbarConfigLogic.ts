@@ -17,6 +17,7 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
+    safeFetch,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -860,7 +861,7 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
+    let response = await safeFetch(fullUrl, {
         method,
         headers: buildHeaders(accessToken),
         ...(body !== undefined ? { body } : {}),
@@ -868,7 +869,7 @@ export async function toolbarFetch(
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        return await fetch(fullUrl, {
+        return await safeFetch(fullUrl, {
             method,
             headers: buildHeaders(newAccessToken),
             ...(body !== undefined ? { body } : {}),

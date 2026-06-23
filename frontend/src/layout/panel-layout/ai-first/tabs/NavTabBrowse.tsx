@@ -229,6 +229,7 @@ export function NavTabBrowse(): JSX.Element {
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-inbox"
+                            tag="beta"
                             onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
                         />
                     )}

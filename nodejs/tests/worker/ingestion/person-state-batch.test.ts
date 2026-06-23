@@ -2,30 +2,40 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PersonMessage } from '~/common/persons/person-message'
+import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
 } from '~/config/kafka-topics'
+import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { PersonContext } from '~/ingestion/common/persons/person-context'
+import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
+import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
 import {
-    ASYNC_OUTPUT,
-    PERSONS_OUTPUT,
-    PERSON_DISTINCT_IDS_OUTPUT,
-    PERSON_MERGE_EVENTS_OUTPUT,
-} from '~/ingestion/analytics/outputs'
-import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
-import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+    SourcePersonNotFoundError,
+    TargetPersonNotFoundError,
+    createDefaultSyncMergeMode,
+} from '~/ingestion/common/persons/person-merge-types'
+import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
+import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { murmur2Partition } from '~/kafka/murmur2'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { parseJSON } from '~/utils/json-parse'
-import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
-import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import {
     ClickHousePerson,
@@ -41,21 +51,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
-import { PersonOutputs } from '../../../src/worker/ingestion/persons/person-context'
-import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
-import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
-import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
-import {
-    SourcePersonNotFoundError,
-    TargetPersonNotFoundError,
-    createDefaultSyncMergeMode,
-} from '../../../src/worker/ingestion/persons/person-merge-types'
-import { PersonMessage } from '../../../src/worker/ingestion/persons/person-message'
-import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import {
     createOrganization,
     createTeam,
@@ -4539,7 +4534,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4563,7 +4558,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4592,7 +4587,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,

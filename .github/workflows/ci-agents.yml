@@ -82,24 +82,10 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
-
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
 
             - name: Typecheck
               run: pnpm --filter="${{ matrix.workspace }}" typescript:check
@@ -156,24 +142,10 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
-
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
 
             - name: Create empty test database
               # Schema lives in @posthog/agent-migrations; tests call
@@ -219,24 +191,10 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
-
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter='@posthog/agent-tests...' install --frozen-lockfile
+                  install-command: pnpm --filter='@posthog/agent-tests...' install --frozen-lockfile
 
             - name: Create empty test database
               # Schema lives in @posthog/agent-migrations; the test harness

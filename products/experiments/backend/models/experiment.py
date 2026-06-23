@@ -53,6 +53,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    # Whether archiving this experiment also auto-archived its linked feature flag,
+    # so unarchiving only undoes an archive the experiment itself performed.
+    feature_flag_auto_archived = models.BooleanField(default=False, db_default=False)
     deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
@@ -369,6 +372,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
+        AUTO_REFRESH = "auto_refresh", "Auto Refresh"
+        CONFIG_CHANGE = "config_change", "Config Change"
+        # Deprecated: never emitted, retained for old rows.
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"

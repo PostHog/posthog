@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { ApiConfig } from '~/lib/api'
 
 import { experimentsList } from '../../../experiments/frontend/generated/api'
-import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'
+import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import type { promptExperimentsLogicType } from './promptExperimentsLogicType'
 
@@ -28,7 +28,7 @@ export const promptExperimentsLogic = kea<promptExperimentsLogicType>([
 
     loaders(({ props }) => ({
         experiments: [
-            [] as ExperimentApi[],
+            [] as ExperimentBasicApi[],
             {
                 loadExperiments: async () => {
                     const response = await experimentsList(String(ApiConfig.getCurrentTeamId()), {

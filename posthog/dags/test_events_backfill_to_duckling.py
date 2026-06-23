@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,7 +9,9 @@ import duckdb
 import psycopg
 from parameterized import parameterized
 
+from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKLAKE_ALIAS,
     DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
@@ -16,23 +19,170 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
+    MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
+    TARGET_ROWS_PER_FILE,
+    DucklingBackfillConfig,
+    DucklingTarget,
+    _compute_fanout,
+    _connect_duckgres,
     _connection_dropped,
     _duckgres_backfill_options,
     _DuckgresSession,
+    _estimate_export_row_count,
+    _execute_export_with_retry,
     _get_cluster,
+    _glob_run_files,
+    _resolve_duckling_target,
+    _resolve_table_names,
     _set_table_partitioning,
     _validate_identifier,
+    delete_events_partition_data,
+    duckling_events_backfill_job,
     duckling_events_full_backfill_sensor,
+    duckling_persons_backfill_job,
+    export_events_to_duckling_s3,
+    export_persons_full_to_duckling_s3,
+    export_persons_to_duckling_s3,
     get_months_in_range,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
+    register_files_with_duckling,
+    register_persons_files_with_duckling,
     table_exists,
 )
+
+
+class TestDucklingBackfillAlertRouting:
+    @parameterized.expand(
+        [
+            ("events", duckling_events_backfill_job),
+            ("persons", duckling_persons_backfill_job),
+        ]
+    )
+    def test_backfill_jobs_alert_managed_warehouse(self, _name, job):
+        assert job.tags["owner"] == JobOwners.TEAM_MANAGED_WAREHOUSE.value
+        assert "disable_slack_notifications" not in job.tags
+
+
+class TestResolveDucklingTarget:
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_resolves_bucket_from_control_plane(
+        self, mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
+    ):
+        # The control plane is the authoritative owner of the bucket name.
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            return_value="posthog-duckling-org-1-mw-prod-us",
+        ) as mock_cp:
+            target = _resolve_duckling_target(7)
+
+        assert target == DucklingTarget(
+            team_id=7,
+            organization_id="org-1",
+            bucket="posthog-duckling-org-1-mw-prod-us",
+            bucket_region="us-east-1",
+        )
+        mock_org.assert_called_once_with(7)
+        mock_cp.assert_called_once_with("org-1")
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_control_plane_wins_over_stale_stored_server_bucket(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
+    ):
+        # A row provisioned before the naming fix carries a stale bucket; the CP value
+        # must win so the backfill never exports to a bucket that doesn't exist.
+        server = MagicMock(bucket="posthog-duckling-stale-prod-us", bucket_region="us-east-1")
+        with (
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization",
+                return_value=server,
+            ),
+            patch(
+                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                return_value="posthog-duckling-org-1-mw-prod-us",
+            ),
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_falls_back_to_stored_server_when_control_plane_unavailable(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
+    ):
+        # CP can't answer → use the known-good stored row rather than failing the run.
+        server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
+        with (
+            patch(
+                "posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization",
+                return_value=server,
+            ),
+            patch(
+                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                return_value=None,
+            ),
+        ):
+            target = _resolve_duckling_target(7)
+
+        assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
+
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
+    @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_raises_when_nothing_can_name_the_bucket(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
+    ):
+        with patch(
+            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            return_value=None,
+        ):
+            with pytest.raises(ValueError, match="No S3 bucket resolvable"):
+                _resolve_duckling_target(7)
+
+
+class TestResolveTableNames:
+    """Resolution of per-environment table names from a team's stored table_suffix.
+
+    Kept DB-free (the rest of this file is): the stored suffix is mocked at the ORM boundary.
+    """
+
+    def _patch_suffix(self, suffix: str | None) -> MagicMock:
+        model = MagicMock()
+        model.objects.filter.return_value.values_list.return_value.first.return_value = suffix
+        return model
+
+    def test_set_suffix_yields_dedicated_tables(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+
+    def test_distinct_suffixes_isolate_two_teams(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("beta")):
+            assert _resolve_table_names(2) == ("events_beta", "persons_beta")
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_unset_suffix_falls_back_to_shared_tables(self, _name, suffix):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix(suffix)):
+            assert _resolve_table_names(1) == ("events", "persons")
+
+    def test_unsafe_suffix_is_rejected(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("a-b; DROP")):
+            with pytest.raises(ValueError):
+                _resolve_table_names(1)
 
 
 class TestParsePartitionKey:
@@ -152,7 +302,7 @@ class TestEventsDDL:
     def test_events_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -165,10 +315,19 @@ class TestEventsDDL:
     def test_events_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_events_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="memory", table="events_alpha"))
+
+        result = conn.execute("DESCRIBE memory.posthog.events_alpha").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_EVENTS_COLUMNS
         conn.close()
 
 
@@ -176,7 +335,7 @@ class TestPersonsDDL:
     def test_persons_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -189,10 +348,19 @@ class TestPersonsDDL:
     def test_persons_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_persons_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(PERSONS_TABLE_DDL.format(catalog="memory", table="persons_beta"))
+
+        result = conn.execute("DESCRIBE memory.posthog.persons_beta").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
         conn.close()
 
 
@@ -604,7 +772,7 @@ class TestDuckLakeAddDataFilesPartitioning:
         conn.execute("LOAD ducklake")
         conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')")
         conn.execute("CREATE SCHEMA IF NOT EXISTS test_lake.posthog")
-        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake"))
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake", table="events"))
         conn.execute(
             "ALTER TABLE test_lake.posthog.events "
             "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
@@ -807,6 +975,33 @@ class TestConnectionDropped:
         assert _connection_dropped(exc) is False
 
 
+class TestConnectDuckgres:
+    """_connect_duckgres pins the session to UTC so ranged DELETEs align with the UTC day
+    the export wrote, but never fails a connection if the server can't set it."""
+
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo", return_value="conninfo")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_sets_utc_timezone_on_connect(self, mock_connect, _conninfo):
+        conn = MagicMock()
+        mock_connect.return_value = conn
+
+        result = _connect_duckgres(DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r"))
+
+        assert result is conn
+        conn.execute.assert_called_once_with("SET TimeZone='UTC'")
+
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo", return_value="conninfo")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_timezone_set_failure_does_not_break_connection(self, mock_connect, _conninfo):
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("unknown setting TimeZone")
+        mock_connect.return_value = conn
+
+        # Swallowed: the connection is still returned, not dropped.
+        result = _connect_duckgres(DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r"))
+        assert result is conn
+
+
 class TestDuckgresSessionRetry:
     """_DuckgresSession reconnects to a fresh worker on a mid-statement connection
     drop and replays the (idempotent) op, giving up only after MAX_ATTEMPTS.
@@ -915,3 +1110,437 @@ class TestDuckgresBackfillOptions:
         # reappear in the options on either path (long OLAP backfills are the point).
         with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", enabled):
             assert "statement_timeout" not in _duckgres_backfill_options()
+
+
+def _mock_glob_conn(glob_files):
+    """A psycopg-shaped mock whose glob() returns the given files."""
+    conn = MagicMock()
+    cur = MagicMock()
+    cur.fetchall.return_value = [(f,) for f in glob_files]
+    conn.cursor.return_value.__enter__.return_value = cur
+    conn.cursor.return_value.__exit__.return_value = False
+    return conn, cur
+
+
+def _registered_call_strings(conn):
+    """Render each ducklake_add_data_files CALL to its final SQL string."""
+    return [call.args[0].as_string() for call in conn.execute.call_args_list]
+
+
+class TestComputeFanout:
+    """Fan-out is sized to each export's actual volume, not fixed."""
+
+    @parameterized.expand(
+        [
+            ("empty", 0, 1_000_000, 256, 1),
+            ("tiny", 5, 1_000_000, 256, 1),
+            ("exactly_target", 1_000_000, 1_000_000, 256, 1),
+            ("just_over_target", 1_000_001, 1_000_000, 256, 2),
+            ("big_team_day", 72_000_000, 1_000_000, 256, 72),
+            ("clamped_to_max", 10_000_000_000, 1_000_000, 256, 256),
+            ("smaller_target_more_files", 10_000_000, 500_000, 256, 20),
+            # Fail closed on non-positive (user-tunable) config — must not divide-by-zero.
+            ("zero_target", 10_000_000, 0, 256, 1),
+            ("negative_target", 10_000_000, -1, 256, 1),
+            ("zero_max_fanout", 10_000_000, 1_000_000, 0, 1),
+            ("negative_max_fanout", 10_000_000, 1_000_000, -5, 1),
+        ]
+    )
+    def test_fanout(self, _label, row_count, target_rows, max_fanout, expected):
+        assert _compute_fanout(row_count, target_rows, max_fanout) == expected
+
+    def test_negative_row_count_is_single_file(self):
+        assert _compute_fanout(-1, TARGET_ROWS_PER_FILE, MAX_S3_FILE_FANOUT) == 1
+
+
+class TestExportClickhouseRetries:
+    """Both ClickHouse calls on the export path — the row-count estimate and the export
+    itself — must retry transient failures. (Guards against the @retry decorator drifting
+    onto the pure _compute_fanout arithmetic, which can never raise.)"""
+
+    @patch("tenacity.nap.time.sleep")
+    def test_row_count_estimate_retries_then_succeeds(self, _sleep):
+        client = MagicMock()
+        client.execute.side_effect = [TimeoutError("transient"), [(123,)]]
+
+        assert _estimate_export_row_count(client, "SELECT count() FROM events", {}) == 123
+        assert client.execute.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    def test_export_retries_then_succeeds(self, _sleep):
+        client = MagicMock()
+        client.execute.side_effect = [TimeoutError("transient"), None]
+
+        _execute_export_with_retry(client, "INSERT INTO FUNCTION s3(...)", {}, "info")
+        assert client.execute.call_count == 2
+
+    def test_compute_fanout_is_pure(self):
+        # No client, no I/O — proves the decorator isn't (re)attached to the arithmetic.
+        assert _compute_fanout(10_000_000, 1_000_000, 256) == 10
+
+
+class TestExportFanOut:
+    """The exports must size the fan-out to the team-day's row count, partition via
+    PARTITION BY, and return a run-scoped glob that registration can enumerate."""
+
+    @pytest.fixture
+    def target(self):
+        return DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+
+    def _run_export(self, export_fn, target, row_count, config=None, **kwargs):
+        """Run an export with a stubbed count() result; return (insert_sql, glob, client)."""
+        client = MagicMock()
+        # First execute is the count() estimate, second is the INSERT.
+        client.execute.side_effect = [[(row_count,)], None]
+        config = config or DucklingBackfillConfig(dry_run=False, skip_ducklake_registration=True)
+        s3_glob = export_fn(
+            context=MagicMock(),
+            client=client,
+            config=config,
+            target=target,
+            settings={},
+            run_id="run1",
+            **kwargs,
+        )
+        calls = [c.args[0] for c in client.execute.call_args_list]
+        insert_sql = next(sql for sql in calls if "INSERT INTO FUNCTION" in sql)
+        count_sql = next(sql for sql in calls if "count()" in sql)
+        return insert_sql, count_sql, s3_glob, client
+
+    def test_events_export_sizes_fanout_to_row_count(self, target):
+        # 10M rows at the 1M-row default target → 10 files.
+        insert_sql, count_sql, s3_glob, _ = self._run_export(
+            export_events_to_duckling_s3, target, row_count=10_000_000, team_id=2, date=datetime(2026, 6, 17)
+        )
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 10)" in insert_sql
+        # Count is filtered to exactly the team-day being exported.
+        assert "count()" in count_sql and "team_id = 2 AND toDate(timestamp) = '2026-06-17'" in count_sql
+        # The S3 destination carries the {_partition_id} placeholder ClickHouse substitutes per bucket.
+        assert "year=2026/month=06/day=17/run1_{_partition_id}.parquet" in insert_sql
+        assert s3_glob == "s3://bkt/backfill/events/2/year=2026/month=06/day=17/run1_*.parquet"
+
+    def test_tiny_events_day_is_single_file(self, target):
+        insert_sql, _count_sql, _glob, _ = self._run_export(
+            export_events_to_duckling_s3, target, row_count=42, team_id=2, date=datetime(2026, 6, 17)
+        )
+        # A handful of rows collapses to one bucket → one file.
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 1)" in insert_sql
+
+    def test_huge_events_day_clamps_to_max_fanout(self, target):
+        insert_sql, _count_sql, _glob, _ = self._run_export(
+            export_events_to_duckling_s3, target, row_count=10_000_000_000, team_id=2, date=datetime(2026, 6, 17)
+        )
+        assert f"PARTITION BY toString(cityHash64(distinct_id) % {MAX_S3_FILE_FANOUT})" in insert_sql
+
+    def test_config_can_tune_target_and_max(self, target):
+        config = DucklingBackfillConfig(
+            dry_run=False, skip_ducklake_registration=True, target_rows_per_file=2_000_000, max_s3_file_fanout=8
+        )
+        insert_sql, _count_sql, _glob, _ = self._run_export(
+            export_events_to_duckling_s3,
+            target,
+            row_count=10_000_000,
+            config=config,
+            team_id=2,
+            date=datetime(2026, 6, 17),
+        )
+        # 10M / 2M = 5 files (under the lowered cap of 8).
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
+
+    def test_persons_daily_export_sizes_fanout_and_returns_glob(self, target):
+        insert_sql, count_sql, s3_glob, _ = self._run_export(
+            export_persons_to_duckling_s3, target, row_count=3_000_000, team_id=2, date=datetime(2026, 6, 17)
+        )
+        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 3)" in insert_sql
+        # Pin the full predicate: dropping is_deleted/date would silently over-size the fan-out.
+        assert "FROM person WHERE team_id = 2 AND toDate(_timestamp) = '2026-06-17' AND is_deleted = 0" in count_sql
+        assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
+
+    def test_persons_full_export_sizes_fanout_and_returns_glob(self, target):
+        insert_sql, count_sql, s3_glob, _ = self._run_export(
+            export_persons_full_to_duckling_s3, target, row_count=5_000_000, team_id=2
+        )
+        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 5)" in insert_sql
+        assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql
+        assert s3_glob == "s3://bkt/backfill/persons/2/year=0/month=0/run1_*.parquet"
+
+    @parameterized.expand(
+        [
+            ("events", export_events_to_duckling_s3, {"team_id": 2, "date": datetime(2026, 6, 17)}),
+            ("persons", export_persons_to_duckling_s3, {"team_id": 2, "date": datetime(2026, 6, 17)}),
+            ("persons_full", export_persons_full_to_duckling_s3, {"team_id": 2}),
+        ]
+    )
+    def test_dry_run_does_not_touch_clickhouse(self, _label, export_fn, kwargs):
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        client = MagicMock()
+        config = DucklingBackfillConfig(dry_run=True)
+        result = export_fn(
+            context=MagicMock(), client=client, config=config, target=target, settings={}, run_id="run1", **kwargs
+        )
+        assert result is None
+        # No count, no insert — dry run must not hit the cluster at all.
+        client.execute.assert_not_called()
+
+
+class TestRegisterFilesWithDuckling:
+    """Registration must enumerate every file a run produced and register each
+    exactly once, while tolerating an empty fan-out."""
+
+    @pytest.fixture
+    def target(self):
+        return DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+
+    @parameterized.expand(
+        [
+            ("events", register_files_with_duckling, "events"),
+            ("persons", register_persons_files_with_duckling, "persons"),
+        ]
+    )
+    def test_registers_every_globbed_file_once(self, _label, register_fn, table, target=None):
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        files = [f"s3://bkt/backfill/{table}/2/year=2026/month=06/day=17/run1_{i}.parquet" for i in range(3)]
+        conn, _cur = _mock_glob_conn(files)
+        config = DucklingBackfillConfig()
+
+        count = register_fn(MagicMock(), target, "s3://bkt/.../run1_*.parquet", config, conn)
+
+        assert count == 3
+        # One ducklake_add_data_files CALL per file, exactly once, for exactly these files.
+        assert conn.execute.call_count == 3
+        calls = _registered_call_strings(conn)
+        assert all("ducklake_add_data_files" in c for c in calls)
+        # allow_missing => true must be on every CALL — it's what lets the backfill
+        # tolerate columns the live ingestion path added to the duckling table via
+        # schema evolution but the backfill export doesn't carry.
+        assert all("allow_missing => true" in c for c in calls)
+        assert all(f"'{path}'" in calls[i] for i, path in enumerate(files))
+
+    @parameterized.expand(
+        [
+            ("events", register_files_with_duckling),
+            ("persons", register_persons_files_with_duckling),
+        ]
+    )
+    def test_empty_glob_registers_nothing(self, _label, register_fn):
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        conn, _cur = _mock_glob_conn([])
+        config = DucklingBackfillConfig()
+
+        count = register_fn(MagicMock(), target, "s3://bkt/.../run1_*.parquet", config, conn)
+
+        assert count == 0
+        conn.execute.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("skip_registration", {"skip_ducklake_registration": True}),
+            ("dry_run", {"dry_run": True}),
+        ]
+    )
+    def test_disabled_paths_register_nothing(self, _label, config_kwargs):
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        conn, _cur = _mock_glob_conn(["s3://bkt/a/run1_0.parquet"])
+        config = DucklingBackfillConfig(**config_kwargs)
+
+        count = register_files_with_duckling(MagicMock(), target, "s3://bkt/.../run1_*.parquet", config, conn)
+
+        assert count == 0
+        conn.execute.assert_not_called()  # never even globs
+
+    def test_glob_run_files_uses_parameterized_glob(self, target):
+        conn, cur = _mock_glob_conn(["s3://bkt/x/run1_0.parquet", "s3://bkt/x/run1_1.parquet"])
+
+        files = _glob_run_files(conn, "s3://bkt/x/run1_*.parquet")
+
+        assert files == ["s3://bkt/x/run1_0.parquet", "s3://bkt/x/run1_1.parquet"]
+        sql, params = cur.execute.call_args.args
+        assert "glob(%s)" in sql
+        assert params == ("s3://bkt/x/run1_*.parquet",)
+
+
+# Column SELECT used to synthesize events Parquet files for the round-trip test.
+def _events_rows_select(n_rows, uuid_prefix, ts):
+    return f"""
+        SELECT
+            ('{uuid_prefix}-' || i)::VARCHAR AS uuid,
+            '$pageview'::VARCHAR AS event,
+            '{{}}'::VARCHAR AS properties,
+            '{ts}'::TIMESTAMPTZ AS timestamp,
+            2::BIGINT AS team_id,
+            2::BIGINT AS project_id,
+            ('user-' || i)::VARCHAR AS distinct_id,
+            ''::VARCHAR AS elements_chain,
+            '{ts}'::TIMESTAMPTZ AS created_at,
+            ('person-' || i)::VARCHAR AS person_id,
+            '{ts}'::TIMESTAMPTZ AS person_created_at,
+            '{{}}'::VARCHAR AS person_properties,
+            '{{}}'::VARCHAR AS group0_properties,
+            '{{}}'::VARCHAR AS group1_properties,
+            '{{}}'::VARCHAR AS group2_properties,
+            '{{}}'::VARCHAR AS group3_properties,
+            '{{}}'::VARCHAR AS group4_properties,
+            '{ts}'::TIMESTAMPTZ AS group0_created_at,
+            '{ts}'::TIMESTAMPTZ AS group1_created_at,
+            '{ts}'::TIMESTAMPTZ AS group2_created_at,
+            '{ts}'::TIMESTAMPTZ AS group3_created_at,
+            '{ts}'::TIMESTAMPTZ AS group4_created_at,
+            'full'::VARCHAR AS person_mode,
+            false::BOOLEAN AS historical_migration,
+            '{ts}'::TIMESTAMPTZ AS _inserted_at
+        FROM range({n_rows}) AS t(i)
+    """
+
+
+class _DuckdbPsycopgAdapter:
+    """Adapts a raw duckdb connection to the slice of the psycopg API the production
+    duckgres helpers use (`conn.cursor()` context manager, `cur.execute(sql, params)`,
+    `cur.fetchall()`, `cur.rowcount`, and `conn.execute(psql.Composed)`), so the REAL
+    register_files_with_duckling / _glob_run_files / delete_events_partition_data run
+    against a local DuckLake catalog instead of being re-implemented in the test."""
+
+    def __init__(self, duck: Any):
+        self._duck = duck
+        self._result: Any = None
+
+    # The production code uses one connection as both connection and cursor; in this
+    # single-threaded test we can be both.
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query, params=None):
+        # register_*_files passes a psql.Composed (render it); _glob_run_files /
+        # delete_* pass a %s-parameterized string (translate to duckdb's ? binding).
+        sql = query.as_string() if hasattr(query, "as_string") else query.replace("%s", "?")
+        self._result = self._duck.execute(sql, list(params)) if params else self._duck.execute(sql)
+        return self
+
+    def fetchall(self):
+        return self._result.fetchall()
+
+    @property
+    def rowcount(self):
+        return -1  # production treats -1 as unknown → 0; the test asserts via SELECT count(*)
+
+
+class TestFannedOutLayoutRoundTrip:
+    """End-to-end against a real DuckLake catalog, driving the PRODUCTION registration and
+    delete helpers (via _DuckdbPsycopgAdapter): a fanned-out team-day registers as many
+    files whose rows all become queryable, and a re-run with a different fan-out re-registers
+    cleanly via DELETE-before-register without duplicating or counting orphans."""
+
+    @pytest.fixture
+    def lake(self, tmp_path):
+        catalog_path = str(tmp_path / "test.ducklake")
+        data_path = str(tmp_path / "data")
+        os.makedirs(data_path)
+
+        conn = duckdb.connect()
+        conn.execute("INSTALL ducklake")
+        conn.execute("LOAD ducklake")
+        # Attach under the production alias so register_files_with_duckling (which uses
+        # DUCKLAKE_ALIAS internally) targets this catalog.
+        conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS {DUCKLAKE_ALIAS} (DATA_PATH '{data_path}')")
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {DUCKLAKE_ALIAS}.posthog")
+        conn.execute(EVENTS_TABLE_DDL.format(catalog=DUCKLAKE_ALIAS, table="events"))
+        conn.execute(
+            f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.events "
+            "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
+        )
+        yield conn, str(tmp_path)
+        conn.close()
+
+    def _write_fanned_out_day(self, conn, root, run_id, n_files, rows_per_file):
+        """Write n_files Parquet files into the day= dir, mirroring PARTITION BY output."""
+        day_dir = os.path.join(root, "events", "2", "year=2026", "month=06", "day=17")
+        os.makedirs(day_dir, exist_ok=True)
+        for bucket in range(n_files):
+            path = os.path.join(day_dir, f"{run_id}_{bucket}.parquet")
+            conn.execute(
+                f"COPY ({_events_rows_select(rows_per_file, f'{run_id}-{bucket}', '2026-06-17 12:00:00+00')}) "
+                f"TO '{path}' (FORMAT PARQUET)"
+            )
+        return os.path.join(day_dir, f"{run_id}_*.parquet")
+
+    def _count(self, conn):
+        return conn.execute(f"SELECT count(*) FROM {DUCKLAKE_ALIAS}.posthog.events").fetchone()[0]
+
+    def _register(self, conn, file_glob):
+        """Drive the PRODUCTION register_files_with_duckling against the real catalog."""
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        config = DucklingBackfillConfig()
+        # The adapter duck-types the psycopg.Connection slice these helpers use.
+        adapter = cast("psycopg.Connection[Any]", _DuckdbPsycopgAdapter(conn))
+        return register_files_with_duckling(MagicMock(), target, file_glob, config, adapter)
+
+    def _delete_day(self, conn):
+        """Drive the PRODUCTION ranged DELETE against the real catalog."""
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        adapter = cast("psycopg.Connection[Any]", _DuckdbPsycopgAdapter(conn))
+        delete_events_partition_data(MagicMock(), target, 2, datetime(2026, 6, 17), conn=adapter)
+
+    def test_many_files_register_and_all_rows_queryable(self, lake):
+        conn, root = lake
+        file_glob = self._write_fanned_out_day(conn, root, "run1", n_files=4, rows_per_file=10)
+
+        registered = self._register(conn, file_glob)
+
+        assert registered == 4  # one INSERT produced many files, all registered exactly once
+        assert self._count(conn) == 40
+
+    def test_rerun_does_not_duplicate_or_count_orphans(self, lake):
+        conn, root = lake
+
+        # First run: 4 files, 40 rows.
+        glob1 = self._write_fanned_out_day(conn, root, "run1", n_files=4, rows_per_file=10)
+        self._delete_day(conn)
+        assert self._register(conn, glob1) == 4
+        assert self._count(conn) == 40
+
+        # Re-run with a NEW run_id AND a different fan-out (3 vs 4) writes a fresh file set.
+        # The prior run's files stay on disk as orphans (different run_id prefix).
+        glob2 = self._write_fanned_out_day(conn, root, "run2", n_files=3, rows_per_file=10)
+
+        # DELETE-before-register clears the day's catalog rows, then we register only
+        # this run's files (run-scoped glob never sees run1's orphans).
+        self._delete_day(conn)
+        assert self._register(conn, glob2) == 3
+
+        # Exactly the re-run's rows — no duplication, orphaned run1 files not counted.
+        assert self._count(conn) == 30
+
+    def test_allow_missing_handles_schema_evolution(self, lake):
+        """When the duckling table has a column the backfill export doesn't (schema
+        evolution from the live ingestion path), allow_missing => true lets
+        registration succeed with NULL fill. Without the flag, the same file is
+        rejected — proving the flag is load-bearing, not decorative."""
+        conn, root = lake
+
+        # Simulate the live ingestion path adding a column the backfill doesn't export.
+        conn.execute(f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.events ADD COLUMN captured_at TIMESTAMPTZ")
+
+        # Write a fanned-out day WITHOUT captured_at — exactly what the backfill exports.
+        file_glob = self._write_fanned_out_day(conn, root, "run1", n_files=1, rows_per_file=5)
+        single_file = file_glob.replace("_*.parquet", "_0.parquet")
+
+        # Negative control: without allow_missing, the same file is rejected with the
+        # same class of error that broke the prod backfill.
+        with pytest.raises(duckdb.Error, match="captured_at"):
+            conn.execute(
+                f"CALL ducklake_add_data_files('{DUCKLAKE_ALIAS}', 'events', '{single_file}', schema => 'posthog')"
+            )
+
+        # The fix: register_files_with_duckling passes allow_missing => true.
+        self._delete_day(conn)
+        assert self._register(conn, file_glob) == 1
+        assert self._count(conn) == 5
+
+        # The missing column is NULL-filled for every backfilled row.
+        cap_vals = [r[0] for r in conn.execute(f"SELECT captured_at FROM {DUCKLAKE_ALIAS}.posthog.events").fetchall()]
+        assert cap_vals == [None] * 5

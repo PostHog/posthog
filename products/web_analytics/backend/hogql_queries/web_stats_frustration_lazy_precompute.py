@@ -27,7 +27,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
@@ -39,6 +38,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
+    web_ensure_precomputed,
 )
 
 if TYPE_CHECKING:
@@ -256,14 +256,14 @@ def ensure_web_stats_frustration_precomputed(
         "events_session_id": _events_session_id_expr(runner),
         "breakdown_value_expr": _breakdown_value_expr(runner),
         "event_scan_filter": _event_scan_filter_expr(),
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,

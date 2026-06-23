@@ -36,6 +36,7 @@ import {
 import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
+    SyncTypeLabelMap,
     allowedSyncFrequencies,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
@@ -81,7 +82,7 @@ export function ConfigurationTab({
     onViewSyncHistory,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
 
@@ -127,6 +128,7 @@ export function ConfigurationTab({
                     source={source}
                     schema={schema}
                     resyncSchema={resyncSchema}
+                    resyncingSchema={resyncingSchema}
                     deleteTable={deleteTable}
                 />
             )
@@ -355,26 +357,57 @@ function SyncMethodSection({
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
-        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+        incrementalFieldLookbackSeconds?: number | null
     ): Promise<void> => {
-        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
-        setSaving(true)
-        try {
-            await api.externalDataSchemas.update(schema.id, {
-                should_sync: true,
-                sync_type: syncType,
-                incremental_field: noIncrementalField ? null : incrementalField,
-                incremental_field_type: noIncrementalField ? null : incrementalFieldType,
-                primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
-                ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
-            })
-            lemonToast.success('Sync method saved')
-            loadSchema()
-        } catch (e: any) {
-            lemonToast.error(e?.message || "Can't save sync method at this time")
-        } finally {
-            setSaving(false)
+        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
+
+        const applyUpdate = async (): Promise<void> => {
+            setSaving(true)
+            try {
+                await api.externalDataSchemas.update(schema.id, {
+                    should_sync: true,
+                    sync_type: syncType,
+                    incremental_field: noIncrementalField ? null : incrementalField,
+                    incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                    incremental_field_lookback_seconds:
+                        syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
+                    primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
+                    ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
+                })
+                lemonToast.success('Sync method saved')
+                loadSchema()
+            } catch (e: any) {
+                lemonToast.error(e?.message || "Can't save sync method at this time")
+            } finally {
+                setSaving(false)
+            }
         }
+
+        // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
+        // column), so the backend rebuilds the table from scratch. Warn before discarding the data.
+        const crossesXminBoundary = syncType === 'xmin' || schema.sync_type === 'xmin'
+        if (crossesXminBoundary && syncType !== schema.sync_type && schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Switching sync method requires a full resync',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            Switching <strong>{schema.table?.name ?? schema.name}</strong> from{' '}
+                            <strong>{SyncTypeLabelMap[schema.sync_type ?? 'full_refresh']}</strong> to{' '}
+                            <strong>{SyncTypeLabelMap[syncType ?? 'full_refresh']}</strong> changes the table's
+                            structure, so it will be deleted and resynced from scratch.
+                        </p>
+                        <p>The existing synced data is replaced. This can take a while for large tables.</p>
+                    </div>
+                ),
+                primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
+                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+            })
+            return
+        }
+
+        await applyUpdate()
     }
 
     return (
@@ -406,9 +439,11 @@ function SyncMethodSection({
                                 sync_time_of_day: schema.sync_time_of_day ?? null,
                                 incremental_field: schema.incremental_field ?? null,
                                 incremental_field_type: schema.incremental_field_type ?? null,
+                                incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
                                 incremental_available: schemaIncrementalFields.incremental_available,
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
+                                xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
@@ -706,10 +741,7 @@ function ScheduleSection({
                     </span>
                     <LemonSelect
                         fullWidth
-                        disabledReason={
-                            accessDisabledReason ??
-                            (!schema.should_sync ? 'Enable syncing to set frequency' : undefined)
-                        }
+                        disabledReason={accessDisabledReason}
                         value={draftFrequency}
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
                         options={frequencyOptions}
@@ -848,15 +880,17 @@ function DangerZoneSection({
     source,
     schema,
     resyncSchema,
+    resyncingSchema,
     deleteTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    resyncingSchema: boolean
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
-    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook'
+    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {
@@ -919,6 +953,7 @@ function DangerZoneSection({
                                                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
                                             })
                                         }}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Full resync
@@ -931,6 +966,7 @@ function DangerZoneSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => resyncSchema(schema)}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Delete table and resync

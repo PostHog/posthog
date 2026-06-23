@@ -206,6 +206,7 @@
   list([
     'description',
     'exposure_criteria',
+    'feature_flag_auto_archived',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -245,6 +246,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_FeatureFlag
   list([
     'active',
+    'archived',
     'bucketing_identifier',
     'created_at',
     'ensure_experience_continuity',
@@ -855,10 +857,11 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    '_unwrapped_query_kind',
     'alert_set',
+    'alertable_query_kind',
     'alertconfiguration_set',
     'annotation_set',
-    'are_alerts_supported',
     'caching_state',
     'caching_states',
     'created_by_id',

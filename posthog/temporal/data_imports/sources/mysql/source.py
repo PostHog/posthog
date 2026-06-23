@@ -130,9 +130,34 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # details" message sending them to check the host/port.
             "Access denied for user": "Invalid user or password",
             "sqlstate 42S02": None,  # Table not found error
-            "ProgrammingError: (1146": None,  # Table not found error
-            "OperationalError: (1356": None,  # View not found error
+            # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
+            # in the source — it was renamed or dropped after the schema was set up. The streaming
+            # query reissues the same statement on every attempt, so it fails identically forever.
+            # Match the locale-independent error code (the table name is volatile and the message
+            # text is translated on non-English servers): `(1146,` appears both in the raw pymysql
+            # `str(exc)` the import/sync path classifies — `(1146, "Table ... doesn't exist")` — and
+            # in the class-name-prefixed `ProgrammingError: (1146, ...)` form the refresh-schemas
+            # path builds. The previous `"ProgrammingError: (1146"` key only matched the latter, so
+            # sync hit this error retried to the maximum instead of stopping.
+            "(1146,": "A table this sync reads no longer exists in your source database (MySQL error 1146). It was most likely renamed or dropped — restore the table, or remove it from the sync, then resync.",
+            # MySQL/MariaDB error 1356 (ER_VIEW_INVALID): a view the sync reads is broken — it
+            # references tables/columns that were dropped or renamed, or the view's definer lost the
+            # rights to read them. The streaming query reissues the same statement every attempt, so
+            # it fails identically forever. Match the locale-independent code `(1356,`, which appears
+            # both in the raw pymysql `str(exc)` the import/sync path classifies — `(1356, "View ...
+            # references invalid table(s) ...")` — and in the class-name-prefixed
+            # `OperationalError: (1356, ...)` form the refresh-schemas path builds. The previous
+            # `"OperationalError: (1356"` key only matched the latter.
+            "(1356,": "A view this sync reads is no longer valid (MySQL error 1356). It references tables or columns that were dropped or renamed, or its definer lost access to them — fix the view definition in your source database, or remove it from the sync, then resync.",
             "Bad handshake": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. The
+            # main streaming path already classifies this via `Any_Source_Errors`, but the schema-
+            # discovery activity only checks the per-source dict, so without this entry it keeps
+            # retrying and reporting the customer's gateway misconfig as error-tracking noise.
+            # Postgres and MSSQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
@@ -167,6 +192,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # text is translated on non-English servers) so it catches both the raw pymysql string and
             # the Temporal-wrapped `OperationalError: (1054, ...)` form.
             '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
+            # PostHog's connecting host, so the handshake is rejected before any credentials are
+            # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
+            # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
+            # Match the stable tail phrase, not the volatile host in the message prefix.
+            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
         }
 
     def reconcile_schema_metadata(

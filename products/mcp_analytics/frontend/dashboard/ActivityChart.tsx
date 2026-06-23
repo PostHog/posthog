@@ -48,7 +48,7 @@ export function ActivityChart({
         <Card className="flex flex-1 flex-col" title="Tool calls and errors">
             <CardState
                 loading={loading}
-                isEmpty={daily.labels.length === 0}
+                isEmpty={daily.successes.every((v) => v === 0) && daily.errors.every((v) => v === 0)}
                 skeleton={<Skeleton className="min-h-[300px] flex-1" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">

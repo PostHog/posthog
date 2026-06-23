@@ -464,6 +464,10 @@ export const BusinessModelEnumApi = {
  * * `test_endpoint` - test_endpoint
  * * `create_early_access_feature` - create_early_access_feature
  * * `update_feature_stage` - update_feature_stage
+ * * `use_posthog_ai` - use_posthog_ai
+ * * `use_posthog_code` - use_posthog_code
+ * * `use_posthog_mcp` - use_posthog_mcp
+ * * `use_posthog_in_slack` - use_posthog_in_slack
  */
 export type AvailableSetupTaskIdsEnumApi =
     (typeof AvailableSetupTaskIdsEnumApi)[keyof typeof AvailableSetupTaskIdsEnumApi]
@@ -534,6 +538,10 @@ export const AvailableSetupTaskIdsEnumApi = {
     TestEndpoint: 'test_endpoint',
     CreateEarlyAccessFeature: 'create_early_access_feature',
     UpdateFeatureStage: 'update_feature_stage',
+    UsePosthogAi: 'use_posthog_ai',
+    UsePosthogCode: 'use_posthog_code',
+    UsePosthogMcp: 'use_posthog_mcp',
+    UsePosthogInSlack: 'use_posthog_in_slack',
 } as const
 
 /**
@@ -2687,6 +2695,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+/**
+ * Payload for publishing a freeform canvas's React source via the agent.
+ */
+export interface PatchedCanvasPublishApi {
+    code?: string
+    prompt?: string
+    name?: string
+}
+
 export interface ContextGenerationApi {
     /**
      * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
@@ -2939,6 +2956,11 @@ export interface ExportedAssetApi {
     readonly expires_after: string | null
     /** @nullable */
     readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExportedAssetListApi {
