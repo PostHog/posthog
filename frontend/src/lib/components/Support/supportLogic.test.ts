@@ -1,17 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
 
 import { getPublicSupportSnippet, supportLogic } from './supportLogic'
-import { openSupportModal } from './SupportModal'
+import * as SupportModal from './SupportModal'
 
-jest.mock('./SupportModal', () => ({ openSupportModal: jest.fn() }))
+// supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
+// bound to the real openSupportModal — spy on the live module export instead so the call is intercepted.
+const openSupportModal = jest.spyOn(SupportModal, 'openSupportModal').mockImplementation(() => {})
 
 describe('supportLogic', () => {
     describe('snippet helpers', () => {
@@ -43,29 +42,28 @@ describe('supportLogic', () => {
         })
     })
 
-    describe('modal vs side panel gating', () => {
+    describe('openSupportForm modal vs side panel target', () => {
         let logic: ReturnType<typeof supportLogic.build>
 
         beforeEach(() => {
+            // sidePanelStateLogic persists its selected tab and reflects open state in the URL hash;
+            // initKeaTests resets neither, so clear them to keep the gating decision deterministic.
+            localStorage.clear()
+            window.history.replaceState(null, '', '/')
             initKeaTests()
-            featureFlagLogic.mount()
             sidePanelStateLogic.mount()
-            navigation3000Logic.mount()
             logic = supportLogic.build()
             logic.mount()
-            ;(openSupportModal as jest.Mock).mockClear()
+            openSupportModal.mockClear()
         })
 
         afterEach(() => {
             logic?.unmount()
         })
 
-        it('opens the support side panel on full-mode scenes', async () => {
-            // The default test scene is not a plain layout, so the nav is in full mode and the panel exists.
-            await expectLogic(logic).toMatchValues({ mode: 'full' })
-
+        it('opens the side panel when target is sidePanel', async () => {
             await expectLogic(logic, () => {
-                logic.actions.openSupportForm({ kind: 'support', target_area: 'login' })
+                logic.actions.openSupportForm({ kind: 'support', target_area: 'login', target: 'sidePanel' })
             }).toFinishAllListeners()
 
             expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
@@ -73,11 +71,17 @@ describe('supportLogic', () => {
             expect(openSupportModal).not.toHaveBeenCalled()
         })
 
-        it('falls back to the modal on scenes without a side panel', async () => {
-            // Zen mode is one of the modes that never mounts the side panel.
-            navigation3000Logic.actions.setZenMode(true)
-            await expectLogic(logic).toMatchValues({ mode: 'zen' })
+        it('opens the modal when target is modal', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target_area: 'login', target: 'modal' })
+            }).toFinishAllListeners()
 
+            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+            expect(openSupportModal).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to sidePanelAvailable when no target is given', async () => {
+            sidePanelStateLogic.actions.setSidePanelAvailable(false)
             await expectLogic(logic, () => {
                 logic.actions.openSupportForm({ kind: 'support', target_area: 'login' })
             }).toFinishAllListeners()
