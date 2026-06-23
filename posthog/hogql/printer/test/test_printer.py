@@ -7041,6 +7041,18 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     # Conditional / null
     ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
     ("isNull", "isNull(1)", "(1 IS NULL)"),
+    # Regex operators → REGEXP_INSTR (match()-style "found anywhere"); 'i' = case-insensitive
+    ("regex_match", "'h' =~ 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) != 0)"),
+    ("regex_not_match", "'h' !~ 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) = 0)"),
+    ("regex_imatch", "'h' =~* 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s, 1, 1, 0, 'i') != 0)"),
+    ("regex_not_imatch", "'h' !~* 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s, 1, 1, 0, 'i') = 0)"),
+    # `::` casts map HogQL type names to Snowflake types (consistent with toString/toInt/...)
+    ("cast_string", "1::String", "CAST(1 AS VARCHAR)"),
+    ("cast_int", "1.5::Int", "CAST(1.5 AS BIGINT)"),
+    ("cast_bool", "1::Bool", "CAST(1 AS BOOLEAN)"),
+    # Array / object literals → constructors
+    ("array_literal", "[1, 2, 3]", "ARRAY_CONSTRUCT(1, 2, 3)"),
+    ("object_literal", "{'a': 1}", "OBJECT_CONSTRUCT(%(hogql_val_0)s, 1)"),
     # JSON (PARSE_JSON + bracket path; chained keys for nested access)
     (
         "JSONExtractString",
@@ -7126,9 +7138,30 @@ class TestSnowflakePrinter(BaseTest):
                 "Unsupported formatDateTime specifier '%Q'",
             ),
             ("unsupported_function", "argMax(1, 2)", "not supported in the Snowflake dialect"),
+            # Tier 0: constructs with no safe Snowflake equivalent reject loudly
+            ("tuple", "(1, 2)", "Tuple expressions are not supported"),
+            ("array_slice", "[1, 2, 3][1:2]", "Array slices are not"),
+            ("unsupported_cast", "1::Nonsense", "Unsupported cast to type 'nonsense'"),
         ]
     )
     def test_snowflake_errors(self, _name: str, hogql_expr: str, error_substring: str):
         with self.assertRaises(QueryError) as ctx:
             self._expr(hogql_expr)
+        self.assertIn(error_substring, str(ctx.exception))
+
+    def _select(self, query: str) -> str:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        return prepare_and_print_ast(parse_select(query, backend="cpp-json"), context, "snowflake")[0]
+
+    @parameterized.expand(
+        [
+            ("array_join", "SELECT x FROM events ARRAY JOIN [1, 2] AS x", "ARRAY JOIN is not supported"),
+            ("prewhere", "SELECT event FROM events PREWHERE event = 'x'", "PREWHERE is not supported"),
+            ("sample", "SELECT event FROM events SAMPLE 0.1", "SAMPLE is not supported"),
+            ("limit_by", "SELECT event FROM events LIMIT 1 BY event", "LIMIT BY is not supported"),
+        ]
+    )
+    def test_snowflake_clause_errors(self, _name: str, query: str, error_substring: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
         self.assertIn(error_substring, str(ctx.exception))
