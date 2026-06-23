@@ -682,11 +682,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # surfaces on the first sync instead.
             try:
                 if response.status_code in (401, 403):
-                    return False, (
+                    message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
-                        f"{_read_capped_text(response)}"
+                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
                     )
+                    snippet = _read_capped_text(response)
+                    if snippet:
+                        message += f" The upstream responded: {snippet}"
+                    return False, message
             finally:
                 response.close()
 
@@ -816,14 +819,22 @@ def _read_capped_text(response: Response) -> str:
 
     ``decode_content=False`` is deliberate: it reads exactly ``PROBE_ERROR_SNIPPET_BYTES``
     raw bytes and never inflates a ``Content-Encoding: gzip`` body, so a decompression
-    bomb can't expand a tiny read into megabytes. The snippet is only a human-readable
-    diagnostic — a (rare) compressed error body just shows as bytes.
+    bomb can't expand a tiny read into megabytes. The flip side is that a compressed or
+    otherwise non-text body would decode to binary garbage, so it is omitted from the
+    snippet rather than echoed into a user-facing error.
     """
+    if response.headers.get("Content-Encoding"):
+        return ""
     try:
         raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)
     except Exception:
         return ""
-    return raw.decode("utf-8", errors="replace")
+    text = raw.decode("utf-8", errors="replace")
+    # A replacement char means the bytes weren't valid UTF-8 — a binary or still-encoded
+    # body — so drop it rather than surface garbage to the user.
+    if "�" in text:
+        return ""
+    return text.strip()
 
 
 def _static_probe_params(params: Any) -> dict[str, Any]:
