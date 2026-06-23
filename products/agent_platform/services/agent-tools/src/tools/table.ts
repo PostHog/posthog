@@ -17,6 +17,7 @@
 
 import {
     defineNativeTool,
+    isPreviewSideEffect,
     TabularConflictError,
     type TableQuery,
     type TabularStore,
@@ -109,6 +110,9 @@ export const tableAppendV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        if (isPreviewSideEffect(ctx, '@posthog/table-append', args)) {
+            return ok({ appended: args.rows.length, skipped: 0 })
+        }
         try {
             const res = await s.append(scope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
             return ok(res)
@@ -182,6 +186,11 @@ export const tableDeleteV1 = defineNativeTool({
         if ('error' in s) {
             return err(s.error, 'unavailable')
         }
+        if (isPreviewSideEffect(ctx, '@posthog/table-delete', args)) {
+            // We can't know how many rows the filter would have matched without
+            // touching the live store; a zero count is the safe synthetic.
+            return ok({ deleted: 0 })
+        }
         try {
             return ok(await s.delete(scope(ctx), args.table, args.where as Where))
         } catch (e) {
@@ -200,6 +209,9 @@ export const tableTruncateV1 = defineNativeTool({
         const s = storeOrError(ctx)
         if ('error' in s) {
             return err(s.error, 'unavailable')
+        }
+        if (isPreviewSideEffect(ctx, '@posthog/table-truncate', args)) {
+            return ok({ truncated: args.table })
         }
         try {
             await s.truncate(scope(ctx), args.table)
