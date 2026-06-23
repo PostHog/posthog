@@ -49,14 +49,19 @@ function VisionActionsTable(): JSX.Element {
                 customHog={XRayHog}
                 description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
                 actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={() => openCreateForm()}
-                        data-attr="vision-action-new-empty"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        New action
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={() => openCreateForm()}
+                            data-attr="vision-action-new-empty"
+                        >
+                            New action
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
         )
