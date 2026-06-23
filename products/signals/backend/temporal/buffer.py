@@ -14,10 +14,13 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
 
+from posthog.models import Team
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
@@ -61,6 +64,25 @@ async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOu
     )
 
     return FlushBufferOutput(object_key=object_key, signal_count=len(input.signals))
+
+
+@dataclass
+class CheckSignalsQuotaInput:
+    team_id: int
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
+    """Whether the team is over its Signals credits quota.
+
+    Signals enforces its credit quota at ingestion rather than at the LLM gateway: the buffer
+    workflow calls this before flushing a batch downstream and drops the batch when limited, so
+    no LLM work (grouping, report generation, implementation) runs for an over-quota team.
+    """
+    team = await Team.objects.only("api_token").aget(pk=input.team_id)
+    return await sync_to_async(is_team_signals_quota_limited)(team.api_token)
 
 
 @dataclass
@@ -182,6 +204,32 @@ class BufferSignalsWorkflow:
             # Drain buffer
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
+
+            # Ingestion gate: drop the batch when the team is over its Signals credits quota, before
+            # any downstream LLM work (safety filter, grouping, report generation, implementation).
+            # Signals enforces its quota here rather than returning 429s from the LLM gateway.
+            if await workflow.execute_activity(
+                check_signals_quota_limited_activity,
+                CheckSignalsQuotaInput(team_id=input.team_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ):
+                logger.info(
+                    "signals_buffer.dropped_batch_quota_limited",
+                    team_id=input.team_id,
+                    signal_count=len(batch),
+                )
+                metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=len(batch))
+                # Compact history like the empty-batch path so a sustained over-quota stream
+                # doesn't grow Temporal history unboundedly.
+                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                    workflow.continue_as_new(
+                        BufferSignalsInput(
+                            team_id=input.team_id,
+                            pending_signals=list(self._signal_buffer),
+                        )
+                    )
+                continue
 
             # Filter out malicious signals
             safety_results = await asyncio.gather(

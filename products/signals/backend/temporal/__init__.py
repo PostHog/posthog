@@ -16,6 +16,7 @@ from products.signals.backend.temporal.backfill_error_tracking import (
 )
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
+    check_signals_quota_limited_activity,
     flush_signals_to_s3_activity,
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
@@ -62,7 +63,6 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
-    check_signals_quota_limited_activity,
     dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
