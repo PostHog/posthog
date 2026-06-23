@@ -576,6 +576,12 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
+                "p999_duration_nano": {
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "type": "number"
+                },
                 "service_name": {
                     "type": "string"
                 },
@@ -591,6 +597,8 @@
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
+                "p99_duration_nano",
+                "p999_duration_nano",
                 "error_count"
             ],
             "type": "object"
@@ -21463,7 +21471,9 @@
                 "Tile38",
                 "Chatwoot",
                 "Sanity",
-                "Metronome"
+                "Metronome",
+                "Jobber",
+                "Knock"
             ],
             "type": "string"
         },
@@ -22615,6 +22625,12 @@
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "resultCustomizations": {
                     "additionalProperties": {
@@ -25439,6 +25455,12 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "showLegend": {
                     "default": false,
                     "type": "boolean"
@@ -41539,6 +41561,12 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
+                "p999_duration_nano": {
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "type": "number"
+                },
                 "parent_name": {
                     "type": "string"
                 },
@@ -41562,6 +41590,8 @@
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
+                "p99_duration_nano",
+                "p999_duration_nano",
                 "error_count",
                 "avg_start_offset_nano"
             ],
@@ -41653,6 +41683,12 @@
                         "$ref": "#/definitions/integer"
                     },
                     "type": "array"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",

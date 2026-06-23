@@ -2624,6 +2624,8 @@ export namespace Schemas {
       /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
       hideIncompleteConversionWindowPeriods?: boolean | null;
       layout?: FunnelLayout | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
@@ -3082,6 +3084,8 @@ export namespace Schemas {
       computedAs?: StickinessComputationMode | null;
       display?: ChartDisplayType | null;
       hiddenLegendIndexes?: number[] | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Whether result datasets are associated by their values or by their order. */
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
@@ -3134,6 +3138,8 @@ export namespace Schemas {
     } as const;
 
     export interface LifecycleFilter {
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       showLegend?: boolean | null;
       /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
       showPercentagesOnSeries?: boolean | null;
@@ -8201,7 +8207,6 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpecMcpsItemAuth = {
-      integration?: string;
       provider?: string;
     };
 
@@ -8353,7 +8358,6 @@ export namespace Schemas {
       tools: AgentRevisionSpecToolsItem[];
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
-      integrations: string[];
       identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
       secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
@@ -8562,6 +8566,8 @@ export namespace Schemas {
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
+      p999_duration_nano: number;
+      p99_duration_nano: number;
       service_name: string;
       total_duration_nano: number;
     }
@@ -15748,6 +15754,8 @@ export namespace Schemas {
      * * `Chatwoot` - Chatwoot
      * * `Sanity` - Sanity
      * * `Metronome` - Metronome
+     * * `Jobber` - Jobber
+     * * `Knock` - Knock
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16388,6 +16396,8 @@ export namespace Schemas {
       Chatwoot: 'Chatwoot',
       Sanity: 'Sanity',
       Metronome: 'Metronome',
+      Jobber: 'Jobber',
+      Knock: 'Knock',
     } as const;
 
     /**
@@ -17034,7 +17044,9 @@ export namespace Schemas {
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
        * * `Sanity` - Sanity
-       * * `Metronome` - Metronome */
+       * * `Metronome` - Metronome
+       * * `Jobber` - Jobber
+       * * `Knock` - Knock */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17968,6 +17980,18 @@ export namespace Schemas {
          * @nullable
          */
       skipped_reason: string | null;
+    }
+
+    export interface EnableWarehouseBackfillRequest {
+      /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
+      table_name: string;
+    }
+
+    export interface EnableWarehouseBackfillResponse {
+      /** Whether warehouse backfill is now enabled */
+      enabled: boolean;
+      /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
+      table_suffix: string;
     }
 
     export interface EndExperiment {
@@ -22125,7 +22149,9 @@ export namespace Schemas {
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
        * * `Sanity` - Sanity
-       * * `Metronome` - Metronome */
+       * * `Metronome` - Metronome
+       * * `Jobber` - Jobber
+       * * `Knock` - Knock */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -25411,6 +25437,8 @@ export namespace Schemas {
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
+      p999_duration_nano: number;
+      p99_duration_nano: number;
       parent_name: string;
       parent_service: string;
       service_name: string;
@@ -34159,7 +34187,6 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpecMcpsItemAuth = {
-      integration?: string;
       provider?: string;
     };
 
@@ -34311,7 +34338,6 @@ export namespace Schemas {
       tools: PatchedAgentRevisionSpecToolsItem[];
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
-      integrations: string[];
       identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
       secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
@@ -42471,6 +42497,8 @@ export namespace Schemas {
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
+      /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
+      table_name: string;
     }
 
     export interface ProvisionWarehouseResponse {
@@ -47217,7 +47245,9 @@ export namespace Schemas {
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
        * * `Sanity` - Sanity
-       * * `Metronome` - Metronome */
+       * * `Metronome` - Metronome
+       * * `Jobber` - Jobber
+       * * `Knock` - Knock */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -47890,7 +47920,9 @@ export namespace Schemas {
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
        * * `Sanity` - Sanity
-       * * `Metronome` - Metronome */
+       * * `Metronome` - Metronome
+       * * `Jobber` - Jobber
+       * * `Knock` - Knock */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -47945,6 +47977,19 @@ export namespace Schemas {
       Severity: 'severity',
       Service: 'service',
     } as const;
+
+    /**
+     * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
+     */
+    export interface StreamReadTokenResponse {
+      /** Run-scoped JWT the browser presents to the agent-proxy to read this run's live event stream */
+      token: string;
+      /**
+         * Base URL of the agent-proxy to read the stream from when routing via the proxy is enabled for this user. Null means read from the Django endpoint directly (same-origin). The client appends the run's stream path and sends the token as a Bearer header when this is set.
+         * @nullable
+         */
+      stream_base_url: string | null;
+    }
 
     export interface SummaryBullet {
       text: string;
@@ -50135,6 +50180,13 @@ export namespace Schemas {
          */
       failed_at: string | null;
       connection?: WarehouseConnection | null;
+      /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
+      has_backfill: boolean;
+      /**
+         * This project's per-environment table suffix (events_<suffix>). Null when the project still writes to the shared tables.
+         * @nullable
+         */
+      table_suffix: string | null;
     }
 
     export interface WeeklyDigestResponse {

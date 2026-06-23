@@ -1583,6 +1583,11 @@ class JobNimbusSourceConfig(config.Config):
 
 
 @config.config
+class JobberSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class JotformSourceConfig(config.Config):
     pass
 
@@ -1650,6 +1655,11 @@ class KlausSourceConfig(config.Config):
 @config.config
 class KlaviyoSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class KnockSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3761,6 +3771,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.JAMFPRO: JamfProSourceConfig,
         ExternalDataSourceType.JIRA: JiraSourceConfig,
         ExternalDataSourceType.JOBNIMBUS: JobNimbusSourceConfig,
+        ExternalDataSourceType.JOBBER: JobberSourceConfig,
         ExternalDataSourceType.JOTFORM: JotformSourceConfig,
         ExternalDataSourceType.JUDGEMEREVIEWS: JudgeMeReviewsSourceConfig,
         ExternalDataSourceType.JUSTCALL: JustCallSourceConfig,
@@ -3775,6 +3786,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.KNOCK: KnockSourceConfig,
         ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
         ExternalDataSourceType.LAGO: LagoSourceConfig,
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,

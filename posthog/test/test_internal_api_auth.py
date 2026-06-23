@@ -5,10 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.auth import InternalAPIAuthentication
+from posthog.internal_api_secret import check_internal_api_secret
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 
 
@@ -45,12 +47,33 @@ class TestInternalAPIAuth(APIBaseTest):
             self.authentication.authenticate(request)
 
     @override_settings(INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET, DEBUG=False, TEST=False)
-    def test_local_dev_secret_denied_outside_debug_or_test(self):
+    def test_explicitly_configured_secret_allows_access_outside_debug_or_test(self):
+        # The value is not policed — any explicitly-set secret is accepted (e.g. CI sets posthog123).
         request = Request(
             self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET)
         )
+        user, _ = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
+
+    @parameterized.expand([("primary", "new-secret"), ("fallback", "old-secret"), ("older_fallback", "older-secret")])
+    @override_settings(INTERNAL_API_SECRET="new-secret", INTERNAL_API_SECRET_FALLBACKS=["old-secret", "older-secret"])
+    def test_primary_and_fallback_secrets_allow_access(self, _name, provided):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=provided))
+        user, auth = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
+        self.assertIsNone(auth)
+
+    @override_settings(INTERNAL_API_SECRET="new-secret", INTERNAL_API_SECRET_FALLBACKS=["old-secret"])
+    def test_unknown_secret_denied_when_fallbacks_configured(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="bogus-secret"))
         with self.assertRaises(AuthenticationFailed):
             self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET="secret-value")
+    def test_surrounding_whitespace_in_header_is_ignored(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="  secret-value  "))
+        user, _ = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_team_and_organization_inferred_from_url_params(self):
@@ -112,3 +135,31 @@ class TestInternalAPIAuth(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"error": "Missing filters for which to get blast radius"})
+
+
+class TestInternalAPISecretCheck(APIBaseTest):
+    @override_settings(
+        INTERNAL_API_SECRET="real-prod-secret", INTERNAL_API_SECRET_FALLBACKS=[], DEBUG=False, TEST=False
+    )
+    def test_check_passes_with_usable_secret_in_prod(self):
+        self.assertEqual(check_internal_api_secret(None), [])
+
+    @override_settings(
+        INTERNAL_API_SECRET="", INTERNAL_API_SECRET_FALLBACKS=["real-prod-secret"], DEBUG=False, TEST=False
+    )
+    def test_check_passes_with_usable_fallback_in_prod(self):
+        self.assertEqual(check_internal_api_secret(None), [])
+
+    @override_settings(INTERNAL_API_SECRET="", INTERNAL_API_SECRET_FALLBACKS=[], DEBUG=False, TEST=False)
+    def test_check_errors_when_unset_in_prod(self):
+        errors = check_internal_api_secret(None)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "posthog.E005")
+
+    @override_settings(INTERNAL_API_SECRET=LOCAL_DEV_INTERNAL_API_SECRET, INTERNAL_API_SECRET_FALLBACKS=[], DEBUG=True)
+    def test_check_passes_in_dev(self):
+        self.assertEqual(check_internal_api_secret(None), [])
+
+    @override_settings(INTERNAL_API_SECRET="", INTERNAL_API_SECRET_FALLBACKS=[], TEST=True)
+    def test_check_passes_in_test(self):
+        self.assertEqual(check_internal_api_secret(None), [])

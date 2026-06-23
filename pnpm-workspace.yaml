@@ -18,6 +18,7 @@ packages:
     - products/agent_platform/services/*
     - products/agent_platform/packages/*
     - docs/onboarding
+    - services/agent-proxy
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
