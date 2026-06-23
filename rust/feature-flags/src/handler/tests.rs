@@ -200,6 +200,7 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -280,6 +281,7 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -669,6 +671,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -751,6 +754,7 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -906,6 +910,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: "user123".to_string(),
         device_id: None,
         feature_flags: feature_flag_list,
@@ -983,6 +988,7 @@ async fn test_long_distinct_id() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: long_id,
         device_id: None,
         feature_flags: feature_flag_list,
@@ -1593,6 +1599,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run sequential (threshold = 100, well above 4 flags)
     let sequential_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: seq_flag_list,
@@ -1623,6 +1630,7 @@ async fn test_parallel_path_matches_sequential_results() {
     // Run parallel (threshold = 1, forces rayon+oneshot for any batch >= 1)
     let parallel_context = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: par_flag_list,
@@ -1706,6 +1714,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_disabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_disabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id: distinct_id.clone(),
         device_id: None,
         feature_flags: feature_flag_list.clone(),
@@ -1742,6 +1751,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let provider_enabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_enabled = FeatureFlagEvaluationContext {
         team_id: team.id,
+        team_timezone: chrono_tz::Tz::UTC,
         distinct_id,
         device_id: None,
         feature_flags: feature_flag_list,
