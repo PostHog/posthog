@@ -125,6 +125,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
+        post_all_insights_in_main_message: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -243,6 +249,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
+        post_all_insights_in_main_message: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery.'
             ),
     })
     .describe('Standard Subscription serializer.')
@@ -369,6 +381,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
+        post_all_insights_in_main_message: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery.'
             ),
     })
     .describe('Standard Subscription serializer.')

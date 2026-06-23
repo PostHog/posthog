@@ -234,6 +234,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery. */
+    post_all_insights_in_main_message?: boolean
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -378,6 +380,8 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery. */
+    post_all_insights_in_main_message?: boolean
 }
 
 /**
