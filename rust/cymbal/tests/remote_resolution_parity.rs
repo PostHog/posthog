@@ -131,10 +131,9 @@ fn remote_stage(
 
 async fn run_stage(
     stage: ResolutionStage,
-    evt: cymbal::types::exception_properties::ExceptionProperties,
-) -> cymbal::types::exception_properties::ExceptionProperties {
-    let batch: Batch<cymbal::stages::pipeline::ExceptionEventPipelineItem> =
-        Batch::from(vec![Ok(evt)]);
+    evt: cymbal::types::exception_event::ExceptionEvent<cymbal::types::exception_event::Raw>,
+) -> cymbal::types::exception_event::ExceptionEvent<cymbal::types::exception_event::Raw> {
+    let batch: Batch<cymbal::stages::pipeline::RawItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await.expect("stage processed");
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
@@ -162,9 +161,18 @@ async fn local_and_remote_stages_produce_identical_exception_list_for_empty_stac
     // Properties derived by PropertiesResolver should also match in both
     // paths, since they're computed from the (parity-checked) exception_list.
     // `unique_by` preserves exception_list order, so compare directly.
-    assert_eq!(local_out.exception_types, remote_out.exception_types);
-    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
-    assert_eq!(local_out.exception_handled, remote_out.exception_handled);
+    assert_eq!(
+        local_out.exception_list.get_unique_types(),
+        remote_out.exception_list.get_unique_types()
+    );
+    assert_eq!(
+        local_out.exception_list.get_unique_messages(),
+        remote_out.exception_list.get_unique_messages()
+    );
+    assert_eq!(
+        local_out.exception_list.get_is_handled(),
+        remote_out.exception_list.get_is_handled()
+    );
 }
 
 #[tokio::test]
@@ -179,6 +187,12 @@ async fn parity_holds_for_empty_exception_list() {
 
     assert_eq!(local_out.exception_list.len(), 0);
     assert_eq!(remote_out.exception_list.len(), 0);
-    assert_eq!(local_out.exception_types, remote_out.exception_types);
-    assert_eq!(local_out.exception_messages, remote_out.exception_messages);
+    assert_eq!(
+        local_out.exception_list.get_unique_types(),
+        remote_out.exception_list.get_unique_types()
+    );
+    assert_eq!(
+        local_out.exception_list.get_unique_messages(),
+        remote_out.exception_list.get_unique_messages()
+    );
 }

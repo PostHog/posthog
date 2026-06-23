@@ -1,11 +1,15 @@
 use chrono::Utc;
 use cymbal::{
+    fingerprinting::Fingerprint,
     issue_resolution::{Issue, IssueStatus},
     modes::processing::rules::assignment::AssignmentRule,
     modes::processing::ProcessingConfig,
     stages::linking::issue::process_assignment,
     teams::TeamManager,
-    types::exception_properties::ExceptionProperties,
+    types::{
+        exception_event::{ExceptionEvent, Fingerprinted},
+        RawErrProps,
+    },
 };
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -42,21 +46,19 @@ fn get_test_rule() -> AssignmentRule {
     }
 }
 
-fn test_props() -> ExceptionProperties {
-    // process_assignment calls to_output(), which requires the materialized
-    // search fields to be present, so seed them (empty, since exception_list is empty).
-    serde_json::from_value(json!({
+fn test_props() -> ExceptionEvent<Fingerprinted> {
+    let raw: RawErrProps = serde_json::from_value(json!({
         "$exception_list": [],
-        "$exception_types": [],
-        "$exception_values": [],
-        "$exception_sources": [],
-        "$exception_functions": [],
-        "$exception_handled": false,
-        "$exception_fingerprint": "test value",
-        "$exception_proposed_fingerprint": "test value",
         "test_value": "test_value",
     }))
-    .unwrap()
+    .unwrap();
+    ExceptionEvent::from_raw_props(raw, Uuid::now_v7(), 1, String::new()).into_fingerprinted(
+        Fingerprint {
+            value: "test value".to_string(),
+            record: vec![],
+            assignment: None,
+        },
+    )
 }
 
 fn test_issue() -> Issue {

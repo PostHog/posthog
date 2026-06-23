@@ -26,7 +26,8 @@ use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
-use cymbal::types::exception_properties::ExceptionProperties;
+use cymbal::types::exception_event::{ExceptionEvent, Raw};
+use cymbal::types::RawErrProps;
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal::types::Stacktrace;
@@ -84,8 +85,8 @@ fn remote_stage_with_resolver(
     }
 }
 
-fn build_dart_event() -> ExceptionProperties {
-    let mut evt: ExceptionProperties = serde_json::from_value(json!({
+fn build_dart_event() -> ExceptionEvent<Raw> {
+    let raw: RawErrProps = serde_json::from_value(json!({
         "$exception_list": [{
             "type": "minified:Foo",
             "value": "boom",
@@ -103,12 +104,13 @@ fn build_dart_event() -> ExceptionProperties {
         }]
     }))
     .expect("valid exception properties");
+    let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
     evt.team_id = 7;
     evt.uuid = Uuid::from_u128(42);
     evt
 }
 
-fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionProperties {
+fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionEvent<Raw> {
     let exceptions: Vec<serde_json::Value> = symbol_refs
         .iter()
         .enumerate()
@@ -130,10 +132,11 @@ fn build_event_with_symbol_refs(uuid: Uuid, symbol_refs: &[&str]) -> ExceptionPr
             })
         })
         .collect();
-    let mut evt: ExceptionProperties = serde_json::from_value(json!({
+    let raw: RawErrProps = serde_json::from_value(json!({
         "$exception_list": exceptions
     }))
     .expect("valid exception properties");
+    let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
     evt.team_id = 7;
     evt.uuid = uuid;
     evt
@@ -202,7 +205,7 @@ async fn happy_path_preserves_batch_event_and_exception_order() {
     for (resolved_evt, expected_evt_types) in resolved.iter().zip(expected_types.iter()) {
         let mut expected_properties = expected_evt_types.clone();
         expected_properties.sort();
-        let mut resolved_properties = resolved_evt.exception_types.clone().unwrap_or_default();
+        let mut resolved_properties = resolved_evt.exception_list.get_unique_types();
         resolved_properties.sort();
         assert_eq!(resolved_properties, expected_properties);
     }
@@ -231,7 +234,7 @@ async fn local_mode_ignores_remote_pool_when_remote_is_disabled() {
     assert_eq!(resolved_types, original_types);
     let mut expected_properties = original_types.clone();
     expected_properties.sort();
-    let mut resolved_properties = resolved.exception_types.unwrap_or_default();
+    let mut resolved_properties = resolved.exception_list.get_unique_types();
     resolved_properties.sort();
     assert_eq!(resolved_properties, expected_properties);
     assert!(
@@ -261,7 +264,10 @@ async fn sample_rate_zero_routes_eligible_events_locally_without_remote_calls() 
             .and_then(|e| e.stack.as_ref()),
         Some(Stacktrace::Resolved { .. })
     ));
-    assert_eq!(resolved.exception_types, Some(vec!["Boom0".to_string()]));
+    assert_eq!(
+        resolved.exception_list.get_unique_types(),
+        vec!["Boom0".to_string()]
+    );
 }
 
 #[tokio::test]
@@ -527,8 +533,8 @@ async fn unsampled_events_run_local_exception_frame_and_properties_resolvers() {
         Some(Stacktrace::Resolved { .. })
     ));
     assert_eq!(
-        resolved.exception_types,
-        Some(vec!["ResolvedDart".to_string()])
+        resolved.exception_list.get_unique_types(),
+        vec!["ResolvedDart".to_string()]
     );
 }
 

@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
-use cymbal::stages::pipeline::ExceptionEventPipelineItem;
+use cymbal::stages::pipeline::RawItem;
 use cymbal::stages::resolution::{
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -30,7 +30,10 @@ use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
-    batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
+    batch::Batch,
+    exception_event::{ExceptionEvent, Raw},
+    operator::TeamId,
+    stage::Stage,
     Exception, ExceptionList, Stacktrace,
 };
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::{
@@ -459,16 +462,16 @@ pub fn local_stage() -> ResolutionStage {
 
 pub async fn process_one(
     stage: ResolutionStage,
-    evt: ExceptionProperties,
-) -> Result<ExceptionProperties, UnhandledError> {
-    let batch: Batch<ExceptionEventPipelineItem> = Batch::from(vec![Ok(evt)]);
+    evt: ExceptionEvent<Raw>,
+) -> Result<ExceptionEvent<Raw>, UnhandledError> {
+    let batch: Batch<RawItem> = Batch::from(vec![Ok(evt)]);
     let result = stage.process(batch).await?;
     let mut items: Vec<_> = result.into_iter().collect();
     assert_eq!(items.len(), 1, "single-event batch must produce one output");
     Ok(items.remove(0).expect("event must not be EventError"))
 }
 
-pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
+pub fn build_event(num_exceptions: usize) -> ExceptionEvent<Raw> {
     let exceptions: Vec<Exception> = (0..num_exceptions)
         .map(|i| Exception {
             exception_id: None,
@@ -480,25 +483,18 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
             stack: Some(Stacktrace::Raw { frames: vec![] }),
         })
         .collect();
-    ExceptionProperties {
+    ExceptionEvent {
+        uuid: Uuid::now_v7(),
+        team_id: 7,
+        timestamp: String::new(),
         exception_list: ExceptionList::from(exceptions),
-        exception_sources: None,
-        exception_types: None,
-        exception_messages: None,
-        exception_functions: None,
-        exception_handled: None,
-        exception_releases: Default::default(),
-        fingerprint: None,
-        proposed_fingerprint: None,
-        fingerprint_record: None,
-        issue_id: None,
+        handled: None,
+        debug_images: Vec::new(),
+        other: Default::default(),
         proposed_issue_name: None,
         proposed_issue_description: None,
-        debug_images: Vec::new(),
-        props: Default::default(),
-        uuid: Uuid::now_v7(),
-        timestamp: String::new(),
-        team_id: 7,
-        issue: None,
+        stage: Raw {
+            client_fingerprint: None,
+        },
     }
 }
