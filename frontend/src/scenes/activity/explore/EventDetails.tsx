@@ -11,6 +11,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
+import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -180,6 +182,21 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     collapsed={1}
                                     collapseStringsAfterLength={80}
                                     sortKeys
+                                />
+                            </div>
+                        )
+                    case 'debug_properties':
+                        return (
+                            <div className="mx-3 deprecated-space-y-2">
+                                {hasReplayDiagnosticSignals(properties) && (
+                                    <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
+                                )}
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Event}
+                                    properties={properties}
+                                    tableProps={tableProps}
+                                    sortProperties
+                                    searchable
                                 />
                             </div>
                         )

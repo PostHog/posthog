@@ -44,6 +44,13 @@ const DIAGNOSTIC_KEYS = [
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
 
+export function hasReplayDiagnosticSignals(properties: Record<string, any> | null | undefined): boolean {
+    if (!properties) {
+        return false
+    }
+    return DIAGNOSTIC_KEYS.some((key) => properties[key] !== undefined)
+}
+
 const pickSignals = (properties: Record<string, any>): Record<string, unknown> => {
     const out: Record<string, unknown> = {}
     for (const key of DIAGNOSTIC_KEYS) {

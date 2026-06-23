@@ -123,7 +123,11 @@ function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }):
                             {
                                 key: 'raw-signals',
                                 header: 'Raw diagnostic signals',
-                                content: <ExplainedSignalList signals={diagnosis.rawSignals} />,
+                                content: (
+                                    <div className="max-h-[40vh] overflow-y-auto">
+                                        <ExplainedSignalList signals={diagnosis.rawSignals} />
+                                    </div>
+                                ),
                             },
                         ]}
                     />

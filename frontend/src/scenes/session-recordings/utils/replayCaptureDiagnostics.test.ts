@@ -1,4 +1,4 @@
-import { DiagnosisVerdict, diagnoseReplayCapture } from './replayCaptureDiagnostics'
+import { DiagnosisVerdict, diagnoseReplayCapture, hasReplayDiagnosticSignals } from './replayCaptureDiagnostics'
 
 type Case = {
     name: string
@@ -263,5 +263,23 @@ describe('diagnoseReplayCapture', () => {
         expect(result.rawSignals).toHaveProperty('$replay_minimum_duration')
         expect(result.rawSignals).toHaveProperty('$sdk_debug_session_start')
         expect(result.rawSignals).not.toHaveProperty('$some_other_prop')
+    })
+})
+
+describe('hasReplayDiagnosticSignals', () => {
+    it('returns false for nullish or empty properties', () => {
+        expect(hasReplayDiagnosticSignals(undefined)).toBe(false)
+        expect(hasReplayDiagnosticSignals(null)).toBe(false)
+        expect(hasReplayDiagnosticSignals({})).toBe(false)
+    })
+
+    it('returns false when no recording diagnostic signals are present', () => {
+        expect(hasReplayDiagnosticSignals({ $browser: 'Chrome', some_custom_prop: 1 })).toBe(false)
+    })
+
+    it('returns true when at least one recording diagnostic signal is present', () => {
+        expect(hasReplayDiagnosticSignals({ $recording_status: 'buffering' })).toBe(true)
+        expect(hasReplayDiagnosticSignals({ $sdk_debug_replay_event_trigger_status: 'trigger_pending' })).toBe(true)
+        expect(hasReplayDiagnosticSignals({ $has_recording: false })).toBe(true)
     })
 })
