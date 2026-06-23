@@ -349,8 +349,8 @@ function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
                 <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
                 <p className="text-muted text-sm m-0">
                     Filter your session recordings and run this scanner against any of them. Each scan produces one
-                    observation. Filters start from this scanner's triggers — adjust them to backfill or scan
-                    un-sampled sessions.
+                    observation. Filters start from this scanner's triggers — adjust them to backfill or scan un-sampled
+                    sessions.
                 </p>
             </div>
             {originalScanner ? (
