@@ -1261,6 +1261,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # Callers that omit `base_updated_at` keep the previous last-writer-wins behavior.
         base_updated_at_raw = self.request.data.get("base_updated_at")
         base_updated_at = parse_datetime(base_updated_at_raw) if base_updated_at_raw else None
+        # A timezone-less timestamp parses naive; comparing it to the tz-aware stored updated_at would
+        # raise TypeError (500). Assume UTC so callers can send a bare ISO string.
+        if base_updated_at is not None and timezone.is_naive(base_updated_at):
+            base_updated_at = timezone.make_aware(base_updated_at)
 
         with transaction.atomic():
             try:

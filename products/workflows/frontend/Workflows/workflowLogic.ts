@@ -246,9 +246,10 @@ export const workflowLogic = kea<workflowLogicType>([
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 409) {
-                            // A newer version exists (SSE event likely missed) — surface the reconcile banner.
+                            // A newer version exists (SSE event likely missed) — surface the reconcile banner,
+                            // which carries the actionable Reload / Keep mine choice. No toast: it would just
+                            // duplicate the banner (the global kea handler already skips 409).
                             actions.setExternallyEdited(true)
-                            lemonToast.error('This workflow was updated elsewhere. Reload to get the latest version.')
                         }
                         throw error
                     }

@@ -129,6 +129,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert HogFlow.objects.get(pk=flow_id).name == "Ungated edit"
 
+    def test_timezone_naive_base_updated_at_is_handled(self):
+        # A base_updated_at with no timezone designator parses naive; it must be coerced to aware
+        # (assumed UTC) rather than raising TypeError when compared to the tz-aware stored updated_at.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        naive = flow.updated_at.replace(tzinfo=None).isoformat()
+        assert "+" not in naive and not naive.endswith("Z")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Naive base edit", "base_updated_at": naive},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Naive base edit"
+
     def test_hog_flow_function_trigger_check(self):
         hog_flow = {
             "name": "Test Flow",
