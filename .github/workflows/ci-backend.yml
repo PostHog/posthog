@@ -655,7 +655,7 @@ jobs:
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
-                    db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
+                    db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
             - name: Mint setup-action GitHub token
@@ -698,13 +698,6 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -746,13 +739,16 @@ jobs:
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
                   ./bin/hogli db:restore-test-db
 
-            - name: Wait for Temporal
+            - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
               # via sync_connect() in their tests, so keep a readiness gate before tests run.
               # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
-              # The expensive registration command this replaces is gone — no product test
-              # needs the custom search attributes against the container.
-              run: bin/wait-for-docker temporal
+              # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
+              # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
+              # so they must be registered before tests run.
+              run: |
+                  bin/wait-for-docker temporal
+                  python manage.py register_temporal_search_attributes
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
@@ -1058,13 +1054,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -2119,14 +2108,6 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
-            - name: Cache Rust dependencies
-              if: needs.changes.outputs.backend == 'true'
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
               uses: ./.github/actions/setup-sqlx-cli
@@ -2934,13 +2915,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

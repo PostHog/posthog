@@ -162,6 +162,25 @@ IDENTITY_MATCHING_LINKS_STRUCTURE = """
 """
 
 
+# On a Cloud deployment the scratch bucket must be a dedicated, infra-provided bucket distinct
+# from the general object-storage bucket. IDENTITY_MATCHING_S3_BUCKET falls back to
+# OBJECT_STORAGE_BUCKET when its env var is unset, so equality on Cloud means the var is missing
+# and every s3() call would target the wrong bucket (the app-assets bucket the ClickHouse role
+# cannot access) — a silent AccessDenied. Both the Dagster job and the read API check this so a
+# missing env on either deployment fails loudly instead of 500-ing on AccessDenied.
+IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE = (
+    "IDENTITY_MATCHING_S3_BUCKET is not set on this deployment, so identity matching falls back to "
+    "the general object-storage bucket, which the ClickHouse role cannot access. Set it to the "
+    "scratch bucket (the same value as the Dagster deployment) on every deployment that runs the "
+    "identity matching job or its read API."
+)
+
+
+def identity_matching_s3_unconfigured() -> bool:
+    """True when the scratch bucket isn't configured on a Cloud deployment (see message above)."""
+    return bool(settings.CLOUD_DEPLOYMENT) and settings.IDENTITY_MATCHING_S3_BUCKET == settings.OBJECT_STORAGE_BUCKET
+
+
 def identity_matching_run_prefix(team_id: int, job_id: str) -> str:
     """S3 key prefix for one run: `<prefix>/team_<team_id>/<job_id>`.
 

@@ -2121,13 +2121,15 @@ const prepareUrl = (url: string): string => {
 }
 
 /**
- * Bearer auth header for standalone OAuth mode; empty when served by Django (session auth).
+ * Bearer auth header for standalone OAuth mode, attached only to requests bound for the OAuth
+ * backend host (the remote region). Requests that `prepareUrl` left on the local origin (non-`/api`
+ * paths) must not carry the remote region's token. Empty when served by Django (session auth).
  * Synchronous so requests still dispatch synchronously — an expired token is handled by the
- * 401 → refresh → retry path in handleFetch.
+ * 401 → refresh → retry path in handleFetch. Pass the already-`prepareUrl`'d request URL.
  */
-function oauthAuthHeaders(): Record<string, string> {
+function oauthAuthHeaders(url: string): Record<string, string> {
     const session = getStoredSession()
-    return session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    return session && url.startsWith(session.backendHost) ? { Authorization: `Bearer ${session.accessToken}` } : {}
 }
 
 /**
@@ -6069,7 +6071,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
+        authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
@@ -6973,7 +6975,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
             })
@@ -6999,7 +7001,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
                 signal: options?.signal,
@@ -7036,7 +7038,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
@@ -7055,7 +7057,7 @@ const api = {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
             })
         )

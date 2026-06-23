@@ -21,6 +21,7 @@ from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skil
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -93,12 +94,37 @@ async def arun_signals_scout(
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+
+    # Honor the per-scout holdback denylist, resolved against the canonical project. Two effects:
+    # (1) a direct run of a held-back scout is refused up front (so this manual path can't seed or
+    # run a scout the flag withholds), and (2) the canonical sync below is passed the denylist so
+    # running *any* scout on a held-back team can't seed the other withheld scouts' rows as a side
+    # effect. In local dev there's no flag payload, so this resolves empty and nothing is blocked.
+    withheld = await database_sync_to_async(withheld_skills_for_team, thread_sensitive=False)(
+        team.parent_team_id or team.id
+    )
+    if skill_name in withheld:
+        logger.info(
+            "signals_scout: skipping run, scout is withheld from this team",
+            extra={"team_id": team_id, "skill_name": skill_name},
+        )
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill_name,
+            skill_version=skill_version or 0,
+            skip_reason="scout is withheld from this team",
+        )
+
     # Sync canonical signals-scout-* skills before we resolve the skill the run asked for.
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
     # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
     # crash the run — we log and continue with whatever skills the team already has.
     try:
-        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team)
+        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team, withheld_skill_names=withheld)
     except Exception:
         logger.exception(
             "signals_scout: canonical skill sync failed; continuing with existing team skills",

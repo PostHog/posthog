@@ -131,6 +131,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "original_filename",
             "file_content_type",
             "file_size_bytes",
+            "always_include",
         ]
         read_only_fields = fields
 
@@ -184,6 +185,11 @@ class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
             "or wait for URL/file support in Stage 2/3."
         ),
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction).",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -202,8 +208,8 @@ class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
 
 class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
     """
-    PATCH payload for text sources. Both fields optional, at least one
-    required. `text` triggers a re-chunk; `name` alone does not.
+    PATCH payload for text sources. All fields optional, at least one
+    required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
     """
 
     name = serializers.CharField(
@@ -216,6 +222,10 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         trim_whitespace=False,
         help_text="Replacement text. Omit to keep the existing content.",
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -227,8 +237,8 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        if "name" not in attrs and "text" not in attrs:
-            raise serializers.ValidationError("Provide at least one of `name` or `text`.")
+        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs:
+            raise serializers.ValidationError("Provide at least one of `name`, `text`, or `always_include`.")
         return attrs
 
 
@@ -257,6 +267,10 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         choices=RefreshInterval.choices,
         required=False,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh. Changing it alone does not trigger a re-crawl.",
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
     include_globs = _GlobListField(
         required=False,
@@ -326,6 +340,11 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         default=RefreshInterval.MANUAL,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
+    )
 
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
@@ -359,6 +378,11 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         required=False,
         default=RefreshInterval.MANUAL,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
     include_globs = _GlobListField(
         required=False,
@@ -496,6 +520,11 @@ class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
         help_text=(
             f"PDF, DOCX, Markdown (.md), CSV, or plain text (.txt) file. Max {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
         ),
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
 
     def validate_file(self, value: UploadedFile) -> UploadedFile:  # noqa: F821
