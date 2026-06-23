@@ -445,8 +445,7 @@ class SubscriptionDelivery(UUIDModel):
         FAILED = "failed"
         SKIPPED = "skipped"
 
-    # content_snapshot key the AI report markdown is stored under (by reference, since the
-    # markdown can exceed Temporal's ~2 MiB payload cap).
+    # content_snapshot key the AI report markdown is stored under.
     AI_REPORT_SNAPSHOT_KEY = "ai_report"
 
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")

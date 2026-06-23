@@ -89,6 +89,7 @@ def _create_ai_subscription(team, user, *, markdown: str) -> SubscriptionDeliver
         ("insight", None, None),
         ("insight", "x" * (_MAX_EVENT_SUMMARY_CHARS + 50), "x" * _MAX_EVENT_SUMMARY_CHARS),
         ("ai", "# Weekly report\nAll good.", "# Weekly report\nAll good."),
+        ("ai", "", None),
     ],
 )
 async def test_emit_resolves_and_caps_summary_per_resource_type(

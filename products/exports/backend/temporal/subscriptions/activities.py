@@ -516,7 +516,10 @@ async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInp
         # Preserve the caller's asset order (a `pk__in` queryset doesn't guarantee it).
         asset_urls: list[str] = []
         if inputs.successful_asset_ids:
-            assets_by_id = {a.id: a for a in ExportedAsset.objects.filter(pk__in=inputs.successful_asset_ids)}
+            assets_by_id = {
+                a.id: a
+                for a in ExportedAsset.objects.filter(pk__in=inputs.successful_asset_ids, team_id=inputs.team_id)
+            }
             asset_urls = [
                 assets_by_id[asset_id].get_subscription_delivery_content_url()
                 for asset_id in inputs.successful_asset_ids
