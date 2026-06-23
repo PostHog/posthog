@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportCard } from '../cards/ReportCard'
 import { playMeep } from './meep'
@@ -12,8 +14,13 @@ import { playMeep } from './meep'
  * the ever-looming Hooli.
  */
 
+// Timestamps are relative to "now" at render time (not a fixed calendar date) so `ReportCard`'s
+// `TZLabel` always reads as just-landed work ("2 hours ago") instead of drifting to "months ago".
+// Subtracting from the current clock also keeps the relative label stable in snapshot/VR runs.
+const landedHoursAgo = (hours: number): string => dayjs().subtract(hours, 'hours').toISOString()
+
 // A shippable fix Pied Piper's agents could open against the compression engine.
-const PULL_REQUEST_SAMPLE: SignalReport = {
+const PULL_REQUEST_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
     id: 'onboarding-preview-pr',
     title: 'fix(compression): stop 4K streams dropping to single-threaded encode',
     summary:
@@ -22,8 +29,6 @@ const PULL_REQUEST_SAMPLE: SignalReport = {
     total_weight: 0,
     signal_count: 3,
     relevant_user_count: null,
-    created_at: '2026-06-23T10:42:00Z',
-    updated_at: '2026-06-23T10:42:00Z',
     artefact_count: 0,
     is_suggested_reviewer: false,
     priority: 'P1',
@@ -32,7 +37,7 @@ const PULL_REQUEST_SAMPLE: SignalReport = {
 }
 
 // A "needs your call" report: no clean code change, a judgment to make.
-const REPORT_SAMPLE: SignalReport = {
+const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
     id: 'onboarding-preview-report',
     title: 'Hooli traffic is hammering the Pipernet beta – throttle or let it ride?',
     summary:
@@ -41,8 +46,6 @@ const REPORT_SAMPLE: SignalReport = {
     total_weight: 0,
     signal_count: 5,
     relevant_user_count: null,
-    created_at: '2026-06-23T09:15:00Z',
-    updated_at: '2026-06-23T09:15:00Z',
     artefact_count: 0,
     is_suggested_reviewer: false,
     priority: 'P2',
@@ -73,9 +76,11 @@ function MeepCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 
 }
 
 export function PullRequestPreview(): JSX.Element {
-    return <MeepCard report={PULL_REQUEST_SAMPLE} tabKey="pulls" />
+    const landed = landedHoursAgo(2)
+    return <MeepCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="pulls" />
 }
 
 export function ReportPreview(): JSX.Element {
-    return <MeepCard report={REPORT_SAMPLE} tabKey="reports" />
+    const landed = landedHoursAgo(4)
+    return <MeepCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="reports" />
 }
