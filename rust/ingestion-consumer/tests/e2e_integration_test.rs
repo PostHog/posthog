@@ -27,7 +27,7 @@ use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
-use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
+use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
 const KAFKA_BROKERS: &str = "localhost:9092";
 
@@ -96,7 +96,12 @@ struct FakeWorker {
     pub url: String,
     /// (distinct_id, seq) pairs in arrival order.
     pub received: Arc<Mutex<Vec<(String, usize)>>>,
+    /// Gates /_ready (pool membership). When false the worker leaves the pool.
     pub healthy: Arc<AtomicBool>,
+    /// Gates /ingest only. When false the worker stays ready (in the pool) but
+    /// fails every send — a "flapping" worker, used to exercise the flush loop's
+    /// re-defer path and its timeout bound.
+    pub ingest_ok: Arc<AtomicBool>,
     /// Number of /ingest requests that have reached the handler. Counted before
     /// the gate, so a test can observe a batch is in-flight even while held.
     arrived: Arc<AtomicUsize>,
@@ -107,10 +112,27 @@ struct FakeWorker {
     _task: tokio::task::JoinHandle<()>,
 }
 
+/// A receipt-ordered log of `(distinct_id, seq)` shared across all workers in a
+/// run. The shared mutex gives every accepted message a slot in a single total
+/// order, so a test can reconstruct global delivery order across reroutes and
+/// assert per-distinct_id ordering, no loss, and no duplication.
+type DeliveryLog = Arc<Mutex<Vec<(String, usize)>>>;
+
 impl FakeWorker {
     async fn start() -> Self {
+        Self::start_inner(None).await
+    }
+
+    /// Like `start`, but also appends every accepted message to a shared,
+    /// cross-worker delivery log (for the churn/ordering suite).
+    async fn start_logged(delivery_log: DeliveryLog) -> Self {
+        Self::start_inner(Some(delivery_log)).await
+    }
+
+    async fn start_inner(delivery_log: Option<DeliveryLog>) -> Self {
         let received: Arc<Mutex<Vec<(String, usize)>>> = Arc::new(Mutex::new(Vec::new()));
         let healthy = Arc::new(AtomicBool::new(true));
+        let ingest_ok = Arc::new(AtomicBool::new(true));
         let arrived = Arc::new(AtomicUsize::new(0));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
@@ -136,20 +158,26 @@ impl FakeWorker {
                 post({
                     let recv = Arc::clone(&received);
                     let h = Arc::clone(&healthy);
+                    let ingest_ok = Arc::clone(&ingest_ok);
                     let arrived = Arc::clone(&arrived);
                     let gate = Arc::clone(&gate);
+                    let delivery_log = delivery_log.clone();
                     move |AxumJson(req): AxumJson<IngestBatchRequest>| {
                         let recv = recv.clone();
                         let h = h.clone();
+                        let ingest_ok = ingest_ok.clone();
                         let arrived = arrived.clone();
                         let gate = gate.clone();
+                        let delivery_log = delivery_log.clone();
                         async move {
                             arrived.fetch_add(1, Ordering::SeqCst);
                             // Block here while a test holds the gate (slow worker).
                             let _hold = gate.lock().await;
                             // Health is checked after the gate so a test can flip a
-                            // held request to a failure before releasing it.
-                            if !h.load(Ordering::Relaxed) {
+                            // held request to a failure before releasing it. A
+                            // worker that is ready but has ingest_ok=false fails
+                            // sends while staying in the pool (a flapping worker).
+                            if !h.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
                                 return (
                                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                                     AxumJson(IngestBatchResponse {
@@ -161,18 +189,29 @@ impl FakeWorker {
                                 );
                             }
                             let accepted = req.messages.len() as u32;
-                            let mut g = recv.lock().unwrap();
-                            for msg in &req.messages {
-                                let did =
-                                    msg.headers.get("distinct_id").cloned().unwrap_or_default();
-                                let seq = msg
-                                    .value
-                                    .as_deref()
-                                    .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
-                                    .and_then(|v| v["seq"].as_u64())
-                                    .unwrap_or(0)
-                                    as usize;
-                                g.push((did, seq));
+                            let entries: Vec<(String, usize)> = req
+                                .messages
+                                .iter()
+                                .map(|msg| {
+                                    let did =
+                                        msg.headers.get("distinct_id").cloned().unwrap_or_default();
+                                    let seq = msg
+                                        .value
+                                        .as_deref()
+                                        .and_then(|v| {
+                                            serde_json::from_str::<serde_json::Value>(v).ok()
+                                        })
+                                        .and_then(|v| v["seq"].as_u64())
+                                        .unwrap_or(0)
+                                        as usize;
+                                    (did, seq)
+                                })
+                                .collect();
+                            recv.lock().unwrap().extend(entries.iter().cloned());
+                            // Record the whole batch as one contiguous slot in the
+                            // shared total order (it was accepted as a unit).
+                            if let Some(log) = &delivery_log {
+                                log.lock().unwrap().extend(entries);
                             }
                             (
                                 axum::http::StatusCode::OK,
@@ -197,6 +236,7 @@ impl FakeWorker {
             url,
             received,
             healthy,
+            ingest_ok,
             arrived,
             gate,
             _task: task,
@@ -235,8 +275,10 @@ struct Harness {
     pub workers: Vec<FakeWorker>,
     pub registry: Arc<WorkerRegistry>,
     pub dispatcher: Arc<Dispatcher>,
+    /// Cross-worker, receipt-ordered log of every accepted message.
+    pub delivery_log: DeliveryLog,
     pub shutdown: CancellationToken,
-    _task: tokio::task::JoinHandle<()>,
+    task: Option<tokio::task::JoinHandle<()>>,
     _probe_token: CancellationToken,
 }
 
@@ -246,13 +288,15 @@ impl Harness {
         partitions: i32,
         worker_count: usize,
         max_in_flight: usize,
+        deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
     ) -> Self {
         create_topic(topic, partitions).await;
 
+        let delivery_log: DeliveryLog = Arc::new(Mutex::new(Vec::new()));
         let mut workers = Vec::new();
         for _ in 0..worker_count {
-            workers.push(FakeWorker::start().await);
+            workers.push(FakeWorker::start_logged(Arc::clone(&delivery_log)).await);
         }
         let worker_urls: Vec<String> = workers.iter().map(|w| w.url.clone()).collect();
 
@@ -298,6 +342,7 @@ impl Harness {
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
+                deferred_flush_timeout,
             },
             handle,
         );
@@ -311,10 +356,20 @@ impl Harness {
             workers,
             registry: registry_for_test,
             dispatcher: dispatcher_for_test,
+            delivery_log,
             shutdown,
-            _task: task,
+            task: Some(task),
             _probe_token: probe_token,
         }
+    }
+
+    /// Wait for the consumer's process loop to exit on its own (e.g. after it
+    /// fails a batch), up to `timeout`. Returns true if it exited within the bound.
+    async fn wait_for_consumer_exit(&mut self, timeout: Duration) -> bool {
+        let Some(task) = self.task.take() else {
+            return true;
+        };
+        tokio::time::timeout(timeout, task).await.is_ok()
     }
 
     async fn wait_for(&self, total: usize, timeout: Duration) {
@@ -332,9 +387,11 @@ impl Harness {
         }
     }
 
-    async fn stop(self) {
+    async fn stop(mut self) {
         self.shutdown.cancel();
-        let _ = tokio::time::timeout(Duration::from_secs(3), self._task).await;
+        if let Some(task) = self.task.take() {
+            let _ = tokio::time::timeout(Duration::from_secs(3), task).await;
+        }
     }
 }
 
@@ -398,7 +455,15 @@ fn sole_arrived_worker(harness: &Harness) -> usize {
 #[tokio::test]
 async fn messages_per_distinct_id_arrive_in_order() {
     let topic = format!("e2e-ordering-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 3, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        3,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
 
     let producer = make_producer();
     for seq in 0..8usize {
@@ -433,7 +498,15 @@ async fn messages_per_distinct_id_arrive_in_order() {
 #[tokio::test]
 async fn failing_worker_triggers_rerouting() {
     let topic = format!("e2e-failover-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 2, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
 
     let producer = make_producer();
 
@@ -486,7 +559,15 @@ async fn failing_worker_triggers_rerouting() {
 #[tokio::test]
 async fn draining_worker_takes_no_new_work_and_reroutes_in_order() {
     let topic = format!("e2e-drain-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 2, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
 
     let producer = make_producer();
 
@@ -604,7 +685,15 @@ fn worker_msg(distinct_id: &str, seq: usize) -> SerializedKafkaMessage {
 #[tokio::test]
 async fn send_failure_mid_flight_replays_to_survivor_in_order() {
     let topic = format!("e2e-replay-single-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 1, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        1,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     // Freeze both workers so whichever gets the batch holds it in flight.
@@ -652,7 +741,15 @@ async fn send_failure_mid_flight_replays_to_survivor_in_order() {
 #[tokio::test]
 async fn partial_send_failure_replays_only_the_failed_subbatch() {
     let topic = format!("e2e-replay-partial-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 2, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
@@ -706,7 +803,15 @@ async fn partial_send_failure_replays_only_the_failed_subbatch() {
 #[tokio::test]
 async fn deferred_flush_retries_until_a_worker_recovers() {
     let topic = format!("e2e-replay-wait-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 1, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        1,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     // Take worker 1 out of the pool so the batch routes to worker 0.
@@ -783,7 +888,15 @@ async fn deferred_flush_retries_until_a_worker_recovers() {
 #[tokio::test]
 async fn multi_key_send_failure_replays_every_key_in_order() {
     let topic = format!("e2e-replay-multikey-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 3, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        3,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     // Worker 1 out so all three keys land on worker 0 as one sub-batch.
@@ -840,7 +953,15 @@ async fn multi_key_send_failure_replays_every_key_in_order() {
 #[tokio::test]
 async fn flush_target_failure_re_defers_then_replays_in_order() {
     let topic = format!("e2e-replay-cascade-{}", Uuid::new_v4());
-    let harness = Harness::start(&topic, 1, 2, 1, fast_registry_config()).await;
+    let harness = Harness::start(
+        &topic,
+        1,
+        2,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
@@ -951,7 +1072,12 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
 
     // Resolve batch-1 (the drainer finishes its in-flight), then flush batch-2:
     // it re-routes to the survivor.
-    dispatcher.on_sub_batch_resolved(&b1[0].worker, b1[0].messages.len(), &b1[0].routing_keys);
+    dispatcher.on_sub_batch_resolved(
+        &b1[0].worker,
+        b1[0].messages.len(),
+        &b1[0].routing_keys,
+        false,
+    );
     let f2 = dispatcher.flush_deferred("batch-2");
     assert_eq!(f2.len(), 1);
     assert_eq!(
@@ -974,4 +1100,241 @@ async fn drain_defer_flush_delivers_to_survivor_over_http() {
     );
 
     probe_token.cancel();
+}
+
+// ── max_in_flight > 1 churn / invariant suite ────────────────────────────────
+//
+// At max_in_flight > 1 the consumer processes batches concurrently, so exact
+// scenarios can't be scripted deterministically. These tests instead run a high
+// volume across many distinct_ids while aggressively churning the worker pool,
+// and assert the correctness INVARIANTS on the cross-worker delivery log:
+//   - exactly-once: every produced (distinct_id, seq) is delivered once — no
+//     loss, no duplication;
+//   - ordering: under graceful drain, each distinct_id's messages are delivered
+//     in Kafka order despite rerouting (a regression of the deferred-replay
+//     ordering shows up here as an out-of-order seq).
+//
+// Drain churn (the graceful-drain feature) preserves order, so it is asserted
+// strictly. Send-failure churn falls back to at-least-once replay, which can
+// interleave a failed-then-replayed message with a later same-key success on a
+// flapping worker; those variants assert exactly-once but not strict order.
+
+#[derive(Clone, Copy, Debug)]
+enum Churn {
+    Drain,
+    Fail,
+    Mixed,
+}
+
+async fn sleep_or_cancel(token: &CancellationToken, ms: u64) -> bool {
+    tokio::select! {
+        _ = token.cancelled() => true,
+        _ = tokio::time::sleep(Duration::from_millis(ms)) => false,
+    }
+}
+
+/// Continuously churn the worker pool until cancelled, affecting one worker at a
+/// time so the pool always keeps a healthy majority (progress is always
+/// possible). Drain = leave/rejoin the pool (EndpointSlice-style); Fail = stay
+/// ready but error sends (a crash mid-send). Restores all workers on exit.
+fn spawn_churn(
+    harness: &Harness,
+    churn: Churn,
+    token: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let registry = Arc::clone(&harness.registry);
+    let controls: Vec<(String, Arc<AtomicBool>)> = harness
+        .workers
+        .iter()
+        .map(|w| (w.url.clone(), Arc::clone(&w.ingest_ok)))
+        .collect();
+    tokio::spawn(async move {
+        let mut i = 0usize;
+        while !token.is_cancelled() {
+            let (url, ingest_ok) = &controls[i % controls.len()];
+            let drain = match churn {
+                Churn::Drain => true,
+                Churn::Fail => false,
+                Churn::Mixed => i.is_multiple_of(2),
+            };
+            if drain {
+                registry.start_draining(url);
+                if sleep_or_cancel(&token, 120).await {
+                    break;
+                }
+                registry.add_worker(WorkerId::from(url.as_str()));
+            } else {
+                ingest_ok.store(false, Ordering::SeqCst);
+                if sleep_or_cancel(&token, 120).await {
+                    break;
+                }
+                ingest_ok.store(true, Ordering::SeqCst);
+            }
+            // A gap with everyone healthy so the backlog can drain.
+            if sleep_or_cancel(&token, 80).await {
+                break;
+            }
+            i += 1;
+        }
+        for (url, ingest_ok) in &controls {
+            ingest_ok.store(true, Ordering::SeqCst);
+            registry.add_worker(WorkerId::from(url.as_str()));
+        }
+    })
+}
+
+async fn run_churn_suite(churn: Churn, max_in_flight: usize, strict_order: bool) {
+    let topic = format!("e2e-churn-{churn:?}-mif{max_in_flight}-{}", Uuid::new_v4());
+    let dids = 8usize;
+    let per_did = 60usize;
+    let total = dids * per_did;
+    let partitions = 4i32;
+
+    let harness = Harness::start(
+        &topic,
+        partitions,
+        4,
+        max_in_flight,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    let churn_token = CancellationToken::new();
+    let churn_handle = spawn_churn(&harness, churn, churn_token.clone());
+
+    // Interleave distinct_ids so each Kafka batch mixes many keys.
+    for seq in 0..per_did {
+        for d in 0..dids {
+            produce(
+                &producer,
+                &topic,
+                (d as i32) % partitions,
+                "tok",
+                &format!("user-{d}"),
+                seq,
+            )
+            .await;
+        }
+    }
+
+    harness.wait_for(total, Duration::from_secs(90)).await;
+
+    // Quiesce churn so the final assertions see a settled log.
+    churn_token.cancel();
+    let _ = churn_handle.await;
+
+    let log = harness.delivery_log.lock().unwrap().clone();
+    assert_eq!(
+        log.len(),
+        total,
+        "exactly-once: expected {total} deliveries, got {}",
+        log.len()
+    );
+
+    let expected: Vec<usize> = (0..per_did).collect();
+    for d in 0..dids {
+        let did = format!("user-{d}");
+        let seqs: Vec<usize> = log
+            .iter()
+            .filter(|(id, _)| *id == did)
+            .map(|(_, s)| *s)
+            .collect();
+        let mut sorted = seqs.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            sorted, expected,
+            "{did}: messages lost or duplicated under {churn:?} churn: {seqs:?}"
+        );
+        if strict_order {
+            assert_eq!(
+                seqs, expected,
+                "{did}: messages delivered out of order under {churn:?} churn: {seqs:?}"
+            );
+        }
+    }
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn churn_drain_preserves_order_at_max_in_flight_2() {
+    run_churn_suite(Churn::Drain, 2, true).await;
+}
+
+#[tokio::test]
+async fn churn_drain_preserves_order_at_max_in_flight_3() {
+    run_churn_suite(Churn::Drain, 3, true).await;
+}
+
+#[tokio::test]
+async fn churn_send_failures_are_exactly_once_at_max_in_flight_3() {
+    run_churn_suite(Churn::Fail, 3, false).await;
+}
+
+#[tokio::test]
+async fn churn_mixed_drain_and_failures_are_exactly_once_at_max_in_flight_3() {
+    run_churn_suite(Churn::Mixed, 3, false).await;
+}
+
+/// A flapping worker — ready (in the pool) but failing every send — must not pin
+/// a batch's offsets forever. The flush loop enforces its deadline on the
+/// re-defer path too, so the consumer fails the batch within the configured
+/// flush timeout instead of spinning. Runs at max_in_flight > 1.
+#[tokio::test]
+async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
+    let topic = format!("e2e-flap-{}", Uuid::new_v4());
+    // Short flush timeout so the bound is observable quickly; concurrency > 1.
+    let mut harness = Harness::start(
+        &topic,
+        1,
+        2,
+        2,
+        Duration::from_secs(2),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
+    for w in &harness.workers {
+        guards.push(Some(w.block().await));
+    }
+
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "batch to reach a worker", || {
+        harness.workers.iter().any(|w| w.arrived_count() > 0)
+    })
+    .await;
+    let target = sole_arrived_worker(&harness);
+    let other = 1 - target;
+
+    // `target` flaps: stays ready (in the pool) but fails every send. `other` is
+    // taken out of the pool so the flush can't escape — the flush loop keeps
+    // re-routing to the flapping target and re-deferring on the scatter path.
+    harness.workers[target]
+        .ingest_ok
+        .store(false, Ordering::SeqCst);
+    harness.workers[other]
+        .healthy
+        .store(false, Ordering::SeqCst);
+    guards[other] = None;
+    guards[target] = None;
+
+    // The consumer must fail the batch within ~the flush timeout, not spin
+    // forever on the re-defer path.
+    assert!(
+        harness
+            .wait_for_consumer_exit(Duration::from_secs(20))
+            .await,
+        "consumer must fail the batch within the flush timeout, not spin forever"
+    );
+    assert_eq!(
+        harness.workers.iter().map(|w| w.count()).sum::<usize>(),
+        0,
+        "nothing should be delivered (target only errors; other is down)"
+    );
 }

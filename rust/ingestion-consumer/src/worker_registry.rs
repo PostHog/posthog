@@ -379,6 +379,16 @@ impl WorkerRegistry {
             .collect()
     }
 
+    /// All workers currently draining (regardless of deadline). The reaper uses
+    /// this to complete the drain of a worker that left the pool while idle.
+    pub fn draining_workers(&self) -> Vec<WorkerId> {
+        self.workers
+            .iter()
+            .filter(|e| e.value().is_draining())
+            .map(|e| e.key().clone())
+            .collect()
+    }
+
     /// Remove a worker from the pool (e.g. it left the EndpointSlice).
     pub fn remove_worker(&self, worker: &str) {
         if self.workers.remove(worker).is_some() {

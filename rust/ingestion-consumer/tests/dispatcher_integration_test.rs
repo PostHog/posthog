@@ -235,7 +235,7 @@ async fn test_pinned_key_rerouted_after_dead_declaration() {
     // Resolve b1: with max_in_flight=1 the previous batch completes before the
     // next assigns, so the dead worker has no in-flight and its zero-ref pin is
     // evicted (an unresolved pin would instead defer to preserve order).
-    dispatcher.on_sub_batch_resolved(&pinned_to, b1[0].messages.len(), &b1[0].routing_keys);
+    dispatcher.on_sub_batch_resolved(&pinned_to, b1[0].messages.len(), &b1[0].routing_keys, false);
 
     // Next assign: the evicted pin means the key re-routes to the live worker.
     let b2 = dispatcher.assign("b", vec![make_msg("t", "user-1")]);
@@ -363,7 +363,12 @@ async fn test_three_workers_one_dies_and_load_rebalances() {
     // Resolve w1's in-flight sub-batch (max_in_flight=1: the prior batch
     // completes before the next assigns), evicting its now zero-ref pin.
     let w1_sub = first.iter().find(|b| b.worker.as_ref() == w1.url).unwrap();
-    dispatcher.on_sub_batch_resolved(&w1_sub.worker, w1_sub.messages.len(), &w1_sub.routing_keys);
+    dispatcher.on_sub_batch_resolved(
+        &w1_sub.worker,
+        w1_sub.messages.len(),
+        &w1_sub.routing_keys,
+        false,
+    );
 
     // The key that was pinned to w1 must re-route to w0 or w2 on its next assign.
     let (_, distinct_id) = w1_key.split_once(':').unwrap();
@@ -460,7 +465,7 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
     );
 
     // Resolve batch-1: the drainer finishes and becomes reapable.
-    dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys);
+    dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys, false);
     assert_eq!(registry.reapable_workers(), vec![pinned.clone()]);
 
     // Flushing batch-2 reroutes the deferred key onto the surviving worker.

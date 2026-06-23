@@ -185,12 +185,21 @@ async fn async_main(config: Config) -> Result<()> {
     {
         let registry = Arc::clone(&registry);
         let transport = Arc::clone(&transport);
+        let dispatcher = Arc::clone(&dispatcher);
         let token = probe_token.clone();
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = token.cancelled() => break,
                     _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                }
+                // A worker that left the pool while idle has no in-flight to
+                // resolve, so `on_sub_batch_resolved` never completes its drain.
+                // Complete it here so it's reaped now rather than at the timeout.
+                for worker in registry.draining_workers() {
+                    if !dispatcher.has_in_flight(&worker) {
+                        registry.complete_drain(&worker);
+                    }
                 }
                 for worker in registry.reapable_workers() {
                     registry.remove_worker(&worker);

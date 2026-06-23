@@ -75,6 +75,10 @@ pub struct IngestionConsumerOptions {
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
+    /// Upper bound on how long `complete_oldest_batch` retries flushing a batch's
+    /// deferred groups before failing the batch. Defaults to
+    /// [`DEFERRED_FLUSH_TIMEOUT`] in `new`.
+    pub deferred_flush_timeout: Duration,
 }
 
 /// The main consumer loop: reads from Kafka, routes messages by distinct_id
@@ -88,6 +92,7 @@ pub struct IngestionConsumer {
     batch_size: usize,
     batch_timeout: Duration,
     max_in_flight_batches: usize,
+    deferred_flush_timeout: Duration,
     handle: Handle,
     group_id: String,
 }
@@ -111,6 +116,7 @@ impl IngestionConsumer {
             batch_size: options.batch_size,
             batch_timeout: options.batch_timeout,
             max_in_flight_batches: options.max_in_flight_batches.max(1),
+            deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
         }
@@ -153,6 +159,7 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
+            deferred_flush_timeout: DEFERRED_FLUSH_TIMEOUT,
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -324,14 +331,18 @@ impl IngestionConsumer {
         if !self.dispatcher.has_deferred(batch_id) {
             return Ok(());
         }
-        let deadline = Instant::now() + DEFERRED_FLUSH_TIMEOUT;
+        let deadline = Instant::now() + self.deferred_flush_timeout;
         while self.dispatcher.has_deferred(batch_id) {
+            // Bound the whole loop, not just the no-healthy-worker branch: a
+            // flapping worker (visible in `healthy_workers` but failing sends)
+            // re-defers on every scatter and would otherwise spin here forever,
+            // pinning this batch's offsets indefinitely.
+            if Instant::now() >= deadline {
+                anyhow::bail!("deferred messages could not be flushed within timeout");
+            }
             let sub_batches = self.dispatcher.flush_deferred(batch_id);
             if sub_batches.is_empty() {
                 // Nothing routable right now (no healthy worker) — wait and retry.
-                if Instant::now() >= deadline {
-                    anyhow::bail!("deferred messages could not be flushed within timeout");
-                }
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
                         anyhow::bail!("shutdown while flushing deferred messages");
@@ -340,8 +351,14 @@ impl IngestionConsumer {
                 }
                 continue;
             }
-            processed.total_accepted +=
-                Self::scatter(&self.dispatcher, &self.transport, batch_id, sub_batches).await?;
+            processed.total_accepted += Self::scatter(
+                &self.dispatcher,
+                &self.transport,
+                batch_id,
+                sub_batches,
+                true,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -405,7 +422,8 @@ impl IngestionConsumer {
             anyhow::bail!("No healthy workers available to route batch");
         }
 
-        let total_accepted = Self::scatter(&dispatcher, &transport, &batch_id, sub_batches).await?;
+        let total_accepted =
+            Self::scatter(&dispatcher, &transport, &batch_id, sub_batches, false).await?;
 
         Ok(ProcessedBatch {
             offsets: collected.offsets,
@@ -420,11 +438,17 @@ impl IngestionConsumer {
     /// dispatcher. On a send failure (the worker died mid-send), the failed
     /// messages are deferred — before the resolve, so the pin isn't evicted —
     /// to be replayed in order. Returns the number of messages accepted.
+    ///
+    /// `from_flush` is true when sending sub-batches produced by `flush_deferred`:
+    /// the resolve then clears one deferral per key, so a key stays deferring from
+    /// when it was first held until its flushed messages actually land (preventing
+    /// a newer batch from racing them).
     async fn scatter(
         dispatcher: &Arc<Dispatcher>,
         transport: &Arc<HttpTransport>,
         batch_id: &str,
         sub_batches: Vec<SubBatch>,
+        from_flush: bool,
     ) -> anyhow::Result<u32> {
         let mut handles = Vec::with_capacity(sub_batches.len());
         for sub_batch in sub_batches {
@@ -441,16 +465,29 @@ impl IngestionConsumer {
                     .await
                 {
                     Ok(accepted) => {
-                        dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                        dispatcher.on_sub_batch_resolved(
+                            &worker,
+                            message_count,
+                            &routing_keys,
+                            from_flush,
+                        );
                         dispatcher.record_send_outcome(&worker, false);
                         accepted
                     }
                     Err(send_err) => {
-                        // Defer the failed messages first, so the ref-count drop
-                        // in `on_sub_batch_resolved` doesn't evict the pin while
-                        // the key still has work to replay.
+                        // Re-defer the failed messages first, so the ref-count drop
+                        // in `on_sub_batch_resolved` doesn't evict the pin while the
+                        // key still has work to replay. On the flush path this pairs
+                        // with the `clears_deferral` decrement in the resolve, so the
+                        // outstanding count nets to unchanged (never dipping to zero)
+                        // and the key keeps deferring across the retry.
                         dispatcher.defer_failed(&bid, send_err.messages);
-                        dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                        dispatcher.on_sub_batch_resolved(
+                            &worker,
+                            message_count,
+                            &routing_keys,
+                            from_flush,
+                        );
                         dispatcher.record_send_outcome(&worker, true);
                         0
                     }
