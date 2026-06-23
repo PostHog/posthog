@@ -94,6 +94,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
+    _schemas_from_conn,
     _statement_timeout_as_non_retryable,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
@@ -2144,7 +2145,9 @@ class TestPostgresSchemaDiscovery:
 
         cursor = connection.cursor.return_value.__enter__.return_value
         executed_queries = [
-            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+            call.args[0]
+            for call in cursor.execute.call_args_list
+            if "SELECT version()" not in str(call.args[0]) and "statement_timeout" not in str(call.args[0])
         ]
         first_query = executed_queries[0]
         second_query = executed_queries[1]
@@ -2238,7 +2241,9 @@ class TestPostgresSchemaDiscovery:
 
         cursor = connection.cursor.return_value.__enter__.return_value
         executed_queries = [
-            call.args[0] for call in cursor.execute.call_args_list if "SELECT version()" not in str(call.args[0])
+            call.args[0]
+            for call in cursor.execute.call_args_list
+            if "SELECT version()" not in str(call.args[0]) and "statement_timeout" not in str(call.args[0])
         ]
         first_query = executed_queries[0]
         second_query = executed_queries[1]
@@ -4051,9 +4056,9 @@ class TestIsReadReplica:
 class _RecordingCursor:
     """Wraps a real cursor, recording executed SQL as text while delegating everything else."""
 
-    def __init__(self, inner: Any):
+    def __init__(self, inner: Any, sink: list[str] | None = None):
         self._inner = inner
-        self.executed: list[str] = []
+        self.executed: list[str] = sink if sink is not None else []
 
     def execute(self, query: Any, *args: Any, **kwargs: Any) -> Any:
         try:
@@ -4061,6 +4066,27 @@ class _RecordingCursor:
         except Exception:
             self.executed.append(str(query))
         return self._inner.execute(query, *args, **kwargs)
+
+    def __enter__(self) -> "_RecordingCursor":
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *args: Any) -> Any:
+        return self._inner.__exit__(*args)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+class _RecordingConnection:
+    """Wraps a real connection so `_schemas_from_conn` runs against a recording cursor."""
+
+    def __init__(self, inner: Any):
+        self._inner = inner
+        self.executed: list[str] = []
+
+    def cursor(self, *args: Any, **kwargs: Any) -> _RecordingCursor:
+        return _RecordingCursor(self._inner.cursor(*args, **kwargs), self.executed)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -4096,6 +4122,37 @@ class TestGetTable:
                 i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
             )
             assert info_schema_idx == set_local_idx + 1
+
+    @pytest.mark.django_db
+    def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
+        """`_schemas_from_conn` (the discovery path `sync_new_schemas_activity` and credential
+        validation use) raises statement_timeout before scanning the catalog, so a short
+        role/server default can't cancel the `information_schema.columns` query with QueryCanceled
+        on large schemas. Pin that the timeout is bumped before the column query runs."""
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_schemas_from_conn_timeout (id INTEGER PRIMARY KEY, name TEXT)")
+
+        conn = _RecordingConnection(django_connection)
+        try:
+            discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
+        finally:
+            # `_schemas_from_conn` issues a session-level `SET statement_timeout` (production opens and
+            # closes its own connection, so the GUC is discarded with it). Here it runs against the shared
+            # `django_connection`, which Postgres does not reset on transaction rollback — clear it so the
+            # raised timeout can't leak onto subsequent tests reusing the connection.
+            with django_connection.cursor() as dj_cursor:
+                dj_cursor.execute("RESET statement_timeout")
+
+        assert "test_schemas_from_conn_timeout" in discovered
+        assert {col[0] for col in discovered["test_schemas_from_conn_timeout"].columns} >= {"id", "name"}
+
+        set_timeout_idx = next(
+            i
+            for i, q in enumerate(conn.executed)
+            if "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
+        )
+        column_query_idx = next(i for i, q in enumerate(conn.executed) if "information_schema.columns" in q)
+        assert set_timeout_idx < column_query_idx
 
     @pytest.mark.django_db
     def test_regular_table(self):

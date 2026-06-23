@@ -951,6 +951,18 @@ def _schemas_from_conn(
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Discover columns for tables on the given pre-opened connection."""
     with connection.cursor() as cursor:
+        # Raise statement_timeout for the catalog scan below. Some hosted/pooled Postgres set a
+        # short role/server default that cancels the `information_schema.columns` query
+        # (QueryCanceled) on large schemas before discovery finishes — the read path guards its own
+        # metadata query the same way in `_get_table`. Best-effort: engines without statement_timeout
+        # (e.g. DuckDB) reject the SET, so clear the aborted transaction and fall back to the default.
+        try:
+            cursor.execute(
+                sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
+            )
+        except psycopg.Error:
+            connection.rollback()
+
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
         if not discovered_tables:
             return {}
