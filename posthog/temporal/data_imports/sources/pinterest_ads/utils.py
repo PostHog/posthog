@@ -4,6 +4,8 @@ from typing import Any, Optional
 import requests
 import structlog
 from dateutil import parser
+from requests.exceptions import ChunkedEncodingError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import (
@@ -85,6 +87,17 @@ def _chunk_date_range(start_date: str, end_date: str) -> list[tuple[str, str]]:
     return chunks
 
 
+@retry(
+    # ChunkedEncodingError is a transient mid-stream connection drop while reading the response
+    # body ("Connection broken: InvalidChunkLength"). It subclasses RequestException directly, not
+    # ConnectionError, so it must be listed explicitly to be retried rather than failing the whole
+    # import on a single dropped connection. The tracked session only retries on status codes during
+    # the initial request, not on a broken body stream.
+    retry=retry_if_exception_type((requests.ReadTimeout, requests.ConnectionError, ChunkedEncodingError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=60),
+    reraise=True,
+)
 def _make_request(session: requests.Session, url: str, params: Optional[dict] = None) -> Any:
     response = session.get(url, params=params, timeout=30)
     response.raise_for_status()

@@ -59,6 +59,13 @@ export interface ListSessionsOpts {
     states?: AgentSession['state'][]
     /** Filter to a specific revision id within the application. */
     revisionId?: string
+    /**
+     * Filter to sessions started by one agent user. Matches the
+     * `agent_user_id` stamped on the session principal (set today only for
+     * slack-trigger sessions — other kinds don't carry it yet, so they won't
+     * match).
+     */
+    agentUserId?: string
     /** ISO datetime — only return sessions with created_at >= this. */
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */

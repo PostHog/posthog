@@ -114,6 +114,18 @@ def issue_exists(team_id: int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=team_id).exists()
 
 
+def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id).exists()
+
+
+def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
+    return (
+        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        .only("id", "name", "description", "status")
+        .first()
+    )
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)

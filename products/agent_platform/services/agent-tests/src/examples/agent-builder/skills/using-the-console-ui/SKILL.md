@@ -58,7 +58,7 @@ The five focus tools and when to use each:
 the target from whatever page the user happens to be on — the user
 navigates while you're thinking, and silently following the URL is
 a fast way to misroute. If you don't know the slug, call
-`get_context` or `agent-applications-list` first.
+`get_context` or `posthog__agent-applications-list` first.
 
 For a multi-file flow (e.g. inspecting `agent.md` then a skill
 then the live session), call focus **before each transition**.
@@ -75,7 +75,7 @@ Every `focus_*` returns either:
   has "Follow the agent" turned off; the panel didn't change
 - `{ focused: false, reason: "missing_slug ..." }` — you didn't
   pass `slug`. Look it up via `get_context` or
-  `agent-applications-list` and retry. Don't keep firing without
+  `posthog__agent-applications-list` and retry. Don't keep firing without
   it; the dispatcher will keep refusing.
 
 When `focused: false`, **adapt**:
@@ -133,8 +133,8 @@ Example:
 >
 > [calls `focus_revision` with `{ revisionId: 'r_live123' }`]
 >
-> [calls `@posthog/agent-applications-revisions-retrieve`]
-> [calls `@posthog/agent-applications-revisions-system-prompt`]
+> [calls `posthog__agent-applications-revisions-retrieve`]
+> [calls `posthog__agent-applications-revisions-system-prompt`]
 >
 > Spec is 4 tools, 3 skills, cron trigger every Monday 09:00.
 > Want me to walk through the skills, or jump to recent sessions?

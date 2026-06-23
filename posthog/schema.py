@@ -5040,6 +5040,13 @@ class ExperimentParameters(BaseModel):
             " are excluded from analysis. Default: 100."
         ),
     )
+    variant_notes: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Free-text notes per variant, keyed by variant key. Use to document what"
+            " each variant does or its reroute URL."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):

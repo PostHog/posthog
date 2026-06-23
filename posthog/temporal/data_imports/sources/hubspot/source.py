@@ -13,6 +13,7 @@ from posthog.schema import (
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -43,6 +44,11 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.hubspot.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     @property
     def get_source_config(self) -> SourceConfig:

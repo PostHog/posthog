@@ -14,6 +14,7 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    InitialPermissionMode,
 )
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -32,6 +33,7 @@ __all__ = [
     "ALL_INITIAL_PERMISSION_MODE_CHOICES",
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
+    "InitialPermissionMode",
     "PUBLIC_REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",

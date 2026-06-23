@@ -253,6 +253,10 @@ procs:
         groups:
             layer: Product services
             tech: Node
+        # Dev: tee JSON logs to a tmp file a local agent can read. See
+        # products/agent_platform/AGENTS.md.
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-ingress.log'
 
     agent-runner:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
@@ -261,6 +265,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-runner.log'
 
     agent-janitor:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
@@ -269,6 +275,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
 
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'

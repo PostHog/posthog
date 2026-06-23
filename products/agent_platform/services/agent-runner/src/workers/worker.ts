@@ -26,10 +26,14 @@ import {
     AgentSession,
     AnalyticsSink,
     ApprovalStore,
+    buildAskerIdentity,
     BundleStore,
     categorize,
     createLogger,
     CredentialBroker,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityStore,
     FailureNotifier,
     GatewayClient,
     getSecretAllowedHosts,
@@ -48,7 +52,6 @@ import {
 
 import { runSession } from '../loop/driver'
 import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
-import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -168,13 +171,14 @@ export interface WorkerDeps {
      */
     credentialBroker?: CredentialBroker
     /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
-     * The driver passes it through to `approval.ts` so a gated call from a
-     * user who already satisfies the approver scope dispatches directly
-     * instead of queueing. Omit to keep the always-queue default.
+     * Per-asker identity linking (spec.identity_providers). Passed through to
+     * `runSession` → `ctx.identity`. Omit to disable identity tools.
      */
-    isAskerInApproverScope?: IsAskerInApproverScope
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    identities?: IdentityStore
+    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    linkRedirectBaseUrl?: string
     /**
      * Override the MCP transport factory. Defaults to
      * `StreamableHTTPClientTransport`. The e2e harness substitutes an
@@ -470,12 +474,30 @@ export class Worker {
             // a sandbox-pool slot; the order is otherwise unobservable.
             let mcpFailures: Awaited<ReturnType<typeof openMcpClients>>['failures'] = []
             if (rev.spec.mcps.length > 0) {
+                // Build the per-asker resolver only when an MCP needs it (auth.provider),
+                // so the common auth.integration / secret path pays nothing.
+                const mcpNeedsIdentity = rev.spec.mcps.some((m) => m.auth?.provider)
+                const mcpIdentity =
+                    mcpNeedsIdentity && this.deps.identityCredentials && this.deps.identityLinks
+                        ? await buildAskerIdentity(rev, session, {
+                              credentials: this.deps.identityCredentials,
+                              links: this.deps.identityLinks,
+                              identities: this.deps.identities,
+                              credentialBroker: this.deps.credentialBroker,
+                              http: this.deps.http,
+                              secret: (name) => secrets[name],
+                              posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                              linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
+                              log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
+                          })
+                        : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
                     integrations,
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     integrationHostValidator: this.deps.integrationHostValidator,
+                    identity: mcpIdentity,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                     http: this.deps.http,
@@ -539,7 +561,10 @@ export class Worker {
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
                 credentialBroker: this.deps.credentialBroker,
-                isAskerInApproverScope: this.deps.isAskerInApproverScope,
+                identityCredentials: this.deps.identityCredentials,
+                identityLinks: this.deps.identityLinks,
+                identities: this.deps.identities,
+                linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
                 mcpClients: openedMcpClients,
                 mcpFailures,
                 http: this.deps.http,

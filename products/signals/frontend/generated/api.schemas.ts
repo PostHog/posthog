@@ -176,6 +176,134 @@ export interface SignalReportStateRequestApi {
     snooze_for?: number
 }
 
+/**
+ * * `video_segment` - Video Segment
+ * * `safety_judgment` - Safety Judgment
+ * * `actionability_judgment` - Actionability Judgment
+ * * `priority_judgment` - Priority Judgment
+ * * `signal_finding` - Signal Finding
+ * * `repo_selection` - Repo Selection
+ * * `suggested_reviewers` - Suggested Reviewers
+ * * `dismissal` - Dismissal
+ * * `code_reference` - Code Reference
+ * * `commit` - Commit
+ * * `task_run` - Task Run
+ * * `note` - Note
+ */
+export type SignalReportArtefactTypeEnumApi =
+    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
+
+export const SignalReportArtefactTypeEnumApi = {
+    VideoSegment: 'video_segment',
+    SafetyJudgment: 'safety_judgment',
+    ActionabilityJudgment: 'actionability_judgment',
+    PriorityJudgment: 'priority_judgment',
+    SignalFinding: 'signal_finding',
+    RepoSelection: 'repo_selection',
+    SuggestedReviewers: 'suggested_reviewers',
+    Dismissal: 'dismissal',
+    CodeReference: 'code_reference',
+    Commit: 'commit',
+    TaskRun: 'task_run',
+    Note: 'note',
+} as const
+
+export interface _UserApi {
+    readonly id: number
+    readonly uuid: string
+    readonly first_name: string
+    readonly last_name: string
+    readonly email: string
+}
+
+export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
+
+export interface SignalReportArtefactApi {
+    readonly id: string
+    readonly type: SignalReportArtefactTypeEnumApi
+    readonly content: SignalReportArtefactApiContent
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+    readonly created_by: _UserApi | null
+    /**
+     * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+     * @nullable
+     */
+    readonly task_id: string | null
+}
+
+export interface PaginatedSignalReportArtefactListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportArtefactApi[]
+}
+
+/**
+ * Body for appending an artefact to a report.
+ *
+ * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+ * version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+ * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+ */
+export interface SignalReportArtefactLogCreateApi {
+    /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    artefact_type: string
+    /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
+    content: unknown
+}
+
+/**
+ * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+ */
+export interface SignalReportArtefactWriteResponseApi {
+    /** The artefact's unique id. */
+    readonly id: string
+    /** The id of the report this artefact belongs to. */
+    readonly report_id: string
+    /** The artefact type. */
+    readonly type: string
+    /** The artefact payload, parsed from storage. */
+    readonly content: unknown
+    /** When the artefact was created. */
+    readonly created_at: string
+    /**
+     * When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+     * @nullable
+     */
+    readonly task_id: string | null
+}
+
+/**
+ * Body for replacing the content of an existing artefact (addressed by id).
+ *
+ * Per-type schema validation happens in the view, which knows the artefact's type.
+ */
+export interface PatchedSignalReportArtefactLogUpdateApi {
+    /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
+    content?: unknown
+}
+
+/**
+ * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+ * repository default branch.
+ */
+export interface CommitDiffResponseApi {
+    /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+    readonly diff: string
+    /** True when the diff was too large to return in full and has been truncated. */
+    readonly truncated: boolean
+}
+
 export interface SignalReportBulkStateRequestApi {
     /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
      *
@@ -364,7 +492,7 @@ export interface ScoutLimitsApi {
  * change without a deploy to either app.
  */
 export interface ScoutMetadataApi {
-    /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+    /** Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" wildcard (every project that turns scouts on) — and not in skip_team_ids. */
     enrolled: boolean
     /**
      * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
@@ -1379,14 +1507,6 @@ export interface PatchedSignalSourceConfigApi {
     readonly status?: string | null
 }
 
-export interface _UserApi {
-    readonly id: number
-    readonly uuid: string
-    readonly first_name: string
-    readonly last_name: string
-    readonly email: string
-}
-
 export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
 
 export const BlankEnumApi = {
@@ -1468,6 +1588,21 @@ export type SignalsReportsListParams = {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string
+}
+
+export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalsScoutProjectProfileGetParams = {
