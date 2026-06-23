@@ -214,7 +214,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         run_a = results[0]
         assert run_a["total_links"] == 3
         assert run_a["unique_orphans"] == 2
-        assert run_a["paid_touches"] == 0
+        assert run_a["paid_touches"] == 1  # phone-2 has orphan_paid_touch=1
         assert run_a["first_link_at"] is not None
         assert run_a["last_link_at"] is not None
         run_a_rules = {m["model_version"]: m for m in run_a["models"]}["rules_v1"]
