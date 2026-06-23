@@ -645,7 +645,19 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         // session conversation shows on reload. Without
                         // this the client sees only `ok`/`error`.
                         output: event.isError ? undefined : (details?.output ?? null),
-                        ...(details?.queued ? { approval: { request_id: details.requestId, state: 'queued' } } : {}),
+                        // Mirror the persisted synthetic envelope so a live viewer
+                        // and a reload-from-transcript viewer build the same card
+                        // (request id, edit affordance, principal-vs-agent scope).
+                        ...(details?.queued
+                            ? {
+                                  approval: {
+                                      request_id: details.requestId,
+                                      state: 'queued',
+                                      allow_edit: details.allowEdit,
+                                      approver_scope: { type: details.approverType },
+                                  },
+                              }
+                            : {}),
                     })
                     // A queued gated call didn't really execute — no span for it
                     // (the approved dispatch emits its own span on resume).

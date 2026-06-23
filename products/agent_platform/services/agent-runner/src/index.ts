@@ -299,11 +299,13 @@ async function main(): Promise<void> {
         approvals,
         // Clickable deep link that opens the approval in PostHog Code (the agent
         // console now lives in the desktop/web app). Surfaced to the model on a
-        // gated tool call and whatever it posts to chat / Slack. The approval
-        // request id alone resolves the approval in the fleet inbox, so the link
-        // needs nothing more. Handled by the `approval` deep-link key in
-        // PostHog Code (posthog-code://approval/<id>).
-        buildApprovalUrl: (requestId) => `${config.approvalLinkScheme}://approval/${requestId}`,
+        // gated tool call and whatever it posts to chat / Slack. Carries the
+        // agent slug (`?agent=<slug>`) so the approval modal can address the
+        // slug-routed ingress directly and decide under the user's own auth — no
+        // project-scoped lookup. Handled by the `approval` deep-link key in
+        // PostHog Code (posthog-code://approval/<id>?agent=<slug>).
+        buildApprovalUrl: (requestId, slug) =>
+            `${config.approvalLinkScheme}://approval/${requestId}${slug ? `?agent=${encodeURIComponent(slug)}` : ''}`,
         bus,
         logs: logSink,
         resolveIntegrations,

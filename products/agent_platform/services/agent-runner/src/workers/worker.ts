@@ -153,9 +153,11 @@ export interface WorkerDeps {
     approvals: ApprovalStore
     /**
      * Builds the deep link the synthetic queued tool_result surfaces to
-     * the model. Wire from config so prod hits the real domain.
+     * the model. Wire from config so prod hits the real domain. Takes the
+     * agent slug so the link can carry `?agent=<slug>` — the deep-link
+     * approval modal needs it to address the (slug-routed) ingress directly.
      */
-    buildApprovalUrl?: (requestId: string) => string
+    buildApprovalUrl?: (requestId: string, slug: string) => string
     /**
      * S3-backed memory store for `@posthog/memory-*` tools. Wired from
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
@@ -539,6 +541,10 @@ export class Worker {
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
+            // Bind the agent slug into the approval-link builder so the deep link
+            // carries `?agent=<slug>` — the ingress-routed approval modal needs it
+            // to address the agent's ingress directly.
+            const buildApprovalUrl = this.deps.buildApprovalUrl
             const outcome = await runSession(rev, session, {
                 model,
                 apiKey,
@@ -557,7 +563,9 @@ export class Worker {
                 gatewayHeaders,
                 gatewayUsage,
                 approvals: this.deps.approvals,
-                buildApprovalUrl: this.deps.buildApprovalUrl,
+                buildApprovalUrl: buildApprovalUrl
+                    ? (requestId) => buildApprovalUrl(requestId, application?.slug ?? '')
+                    : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
                 credentialBroker: this.deps.credentialBroker,

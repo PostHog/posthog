@@ -31,6 +31,7 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalType,
     BundleStore,
     CredentialBroker,
     getSecretAllowedHosts,
@@ -71,6 +72,15 @@ export interface ToolResultDetails {
     requestId?: string
     /** True when the queue deduped onto an existing row (no new request). */
     deduped?: boolean
+    /**
+     * Approval policy on the queued row, when `queued`. Surfaced so the live
+     * `tool_result` SSE event carries the same `approval` shape the persisted
+     * synthetic result does — the inline card needs `allow_edit` (edit
+     * affordance) and `approver_scope.type` (decidable inline vs console-only),
+     * and neither is derivable from the tool_call alone.
+     */
+    allowEdit?: boolean
+    approverType?: ApprovalType
 }
 
 /**
