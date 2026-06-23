@@ -22,6 +22,10 @@ HOST_NOT_ALLOWED_ERROR = "Metabase host is not allowed"
 API_KEY_AUTH = "api_key"
 SESSION_AUTH = "session"
 
+# Loopback hosts where plaintext HTTP carries no network-exposure risk (local dev / self-hosted on the
+# same box). Every other host is forced to HTTPS so credentials never traverse a network in cleartext.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
 
 class MetabaseRetryableError(Exception):
     pass
@@ -53,14 +57,19 @@ def normalize_host(host: str) -> str:
 
     Accepts ``https://company.metabaseapp.com``, ``company.metabaseapp.com``,
     ``https://company.metabaseapp.com/api`` and returns ``https://company.metabaseapp.com``.
-    Defaults to https when no scheme is given.
+    Defaults to https when no scheme is given, and forces a plaintext ``http://`` host to
+    ``https://`` so credentials are never sent over the network in cleartext — except for
+    loopback hosts (local dev / self-hosted on the same box), which are left untouched.
     """
     host = host.strip()
     if not re.match(r"^https?://", host, flags=re.IGNORECASE):
         host = f"https://{host}"
     parsed = urlparse(host)
+    scheme = parsed.scheme.lower()
+    if scheme == "http" and (parsed.hostname or "").lower() not in LOOPBACK_HOSTS:
+        scheme = "https"
     # Keep only scheme + host:port — urlparse drops any trailing path/slashes (e.g. "/api").
-    return f"{parsed.scheme.lower()}://{parsed.netloc}"
+    return f"{scheme}://{parsed.netloc}"
 
 
 def _hostname(host: str) -> str:

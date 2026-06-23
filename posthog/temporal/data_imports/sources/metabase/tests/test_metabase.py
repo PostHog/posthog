@@ -49,6 +49,10 @@ class TestNormalizeHost:
             ("https://company.metabaseapp.com/api", "https://company.metabaseapp.com"),
             ("  company.metabaseapp.com  ", "https://company.metabaseapp.com"),
             ("http://localhost:3000", "http://localhost:3000"),
+            ("http://127.0.0.1:3000", "http://127.0.0.1:3000"),
+            # Plaintext HTTP to a remote host is upgraded to HTTPS so credentials aren't sent in the clear.
+            ("http://company.metabaseapp.com", "https://company.metabaseapp.com"),
+            ("HTTP://company.metabaseapp.com/api", "https://company.metabaseapp.com"),
         ],
     )
     def test_normalize_host(self, raw, expected):
