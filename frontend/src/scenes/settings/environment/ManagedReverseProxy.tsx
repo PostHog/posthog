@@ -252,12 +252,12 @@ function CloudflareOptInBanner({
 
     return (
         <div className="bg-surface-primary rounded border px-5 py-4 space-y-4">
-            <div className="text-xl font-semibold leading-tight">Enable Managed Proxy (Beta)</div>
+            <div className="text-xl font-semibold leading-tight">Enable Managed Proxy</div>
             <p className="text-secondary">
                 This feature is disabled by default and has no effect unless you explicitly enable it.
             </p>
             <p>
-                By enabling this beta feature, you explicitly instruct us to route applicable traffic via{' '}
+                By enabling this feature, you explicitly instruct us to route applicable traffic via{' '}
                 <Link to="https://www.cloudflare.com" target="_blank">
                     Cloudflare
                 </Link>
@@ -267,23 +267,40 @@ function CloudflareOptInBanner({
             <div className="border rounded p-4 space-y-3 bg-surface-secondary">
                 <div className="font-semibold">Third-party processing (Cloudflare)</div>
                 <p className="text-sm">
-                    This beta feature routes certain customer and customer end-user traffic through Cloudflare, a
-                    third-party infrastructure provider, for the purpose of delivering the managed proxy functionality.
+                    This feature routes certain customer and customer end-user traffic through Cloudflare, a third-party
+                    infrastructure provider, for the purpose of delivering the managed proxy functionality. Cloudflare
+                    is listed as a{' '}
+                    <Link to="https://posthog.com/subprocessors" target="_blank">
+                        subprocessor
+                    </Link>{' '}
+                    referenced in our{' '}
+                    <Link to="https://posthog.com/dpa" target="_blank">
+                        Data Processing Agreement
+                    </Link>{' '}
+                    ("<strong>DPA</strong>") for this purpose.
                 </p>
                 <p className="text-sm">By enabling this feature, you:</p>
                 <ul className="text-sm list-disc pl-5 space-y-1">
                     <li>Explicitly instruct us to route applicable data through Cloudflare for this service;</li>
                     <li>
                         Acknowledge and agree that data processed as part of this feature will be transmitted to and
-                        processed by Cloudflare; and
+                        processed by Cloudflare, and that this processing may occur using Cloudflare infrastructure in
+                        multiple or dynamically assigned geographic locations as part of providing managed reverse proxy
+                        functionality, in accordance with our DPA; and
                     </li>
-                    <li>Understand that this feature is experimental (beta) and may change or be discontinued.</li>
+                    <li>
+                        Understand that traffic routed through this proxy is handled by Cloudflare as described in our
+                        DPA.
+                    </li>
                 </ul>
+            </div>
+            <div className="border rounded p-4 space-y-3 bg-surface-secondary">
+                <div className="font-semibold">HIPAA Disclaimer</div>
                 <p className="text-sm">
-                    Cloudflare is not currently listed as a PostHog subprocessor for this feature, and you choose to
-                    enable this feature notwithstanding the foregoing. If we decide to make this functionality generally
-                    available, we will update our Data Processing Agreement and provide notice in accordance with its
-                    terms.
+                    This feature is not HIPAA-compliant and is not intended for the processing of Protected Health
+                    Information ("<strong>PHI</strong>"). Any Business Associate Agreement ("<strong>BAA</strong>") you
+                    may have entered into with PostHog does not apply to this functionality. You agree not to use this
+                    feature with PHI.
                 </p>
             </div>
             <div className="space-y-3">

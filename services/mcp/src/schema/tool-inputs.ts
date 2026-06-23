@@ -184,12 +184,23 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
+            'A one-sentence headline capturing the feedback (e.g. "session replay scrubber jumps backwards when you click the timeline", "query-trends descriptions made it hard to choose between trends and funnels", or "the new SQL editor autocomplete is excellent").'
+        ),
+    feedback_type: z
+        .enum(['product', 'mcp', 'docs', 'other'])
+        .describe(
+            'What this feedback is about. "product" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). "mcp" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. "docs" = PostHog documentation. "other" = anything that doesn\'t fit the above.'
         ),
     sentiment: z
-        .enum(['negative', 'mixed'])
+        .enum(['positive', 'neutral', 'negative', 'mixed'])
         .describe(
-            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
+            'The overall tone. Use "negative" for something broken or blocking, "mixed" for mostly-fine-but-with-a-concrete-problem, "neutral" for a suggestion or feature request with no strong sentiment, and "positive" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.'
+        ),
+    product_area: z
+        .string()
+        .optional()
+        .describe(
+            'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
         ),
     category: z
         .enum([
@@ -203,31 +214,33 @@ export const FeedbackSubmitSchema = z.object({
             'error_message',
             'other',
         ])
+        .optional()
         .describe(
-            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+            'For MCP feedback (`feedback_type: "mcp"`) only: the single category that best describes the dominant theme. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue. Omit for product, docs, or other feedback.'
         ),
     task_completed: z
         .boolean()
+        .optional()
         .describe(
-            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+            'Were you able to complete the user\'s task? Be honest — "false" is just as useful as "true". Most relevant when `feedback_type` is "mcp".'
         ),
     tools_used: z
         .array(z.string())
         .optional()
         .describe(
-            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+            'The MCP tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
         ),
     friction_points: z
         .string()
         .optional()
         .describe(
-            "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data."
+            'Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.'
         ),
     suggested_improvement: z
         .string()
         .optional()
         .describe(
-            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
+            'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "add a `filters` example to query-funnel\'s description", or "let the replay scrubber snap to the nearest event"). Optional — praise or an observation doesn\'t need one.'
         ),
     user_request: z
         .string()
@@ -239,7 +252,7 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+            "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
         ),
 })
 

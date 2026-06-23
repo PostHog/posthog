@@ -742,11 +742,11 @@
         "feature_flag": "agent-platform"
     },
     "agent-feedback": {
-        "description": "Optional: report a concrete problem with this PostHog MCP server itself — a tool, input schema, response format, error, or these instructions. Keep feedback about the MCP, not the user's task, their data, or your findings. ONLY use this when something went wrong or was missing: friction that slowed you down, a surprise, a missing capability, an unhelpful error, wrong results, or unclear docs. Feedback must be constructive and actionable — point at a specific defect the PostHog team can fix and name the change in `suggested_improvement`. Do NOT submit positive or 'everything worked' reports — they are noise we cannot act on. Skip it entirely for routine tasks where nothing went wrong. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting problems to the PostHog team, not for ending the conversation.",
+        "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
         "feature": "feedback",
-        "summary": "Optional: report a problem with the PostHog MCP server.",
-        "title": "Submit agent feedback",
+        "summary": "Send feedback about any PostHog product, this MCP, or the docs.",
+        "title": "Submit PostHog feedback",
         "required_scopes": [],
         "always_available": true,
         "feature_flag": "mcp-feedback-tool",
@@ -7389,7 +7389,7 @@
         }
     },
     "user-get": {
-        "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
+        "description": "Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name), security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT return organization or project configuration: the nested `organization`, `team`, and `organizations` objects are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use `project-get` for full project details, and the organization-scoped tools for organization details.",
         "category": "Core",
         "feature": "core",
         "summary": "Get user",

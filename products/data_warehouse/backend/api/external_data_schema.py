@@ -12,6 +12,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
+from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -131,6 +132,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 
 # Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
+NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -701,14 +703,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # frequency the schema will actually end up with — the new value if one is supplied, else
         # the existing interval — against the sync type it will end up with. This also catches
         # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            raise ValidationError(
-                "A 1-minute sync frequency is only available for CDC schemas. "
-                "The fastest frequency for other sync types is 5 minutes."
-            )
+            if sync_frequency:
+                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
+                # contradiction, so reject it.
+                raise ValidationError(
+                    "A 1-minute sync frequency is only available for CDC schemas. "
+                    "The fastest frequency for other sync types is 5 minutes."
+                )
+            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
+            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
+            # the sync_frequency handling below.
+            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -1064,7 +1074,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "incremental_fields",
         "delete_data",
     ]
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
@@ -1097,6 +1107,30 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.soft_delete()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(parameters=[LogEntryRequestSerializer])
+    @action(methods=["GET"], detail=True, filter_backends=[])
+    def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSchema = self.get_object()
+        param_serializer = LogEntryRequestSerializer(data=request.query_params)
+        if not param_serializer.is_valid():
+            raise ValidationError(param_serializer.errors)
+        params = param_serializer.validated_data
+        data = fetch_log_entries(
+            team_id=self.team_id,
+            log_source="external_data_jobs",
+            log_source_id=str(instance.id),
+            limit=params["limit"],
+            instance_id=params.get("instance_id"),
+            after=params.get("after"),
+            before=params.get("before"),
+            search=params.get("search"),
+            level=params["level"].split(",") if params.get("level") else None,
+        )
+        page = self.paginate_queryset(data)
+        if page is not None:
+            return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
+        return Response(LogEntrySerializer(data, many=True).data)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
