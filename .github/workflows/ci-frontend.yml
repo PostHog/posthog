@@ -671,23 +671,27 @@ jobs:
         steps:
             - run: exit 0
             - name: Check outcomes
+              # A cancelled run (e.g. concurrency cancel-in-progress on a superseded commit) leaves
+              # upstream jobs as `cancelled`; treat that as non-failing so the gate doesn't report a
+              # red failure. A genuine job failure still aggregates to `failure` and fails the gate.
+              if: ${{ !cancelled() }}
               run: |
-                  if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.jest.result }}" != "success" && "${{ needs.jest.result }}" != "skipped" && "${{ needs.jest.result }}" != "cancelled" ]]; then
                     echo "Frontend jest tests failed."
                     exit 1
                   fi
                   echo "Frontend jest tests passed."
-                  if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.frontend-format.result }}" != "success" && "${{ needs.frontend-format.result }}" != "skipped" && "${{ needs.frontend-format.result }}" != "cancelled" ]]; then
                     echo "Frontend linting failed."
                     exit 1
                   fi
                   echo "Frontend linting passed."
-                  if [[ "${{ needs.frontend-bundle-size.result }}" != "success" && "${{ needs.frontend-bundle-size.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.frontend-bundle-size.result }}" != "success" && "${{ needs.frontend-bundle-size.result }}" != "skipped" && "${{ needs.frontend-bundle-size.result }}" != "cancelled" ]]; then
                     echo "Frontend bundle size checks failed."
                     exit 1
                   fi
                   echo "Frontend bundle size checks passed."
-                  if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" && "${{ needs.frontend-typescript-checks.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" && "${{ needs.frontend-typescript-checks.result }}" != "skipped" && "${{ needs.frontend-typescript-checks.result }}" != "cancelled" ]]; then
                     echo "Frontend TypeScript checks failed."
                     exit 1
                   fi
