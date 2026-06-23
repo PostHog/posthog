@@ -271,6 +271,129 @@ describe('CDP Consumer loop', () => {
             ])
         })
 
+        // Regression for the pre-refactor Kinesis template test
+        // (posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py). That test
+        // asserted the EXACT outgoing fetch shape — including the deterministic SigV4
+        // Authorization signature for a frozen time + fixed input fixture. When
+        // signing moved out of Hog into the executor, the Hog-level assertion lost
+        // the Authorization/X-Amz-Date/Host headers (they no longer exist at the Hog
+        // boundary). This test restores that coverage at the executor boundary: same
+        // frozen time, same input values, same expected outgoing request — including
+        // the literal `65b18913...` signature hex from the original Python test.
+        it('matches the pre-refactor outgoing request shape for the kinesis template fixture', async () => {
+            const fixedTime = new Date('2024-04-16T12:34:51Z').getTime()
+            const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(fixedTime)
+
+            try {
+                mockFetch.mockResolvedValueOnce({
+                    status: 200,
+                    json: () => Promise.resolve({ ok: true }),
+                    text: () => Promise.resolve('{"ok":true}'),
+                    headers: { 'Content-Type': 'application/json' },
+                    dump: () => Promise.resolve(),
+                })
+
+                // Same Hog body the production Kinesis template produces, parameterised
+                // off `inputs` so the test exercises the input lookup path end-to-end.
+                const hog = `
+                let payload := jsonStringify({
+                  'StreamName': inputs.aws_kinesis_stream_name,
+                  'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
+                  'Data': base64Encode(jsonStringify(inputs.payload)),
+                })
+
+                let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', {
+                  'method': 'POST',
+                  'headers': {
+                    'Content-Type': 'application/x-amz-json-1.1',
+                    'X-Amz-Target': 'Kinesis_20131202.PutRecord',
+                  },
+                  'body': payload,
+                  'aws_sigv4': {
+                    'service': 'kinesis',
+                    'region': inputs.aws_region,
+                    'access_key_id_input': 'aws_access_key_id',
+                    'secret_access_key_input': 'aws_secret_access_key',
+                  },
+                });
+
+                print('Fetch response:', res);
+                `
+
+                await insertHogFunction({
+                    type: 'destination',
+                    hog,
+                    bytecode: await compileHog(hog),
+                    inputs_schema: [
+                        { key: 'aws_access_key_id', type: 'string', label: 'AKID', secret: true, required: true },
+                        { key: 'aws_secret_access_key', type: 'string', label: 'SK', secret: true, required: true },
+                        { key: 'aws_region', type: 'string', label: 'region', secret: false, required: true },
+                        {
+                            key: 'aws_kinesis_stream_name',
+                            type: 'string',
+                            label: 'stream',
+                            secret: false,
+                            required: true,
+                        },
+                        {
+                            key: 'aws_kinesis_partition_key',
+                            type: 'string',
+                            label: 'partition',
+                            secret: false,
+                            required: false,
+                        },
+                        { key: 'payload', type: 'json', label: 'payload', secret: false, required: true },
+                    ],
+                    inputs: {
+                        aws_region: { value: 'aws_region' },
+                        aws_kinesis_stream_name: { value: 'aws_kinesis_stream_arn' },
+                        aws_kinesis_partition_key: { value: '1' },
+                        payload: { value: { hello: 'world' } },
+                    },
+                    encrypted_inputs: hub.encryptedFields.encrypt(
+                        JSON.stringify({
+                            aws_access_key_id: { value: 'aws_access_key_id' },
+                            aws_secret_access_key: { value: 'aws_secret_access_key' },
+                        })
+                    ),
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                } as any)
+
+                await eventsConsumer.processBatch([globals])
+
+                await waitForExpect(() => {
+                    const kinesisCalls = mockFetch.mock.calls.filter((c: any[]) => String(c[0]).includes('kinesis.'))
+                    expect(kinesisCalls.length).toBe(1)
+                }, 5000)
+
+                const kinesisCall = mockFetch.mock.calls.find((c: any[]) => String(c[0]).includes('kinesis.'))
+                expect(kinesisCall).toBeDefined()
+                const [url, opts] = kinesisCall as [string, any]
+
+                // Verbatim from posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py
+                // before the signing refactor. Any drift in the signer's canonical-request
+                // construction, header sorting, body hashing, or signing-key derivation
+                // will flip the signature hex away from `65b18913...` and fail this test.
+                expect(url).toBe('https://kinesis.aws_region.amazonaws.com')
+                expect(opts).toMatchObject({
+                    method: 'POST',
+                    body: '{"StreamName": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
+                    headers: {
+                        'Content-Type': 'application/x-amz-json-1.1',
+                        'X-Amz-Target': 'Kinesis_20131202.PutRecord',
+                        'X-Amz-Date': '20240416T123451Z',
+                        Host: 'kinesis.aws_region.amazonaws.com',
+                        Authorization:
+                            'AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, ' +
+                            'SignedHeaders=content-type;host;x-amz-date;x-amz-target, ' +
+                            'Signature=65b18913b42d8a7a1d33c0711da192d5a2e99eb79fb08ab3e5eefb6488b903ff',
+                    },
+                })
+            } finally {
+                dateSpy.mockRestore()
+            }
+        })
+
         // E2E coverage for the AWS SigV4 fetch-time signing path. The regression this
         // guards against: secrets land in `encrypted_inputs` after `move_secret_inputs`
         // runs on save, so the executor has to look them up there — not in `inputs`,

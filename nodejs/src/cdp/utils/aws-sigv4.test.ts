@@ -139,6 +139,42 @@ describe('signAwsRequest', () => {
         expect(headers.Host).toBe('kinesis.eu-central-1.amazonaws.com')
     })
 
+    // Regression for the pre-refactor Hog-side signer. Before signing moved out of
+    // the Kinesis Hog template, `test_template_aws_kinesis.py` asserted the exact
+    // outgoing Authorization header for this frozen time + input fixture, including
+    // the signature hex `65b18913...`. If the Node signer ever diverges from that
+    // shape we lose backwards compatibility with the prior production signatures
+    // and any external system relying on identical canonical-request semantics.
+    it('matches the in-Hog Kinesis signer for the test_template_aws_kinesis fixture', () => {
+        const headers = signAwsRequest({
+            method: 'POST',
+            url: 'https://kinesis.aws_region.amazonaws.com',
+            body: '{"StreamName": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
+            headers: {
+                'Content-Type': 'application/x-amz-json-1.1',
+                'X-Amz-Target': 'Kinesis_20131202.PutRecord',
+            },
+            credentials: {
+                service: 'kinesis',
+                region: 'aws_region',
+                access_key_id: 'aws_access_key_id',
+                secret_access_key: 'aws_secret_access_key',
+            },
+            now: new Date('2024-04-16T12:34:51Z'),
+        })
+
+        expect(headers).toEqual({
+            'Content-Type': 'application/x-amz-json-1.1',
+            'X-Amz-Target': 'Kinesis_20131202.PutRecord',
+            'X-Amz-Date': '20240416T123451Z',
+            Host: 'kinesis.aws_region.amazonaws.com',
+            Authorization:
+                'AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, ' +
+                'SignedHeaders=content-type;host;x-amz-date;x-amz-target, ' +
+                'Signature=65b18913b42d8a7a1d33c0711da192d5a2e99eb79fb08ab3e5eefb6488b903ff',
+        })
+    })
+
     // Regression guard: a malformed percent-encoded query segment (e.g.
     // `?metric=p95%tile` or a bare `%`) used to crash `decodeURIComponent`
     // and let a URIError bubble out of `signAwsRequest`, failing the entire
