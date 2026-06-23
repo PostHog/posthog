@@ -12,8 +12,14 @@ from posthog.api.oauth.mcp_resource_scopes import (
 
 class TestMcpResourceScopes(SimpleTestCase):
     def test_is_trusted_posthog_mcp_resource_production(self):
-        self.assertTrue(is_trusted_posthog_mcp_resource("https://mcp.posthog.com/mcp"))
-        self.assertFalse(is_trusted_posthog_mcp_resource("http://mcp.posthog.com/mcp"))
+        for host in (
+            "mcp.posthog.com",
+            "mcp.us.posthog.com",
+            "mcp.eu.posthog.com",
+            "mcp-eu.posthog.com",
+        ):
+            self.assertTrue(is_trusted_posthog_mcp_resource(f"https://{host}/mcp"))
+            self.assertFalse(is_trusted_posthog_mcp_resource(f"http://{host}/mcp"))
         self.assertFalse(is_trusted_posthog_mcp_resource("https://evil.posthog.com/mcp"))
 
     @override_settings(DEBUG=True)
@@ -39,6 +45,15 @@ class TestMcpResourceScopes(SimpleTestCase):
             "https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp",
             timeout=5,
         )
+
+    @patch("posthog.api.oauth.mcp_resource_scopes.requests.get")
+    def test_fetch_returns_none_on_invalid_json(self, mock_get: MagicMock):
+        mock_get.return_value.ok = True
+        mock_get.return_value.json.side_effect = ValueError("invalid json")
+
+        scopes = fetch_mcp_protected_resource_scopes("https://mcp.posthog.com/mcp")
+
+        self.assertIsNone(scopes)
 
     @patch("posthog.api.oauth.mcp_resource_scopes.requests.get")
     def test_fetch_falls_back_to_bare_well_known_on_404(self, mock_get: MagicMock):
@@ -96,7 +111,10 @@ class TestMcpResourceScopes(SimpleTestCase):
         )
 
 
-@pytest.mark.network
+@pytest.mark.skipif(
+    not __import__("os").environ.get("MCP_OAUTH_LIVE_E2E"),
+    reason="Set MCP_OAUTH_LIVE_E2E=1 to run live production MCP metadata e2e",
+)
 class TestMcpResourceScopesLive:
     def test_fetch_live_production_metadata_includes_notebook_scopes(self):
         scopes = fetch_mcp_protected_resource_scopes("https://mcp.posthog.com/mcp")

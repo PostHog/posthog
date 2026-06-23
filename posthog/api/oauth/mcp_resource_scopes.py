@@ -7,13 +7,22 @@ import requests
 import structlog
 
 from posthog.cloud_utils import is_dev_mode
+from posthog.scopes import get_oauth_scopes_supported
 
 logger = structlog.get_logger(__name__)
 
 METADATA_TIMEOUT_SECONDS = 5
 WELL_KNOWN_PREFIX = "/.well-known/oauth-protected-resource"
 
-PRODUCTION_MCP_HOSTS = frozenset({"mcp.posthog.com"})
+# Keep in sync with services/mcp/src/lib/routing.ts regional MCP hostnames.
+PRODUCTION_MCP_HOSTS = frozenset(
+    {
+        "mcp.posthog.com",
+        "mcp.us.posthog.com",
+        "mcp.eu.posthog.com",
+        "mcp-eu.posthog.com",
+    }
+)
 LOCAL_MCP_HOSTS = frozenset({"localhost", "127.0.0.1"})
 
 
@@ -83,8 +92,9 @@ def fetch_mcp_protected_resource_scopes(resource_url: str) -> list[str] | None:
             )
             return None
 
-        return scopes_supported
-    except requests.RequestException as error:
+        known_scopes = set(get_oauth_scopes_supported())
+        return [scope for scope in scopes_supported if scope in known_scopes]
+    except (requests.RequestException, ValueError) as error:
         logger.warning(
             "mcp_resource_scopes_metadata_fetch_failed",
             resource_url=resource_url,
