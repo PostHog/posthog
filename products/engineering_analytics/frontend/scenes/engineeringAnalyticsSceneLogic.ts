@@ -1,7 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-
 import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { engineeringAnalyticsSceneLogicType } from './engineeringAnalyticsSceneLogicType'
@@ -20,7 +18,6 @@ const SCENE_KEY_TO_TAB: Record<string, EngineeringAnalyticsTab> = {
 
 export const engineeringAnalyticsSceneLogic = kea<engineeringAnalyticsSceneLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({
         values: [sceneLogic, ['sceneKey']],
     })),
