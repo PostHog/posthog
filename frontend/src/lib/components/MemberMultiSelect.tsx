@@ -32,7 +32,7 @@ export function MemberMultiSelect({
     children,
     ...buttonProps
 }: MemberMultiSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, otherMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -40,8 +40,9 @@ export function MemberMultiSelect({
         if (!value || value.length === 0) {
             return []
         }
-        return meFirstMembers.filter((member) => value.includes(member.user.id)).map((member) => member.user)
-    }, [value, meFirstMembers])
+        const candidates = me ? [me, ...otherMembers] : otherMembers
+        return candidates.filter((member) => value.includes(member.user.id)).map((member) => member.user)
+    }, [value, me, otherMembers])
 
     const _onChange = (newValues: number[]): void => {
         onChange(newValues)
@@ -77,7 +78,8 @@ export function MemberMultiSelect({
         }
     }, [value?.length]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user.id))
+    const showMe = !!me && !excludedMembers.includes(me.user.id) && !search.trim()
+    const selectableOthers = otherMembers.filter((m) => !excludedMembers.includes(m.user.id))
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
@@ -111,7 +113,35 @@ export function MemberMultiSelect({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {selectableMembers.map((member) => (
+                        {showMe && (
+                            <li>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitemcheckbox"
+                                    aria-checked={value?.includes(me.user.id) || false}
+                                    size="small"
+                                    icon={<ProfilePicture size="md" user={me.user} />}
+                                    onClick={() => handleMemberToggle(me.user.id)}
+                                >
+                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                        <span className="flex items-center gap-2 max-w-full">
+                                            <input
+                                                type="checkbox"
+                                                className="cursor-pointer"
+                                                checked={value?.includes(me.user.id) || false}
+                                                readOnly
+                                                tabIndex={-1}
+                                                aria-hidden
+                                            />
+                                            <span>{fullName(me.user)}</span>
+                                        </span>
+                                        <span className="text-secondary">(you)</span>
+                                    </span>
+                                </LemonButton>
+                            </li>
+                        )}
+
+                        {selectableOthers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
@@ -133,9 +163,6 @@ export function MemberMultiSelect({
                                             />
                                             <span>{fullName(member.user)}</span>
                                         </span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
                                     </span>
                                 </LemonButton>
                             </li>
@@ -143,7 +170,7 @@ export function MemberMultiSelect({
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : selectableMembers.length === 0 ? (
+                        ) : !showMe && selectableOthers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

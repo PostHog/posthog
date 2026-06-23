@@ -30,11 +30,12 @@ export function MemberSelectMultiplePopover({
     label = 'Created by',
     borderless = false,
 }: MemberSelectMultiplePopoverProps): JSX.Element {
-    const { meFirstMembers, filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { me, otherMembers, membersLoading, search } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
 
     const hasSelection = value.length > 0
-    const currentUserId = meFirstMembers[0]?.user.id
+    const currentUserId = me?.user.id
+    const showMe = !!me && !search.trim()
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === currentUserId
 
     const toggleMember = (userId: number): void => {
@@ -70,7 +71,31 @@ export function MemberSelectMultiplePopover({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {filteredMembers.map((member) => (
+                        {showMe && (
+                            <li>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={<ProfilePicture size="md" user={me.user} />}
+                                    onClick={() => toggleMember(me.user.id)}
+                                >
+                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                        <span className="flex items-center gap-2 max-w-full">
+                                            <input
+                                                type="checkbox"
+                                                className="cursor-pointer"
+                                                checked={value.includes(me.user.id)}
+                                                readOnly
+                                            />
+                                            <span>{fullName(me.user)}</span>
+                                        </span>
+                                        <span className="text-secondary">(you)</span>
+                                    </span>
+                                </LemonButton>
+                            </li>
+                        )}
+                        {otherMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
@@ -89,16 +114,13 @@ export function MemberSelectMultiplePopover({
                                             />
                                             <span>{fullName(member.user)}</span>
                                         </span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
                                     </span>
                                 </LemonButton>
                             </li>
                         ))}
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : filteredMembers.length === 0 ? (
+                        ) : !showMe && otherMembers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

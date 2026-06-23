@@ -30,19 +30,24 @@ describe('membersLogic', () => {
         logic.mount()
     })
 
-    describe('meFirstMembers', () => {
-        it('returns the current user as a synthetic entry before the list loads', async () => {
+    describe('me and otherMembers', () => {
+        it('exposes the current user as `me` before the members list loads', async () => {
             await expectLogic(logic).toMatchValues({ members: null })
 
-            expect(logic.values.meFirstMembers).toHaveLength(1)
-            expect(logic.values.meFirstMembers[0].user.uuid).toEqual(MOCK_USER_UUID)
+            expect(logic.values.me?.user.uuid).toEqual(MOCK_USER_UUID)
+            expect(logic.values.otherMembers).toEqual([])
+            expect(logic.values.meFirstMembers).toEqual([])
         })
 
-        it('returns the real members with the current user first once loaded', async () => {
+        it('keeps `me` and lists everyone else in `otherMembers` once loaded', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadAllMembers()
             }).toFinishAllListeners()
 
+            expect(logic.values.me?.user.uuid).toEqual(MOCK_USER_UUID)
+            expect(logic.values.otherMembers.map((member) => member.user.uuid)).toEqual([
+                MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid,
+            ])
             expect(logic.values.meFirstMembers.map((member) => member.user.uuid)).toEqual([
                 MOCK_USER_UUID,
                 MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid,

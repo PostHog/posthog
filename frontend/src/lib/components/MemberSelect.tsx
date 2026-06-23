@@ -34,7 +34,7 @@ export function MemberSelect({
     children,
     ...buttonProps
 }: MemberSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, otherMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -44,8 +44,9 @@ export function MemberSelect({
         if (!value) {
             return null
         }
-        return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
-    }, [value, meFirstMembers, propToCompare])
+        const candidates = me ? [me, ...otherMembers] : otherMembers
+        return candidates.find((member) => member.user[propToCompare] === value)?.user ?? null
+    }, [value, me, otherMembers, propToCompare])
 
     const _onChange = (value: UserBasicType | null): void => {
         setShowPopover(false)
@@ -60,7 +61,10 @@ export function MemberSelect({
         }
     }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
+    const isExcluded = (member: { user: UserBasicType }): boolean =>
+        excludedMembers.includes(member.user[propToCompare])
+    const showMe = !!me && !isExcluded(me) && !search.trim()
+    const selectableOthers = otherMembers.filter((m) => !isExcluded(m))
 
     return (
         <LemonDropdown
@@ -89,7 +93,24 @@ export function MemberSelect({
                             </li>
                         )}
 
-                        {selectableMembers.map((member) => (
+                        {showMe && (
+                            <li>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={<ProfilePicture size="md" user={me.user} />}
+                                    onClick={() => _onChange(me.user)}
+                                >
+                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                        <span>{fullName(me.user)}</span>
+                                        <span className="text-secondary">(you)</span>
+                                    </span>
+                                </LemonButton>
+                            </li>
+                        )}
+
+                        {selectableOthers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
@@ -100,9 +121,6 @@ export function MemberSelect({
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span>{fullName(member.user)}</span>
-                                        <span className="text-secondary">
-                                            {meFirstMembers[0] === member && `(you)`}
-                                        </span>
                                     </span>
                                 </LemonButton>
                             </li>
@@ -110,7 +128,7 @@ export function MemberSelect({
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : selectableMembers.length === 0 ? (
+                        ) : !showMe && selectableOthers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
@@ -126,7 +144,7 @@ export function MemberSelect({
                     {selectedMemberAsUser ? (
                         <span>
                             {fullName(selectedMemberAsUser)}
-                            {meFirstMembers[0].user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
+                            {me?.user.uuid === selectedMemberAsUser.uuid ? ` (you)` : ''}
                         </span>
                     ) : (
                         defaultLabel

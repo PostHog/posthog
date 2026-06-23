@@ -166,8 +166,7 @@ export const membersLogic = kea<membersLogicType>([
         meFirstMembers: [
             (s) => [s.sortedMembers, s.user],
             (members, user): OrganizationMemberType[] => {
-                const realMe = user && members?.find((member) => member.user.uuid === user.uuid)
-                const me = realMe || (user && !members ? meAsMember(user) : null)
+                const me = user && members?.find((member) => member.user.uuid === user.uuid)
                 const result: OrganizationMemberType[] = me ? [me] : []
                 for (const member of members ?? []) {
                     if (!user || member.user.uuid !== user.uuid) {
@@ -176,6 +175,12 @@ export const membersLogic = kea<membersLogicType>([
                 }
                 return result
             },
+        ],
+        me: [(s) => [s.user], (user): OrganizationMemberType | null => (user ? meAsMember(user) : null)],
+        otherMembers: [
+            (s) => [s.filteredMembers, s.user],
+            (filteredMembers, user): OrganizationMemberType[] =>
+                user ? filteredMembers.filter((member) => member.user.uuid !== user.uuid) : filteredMembers,
         ],
         filteredMembers: [
             (s) => [s.meFirstMembers, s.searchedMembers, s.search],
