@@ -11,8 +11,9 @@ export { CleartextRecordingEncryptor } from './cleartext-encryptor'
 export { SodiumRecordingDecryptor } from './sodium-decryptor'
 export { SodiumRecordingEncryptor } from './sodium-encryptor'
 
-export function getBlockEncryptor(keyStore: KeyStore): RecordingEncryptor {
-    if (isCloud()) {
+export function getBlockEncryptor(keyStore: KeyStore, options?: { forceCleartext?: boolean }): RecordingEncryptor {
+    // cleartext even on cloud
+    if (isCloud() && !options?.forceCleartext) {
         return new SodiumRecordingEncryptor(keyStore)
     }
     return new CleartextRecordingEncryptor(keyStore)

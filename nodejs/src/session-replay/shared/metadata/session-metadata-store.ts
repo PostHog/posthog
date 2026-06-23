@@ -5,14 +5,28 @@ import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../outputs'
+import { S3ManifestStore } from './s3-manifest-store'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {
-    constructor(private outputs: IngestionOutputs<ReplayEventsOutput>) {
-        logger.debug('🔍', 'session_metadata_store_created')
+    constructor(
+        private outputs: IngestionOutputs<ReplayEventsOutput>,
+        private enabled: boolean = true,
+        private manifestStore?: S3ManifestStore
+    ) {
+        logger.debug('🔍', 'session_metadata_store_created', { enabled, manifest: !!manifestStore })
     }
 
     public async storeSessionBlocks(blocks: SessionBlockMetadata[]): Promise<void> {
+        // training writes an S3 manifest
+        if (this.manifestStore) {
+            await this.manifestStore.writeManifest(blocks)
+            return
+        }
+        // no ClickHouse in training
+        if (!this.enabled) {
+            return
+        }
         logger.info('🔍', 'session_metadata_store_storing_blocks', { count: blocks.length })
 
         const events = blocks.map((metadata) => ({

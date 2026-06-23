@@ -26,6 +26,7 @@ import { getBlockEncryptor } from '../session-replay/shared/crypto'
 import { SessionFeatureStore } from '../session-replay/shared/features/session-feature-store'
 import { getKeyStore } from '../session-replay/shared/keystore'
 import { MemoryCachedKeyStore } from '../session-replay/shared/keystore/cache'
+import { S3ManifestStore } from '../session-replay/shared/metadata/s3-manifest-store'
 import { SessionMetadataStore } from '../session-replay/shared/metadata/session-metadata-store'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '../session-replay/shared/outputs'
 import { RetentionService } from '../session-replay/shared/retention/retention-service'
@@ -163,7 +164,9 @@ export class SessionRecordingIngester {
             lane: config.INGESTION_LANE ?? 'unknown',
         })
 
-        this.teamService = new TeamService(postgres)
+        const trainingMode = config.SESSION_RECORDING_V2_TRAINING_MODE
+
+        this.teamService = new TeamService(postgres, trainingMode)
 
         this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(
             this.restrictionRedisPool,
@@ -173,11 +176,24 @@ export class SessionRecordingIngester {
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(outputs)
+        // manifest sidecar in training mode
+        const manifestStore =
+            trainingMode && s3Client
+                ? new S3ManifestStore(
+                      s3Client,
+                      this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX
+                  )
+                : undefined
+        const metadataStore = new SessionMetadataStore(outputs, !trainingMode, manifestStore)
         const consoleLogStore = new SessionConsoleLogStore(outputs, {
             messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+            enabled: !trainingMode,
         })
-        const featureStore = new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
+        const featureStore = new SessionFeatureStore(
+            outputs,
+            trainingMode ? false : this.config.SESSION_RECORDING_FEATURES_ENABLED
+        )
         this.fileStorage = s3Client
             ? new RetentionAwareStorage(
                   s3Client,
@@ -205,9 +221,10 @@ export class SessionRecordingIngester {
         const keyStore = getKeyStore(retentionService, region, {
             kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            forceCleartext: trainingMode,
         })
         this.keyStore = new MemoryCachedKeyStore(keyStore)
-        this.encryptor = getBlockEncryptor(this.keyStore)
+        this.encryptor = getBlockEncryptor(this.keyStore, { forceCleartext: trainingMode })
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,

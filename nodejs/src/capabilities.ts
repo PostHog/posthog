@@ -196,6 +196,7 @@ export function getPluginServerCapabilities(
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recordings_blob_ingestion_v2_training:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

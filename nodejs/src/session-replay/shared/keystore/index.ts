@@ -16,10 +16,12 @@ export { MemoryKeyStore } from './memory-keystore'
 export interface KeyStoreConfig {
     kmsEndpoint?: string
     dynamoDBEndpoint?: string
+    // cleartext, no DynamoDB keystore
+    forceCleartext?: boolean
 }
 
 export function getKeyStore(retentionService: RetentionService, region: string, config?: KeyStoreConfig): KeyStore {
-    if (isCloud()) {
+    if (isCloud() && !config?.forceCleartext) {
         logger.info('[KeyStore] Creating DynamoDBKeyStore with AWS clients', {
             region,
             kmsEndpoint: config?.kmsEndpoint ?? 'default',

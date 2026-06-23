@@ -14,7 +14,10 @@ interface TeamServiceData {
 export class TeamService {
     private readonly teamRefresher: BackgroundRefresher<TeamServiceData>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        private trainingMode: boolean = false
+    ) {
         this.teamRefresher = new BackgroundRefresher(
             () => this.fetchTeamTokensWithRecordings(),
             5 * 60 * 1000, // 5 minutes
@@ -49,11 +52,22 @@ export class TeamService {
     }
 
     private async fetchTeamTokensWithRecordings(): Promise<TeamServiceData> {
-        return fetchTeamTokensWithRecordings(this.postgres)
+        return fetchTeamTokensWithRecordings(this.postgres, this.trainingMode)
     }
 }
 
-export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Promise<TeamServiceData> {
+export async function fetchTeamTokensWithRecordings(
+    client: PostgresRouter,
+    trainingMode: boolean = false
+): Promise<TeamServiceData> {
+    // explicit org opt-in only
+    const aiTrainingFilter = trainingMode
+        ? `
+            AND organization_id IN (
+                SELECT id FROM posthog_organization WHERE is_ai_training_opted_in IS TRUE
+            )`
+        : ''
+
     const selectResult = await client.query<
         {
             capture_console_log_opt_in: boolean
@@ -64,7 +78,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         `
             SELECT id, api_token, capture_console_log_opt_in, session_recording_retention_period
             FROM posthog_team
-            WHERE session_recording_opt_in = true
+            WHERE session_recording_opt_in = true${aiTrainingFilter}
         `,
         [],
         'fetchTeamTokensWithRecordings'

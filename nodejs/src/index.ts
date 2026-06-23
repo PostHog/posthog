@@ -25,6 +25,7 @@ function createServer(): NodeServer {
 
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recordings_blob_ingestion_v2_training:
             return new IngestionSessionReplayServer()
 
         case PluginServerMode.recording_api:
