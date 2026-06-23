@@ -10,7 +10,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    InsightQueryNode,
+    LifecycleQuery,
+    NodeKind,
+    RetentionQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
 
@@ -19,25 +26,43 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
+const pageviewSeries = [
+    {
+        kind: NodeKind.EventsNode,
+        name: '$pageview',
+        event: '$pageview',
+        math: BaseMathType.TotalCount,
+    },
+] as const
+
 function makeTrendsQuery(
     display?: ChartDisplayType,
     trendsFilter: NonNullable<TrendsQuery['trendsFilter']> = {}
 ): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                name: '$pageview',
-                event: '$pageview',
-                math: BaseMathType.TotalCount,
-            },
-        ],
+        series: [...pageviewSeries],
         trendsFilter: {
             display,
             ...trendsFilter,
         },
     }
+}
+
+function makeRetentionQuery(): RetentionQuery {
+    return { kind: NodeKind.RetentionQuery, retentionFilter: {} }
+}
+
+function makeStickinessQuery(): StickinessQuery {
+    return { kind: NodeKind.StickinessQuery, series: [...pageviewSeries] }
+}
+
+function makeLifecycleQuery(): LifecycleQuery {
+    return { kind: NodeKind.LifecycleQuery, series: [...pageviewSeries] }
+}
+
+function getSectionTitles(): string[] {
+    return screen.getAllByRole('heading', { level: 5 }).map((h) => h.textContent?.replace(/\s+/g, ' ').trim() ?? '')
 }
 
 async function openOptionsMenu(): Promise<void> {
@@ -67,7 +92,7 @@ describe('InsightDisplayConfig', () => {
         cleanup()
     })
 
-    function setupAndRender(query: TrendsQuery): void {
+    function setupAndRender(query: InsightQueryNode): void {
         insightLogic(insightProps).mount()
         insightDataLogic(insightProps).mount()
         const vizDataLogic = insightVizDataLogic(insightProps)
@@ -82,6 +107,67 @@ describe('InsightDisplayConfig', () => {
             </Provider>
         )
     }
+
+    describe('Options menu sections per insight/chart type', () => {
+        const cases: [string, InsightQueryNode, string[]][] = [
+            [
+                'trends line graph',
+                makeTrendsQuery(ChartDisplayType.ActionsLineGraph),
+                [
+                    'Display',
+                    'Color customization by',
+                    'Y-axis unit',
+                    'Y-axis scale',
+                    'Statistical analysis',
+                    'Axis labels',
+                ],
+            ],
+            [
+                'trends bar chart',
+                makeTrendsQuery(ChartDisplayType.ActionsBar),
+                ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+            ],
+            [
+                'trends area graph',
+                makeTrendsQuery(ChartDisplayType.ActionsAreaGraph),
+                ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+            ],
+            ['trends number', makeTrendsQuery(ChartDisplayType.BoldNumber), ['Display', 'Unit']],
+            ['trends pie', makeTrendsQuery(ChartDisplayType.ActionsPie), ['Display', 'Unit']],
+            ['trends table', makeTrendsQuery(ChartDisplayType.ActionsTable), ['Display', 'Unit']],
+            [
+                'trends bar value (horizontal)',
+                makeTrendsQuery(ChartDisplayType.ActionsBarValue),
+                ['Display', 'X-axis unit', 'Axis labels'],
+            ],
+            ['trends world map', makeTrendsQuery(ChartDisplayType.WorldMap), ['Display', 'Unit']],
+            ['box plot', makeTrendsQuery(ChartDisplayType.BoxPlot), ['Display', 'Unit', 'Y-axis scale']],
+            ['slope graph', makeTrendsQuery(ChartDisplayType.SlopeGraph), ['Display', 'Unit']],
+            ['retention', makeRetentionQuery(), ['Display', 'On dashboards', 'Cohort labels start at']],
+            ['stickiness', makeStickinessQuery(), ['Display']],
+            ['lifecycle', makeLifecycleQuery(), ['Display']],
+        ]
+
+        it.each(cases)('%s shows the expected sections', async (_name, query, expectedSections) => {
+            setupAndRender(query)
+            await openOptionsMenu()
+
+            expect(getSectionTitles()).toEqual(expectedSections)
+        })
+    })
+
+    describe('section header tooltips', () => {
+        it('renders an info tooltip on tooltip-backed headers but not on plain ones', async () => {
+            setupAndRender(makeRetentionQuery())
+            await openOptionsMenu()
+
+            const tooltipHeader = screen.getByText('Cohort labels start at').closest('h5')!
+            expect(tooltipHeader.querySelector('svg')).toBeInTheDocument()
+
+            const plainHeader = screen.getByText('On dashboards').closest('h5')!
+            expect(plainHeader.querySelector('svg')).not.toBeInTheDocument()
+        })
+    })
 
     describe('box plot display options', () => {
         it('only shows "Show legend" in the Display section', async () => {
