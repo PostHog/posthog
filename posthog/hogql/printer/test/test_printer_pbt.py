@@ -191,11 +191,11 @@ class TestPostgresIdentifier:
     unescaping that Postgres identifiers don't use).
     """
 
-    @given(s=st.text(alphabet=st.characters(blacklist_characters="%"), min_size=1, max_size=63))
+    @given(s=st.text(alphabet=st.characters(codec="utf-8", blacklist_characters="%"), min_size=1, max_size=63))
     @settings(parent=_BASE, max_examples=1000)
     def test_roundtrip(self, s: str) -> None:
-        # '%' is excluded: escape_postgres_identifier rejects it (psycopg treats it
-        # as a parameter placeholder). Its rejection is covered separately below.
+        # Exclude "%" (escape_postgres_identifier rejects it; covered by test_percent_always_rejected).
+        # codec="utf-8" matches the default st.text() alphabet so we don't generate lone surrogates.
         escaped = escape_postgres_identifier(s)
         if escaped.startswith('"'):
             # Double-quoted: strip quotes and unescape "" → "
