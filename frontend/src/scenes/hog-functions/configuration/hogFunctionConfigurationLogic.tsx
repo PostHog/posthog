@@ -67,8 +67,8 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
-import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
+import { synthesizeSampleGlobals } from '../synthesizeSampleGlobals'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -217,6 +217,59 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
         inputs: getInputs(template.inputs_schema),
         enabled: true,
     }
+}
+
+async function loadGlobalsForEventId({
+    eventId,
+    baseQuery,
+    groupTypes,
+    sourceName,
+}: {
+    eventId: string
+    baseQuery: EventsQuery
+    groupTypes: { group_type: string }[]
+    sourceName: string
+}): Promise<CyclotronJobInvocationGlobals | null> {
+    // Point lookup by uuid: drop the configured filter (the event may no longer match it) and
+    // widen the timestamp window so old events can still be loaded from the logs flow.
+    const query: EventsQuery = {
+        ...baseQuery,
+        fixedProperties: undefined,
+        properties: [{ type: PropertyFilterType.HogQL, key: `uuid = '${eventId}'` }],
+        after: '-90d',
+    }
+    const response = await performQuery(query)
+    const row = response?.results?.[0]
+    if (!row) {
+        return null
+    }
+    const event: EventType = row[0]
+    const person: PersonType = row[1]
+    const globals = convertToHogFunctionInvocationGlobals(event, person)
+    globals.groups = {}
+    groupTypes.forEach((groupType, index) => {
+        const tuple = row[2 + index]
+        if (tuple && Array.isArray(tuple) && tuple[2]) {
+            let properties = {}
+            try {
+                properties = JSON.parse(tuple[3])
+            } catch {
+                // Ignore malformed group properties JSON
+            }
+            globals.groups![groupType.group_type] = {
+                type: groupType.group_type,
+                index: tuple[1],
+                id: tuple[2],
+                url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
+                properties,
+            }
+        }
+    })
+    globals.source = {
+        name: sourceName,
+        url: window.location.href.split('#')[0],
+    }
+    return globals
 }
 
 export function convertToHogFunctionInvocationGlobals(
@@ -606,70 +659,37 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
-                    if (!values.lastEventQuery) {
-                        return values.sampleGlobals
-                    }
-                    const errorMessage =
-                        'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        let response = await performWideEventsQueryInTwoPhases({
-                            ...values.lastEventQuery,
-                            properties: eventId
-                                ? [
-                                      {
-                                          type: PropertyFilterType.HogQL,
-                                          key: `uuid = '${eventId}'`,
-                                      },
-                                  ]
-                                : undefined,
-                        })
-                        if (!response?.results?.[0] && values.lastEventSecondQuery) {
-                            response = await performWideEventsQueryInTwoPhases({
-                                ...values.lastEventSecondQuery,
-                                properties: eventId
-                                    ? [
-                                          {
-                                              type: PropertyFilterType.HogQL,
-                                              key: `uuid = '${eventId}'`,
-                                          },
-                                      ]
-                                    : undefined,
+                        // Specific event from the logs flow — fetch it directly by uuid. uuid is in
+                        // the primary-key sparse index so this is a cheap point lookup even on huge
+                        // teams, and we drop the configured filter so the lookup still works if the
+                        // user has since changed it.
+                        if (eventId && values.lastEventQuery) {
+                            const realGlobals = await loadGlobalsForEventId({
+                                eventId,
+                                baseQuery: values.lastEventQuery,
+                                groupTypes: values.groupTypes,
+                                sourceName: values.configuration?.name ?? 'Unnamed',
                             })
-                        }
-                        if (!response?.results?.[0]) {
-                            throw new Error(errorMessage)
-                        }
-                        const event: EventType = response?.results?.[0]?.[0]
-                        const person: PersonType = response?.results?.[0]?.[1]
-                        const globals = convertToHogFunctionInvocationGlobals(event, person)
-                        globals.groups = {}
-                        values.groupTypes.forEach((groupType, index) => {
-                            const tuple = response?.results?.[0]?.[2 + index]
-                            if (tuple && Array.isArray(tuple) && tuple[2]) {
-                                let properties = {}
-                                try {
-                                    properties = JSON.parse(tuple[3])
-                                } catch {
-                                    // Ignore
-                                }
-                                globals.groups![groupType.group_type] = {
-                                    type: groupType.group_type,
-                                    index: tuple[1],
-                                    id: tuple[2], // TODO: rename to "key"?
-                                    url: `${window.location.origin}/groups/${tuple[1]}/${encodeURIComponent(tuple[2])}`,
-                                    properties,
-                                }
+                            if (realGlobals) {
+                                return realGlobals
                             }
-                        })
-                        globals.source = {
-                            name: values.configuration?.name ?? 'Unnamed',
-                            url: window.location.href.split('#')[0],
+                            actions.setSampleGlobalsError(
+                                'Could not find that event. Showing a synthesized example instead.'
+                            )
                         }
-                        return globals
+                        // Default path — no ClickHouse query. Build a sample event from the
+                        // configured filter and the inputs/templates the destination references, so
+                        // every property the user's hog code will read has a value to look at.
+                        return synthesizeSampleGlobals({
+                            base: values.exampleInvocationGlobals,
+                            filters: values.configuration?.filters,
+                            inputs: values.configuration?.inputs,
+                        })
                     } catch (e: any) {
                         if (!isBreakpoint(e)) {
-                            actions.setSampleGlobalsError(e.message ?? errorMessage)
+                            actions.setSampleGlobalsError(e.message ?? 'Failed to load sample event')
                         }
                         return values.exampleInvocationGlobals
                     }
@@ -1197,10 +1217,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return baseEventsQuery ? { ...baseEventsQuery, limit: 1 } : null
             },
             { resultEqualityCheck: equal },
-        ],
-        lastEventSecondQuery: [
-            (s) => [s.lastEventQuery],
-            (lastEventQuery): EventsQuery | null => (lastEventQuery ? { ...lastEventQuery, after: '-30d' } : null),
         ],
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
