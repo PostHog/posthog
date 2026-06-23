@@ -4702,7 +4702,8 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
-    user_access_level: AccessControlLevel
+    /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
