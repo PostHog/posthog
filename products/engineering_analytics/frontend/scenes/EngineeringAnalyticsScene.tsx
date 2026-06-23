@@ -24,12 +24,12 @@ export const scene: SceneExport = {
     logic: engineeringAnalyticsSceneLogic,
 }
 
-export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function EngineeringAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(engineeringAnalyticsSceneLogic)
-    const logic = engineeringAnalyticsLogic({ tabId })
-    // Keep this tab's filters and data alive across tab switches (React unmounts inactive tabs).
-    useAttachedLogic(logic, tabId ? engineeringAnalyticsSceneLogic({ tabId }) : undefined)
+    const logic = engineeringAnalyticsLogic()
+    // Keep the data logic alive for the scene's lifetime, independent of which inner tab renders.
+    useAttachedLogic(logic, engineeringAnalyticsSceneLogic)
     const { anyLoading, hasMultipleSources, sourceOptions, sourceId } = useValues(logic)
     const { refresh, setSourceId } = useActions(logic)
 
@@ -51,7 +51,7 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
     ]
 
     return (
-        <BindLogic logic={engineeringAnalyticsLogic} props={{ tabId }}>
+        <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent>
                 <SceneTitleSection
                     name="CI analytics"
