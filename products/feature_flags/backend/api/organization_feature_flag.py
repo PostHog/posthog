@@ -15,7 +15,7 @@ from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
@@ -557,7 +557,7 @@ class OrganizationFeatureFlagView(
             team = teams.get(team_id)
             if team is None:
                 continue
-            uac = UserAccessControl(user=self.request.user, team=team)
+            uac = UserAccessControl(user=cast(User, self.request.user), team=team)
             team_qs = flags_qs.filter(team_id=team_id)
             filtered_qs = uac.filter_queryset_by_access_level(team_qs, include_all_if_admin=True)
             allowed_ids.update(filtered_qs.values_list("id", flat=True))
