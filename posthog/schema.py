@@ -3104,6 +3104,8 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 
@@ -6993,6 +6995,8 @@ class SpanTreeNode(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     parent_name: str
     parent_service: str
     service_name: str

@@ -61,6 +61,7 @@ from products.slack_app.backend.api import (
     slack_workspace_claims_view,
 )
 from products.surveys.backend.api.survey import public_survey_page
+from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
@@ -366,6 +367,11 @@ urlpatterns = [
     opt_slash_path(
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
+    ),
+    # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
+    path(
+        "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
+        csrf_exempt(agent_proxy_callback),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(

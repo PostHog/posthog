@@ -1658,6 +1658,11 @@ class KlaviyoSourceConfig(config.Config):
 
 
 @config.config
+class KnockSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KustomerSourceConfig(config.Config):
     org_name: str
     api_key: str
@@ -3781,6 +3786,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.KNOCK: KnockSourceConfig,
         ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
         ExternalDataSourceType.LAGO: LagoSourceConfig,
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,
