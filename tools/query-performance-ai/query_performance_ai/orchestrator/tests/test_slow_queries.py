@@ -58,6 +58,22 @@ def test_build_sql_with_available_columns_adds_has_all_filter() -> None:
     assert "'`'" in sql
 
 
+def test_build_sql_with_exclude_sql_substrings_adds_position_filter() -> None:
+    sql = slow_queries.build_sql(
+        team_id=2,
+        lookback_hours=24,
+        limit=1,
+        exclude_sql_substrings=["JSONExtractString", "O'Brien"],
+    )
+    # Each substring becomes a case-sensitive `position(...) = 0` guard on the rendered SQL.
+    assert "position(query, 'JSONExtractString') = 0" in sql
+    # Single quotes inside the needle get doubled per ClickHouse string-literal rules.
+    assert "position(query, 'O''Brien') = 0" in sql
+    # Omitting the arg adds no such filter.
+    sql_none = slow_queries.build_sql(team_id=2, lookback_hours=24, limit=1)
+    assert "position(query," not in sql_none
+
+
 def test_ch_string_array_handles_apostrophes_and_braces() -> None:
     """Names with `'` or `{` would break a naive `repr()` interpolation; verify they're escaped safely."""
     rendered = slow_queries._ch_string_array(["foo'bar", "baz{name}", "plain"])

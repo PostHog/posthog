@@ -492,6 +492,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--lookback-hours", type=_positive_int, default=24)
     parser.add_argument("--max-queries", type=_positive_int, default=5)
+    parser.add_argument(
+        "--exclude-sql-containing",
+        action="append",
+        default=None,
+        metavar="SUBSTRING",
+        help=(
+            "Drop any slow query whose rendered ClickHouse SQL contains SUBSTRING "
+            "(case-sensitive, matched with ClickHouse position()). Repeatable. "
+            "Example: --exclude-sql-containing JSONExtractString to skip queries whose "
+            "optimization is already understood and focus the agent on novel query shapes."
+        ),
+    )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--bind-host", default="127.0.0.1", help="Host to bind the coordinator HTTP server to")
     parser.add_argument(
@@ -631,6 +643,7 @@ def _fetch_filtered_queries(args: argparse.Namespace) -> list[SlowQuery]:
         limit=args.max_queries,
         available_columns=available_columns,
         available_dictionaries=available_dictionaries,
+        exclude_sql_substrings=args.exclude_sql_containing,
     )
 
 

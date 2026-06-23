@@ -67,19 +67,31 @@ _COLUMN_FILTER_CLAUSE = (
 # `database.name` form, so we compare directly without splitting.
 _DICTIONARY_FILTER_CLAUSE = "AND hasAll({available}, used_dictionaries)"
 
+# Drop any query whose rendered ClickHouse SQL contains a given substring.
+# `position(haystack, needle)` is case-sensitive and returns 0 when absent, so
+# `= 0` keeps only the queries that don't contain it. We use `position` rather
+# than `LIKE '%needle%'` so the needle can hold `%`/`_` without being treated
+# as wildcards. Used to skip query shapes already covered elsewhere (e.g.
+# `JSONExtractString`, whose materialization wins are tracked separately).
+_EXCLUDE_SUBSTRING_CLAUSE = "AND position(query, {needle}) = 0"
 
-def _ch_string_array(items: list[str]) -> str:
-    """Render ``items`` as a ClickHouse string-literal array.
+
+def _ch_string_literal(s: str) -> str:
+    """Render ``s`` as a single ClickHouse string literal with `''` escaping.
 
     Uses single quotes with `''` escaping. Avoids ``repr()`` because Python's
     repr switches to double quotes when a string contains a single quote, and
     ClickHouse parses double-quoted tokens as identifier references — not
-    string literals — silently turning a name like ``foo'bar`` into a column
-    reference instead of a value. Curly braces in names are also passed
-    through unchanged (no ``.format`` interpolation here).
+    string literals — silently turning a value like ``foo'bar`` into a column
+    reference instead of a value. Curly braces are passed through unchanged
+    (the result is interpolated as a ``.format`` *value*, never re-templated).
     """
-    quoted = ",".join("'" + s.replace("'", "''") + "'" for s in items)
-    return "[" + quoted + "]"
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _ch_string_array(items: list[str]) -> str:
+    """Render ``items`` as a ClickHouse string-literal array."""
+    return "[" + ",".join(_ch_string_literal(s) for s in items) + "]"
 
 
 @dataclass(frozen=True)
@@ -105,6 +117,7 @@ def build_sql(
     limit: int,
     available_columns: list[str] | None = None,
     available_dictionaries: list[str] | None = None,
+    exclude_sql_substrings: list[str] | None = None,
 ) -> str:
     """Public for tests — keeps the formatting check trivial.
 
@@ -114,12 +127,18 @@ def build_sql(
     ``system.query_log.used_dictionaries``), restricts to queries that only
     use dictionaries in the list — pass an empty list ``[]`` to require zero
     dictionary use. Pass ``None`` to skip either filter.
+
+    When ``exclude_sql_substrings`` is provided, drops any query whose rendered
+    ClickHouse SQL contains one of the substrings (case-sensitive). Used to skip
+    query shapes already understood, e.g. ``["JSONExtractString"]``.
     """
     clauses: list[str] = []
     if available_columns:
         clauses.append(_COLUMN_FILTER_CLAUSE.format(available=_ch_string_array(sorted(available_columns))))
     if available_dictionaries is not None:
         clauses.append(_DICTIONARY_FILTER_CLAUSE.format(available=_ch_string_array(sorted(available_dictionaries))))
+    for needle in exclude_sql_substrings or []:
+        clauses.append(_EXCLUDE_SUBSTRING_CLAUSE.format(needle=_ch_string_literal(needle)))
     return _SLOW_QUERIES_SQL.format(
         lookback_hours=int(lookback_hours),
         team_id=int(team_id),
@@ -138,6 +157,7 @@ def fetch_slow_queries(
     timeout_s: float = 90.0,
     available_columns: list[str] | None = None,
     available_dictionaries: list[str] | None = None,
+    exclude_sql_substrings: list[str] | None = None,
 ) -> list[SlowQuery]:
     """Run the slow-queries SQL via `hogli metabase:query` and parse the rows.
 
@@ -152,6 +172,7 @@ def fetch_slow_queries(
         limit=limit,
         available_columns=available_columns,
         available_dictionaries=available_dictionaries,
+        exclude_sql_substrings=exclude_sql_substrings,
     )
     cmd = [
         "hogli",
