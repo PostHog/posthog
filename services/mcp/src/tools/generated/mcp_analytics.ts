@@ -7,6 +7,7 @@ import {
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
 } from '@/generated/mcp_analytics/api'
+import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = z.object({})
@@ -140,10 +141,296 @@ const mcpMissingCapabilityReport = (): ToolBase<
     },
 })
 
+// --- Query wrapper schemas from schema.json ---
+
+const DateRange = z.object({
+    date_from: z
+        .string()
+        .nullable()
+        .describe(
+            'Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).'
+        )
+        .optional(),
+    date_to: z
+        .string()
+        .nullable()
+        .describe('End of the date range. Same format as date_from. Omit or null for "now".')
+        .optional(),
+    explicitDate: z.coerce
+        .boolean()
+        .nullable()
+        .describe(
+            'Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.'
+        )
+        .default(false)
+        .optional(),
+})
+
+const PropertyOperator = z.enum([
+    'exact',
+    'is_not',
+    'icontains',
+    'not_icontains',
+    'regex',
+    'not_regex',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'is_set',
+    'is_not_set',
+    'is_date_exact',
+    'is_date_before',
+    'is_date_after',
+    'between',
+    'not_between',
+    'min',
+    'max',
+    'in',
+    'not_in',
+    'is_cleaned_path_exact',
+    'flag_evaluates_to',
+    'semver_eq',
+    'semver_neq',
+    'semver_gt',
+    'semver_gte',
+    'semver_lt',
+    'semver_lte',
+    'semver_tilde',
+    'semver_caret',
+    'semver_wildcard',
+    'icontains_multi',
+    'not_icontains_multi',
+])
+
+const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+
+const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+
+const EventPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('exact'),
+    type: z.literal('event').describe('Event properties').default('event'),
+    value: PropertyFilterValue.optional(),
+})
+
+const PersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('person').describe('Person properties').default('person'),
+    value: PropertyFilterValue.optional(),
+})
+
+const ElementPropertyFilter = z.object({
+    key: z.enum(['tag_name', 'text', 'href', 'selector']),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('element').default('element'),
+    value: PropertyFilterValue.optional(),
+})
+
+const EventMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('event_metadata').default('event_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
+const SessionPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('session').default('session'),
+    value: PropertyFilterValue.optional(),
+})
+
+const CohortPropertyFilter = z.object({
+    cohort_name: z.string().optional(),
+    key: z.literal('id').default('id'),
+    label: z.string().optional(),
+    operator: PropertyOperator.default('in'),
+    type: z.literal('cohort').default('cohort'),
+    value: z.coerce.number().int(),
+})
+
+const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
+
+const RecordingPropertyFilter = z.object({
+    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('recording').default('recording'),
+    value: PropertyFilterValue.optional(),
+})
+
+const LogEntryPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('log_entry').default('log_entry'),
+    value: PropertyFilterValue.optional(),
+})
+
+const GroupPropertyFilter = z.object({
+    group_key_names: z.record(z.string(), z.string()).optional(),
+    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('group').default('group'),
+    value: PropertyFilterValue.optional(),
+})
+
+const FeaturePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('feature').describe('Event property with "$feature/" prepended').default('feature'),
+    value: PropertyFilterValue.optional(),
+})
+
+const FlagPropertyFilter = z.object({
+    key: z.string().describe('The key should be the flag ID'),
+    label: z.string().optional(),
+    operator: z
+        .literal('flag_evaluates_to')
+        .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
+        .default('flag_evaluates_to'),
+    type: z.literal('flag').describe('Feature flag dependency').default('flag'),
+    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+})
+
+const HogQLPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    type: z.literal('hogql').default('hogql'),
+    value: PropertyFilterValue.optional(),
+})
+
+const EmptyPropertyFilter = z.object({
+    type: z.literal('empty').default('empty').optional(),
+})
+
+const DataWarehousePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('data_warehouse').default('data_warehouse'),
+    value: PropertyFilterValue.optional(),
+})
+
+const DataWarehousePersonPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('data_warehouse_person_property').default('data_warehouse_person_property'),
+    value: PropertyFilterValue.optional(),
+})
+
+const ErrorTrackingIssueFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('error_tracking_issue').default('error_tracking_issue'),
+    value: PropertyFilterValue.optional(),
+})
+
+const LogPropertyFilterType = z.enum(['log', 'log_attribute', 'log_resource_attribute'])
+
+const LogPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: LogPropertyFilterType,
+    value: PropertyFilterValue.optional(),
+})
+
+const SpanPropertyFilterType = z.enum(['span', 'span_attribute', 'span_resource_attribute'])
+
+const SpanPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: SpanPropertyFilterType,
+    value: PropertyFilterValue.optional(),
+})
+
+const RevenueAnalyticsPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('revenue_analytics').default('revenue_analytics'),
+    value: PropertyFilterValue.optional(),
+})
+
+const WorkflowVariablePropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z.literal('workflow_variable').default('workflow_variable'),
+    value: PropertyFilterValue.optional(),
+})
+
+const AnyPropertyFilter = z.union([
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    ElementPropertyFilter,
+    EventMetadataPropertyFilter,
+    SessionPropertyFilter,
+    CohortPropertyFilter,
+    RecordingPropertyFilter,
+    LogEntryPropertyFilter,
+    GroupPropertyFilter,
+    FeaturePropertyFilter,
+    FlagPropertyFilter,
+    HogQLPropertyFilter,
+    EmptyPropertyFilter,
+    DataWarehousePropertyFilter,
+    DataWarehousePersonPropertyFilter,
+    ErrorTrackingIssueFilter,
+    LogPropertyFilter,
+    SpanPropertyFilter,
+    RevenueAnalyticsPropertyFilter,
+    WorkflowVariablePropertyFilter,
+])
+
+const QueryLogTags = z.object({
+    name: z.string().describe('Name of the query, preferably unique. For example web_analytics_vitals').optional(),
+    productKey: z
+        .string()
+        .describe(
+            "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *"
+        )
+        .optional(),
+    scene: z
+        .string()
+        .describe(
+            "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *"
+        )
+        .optional(),
+})
+
+const MCPHarnessBreakdownQuery = z.object({
+    dateRange: DateRange.optional(),
+    filterTestAccounts: z.coerce.boolean().optional(),
+    kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
+    properties: z.array(AnyPropertyFilter).optional(),
+    tags: QueryLogTags.optional(),
+    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
     'mcp-analytics-sessions-generate-intent': mcpAnalyticsSessionsGenerateIntent,
     'mcp-feedback-submit': mcpFeedbackSubmit,
     'mcp-missing-capability-report': mcpMissingCapabilityReport,
+    'query-mcp-harness-breakdown': createQueryWrapper({
+        name: 'query-mcp-harness-breakdown',
+        schema: MCPHarnessBreakdownQuery,
+        kind: 'MCPHarnessBreakdownQuery',
+    }),
 }
