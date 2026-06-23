@@ -719,8 +719,11 @@ class SupportReplyWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         if classify_output.ticket_type == "unactionable":
+            # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
+            # retries"): this ticket had no answerable question, so downstream routing/metrics
+            # can treat spam/feedback differently from genuine failed attempts.
             workflow.logger.info("support_reply: ticket classified unactionable; skipping draft loop")
-            return "escalated_no_reply"
+            return "skipped_unactionable"
 
         ticket_type = classify_output.ticket_type
 

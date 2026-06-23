@@ -617,7 +617,7 @@ async def test_workflow_short_circuits_unactionable(
                 task_queue="test-queue",
             )
 
-    assert result == "escalated_no_reply"
+    assert result == "skipped_unactionable"
     mock_refine.assert_not_called()
     mock_draft.assert_not_called()
     mock_validate.assert_not_called()
