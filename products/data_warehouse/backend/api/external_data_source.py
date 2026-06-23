@@ -853,6 +853,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -974,8 +981,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_config: Config = source.parse_config(new_job_inputs)
         validated_job_inputs = source_config.to_dict()
         for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
-            if key in new_job_inputs:
-                validated_job_inputs[key] = new_job_inputs[key]
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
         validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
