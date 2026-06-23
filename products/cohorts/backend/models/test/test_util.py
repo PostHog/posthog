@@ -404,19 +404,29 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
-    def test_sanitize_query_for_cohort_preserves_persons_list_search(self):
-        query_dict = {"kind": "ActorsQuery", "search": "example.com", "select": ["person"]}
+    @pytest.mark.parametrize(
+        "query_dict,expected_search",
+        [
+            (
+                {"kind": "ActorsQuery", "search": "example.com", "select": ["person"]},
+                "example.com",
+            ),
+            (
+                {
+                    "kind": "ActorsQuery",
+                    "search": "example.com",
+                    "source": {"kind": "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": []}},
+                },
+                None,
+            ),
+        ],
+    )
+    def test_sanitize_query_for_cohort_search_handling(self, query_dict, expected_search):
         sanitized = _sanitize_query_for_cohort(query_dict)
-        self.assertEqual(sanitized["search"], "example.com")
-
-    def test_sanitize_query_for_cohort_strips_insight_modal_search(self):
-        query_dict = {
-            "kind": "ActorsQuery",
-            "search": "example.com",
-            "source": {"kind": "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": []}},
-        }
-        sanitized = _sanitize_query_for_cohort(query_dict)
-        self.assertNotIn("search", sanitized)
+        if expected_search is None:
+            self.assertNotIn("search", sanitized)
+        else:
+            self.assertEqual(sanitized["search"], expected_search)
 
     def test_insert_cohort_from_actors_query_preserves_persons_list_search(self):
         _create_person(
