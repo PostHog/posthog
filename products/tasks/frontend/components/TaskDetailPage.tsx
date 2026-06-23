@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -31,8 +31,8 @@ import {
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { CollapsibleContent } from './CollapsibleContent'
+import { TaskRunChat } from './TaskRunChat'
 import { TaskRunItem } from './TaskRunItem'
-import { TaskSessionView } from './TaskSessionView'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -40,19 +40,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const {
-        task,
-        taskLoading,
-        runs,
-        selectedRunId,
-        selectedRun,
-        runsLoading,
-        logs,
-        logsLoading,
-        shouldPoll,
-        streamEntries,
-        isStreaming,
-    } = useValues(sceneLogic)
+    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -185,28 +173,36 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
             />
 
             {selectedRun && (
-                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
-                    <span>
-                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
-                    </span>
+                <div className="flex items-center gap-4 text-xs text-muted">
+                    <dl className="inline-flex gap-1 items-center">
+                        <dt className="m-0">Created:</dt>
+                        <dd className="m-0 inline-flex items-center">
+                            <TZLabel time={selectedRun.created_at} showSeconds />
+                        </dd>
+                    </dl>
                     {selectedRun.completed_at && (
-                        <span>
-                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
-                        </span>
+                        <dl className="inline-flex gap-1 items-center">
+                            <dt className="m-0">Completed:</dt>
+                            <dd className="m-0 inline-flex items-center">
+                                <TZLabel time={selectedRun.completed_at} showSeconds />
+                            </dd>
+                        </dl>
                     )}
                     {selectedRun.completed_at && (
-                        <span>
-                            Duration:{' '}
-                            {humanFriendlyDuration(
-                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
-                            )}
-                        </span>
+                        <dl className="inline-flex gap-1 items-center">
+                            <dt className="m-0">Duration:</dt>
+                            <dd className="m-0 inline-flex items-center">
+                                {humanFriendlyDuration(
+                                    dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
+                                )}
+                            </dd>
+                        </dl>
                     )}
                 </div>
             )}
 
             {task.description && (
-                <div className="relative -mt-2 mb-2 px-2">
+                <div className="relative mt-2">
                     <CollapsibleContent>
                         <LemonMarkdown lowKeyHeadings className="text-sm">
                             {task.description}
@@ -214,6 +210,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     </CollapsibleContent>
                 </div>
             )}
+
+            <LemonDivider />
 
             {runsLoading ? (
                 <div className="flex items-center justify-center h-32">
@@ -224,16 +222,8 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     <p className="text-muted">This task hasn't been run yet</p>
                 </div>
             ) : selectedRun ? (
-                <div className="flex-1 overflow-hidden">
-                    <TaskSessionView
-                        logs={logs}
-                        logsLoading={logsLoading}
-                        streamEntries={streamEntries}
-                        isPolling={shouldPoll}
-                        isStreaming={isStreaming}
-                        initialPrompt={task.description}
-                        run={selectedRun}
-                    />
+                <div className="flex-1 overflow-hidden max-w-6xl mx-auto w-full mb-8">
+                    <TaskRunChat taskId={task.id} runId={selectedRun.id} />
                 </div>
             ) : null}
         </SceneContent>

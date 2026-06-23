@@ -2797,6 +2797,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
             (ExternalDataSourceType.REDSHIFT, True),
+            # ClickHouse isn't a SQLSource but opts into column selection.
+            (ExternalDataSourceType.CLICKHOUSE, True),
             # Non-SQL sources stay False
             (ExternalDataSourceType.STRIPE, False),
         ]

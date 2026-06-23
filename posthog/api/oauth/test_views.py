@@ -3947,6 +3947,49 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertNotIn("posthog_region", metadata)
 
 
+class TestOAuthProtectedResourceMetadata(APIBaseTest):
+    """Tests for OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
+
+    def test_returns_valid_metadata(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        metadata = response.json()
+
+        self.assertIn("resource", metadata)
+        self.assertEqual(metadata["authorization_servers"], [metadata["resource"]])
+        self.assertEqual(metadata["bearer_methods_supported"], ["header"])
+
+    def test_resource_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["resource"], r"^https?://")
+
+    def test_authorization_server_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["authorization_servers"][0], r"^https?://")
+
+    def test_metadata_includes_scopes(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        metadata = response.json()
+
+        scopes = metadata["scopes_supported"]
+        resource_scopes = [s for s in scopes if ":" in s]
+        self.assertGreater(len(resource_scopes), 0, "Should advertise resource scopes like 'event_definition:read'")
+
+    def test_authorization_server_matches_metadata_endpoint(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        auth_server = response.json()["authorization_servers"][0]
+
+        as_metadata = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(as_metadata.json()["issuer"], auth_server)
+
+    def test_metadata_accessible_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 class TestOIDCInactiveKeysSetting(SimpleTestCase):
     """OIDC_RSA_PRIVATE_KEYS_INACTIVE is assembled from two env vars so multi-line PEMs
     don't need delimiter parsing. Only keys that are actually set may be included — an

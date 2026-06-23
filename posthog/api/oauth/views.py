@@ -61,7 +61,7 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
@@ -1492,8 +1492,11 @@ class OAuthAuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        # Build base URL from request
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        # Pin to SITE_URL rather than the request Host header so the advertised
+        # endpoints can't be steered to an attacker-controlled origin via Host on
+        # permissive ALLOWED_HOSTS, and so issuer matches the protected resource
+        # metadata's authorization_servers.
+        base_url = absolute_uri().rstrip("/")
 
         all_scopes = get_oauth_scopes_supported()
 
@@ -1528,5 +1531,38 @@ class OAuthAuthorizationServerMetadataView(APIView):
 
         if region_info := get_region_info():
             metadata.update(region_info)
+
+        return JsonResponse(metadata)
+
+
+class OAuthProtectedResourceMetadataView(APIView):
+    """
+    OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    PostHog already points agents at this document via the
+    `WWW-Authenticate: Bearer resource_metadata=...` header on 401 responses
+    (see posthog/exceptions.py). This serves the document it promises, letting
+    a client that hit a 401 discover which authorization server issues tokens
+    for this API, which scopes exist, and how to present the token.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request, *args, **kwargs):
+        # Pin to SITE_URL rather than the request Host header: with permissive
+        # ALLOWED_HOSTS an attacker could otherwise steer this discovery document
+        # to an attacker-controlled origin (matches posthog/exceptions.py).
+        base_url = absolute_uri().rstrip("/")
+
+        metadata = {
+            # Required by RFC 9728
+            "resource": base_url,
+            # The same PostHog instance is its own authorization server
+            "authorization_servers": [base_url],
+            "scopes_supported": get_oauth_scopes_supported(),
+            "bearer_methods_supported": ["header"],
+            "resource_documentation": "https://posthog.com/docs/api",
+        }
 
         return JsonResponse(metadata)

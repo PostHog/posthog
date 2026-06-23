@@ -6,6 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
+- `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 
 ## DataTable
@@ -27,6 +28,7 @@ const columns: ColumnDef<Person>[] = [
   pageSizeOptions={[10, 25, 50]} // renders the per-page selector
   stickyHeader                   // or "page" to stick to document scroll
   fullWidth
+  size="sm"                      // tighten cell padding; pair with Card size="sm"
 />
 ```
 
@@ -61,6 +63,30 @@ Rules:
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
+
+## DatePicker
+
+Single-date sibling of `DateTimePicker` — one calendar, no quick ranges, value is a plain `Date`.
+
+```tsx
+import { DatePicker } from '@posthog/quill-components'
+;<DatePicker
+  value={date}
+  onApply={(next) => setDate(next)}
+  onCancel={() => close()}
+  minDate={minDate}
+  maxDate={new Date()}
+  dateFormat="MDY" // or 'DMY' | 'YMD'
+  showTime // adds hour/minute inputs + an "Include time" toggle
+/>
+```
+
+Rules:
+
+- `value`/`onApply` are a single `Date`, not `{ start, end, range }`. Use this for the single-date PostHog callers (currently `LemonCalendarSelect`); reach for `DateTimePicker` only when you need a start→end range.
+- Without `showTime` the applied value is floored to start-of-day. With `showTime`, the "Include time" toggle decides whether the applied value keeps its hour/minute or is floored.
+- Shares the calendar grid and `minDate`/`maxDate` day-granular bounds with `DateTimePicker` (both render `Calendar` from `calendar-grid.tsx`).
+- Always a single calendar; there is no `compact`/dual-calendar mode.
 
 ## useCalendar
 
