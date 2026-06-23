@@ -5,16 +5,12 @@ import hashlib
 import secrets
 from urllib.parse import urlencode
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
 from django.test import override_settings
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthApplication
@@ -26,16 +22,6 @@ WIZARD_CLIENT_ID = "test-wizard-client"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
 def _pkce_pair():
     """Generate a PKCE code_verifier and code_challenge pair."""
     verifier = secrets.token_urlsafe(32)
@@ -43,16 +29,10 @@ def _pkce_pair():
     return verifier, challenge
 
 
-_RSA_KEY = _generate_rsa_key()
-
-
-@pytest.mark.requires_secrets
 @override_settings(
     STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestProvisioningAuthentication(APIBaseTest):
     def setUp(self):
@@ -644,14 +624,11 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@pytest.mark.requires_secrets
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 @override_settings(
     STRIPE_APP_SECRET_KEY=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     STRIPE_ORCHESTRATOR_CALLBACK_URL="https://stripe.com/callback",
-    OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
-    OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
 class TestCimdProvisioningAutoRegistration(APIBaseTest):
     def setUp(self):

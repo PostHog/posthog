@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -24,7 +24,7 @@ import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDa
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { normalizeMessages } from './messageNormalization'
+import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
     eventMatchesSearch,
@@ -40,10 +40,9 @@ export interface TraceDataLogicProps {
     query?: DataTableNode | null
     cachedResults?: AnyResponseType | null
     searchQuery: string
-    tabId?: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDataLogicProps): DataNodeLogicProps {
+function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
@@ -53,17 +52,15 @@ function getDataNodeLogicProps({ traceId, query, cachedResults, tabId }: TraceDa
         },
     }
 
-    const tabScope = tabId ?? 'default'
-    const scopedTraceId = `${traceId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Trace.${scopedTraceId}`,
-        dataNodeCollectionId: scopedTraceId,
+        dashboardItemId: `new-Trace.${traceId}`,
+        dataNodeCollectionId: traceId,
     }
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query?.source ?? fallbackTraceQuery,
         key: vizKey,
-        dataNodeCollectionId: scopedTraceId,
+        dataNodeCollectionId: traceId,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -167,20 +164,39 @@ function findEventWithParents(
     return parentChain
 }
 
+// Generations should always be conversations, so one whose input or output no recipe
+// recognizes is a parse gap worth surfacing. Spans/embeddings carry opaque state and
+// are skipped. Runs once per trace load over every generation, viewed or not.
+export function reportTraceNormalizationFailures(trace: LLMTrace): void {
+    for (const event of trace.events) {
+        if (event.event !== '$ai_generation') {
+            continue
+        }
+        const input = event.properties.$ai_input
+        const output = event.properties.$ai_output_choices ?? event.properties.$ai_output
+        if (!normalizeMessages(input, 'user', event.properties.$ai_tools).recognized) {
+            captureNormalizationFailure(input)
+        }
+        if (!normalizeMessages(output, 'assistant').recognized) {
+            captureNormalizationFailure(output)
+        }
+    }
+}
+
 export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceDataLogic']),
     props({} as TraceDataLogicProps),
-    key((props) => `${props.traceId}:${props.tabId ?? 'default'}`),
+    key((props) => props.traceId),
     connect((props: TraceDataLogicProps) => ({
         values: [
-            aiObservabilityTraceLogic({ tabId: props.tabId }),
+            aiObservabilityTraceLogic,
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [aiObservabilityTraceLogic({ tabId: props.tabId }), ['setEventId']],
+        actions: [aiObservabilityTraceLogic, ['setEventId']],
     })),
     actions({
         reportSingleTraceLoadIfReady: true,
@@ -342,12 +358,9 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 })),
         ],
         initialFocusEventId: [
-            (s) => [s.showableEvents, s.filteredTree, s.initialTab],
-            (
-                showableEvents: LLMTraceEvent[],
-                filteredTree: TraceTreeNode[],
-                initialTab: string | null
-            ): string | null => getInitialFocusEventId(showableEvents, filteredTree, initialTab),
+            (s) => [s.trace, s.filteredTree, s.initialTab],
+            (trace: LLMTrace | undefined, filteredTree: TraceTreeNode[], initialTab: string | null): string | null =>
+                getInitialFocusEventId(trace, filteredTree, initialTab),
         ],
         effectiveEventId: [
             (s) => [s.eventId, s.initialFocusEventId],
@@ -449,6 +462,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 organization_name: appContext?.current_user?.organization?.name ?? null,
                 ...timing,
             })
+
+            reportTraceNormalizationFailures(trace)
         },
     })),
     subscriptions(({ actions, props, values }) => ({
@@ -486,7 +501,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
         },
         trace: (trace: LLMTrace | undefined) => {
             if (trace?.createdAt && props.traceId) {
-                aiObservabilityTraceLogic({ tabId: props.tabId }).actions.loadNeighbors(props.traceId, trace.createdAt)
+                aiObservabilityTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
 
             if (trace?.distinctId) {
@@ -623,39 +638,38 @@ export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string)
     return null
 }
 
+// The trace query runner folds the $ai_trace event into the trace itself (its
+// `inputState`/`outputState`) and drops it from `events`, so populated state is the
+// only signal left that a real $ai_trace event existed. Mirrors the scene's
+// `isTopLevelTraceWithoutContent` so the focus decision and the rendered root agree.
+export function traceHasRootContent(trace: LLMTrace | undefined): boolean {
+    return !!trace && (!!trace.inputState || !!trace.outputState)
+}
+
 export function getInitialFocusEventId(
-    showableEvents: LLMTraceEvent[],
+    trace: LLMTrace | undefined,
     filteredTree: TraceTreeNode[],
     initialTab: string | null
 ): string | null {
-    // First, look for an $ai_trace event
-    const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
-
-    if (aiTraceEvent) {
-        return aiTraceEvent.id
+    // A real trace renders its whole conversation at the root, so focus the root
+    // (null) instead of diving into a child node.
+    if (traceHasRootContent(trace)) {
+        return null
     }
 
-    // If tab=summary is specified, user wants to stay at the trace level (e.g., from clusters view)
-    // Don't skip to first generation event in this case
+    // tab=summary means the user explicitly asked to stay at the trace level (e.g. from clusters view).
     if (initialTab === 'summary') {
         return null
     }
 
-    // If no $ai_trace event, look for the first $ai_generation event
-    // This provides a better default for pseudo-traces where the generation
-    // is typically what users want to see
+    // Pseudo-trace: bare generations grouped by trace_id with no $ai_trace event.
+    // The first generation is the most useful default here.
     const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
-
     if (firstGenerationNode) {
         return firstGenerationNode.event.id
     }
 
-    // Fall back to first event in tree
-    if (filteredTree.length > 0) {
-        return filteredTree[0].event.id
-    }
-
-    return null
+    return filteredTree[0]?.event.id ?? null
 }
 
 export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {

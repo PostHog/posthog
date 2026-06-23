@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pydantic
 import temporalio.exceptions
 
-from products.signals.backend.facade.api import _MAX_TELEMETRY_STR_LEN, _telemetry_props_from_extra, emit_signal
+from posthog.schema import SignalRemediation
+
+from products.signals.backend.facade.api import (
+    _MAX_TELEMETRY_STR_LEN,
+    MAX_SIGNAL_REMEDIATION_TOKENS,
+    _telemetry_props_from_extra,
+    emit_signal,
+)
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -131,6 +138,49 @@ class TestEmitSignalValidation:
                 )
 
         client.start_workflow.assert_not_awaited()
+
+    async def test_emit_signal_rejects_oversized_remediation(self, team_stub):
+        client = AsyncMock()
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            with pytest.raises(ValueError, match="remediation exceeds"):
+                await emit_signal(
+                    team=team_stub,
+                    source_product="github",
+                    source_type="issue",
+                    source_id="test-id-1",
+                    description="A valid signal",
+                    extra=GITHUB_ISSUE_EXTRA,
+                    remediation=SignalRemediation(human="fix it", agent="step " * (MAX_SIGNAL_REMEDIATION_TOKENS + 1)),
+                )
+
+        client.start_workflow.assert_not_awaited()
+
+    async def test_emit_signal_accepts_remediation_within_limit(self, team_stub):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),
+        ]
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        ):
+            await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="test-id-1",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+                remediation=SignalRemediation(human="Re-run the materialization.", agent="Open the model and retry."),
+            )
+
+        assert client.start_workflow.await_count == 2
 
 
 @pytest.mark.asyncio

@@ -49,11 +49,9 @@ function TopTagsCard({ tags }: { tags: { tag: string; count: number }[] }): JSX.
     )
 }
 
-export function TagMetrics({ tabId }: { tabId?: string }): JSX.Element {
-    const { summaryMetrics, tagStats, tagStatsLoading, enabledTaggerCount, chartQuery } = useValues(
-        tagMetricsLogic({ tabId })
-    )
-    const { taggers } = useValues(llmTaggersLogic({ tabId }))
+export function TagMetrics(): JSX.Element {
+    const { summaryMetrics, tagStats, tagStatsLoading, enabledTaggerCount, chartQuery } = useValues(tagMetricsLogic)
+    const { taggers } = useValues(llmTaggersLogic)
 
     if (tagStatsLoading) {
         return (

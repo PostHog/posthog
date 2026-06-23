@@ -389,6 +389,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         if (params.quick_filter_ids !== undefined) {
             body['quick_filter_ids'] = params.quick_filter_ids
         }
+        if (params.tiles !== undefined) {
+            body['tiles'] = params.tiles
+        }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
         }
@@ -562,6 +565,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

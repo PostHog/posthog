@@ -1,7 +1,7 @@
 import { IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'

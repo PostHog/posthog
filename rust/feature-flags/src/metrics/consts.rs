@@ -49,6 +49,14 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+
+// Internal batch flag evaluation endpoint (static cohort generation). Dedicated
+// `flags_batch_eval_*` names keep batch traffic separable from live `/flags` metrics.
+// Not to be confused with the pre-existing `flags_batch_evaluation_*` family below
+// (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
+pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
+pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
@@ -294,6 +302,17 @@ pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_
 pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Remote config rate limiting
+pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
+pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_remote_config_rate_limit_bypassed_total";
+pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
+
+// Remote config auth method
+// Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
+// split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
+pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)

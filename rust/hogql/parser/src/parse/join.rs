@@ -463,28 +463,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let cons_start = self.peek0.start;
         if self.eat_kw(Kw::On)? {
             let expr = self.parse_expr_bp(0)?;
-            // cpp's `joinConstraintClause: ON columnExprList` greedily
-            // consumes the comma-separated list, then the cpp visitor
-            // raises `NotImplementedError` for any list with more than
-            // one expression. Mirror that here: a comma followed by
-            // anything that could continue the list belongs to the ON
-            // list, not the outer JOIN's CROSS-JOIN comma. Rust used
-            // to fall out and let the outer chain consume it as
-            // cross-join, silently emitting a divergent JoinExpr.
-            //
-            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing parseable
-            // after) is the `columnExprList`'s optional `COMMA?` — valid, and
-            // cpp's JoinConstraint span covers it. Consume it here so the span
-            // matches (and so the outer JOIN loop doesn't have to special-case
-            // it). A comma with a real expression after is the unsupported
-            // multi-expression list.
+            // cpp's `ON columnExprList` overlaps with the `joinExpr COMMA
+            // joinExpr` CROSS JOIN. A trailing comma (`ON 1,` with nothing
+            // after) is the list's optional `COMMA?` — consume it so the
+            // JoinConstraint span matches cpp's. A comma with content is either a
+            // CROSS JOIN or the unsupported multi-expression ON;
+            // `comma_after_on_begins_cross_join` splits them as cpp's ALL(*) does.
             if self.peek() == TokenKind::Comma {
                 if matches!(
                     self.peek_next(),
                     TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
                 ) {
                     self.bump()?;
-                } else {
+                } else if !self.comma_after_on_begins_cross_join()? {
                     let start = self.peek0.start;
                     let end = self.peek0.end;
                     return Err(ParseError::not_implemented(
@@ -493,6 +484,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         end,
                     ));
                 }
+                // else: a CROSS JOIN begins here — leave the comma for the outer loop.
             }
             return Ok(Some(
                 self.wrap_pos(self.emit.join_constraint(expr, "ON"), cons_start),
@@ -535,6 +527,40 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             ));
         }
         Ok(None)
+    }
+
+    /// After `ON expr` and a comma with content after it (comma not yet
+    /// consumed), decide whether the comma begins a CROSS JOIN rather than
+    /// extending `ON columnExprList` into the unsupported multi-expression form.
+    ///
+    /// cpp's `ON columnExprList` overlaps with the `joinExpr COMMA joinExpr`
+    /// CROSS JOIN. ANTLR's ALL(*) takes the columnExprList (declared first)
+    /// whenever it yields a complete parse, falling back to the CROSS JOIN only
+    /// when the post-comma `columnExpr` leaves a trailing token neither the list
+    /// nor the statement can consume — i.e. a table `alias` or `FINAL`. (A
+    /// trailing `SAMPLE` is consumed at the statement level, and `AS alias` is
+    /// absorbed into the columnExpr, so both stay a multi-expression ON.)
+    ///
+    /// So probe-parse the post-comma `columnExpr`, check for a following alias /
+    /// `FINAL`, then roll back for the outer loop to re-parse the target cleanly.
+    fn comma_after_on_begins_cross_join(&mut self) -> Result<bool, ParseError> {
+        let cp = self.checkpoint();
+        self.bump()?; // consume the comma for the probe only
+        let begins_cross_join = match self.parse_expr_bp(0) {
+            // Reuse `try_consume_table_alias` (cpp's exact bare/`AS` alias set,
+            // minus SAMPLE / FINAL / clause keywords) so the probe matches how
+            // the outer loop parses the alias. Swallow its error — a reserved
+            // name like `team_id` — instead of letting `?` skip the `restore`:
+            // cpp rejects a reserved cross-join alias too, so "no cross-join"
+            // keeps both backends rejecting.
+            Ok(_) => {
+                matches!(self.try_consume_table_alias(), Ok(Some(_)))
+                    || self.peek() == TokenKind::Keyword(Kw::Final)
+            }
+            Err(_) => false,
+        };
+        self.restore(cp)?;
+        Ok(begins_cross_join)
     }
 
     /// Probe: does `peek_next` look like the start of a `tableExpr`?
@@ -848,7 +874,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // picks up the args list off the returned Field.
         if self.peek() == TokenKind::LParen {
             self.bump()?;
-            let args = self.parse_arg_list(TokenKind::RParen)?;
+            let args = self.parse_table_arg_list(TokenKind::RParen)?;
             self.expect(TokenKind::RParen, ")")?;
             // Encode as a Field with a sibling "table_args" object so the
             // wrapping JoinExpr in parse_table_atom can pull it out.
@@ -1541,6 +1567,7 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::RegexSingle
             | TokenKind::RegexDouble
             | TokenKind::IRegexSingle

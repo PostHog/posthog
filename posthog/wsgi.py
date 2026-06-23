@@ -7,6 +7,7 @@ For more information on this file, see
 https://docs.djangoproject.com/en/2.2/howto/deployment/wsgi/
 """
 
+import gc
 import os
 
 from django.core.wsgi import get_wsgi_application
@@ -20,7 +21,29 @@ os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 
 start_continuous_profiling()
 initialize_otel()
-_django_application = get_wsgi_application()
+
+# Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
+# pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
+# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# process forks workers. See docs/internal/django-startup-time.md.
+gc.disable()
+try:
+    _django_application = get_wsgi_application()
+
+    # Resolve the URLconf now, at module load. The lazy API router otherwise builds on
+    # each worker's FIRST LIVE REQUEST — k8s probes (/_livez, /_readyz) short-circuit in
+    # middleware and never warm it — costing seconds per worker after every deploy.
+    # Building it here keeps the cost at worker boot, behind readiness. (Verified against
+    # the production image: Unit 1.35 loads this module once per application process — no
+    # prototype fork/COW — so each worker pays its own boot, exactly like before the lazy
+    # router.) Non-web processes (celery, temporal, migrate, shell) never load this module
+    # and keep the lazy win.
+    from django.urls import get_resolver
+
+    _ = get_resolver().url_patterns  # property access triggers the build
+finally:
+    gc.freeze()
+    gc.enable()
 
 # Nginx Unit forks workers from a prototype process that imported this module, so
 # the query_cache RedisCluster must be discovered post-fork: a client built here at

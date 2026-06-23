@@ -27,13 +27,38 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                        },
+                                        "id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Action ID. Required when kind is 'ActionsNode'."
                                         },
                                         "kind": {
-                                            "const": "ExperimentEventExposureConfig",
-                                            "default": "ExperimentEventExposureConfig",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                         },
                                         "properties": {
                                             "description": "Event property filters. Pass an empty array if no filters needed.",
@@ -144,7 +169,7 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["event", "properties"],
+                                    "required": ["properties"],
                                     "type": "object"
                                 },
                                 {
@@ -172,7 +197,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag_key": {
-            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible.",
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
             "type": "string"
         },
         "holdout_id": {

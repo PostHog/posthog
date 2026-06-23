@@ -1,11 +1,11 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { getCurrentTeamId } from '~/lib/utils/getAppContext'
@@ -59,9 +59,7 @@ type RawOfflineExperimentMetricRow = [
     target_type: HogQLPrimitive,
 ]
 
-export interface OfflineEvaluationsLogicProps {
-    tabId?: string
-}
+export type OfflineEvaluationsLogicProps = Record<string, never>
 
 export interface OfflineExperiment {
     experimentId: string
@@ -338,7 +336,6 @@ export function mapOfflineExperimentItems(rows: RawOfflineExperimentMetricRow[])
 export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'evaluations', 'offlineEvaluationsLogic']),
     props({} as OfflineEvaluationsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         refreshOfflineEvaluations: true,

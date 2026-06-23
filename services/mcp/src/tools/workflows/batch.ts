@@ -96,7 +96,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
         if (trigger.type !== 'batch') {
             throw new Error(
                 `workflows-run-batch only applies to workflows with a 'batch' trigger (this one is ` +
-                    `'${trigger.type ?? 'unknown'}'). Use workflows-run to test-invoke, or a schedule for recurring runs.`
+                    `'${trigger.type ?? 'unknown'}'). Use workflows-test-run to test-invoke, or a schedule for recurring runs.`
             )
         }
 

@@ -48,29 +48,12 @@ tools:
     task-automations-run-create:
         operation: task_automations_run_create
         enabled: false
-    task-automations-update:
-        operation: task_automations_update
-        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: false
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
-    tasks-file-create:
-        operation: tasks_file_create
-        enabled: true
-        scopes:
-            - task:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: File a task into the project tree
-        description: >
-            Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination
-            `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.
-        feature_flag: tasks
     tasks-list:
         operation: tasks_list
         enabled: true
@@ -194,9 +177,6 @@ tools:
                 - created_at
                 - updated_at
                 - completed_at
-    tasks-runs-logs-retrieve:
-        operation: tasks_runs_logs_retrieve
-        enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false
@@ -266,19 +246,6 @@ tools:
     tasks-summaries-create:
         operation: tasks_summaries_create
         enabled: false
-    tasks-unfile-create:
-        operation: tasks_unfile_create
-        enabled: true
-        scopes:
-            - task:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Remove a task from the project tree
-        description: |
-            Remove a task's entry from the desktop project tree. The task itself is not deleted.
-        feature_flag: tasks
     tasks-update:
         operation: tasks_update
         enabled: false

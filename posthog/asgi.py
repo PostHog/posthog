@@ -1,3 +1,4 @@
+import gc
 import os
 
 # Django Imports
@@ -90,7 +91,7 @@ def self_capture_wrapper(func):
 
 def task_run_event_ingest_wrapper(func):
     async def inner(scope, receive, send):
-        from products.tasks.backend.stream.event_ingest import handle_task_run_event_ingest
+        from products.tasks.backend.facade.streams import handle_task_run_event_ingest
 
         if await handle_task_run_event_ingest(scope, receive, send):
             return
@@ -100,4 +101,20 @@ def task_run_event_ingest_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+# Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
+# pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
+# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# process forks workers. See docs/internal/django-startup-time.md.
+gc.disable()
+try:
+    application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+
+    # Resolve the URLconf now, at module load — the lazy API router otherwise builds on
+    # each worker's first live request (probes short-circuit in middleware and never warm
+    # it). See the matching block in wsgi.py for the full reasoning.
+    from django.urls import get_resolver
+
+    _ = get_resolver().url_patterns  # property access triggers the build
+finally:
+    gc.freeze()
+    gc.enable()

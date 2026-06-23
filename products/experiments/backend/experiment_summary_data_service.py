@@ -1,14 +1,13 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Union
+from typing import Any, TypeIs, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
 import posthoganalytics
 from posthoganalytics import capture_exception
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     CacheMissResponse,

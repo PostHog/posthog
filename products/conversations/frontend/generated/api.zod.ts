@@ -11,9 +11,9 @@ import * as zod from 'zod'
 
 /**
  * Unified endpoint that handles both conversation creation and streaming.
-
-- If message is provided: Start new conversation processing
-- If no message: Stream from existing conversation
+ *
+ * - If message is provided: Start new conversation processing
+ * - If no message: Stream from existing conversation
  */
 export const conversationsCreateBodyContentMax = 40000
 
@@ -42,10 +42,11 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
                 'llm_analytics',
                 'sandbox',
                 'user_interview',
+                'customer_analytics',
             ])
             .optional()
             .describe(
-                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview'
+                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview\n\* `customer_analytics` - customer_analytics'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().optional(),
@@ -54,8 +55,8 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
 
 /**
  * Appends a message to an existing conversation without triggering AI processing.
-This is used for client-side generated messages that need to be persisted
-(e.g., support ticket confirmation messages).
+ * This is used for client-side generated messages that need to be persisted
+ * (e.g., support ticket confirmation messages).
  */
 export const conversationsAppendMessageCreateBodyContentMax = 10000
 
@@ -176,10 +177,34 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Update the status of multiple tickets in a single request.
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreateBodyMessageMax = 5000
 
-Only tickets belonging to the current team are affected; other-team UUIDs
-are silently ignored.  Tickets already in the requested status are skipped.
+export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+
+export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().max(conversationsTicketsReplyCreateBodyMessageMax).describe('Reply content in markdown.'),
+        is_private: zod
+            .boolean()
+            .default(conversationsTicketsReplyCreateBodyIsPrivateDefault)
+            .describe(
+                "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
+            ),
+        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+    })
+    .describe('Payload for posting a reply or internal note to a ticket.')
+
+/**
+ * Update the status of multiple tickets in a single request.
+ *
+ * Only tickets belonging to the current team are affected; other-team UUIDs
+ * are silently ignored.  Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreateBodyIdsMax = 500
 
@@ -200,22 +225,22 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
 

@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
@@ -103,9 +104,9 @@ const meta: Meta = {
                     200,
                     { has_next: false, results: recordings, version: 1 },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,
@@ -128,8 +129,8 @@ const meta: Meta = {
                 'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
             },
             patch: {
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
-                    const body = req.body as Partial<SessionRecordingPlaylistType>
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': async ({ request }) => {
+                    const body = (await request.json()) as Partial<SessionRecordingPlaylistType>
                     return [200, { ...playlistWithRecordings, ...body }]
                 },
             },
@@ -142,19 +143,20 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === 'EventsQuery') {
-                        return res(ctx.json(recordingEventsJson))
+                        return [200, recordingEventsJson]
                     }
 
                     if (
                         body.query.kind === 'HogQLQuery' &&
                         body.query.query.includes('any(properties.$geoip_country_code) as $geoip_country_code')
                     ) {
-                        return res(
-                            ctx.json({
+                        return [
+                            200,
+                            {
                                 columns: [
                                     'session_id',
                                     '$geoip_country_code',
@@ -179,11 +181,11 @@ const meta: Meta = {
                                     'London',
                                     'https://posthog.com/entry-page',
                                 ]),
-                            })
-                        )
+                            },
+                        ]
                     }
 
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
         }),

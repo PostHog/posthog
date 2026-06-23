@@ -17,11 +17,9 @@ from posthog.api.file_system.deletion import (
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.user import User
-from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
-from products.tasks.backend.api import task_visibility_q
-from products.tasks.backend.models import Task as _Task
+from products.tasks.backend.facade import api as tasks_facade
 
 
 def _first_non_blank(*values: str | None) -> str | None:
@@ -168,6 +166,11 @@ def _link_post_delete(context: DeletionContext, link: Any) -> None:
 
 
 def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
+    # Deferred: session_recording_playlist_api pulls session_recording_api -> the session_summary
+    # temporal workflow (-> google-genai). This module is imported from AppConfig.ready(), so a
+    # module-level import would drag all of that onto every process's startup path.
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
@@ -203,6 +206,8 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
 
 
 def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
@@ -286,7 +291,7 @@ def _ensure_task_visible_to_user(task: Any, user: Any | None) -> None:
     # signal-pipeline tasks and legacy unowned tasks). Without this, anyone with file system
     # write access could delete or restore another user's filed task via the generic flow.
     user_id = getattr(user, "id", None)
-    if not _Task.objects.filter(task_visibility_q(user_id), pk=task.id).exists():
+    if not tasks_facade.is_task_visible_to_user(task.id, user_id):
         raise PermissionDenied("You do not have permission to modify this task.")
 
 
@@ -448,7 +453,7 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "cohort",
-        "posthog",
+        "cohorts",
         "Cohort",
         undo_message="Send PATCH /api/projects/@current/cohorts/{id} with deleted=false.",
     )

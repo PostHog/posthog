@@ -1,0 +1,19 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ requester_name }} requested access to PostHog AI{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    <strong>{{ requester_name }}</strong> (<a href="mailto:{{ requester_email }}">{{ requester_email }}</a>) wants to
+    use PostHog AI in <strong>{{ organization_name }}</strong>. Enabling PostHog AI requires admin access, so they're
+    asking you to turn it on.
+</p>
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ posthog_ai_url }}">Enable PostHog AI</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ posthog_ai_url }}">{{ posthog_ai_url }}</a>
+    </p>
+</div>
+{% endblock %}

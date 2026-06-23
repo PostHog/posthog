@@ -31,6 +31,31 @@ ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
 PARTITION_PRUNING_INTERVAL = "14 days"
 
 
+def pending_batch_select_columns(status_alias: str) -> str:
+    return f"""
+        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+        b.cumulative_row_count, b.resource_name, b.is_resume,
+        b.is_first_ever_sync, b.metadata,
+        COALESCE({status_alias}.attempt, 0) AS latest_attempt,
+        b.created_at
+    """
+
+
+async def unlock_advisory_locks(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batches: list[PendingBatch],
+    namespace: int,
+) -> None:
+    for batch in batches:
+        await conn.execute(
+            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
+            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
@@ -91,6 +116,18 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class FailedRunRef:
+    """Identity of a run with a ``failed`` queue batch, used by the reconcile sweep to fail its ExternalDataJob."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    reason: str | None
 
 
 class BatchQueue:
@@ -207,13 +244,7 @@ class BatchQueue:
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
@@ -315,13 +346,7 @@ class BatchQueue:
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
                     JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
@@ -373,6 +398,55 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
+    async def get_failed_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        grace_seconds: int,
+        lookback_seconds: int,
+        limit: int,
+    ) -> list[FailedRunRef]:
+        """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
+
+        Ordered by latest failure first so fresh failures still land in the window when
+        already-reconciled runs outnumber ``limit`` within the lookback.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
+                FROM (
+                    SELECT DISTINCT ON (b.run_uuid)
+                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
+                        s.created_at AS failed_at
+                    FROM {BATCH_TABLE} b
+                    JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                    WHERE
+                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND s.job_state = 'failed'
+                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
+                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                    ORDER BY b.run_uuid, s.created_at DESC
+                ) failed_runs
+                ORDER BY failed_at DESC
+                LIMIT %(limit)s
+                """,
+                {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            FailedRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
+                reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -384,8 +458,4 @@ class BatchQueue:
         only acquired on rows that actually appear in the result set, so
         one unlock per row balances the depth exactly.
         """
-        for batch in batches:
-            await conn.execute(
-                "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-                {"ns": ADVISORY_LOCK_NAMESPACE, "key": f"{batch.team_id}:{batch.schema_id}"},
-            )
+        await unlock_advisory_locks(conn, batches=batches, namespace=ADVISORY_LOCK_NAMESPACE)

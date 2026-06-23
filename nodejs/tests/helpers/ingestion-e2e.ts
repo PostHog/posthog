@@ -2,6 +2,14 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
 import { defaultConfig } from '../../src/config/config'
@@ -10,8 +18,6 @@ import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '../../src/config/redis-pools'
-import { CookielessManager } from '../../src/ingestion/cookieless/cookieless-manager'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../src/ingestion/personhog'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'
@@ -22,13 +28,9 @@ import { parseJSON } from '../../src/utils/json-parse'
 import { PubSub } from '../../src/utils/pubsub'
 import { TeamManager } from '../../src/utils/team-manager'
 import { UUIDT } from '../../src/utils/utils'
-import { GroupTypeManager } from '../../src/worker/ingestion/group-type-manager'
-import { GroupRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '../../src/worker/ingestion/groups/repositories/postgres-group-repository'
-import { PersonRepository } from '../../src/worker/ingestion/persons/repositories/person-repository'
-import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
+import { ensureKafkaTopics } from './kafka'
 import { createUserTeamAndOrganization } from './sql'
 
 export const DEFAULT_TEAM: Team = {
@@ -133,6 +135,11 @@ export function createKafkaMessage(
         { token: Buffer.from(token) },
         { distinct_id: Buffer.from(event.distinct_id!) },
     ]
+    if (event.event) {
+        // Capture sets the event name header on every message; pipeline steps that route by event
+        // type (allow/deny lists) run before the body is parsed and read it from here.
+        headers.push({ event: Buffer.from(event.event) })
+    }
     if (event.timestamp) {
         const timestampMs = DateTime.fromISO(event.timestamp).toMillis()
         headers.push({ timestamp: Buffer.from(timestampMs.toString()) })
@@ -162,12 +169,18 @@ export const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) 
 }
 
 /**
- * After `resetKafka()` recreates topics, ClickHouse's Kafka engine consumers need to
- * reconnect. With the default auto.offset.reset=latest, any messages produced before
- * reconnection are permanently missed. We repeatedly produce probe messages until
- * ClickHouse consumes one, which guarantees at least one lands after reconnection.
+ * Waits until ClickHouse's Kafka engine is consuming, by producing probe messages until one
+ * lands in the ingestion_warnings table.
+ *
+ * Before probing we create every topic ClickHouse's Kafka engine tables subscribe to. Otherwise
+ * any table whose topic is missing keeps retrying "Can't get assignment", which saturates
+ * ClickHouse's background scheduler and intermittently starves the consumers we depend on — the
+ * root cause of this suite's flakiness. We repeatedly produce probe messages because, with the
+ * default auto.offset.reset=latest, messages produced before assignment are missed.
  */
 export async function waitForClickHouseKafkaConsumer(clickhouse: Clickhouse): Promise<void> {
+    await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics())
+
     const producer = await KafkaProducerWrapper.create(undefined)
     const probeTeamId = -1
 

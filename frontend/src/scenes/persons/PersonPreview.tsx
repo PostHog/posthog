@@ -105,7 +105,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
                         onCompose={() => props.onClose?.()}
                     />
                 )}
-                <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
+                <LemonButton size="small" icon={<IconOpenInNew />} to={url} targetBlank tooltip="Open in new tab" />
             </div>
 
             <ScrollableShadows direction="vertical">

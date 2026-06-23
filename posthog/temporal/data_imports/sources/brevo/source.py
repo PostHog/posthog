@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,8 @@ class BrevoSource(ResumableSource[BrevoSourceConfig, BrevoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BREVO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            keywords=["sendinblue"],
             label="Brevo",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Brevo API key to automatically pull your Brevo (formerly Sendinblue) data into the PostHog Data warehouse.

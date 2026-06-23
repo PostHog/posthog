@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-test-utils": "catalog:",
@@ -18,6 +19,7 @@
         "@posthog/icons": "*",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
+        "@testing-library/react": "*",
         "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",

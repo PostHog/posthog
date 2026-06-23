@@ -68,4 +68,10 @@ export interface PropertyFilterInternalProps {
     addFilterDocLink?: string
     endpointFilters?: Record<string, any>
     hogQLGlobals?: Record<string, any>
+    /**
+     * `'input'` renders the replay-style input-box add-filter trigger; `'button'`
+     * (the default) renders a button. Only has an effect on the rebuild menu
+     * (`TAXONOMIC_FILTER_MENU_REBUILD`).
+     */
+    triggerVariant?: 'button' | 'input'
 }

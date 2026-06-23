@@ -71,7 +71,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
 
                 if (filters.search) {
                     const fuse = createFuse<EndpointType>(results, {
-                        keys: ['name', 'description', 'query.query'],
+                        keys: ['name', 'description'],
                         threshold: 0.3,
                     })
                     results = fuse.search(filters.search).map((result) => result.item)

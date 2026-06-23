@@ -9,7 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.posthog_code_slack_mention import (
+from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionWorkflowInputs,
     cascade_posthog_code_repository_activity,
 )

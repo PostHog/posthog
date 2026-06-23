@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -35,9 +36,9 @@ class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAZE,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Braze",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Braze REST API key and endpoint to sync your Braze data into the PostHog Data warehouse.
 
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:

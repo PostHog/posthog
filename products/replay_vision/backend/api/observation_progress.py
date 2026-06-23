@@ -88,7 +88,7 @@ async def _query_progress(client: Any, workflow_id: str) -> dict[str, Any] | Non
     return payload
 
 
-async def stream_observation_progress(observation: ReplayObservation) -> AsyncGenerator[str, None]:
+async def stream_observation_progress(observation: ReplayObservation) -> AsyncGenerator[str]:
     """SSE generator: live phase + rendering frame progress for one observation until it reaches a terminal state.
 
     Emits `observation-progress` ticks, then a single `observation-complete` (carrying the terminal status) once the

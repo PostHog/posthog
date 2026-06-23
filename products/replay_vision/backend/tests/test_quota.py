@@ -150,6 +150,42 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             assert snapshot.remaining == 0
 
 
+class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
+    def _make_scanner(self, *, team: Team, name: str, enabled: bool = True, estimate: int | None = None) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=team,
+            name=name,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+            enabled=enabled,
+        )
+        if estimate is not None:
+            ReplayScanner.objects.filter(pk=scanner.pk).update(
+                estimated_monthly_observations=estimate, estimated_at=timezone.now()
+            )
+
+    def test_sums_enabled_scanners_across_org_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="second-team")
+        self._make_scanner(team=self.team, name="a", estimate=100)
+        self._make_scanner(team=other_team, name="b", estimate=250)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 350
+
+    def test_disabled_and_unestimated_scanners_contribute_zero(self) -> None:
+        self._make_scanner(team=self.team, name="disabled", enabled=False, estimate=500)
+        self._make_scanner(team=self.team, name="unestimated", estimate=None)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 0
+
+    def test_other_orgs_scanners_not_counted(self) -> None:
+        other_org = Organization.objects.create(name="other-projection-org")
+        other_team = Team.objects.create(organization=other_org, name="other-projection-team")
+        self._make_scanner(team=other_team, name="other", estimate=999)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 0
+
+
 class TestQuotaGrants(_VisionQuotaTestCase):
     def test_active_grant_adds_to_monthly_quota(self) -> None:
         ReplayQuotaGrant.objects.create(
@@ -224,6 +260,32 @@ class TestQuotaGrants(_VisionQuotaTestCase):
             assert snapshot.remaining == 1
 
 
+class TestReplayQuotaGrantAdmin(_VisionQuotaTestCase):
+    def test_initial_form_renders(self) -> None:
+        # Regression: `expires_at` initial must be a datetime, not a str. The admin's
+        # SplitDateTimeWidget.decompress runs `to_current_timezone` → `is_aware` →
+        # `value.utcoffset()`, which AttributeErrors on a str and 500s the add page in prod.
+        # We render the form directly instead of GETting /admin/...add/ because the admin
+        # URLs are gated on ADMIN_PORTAL_ENABLED, which defaults False in product test env.
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from products.replay_vision.backend.admin import ReplayQuotaGrantAdmin
+
+        self.user.is_staff = True
+        self.user.save()
+        request = RequestFactory().get("/admin/replay_vision/replayquotagrant/add/")
+        request.user = self.user
+
+        grant_admin = ReplayQuotaGrantAdmin(ReplayQuotaGrant, django_admin.site)
+        form_class = grant_admin.get_form(request)
+        form = form_class(initial=grant_admin.get_changeform_initial_data(request))
+        # `as_p()` triggers widget render, which is where the bug fires.
+        html = form.as_p()
+        assert 'name="expires_at_0"' in html
+        assert 'name="granted_by"' in html
+
+
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
     @property
     def quota_url(self) -> str:
@@ -237,8 +299,16 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         assert body["usage_this_month"] == 0
         assert body["remaining"] == MONTHLY_OBSERVATION_QUOTA
         assert body["exhausted"] is False
+        assert body["projected_monthly_observations"] == 0
         assert "period_start" in body
         assert "period_end" in body
+
+    def test_returns_fleet_projection(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(
+            estimated_monthly_observations=120, estimated_at=timezone.now()
+        )
+        resp = self.client.get(self.quota_url)
+        assert resp.json()["projected_monthly_observations"] == 120
 
     def test_reflects_recent_succeeded_observations(self) -> None:
         for _ in range(3):

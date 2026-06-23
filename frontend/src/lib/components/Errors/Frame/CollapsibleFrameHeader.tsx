@@ -113,7 +113,7 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
     )
 }
 
-function SpinnerIcon({}: {}): JSX.Element {
+function SpinnerIcon(): JSX.Element {
     return (
         <Tooltip title="Loading source code...">
             <IconSpinner className="text-secondary animate-spin" fontSize={15} />
@@ -121,7 +121,7 @@ function SpinnerIcon({}: {}): JSX.Element {
     )
 }
 
-function VendorIcon({}: {}): JSX.Element {
+function VendorIcon(): JSX.Element {
     return (
         <Tooltip title="Vendor frame">
             <IconBox className="text-secondary" fontSize={15} />

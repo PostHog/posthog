@@ -34,10 +34,12 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
     "products.error_tracking",
@@ -50,6 +52,8 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
+    "products.replay_vision",
+    "products.skills",
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
@@ -63,6 +67,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.cohorts",
     "ee",
     "products.access_control",
     "products.analytics_platform",
@@ -74,10 +79,8 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
-    "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
-    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -85,32 +88,29 @@ depends_on = [
     "products.growth",
     "products.legal_documents",
     "products.links",
-    "products.live_debugger",
     "products.ai_observability",
     "products.logs",
-    "products.managed_migrations",
     "products.marketing_analytics",
-    "products.mcp_store",
     "products.messaging",
-    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
+    "products.reminders",
+    "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
+    "products.streamlit_apps",
     "products.surveys",
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
-    "products.visual_review",
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
-    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
@@ -120,12 +120,25 @@ layer = "modules"
 [[modules]]
 path = "products.actions"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.cdp",
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
 ]
+layer = "modules"
+
+[[modules]]
+path = "products.agent_platform"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
 layer = "modules"
 
 [[modules]]
@@ -157,6 +170,7 @@ layer = "modules"
 [[modules]]
 path = "products.cdp"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -165,11 +179,19 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.cohorts"
+depends_on = [
+    "products.actions",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
-    "products.posthog_ai",
+    "products.posthog_ai", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -181,9 +203,10 @@ depends_on = [
     "products.alerts",
     "products.ai_observability",
     "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
     "products.mcp_analytics",
     "products.product_analytics",
-    "products.annotations",
 ]
 layer = "modules"
 
@@ -254,6 +277,7 @@ layer = "modules"
 [[modules]]
 path = "products.error_tracking"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.cdp",
@@ -271,6 +295,7 @@ layer = "modules"
 [[modules]]
 path = "products.experiments"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -289,6 +314,7 @@ layer = "modules"
 [[modules]]
 path = "products.feature_flags"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -325,6 +351,7 @@ layer = "modules"
 [[modules]]
 path = "products.ai_observability"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.dashboards",
@@ -410,6 +437,7 @@ layer = "modules"
 path = "products.streamlit_apps"
 depends_on = [
     "posthog",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -444,6 +472,7 @@ layer = "modules"
 [[modules]]
 path = "products.product_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -465,6 +494,21 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.reminders"
+depends_on = [
+    "posthog",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.notifications",
+    "products.product_analytics",
+    "products.surveys",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.replay"
 depends_on = [
     "ee",
@@ -478,6 +522,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.exports",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -493,9 +538,9 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    "products.cohorts",
     "posthog",
     "products.actions",
-    "products.ai_observability",
     "products.alerts",
     "products.cdp",
     "products.dashboards",
@@ -505,10 +550,22 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.skills",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
-    "products.workflows",
+    "products.workflows", "products.business_knowledge",
+]
+layer = "modules"
+
+[[modules]]
+# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# temporary coupling from the standalone-product extraction, slated for cleanup.
+path = "products.skills"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.ai_observability",
 ]
 layer = "modules"
 
@@ -525,6 +582,7 @@ layer = "modules"
 [[modules]]
 path = "products.surveys"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -541,6 +599,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.notebooks",
+    "products.notifications",
     "products.product_analytics",
 ]
 layer = "modules"
@@ -586,7 +645,6 @@ depends_on = [
     "ee",
     "posthog",
     "products.ai_observability",
-    "products.exports",
 ]
 layer = "modules"
 
@@ -607,16 +665,19 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.notifications",
 ]
 layer = "modules"
 
 [[modules]]
 path = "products.workflows"
 depends_on = [
+    "products.cohorts",
     "ee",
     "posthog",
     "products.actions",
@@ -634,7 +695,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -644,6 +705,21 @@ from = [
 expose = [
     "backend\\.presentation\\.experiments.*",
     "backend\\.presentation\\.saved_metrics.*",
+]
+from = [
+    "products.experiments",
+]
+
+# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
+# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
+# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.recalculation_metrics.*",
+    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
 ]
 from = [
     "products.experiments",
@@ -688,6 +764,37 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
+# webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated
+# block rather than joining the canonical alternation above.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.legal_documents",
+]
+
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
+# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
+# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
+# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
+# shrinking to zero — which is why backend:contract-check stays off for this product.
+
+[[interfaces]]
+expose = [
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.models.*",
+    "backend\\.remote_config.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.error_tracking",
 ]
 
 [[interfaces]]
@@ -752,7 +859,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog"]
+depends_on = ["posthog", "ee"]
 layer = "modules"
 
 [[interfaces]]
@@ -792,7 +899,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
 layer = "modules"
 
 [[interfaces]]
@@ -813,4 +920,9 @@ layer = "modules"
 [[modules]]
 path = "products.annotations"
 depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+layer = "modules"
+
+[[modules]]
+path = "products.field_notes"
+depends_on = ["posthog"]
 layer = "modules"

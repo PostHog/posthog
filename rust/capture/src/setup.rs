@@ -319,7 +319,6 @@ pub async fn build_components(
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
         ai_blob_storage,
-        config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
@@ -327,6 +326,7 @@ pub async fn build_components(
         overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
+        config.capture_v1_scatter_gather_min_batch,
     );
 
     info!(

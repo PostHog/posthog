@@ -232,6 +232,8 @@ QUERIES: list[QuerySpec] = [
         name="all_event_metrics",
         fn=get_all_event_metrics_in_period,
         output="multi",
+        # Keep this fan-out in sync with `_get_team_report` in `posthog.tasks.usage_report`.
+        # A missing destination key here can make the Temporal usage report path fail at aggregation time.
         multi_keys_mapping={
             "helicone_events": "teams_with_event_count_from_helicone_in_period",
             "langfuse_events": "teams_with_event_count_from_langfuse_in_period",
@@ -240,6 +242,11 @@ QUERIES: list[QuerySpec] = [
             "web_events": "teams_with_web_events_count_in_period",
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
+            "openclaw_events": "teams_with_openclaw_events_count_in_period",
+            "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
+            "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
+            "edge_events": "teams_with_edge_events_count_in_period",
+            "convex_events": "teams_with_convex_events_count_in_period",
             "android_events": "teams_with_android_events_count_in_period",
             "flutter_events": "teams_with_flutter_events_count_in_period",
             "ios_events": "teams_with_ios_events_count_in_period",

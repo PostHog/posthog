@@ -583,8 +583,6 @@ def _collect_delta_log_keys(
 def stage_delta_table(
     source_uri: str,
     catalog_bucket: str,
-    role_arn: str,
-    external_id: str | None = None,
     *,
     storage_config: DuckLakeStorageConfig | None = None,
     team_id: int | None = None,
@@ -615,14 +613,7 @@ def stage_delta_table(
         organization_id=organization_id,
     )
 
-    access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
-
-    s3 = boto3.client(
-        "s3",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        aws_session_token=session_token,
-    )
+    s3 = boto3.client("s3")
 
     log_keys = _collect_delta_log_keys(s3, source_bucket, source_prefix, version)
 
@@ -644,8 +635,6 @@ def stage_delta_table(
 
 def cleanup_staged_files(
     staging_uri: str,
-    role_arn: str,
-    external_id: str | None = None,
 ) -> None:
     """Delete staged Delta files from the staging bucket."""
     import boto3
@@ -656,14 +645,7 @@ def cleanup_staged_files(
     if not prefix.endswith("/"):
         prefix += "/"
 
-    access_key, secret_key, session_token = _get_cross_account_credentials(role_arn, external_id)
-
-    s3 = boto3.client(
-        "s3",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        aws_session_token=session_token,
-    )
+    s3 = boto3.client("s3")
 
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
@@ -672,9 +654,17 @@ def cleanup_staged_files(
             s3.delete_objects(Bucket=bucket, Delete={"Objects": objects})  # type: ignore[typeddict-item]
 
 
-def setup_duckgres_session(conn: psycopg.Connection) -> None:
-    """Install and load required extensions on a duckgres connection."""
-    for ext in ("ducklake", "httpfs", "delta"):
+def setup_duckgres_session(
+    conn: psycopg.Connection,
+    extensions: tuple[str, ...] = ("ducklake", "httpfs", "delta"),
+) -> None:
+    """Install and load required extensions on a duckgres connection.
+
+    Callers should request only what they use: extensions bundled in the duckgres
+    worker image (httpfs, ducklake) make INSTALL a local no-op, but anything else
+    triggers a CDN download that egress-restricted workers silently drop.
+    """
+    for ext in extensions:
         conn.execute(f"INSTALL {ext}")
         conn.execute(f"LOAD {ext}")
 

@@ -12,7 +12,8 @@ TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
 #   client_disconnect — client went away (GeneratorExit) before completion
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect"]
+#   rotated           — per-connection cap reached; clean EOF, client resumes
+StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -54,9 +55,9 @@ TASK_RUN_FAILED_TOTAL = Counter(
 )
 
 
-# Connection lifetimes span a few seconds (cold reconnect) to the 6h sandbox TTL.
-# The 120s bucket is deliberate: it isolates connections cut at the Envoy/Contour
-# response_timeout boundary from genuinely long-lived ones.
+# Connection lifetimes range from a few seconds (cold reconnect) to the
+# per-connection cap. The 120s bucket isolates connections cut at the
+# Envoy/Contour response_timeout boundary from genuinely long-lived ones.
 STREAM_CONNECTION_DURATION_BUCKETS = [
     1.0,
     5.0,
@@ -66,6 +67,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     120.0,
     300.0,
     600.0,
+    960.0,
     1_800.0,
     3_600.0,
     7_200.0,
@@ -105,6 +107,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_failures_total",
+    "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
+    labelnames=["kind", "reason"],
 )
 
 
