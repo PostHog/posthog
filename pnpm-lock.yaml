@@ -3797,7 +3797,7 @@ importers:
         specifier: '*'
         version: 17.0.4
       posthog-js:
-        specifier: '*'
+        specifier: 'catalog:'
         version: 1.393.0
       react:
         specifier: 18.3.1
@@ -9708,9 +9708,6 @@ packages:
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
-
-  '@posthog/types@1.390.1':
-    resolution: {integrity: sha512-GPyZY8eOa/c/EKFLW0Aa1ECVysa1TFLenGPgYbRz/PX/nrzd1IiQPlHAYLkeifE6oBVxHiv5AwkTyzX/fdOYSA==}
 
   '@posthog/types@1.391.0':
     resolution: {integrity: sha512-oJ6jkqVMq+T4ax9F0rUllJc0KHpSgpaMwTNYWkE70iBiyXDVyhcNBmYnNKzSODgpzsaQNI6VfK8JrRYbkSJZZw==}
@@ -29964,7 +29961,7 @@ snapshots:
 
   '@posthog/core@1.35.1':
     dependencies:
-      '@posthog/types': 1.390.1
+      '@posthog/types': 1.391.0
 
   '@posthog/core@1.36.0':
     dependencies:
@@ -30026,8 +30023,6 @@ snapshots:
       '@types/react': 18.3.27
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.390.1': {}
 
   '@posthog/types@1.391.0': {}
 
