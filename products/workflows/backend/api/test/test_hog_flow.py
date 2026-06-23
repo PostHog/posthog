@@ -1253,6 +1253,25 @@ class TestHogFlowAPI(APIBaseTest):
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
 
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_graph_update_emits_resource_edited(self, mock_emit):
+        # The surgical /graph path is the primary MCP edit route, so it must emit the same
+        # "edited elsewhere" signal as the full update path — otherwise an open builder never
+        # learns about MCP graph edits and the cross-channel awareness has a hole.
+        flow_id = self._create_draft_flow_with_graph()
+        mock_emit.reset_mock()
+
+        response = self._patch_graph(
+            flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]
+        )
+        assert response.status_code == 200, response.json()
+
+        assert mock_emit.call_count == 1
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["resource_type"] == "HogFlow"
+        assert kwargs["resource_id"] == str(flow_id)
+        assert kwargs["updated_at"]
+
     def test_graph_response_echoes_full_graph(self):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])

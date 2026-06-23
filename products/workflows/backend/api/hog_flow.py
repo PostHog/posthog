@@ -1343,6 +1343,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             serializer.save()
 
         log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+        self._emit_resource_edited(locked)
 
         return Response(self.get_serializer(locked).data)
 
