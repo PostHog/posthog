@@ -377,12 +377,15 @@ async def test_github_workflow_jobs_load_bearing_fields_land_queryable(
         expected_columns=load_bearing_columns,
     )
 
-    rows_by_id = {row[res.columns.index("id")]: row for row in res.results}
+    columns = res.columns
+    assert columns is not None
+    col_idx = {name: i for i, name in enumerate(columns)}
+    rows_by_id = {row[col_idx["id"]]: row for row in res.results}
     # Job 20001 carries the full field set, including labels + runner_group_name.
     job = rows_by_id[20001]
 
     def value(column: str):
-        return job[res.columns.index(column)]
+        return job[col_idx[column]]
 
     assert value("run_id") == 1001
     assert value("run_attempt") == 1

@@ -102,12 +102,12 @@ class MockGithubAPI:
             sort_key = f"{sort_field}_at" if not sort_field.endswith("_at") else sort_field
             data = sorted(
                 data,
-                key=lambda x: x.get(sort_key) or self._get_item_date(x) or "",
+                key=lambda x: str(x.get(sort_key) or self._get_item_date(x) or ""),
                 reverse=(direction == "desc"),
             )
         elif resource == "runs":
             # Workflow runs API always returns newest-first by created_at.
-            data = sorted(data, key=lambda x: x.get("created_at") or "", reverse=True)
+            data = sorted(data, key=lambda x: str(x.get("created_at") or ""), reverse=True)
 
         # total_count is the filtered count before pagination, matching GitHub's
         # enveloped endpoints (the count does not shrink page to page).
