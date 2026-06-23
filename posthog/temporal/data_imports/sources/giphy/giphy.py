@@ -72,7 +72,7 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
         raise GiphyRetryableError(f"GIPHY API error (retryable): status={response.status_code}")
 
     if not response.ok:
-        logger.error(f"GIPHY API error: status={response.status_code}, body={response.text}")
+        logger.error("GIPHY API error", status=response.status_code, body=response.text)
         response.raise_for_status()
 
     return response.json()
@@ -106,7 +106,7 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume_config.offset if resume_config is not None else 0
     if resume_config is not None:
-        logger.debug(f"GIPHY: resuming {endpoint} from offset {offset}")
+        logger.debug("GIPHY: resuming from offset", endpoint=endpoint, offset=offset)
 
     while True:
         url = _build_url(api_key, config, offset, search_query)
@@ -136,7 +136,7 @@ def get_rows(
         # GIPHY caps the offset it will serve; requesting beyond it 400s, so stop
         # rather than fail the sync.
         if config.max_offset is not None and next_offset > config.max_offset:
-            logger.debug(f"GIPHY: reached offset cap ({config.max_offset}) for {endpoint}")
+            logger.debug("GIPHY: reached offset cap", endpoint=endpoint, max_offset=config.max_offset)
             break
 
         offset = next_offset
