@@ -59,6 +59,13 @@ export interface ListSessionsOpts {
     states?: AgentSession['state'][]
     /** Filter to a specific revision id within the application. */
     revisionId?: string
+    /**
+     * Filter to sessions started by one agent user. Matches the
+     * `agent_user_id` stamped on the session principal (set today only for
+     * slack-trigger sessions — other kinds don't carry it yet, so they won't
+     * match).
+     */
+    agentUserId?: string
     /** ISO datetime — only return sessions with created_at >= this. */
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
@@ -189,4 +196,13 @@ export interface SessionQueue extends SessionInputsStore {
      * may still be retained.
      */
     listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
+    /**
+     * Count sessions grouped by state across the whole fleet. Backs the
+     * janitor's queue-depth Prometheus gauge — the singleton samples this once
+     * per sweep so we get `queued` backlog + `running` in-flight + terminal
+     * counts without every runner pod hammering the same aggregate. Returns a
+     * record keyed by state; states with no rows are simply absent (the caller
+     * zero-fills the gauge for known states).
+     */
+    countByState(): Promise<Partial<Record<AgentSession['state'], number>>>
 }

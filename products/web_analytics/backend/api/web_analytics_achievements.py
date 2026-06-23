@@ -27,14 +27,14 @@ from products.web_analytics.backend.models import (
 
 class AchievementStageSerializer(serializers.Serializer):
     stage = serializers.IntegerField(help_text="Stage number within the track, 1-5.")
-    name = serializers.CharField(help_text="Hog-themed stage name, e.g. 'Spike Streak'.")
+    name = serializers.CharField(help_text="Stage name within the track, e.g. 'On a roll'.")
     threshold = serializers.IntegerField(
         help_text="Progress value needed to unlock this stage, resolved for the user's streak arm."
     )
 
 
 class AchievementDefinitionSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Stable track identifier, e.g. 'hog_streak'.")
+    key = serializers.CharField(help_text="Stable track identifier, e.g. 'streak'.")
     display_name = serializers.CharField(help_text="Human-readable track name.")
     description = serializers.CharField(help_text="One-line description of what the track rewards.")
     scope = serializers.ChoiceField(
@@ -247,7 +247,7 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         description=(
             "Idempotently increments the requesting user's first-party counter for an in-product Web "
             "analytics interaction (slicing data, or opening a session recording), which drives the "
-            "Data Hog and Detective Hog achievement tracks."
+            "Explorer and Detective achievement tracks."
         ),
         request=RecordInteractionRequestSerializer,
         responses={200: RecordInteractionResponseSerializer},

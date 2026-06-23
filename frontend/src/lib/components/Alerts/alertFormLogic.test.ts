@@ -317,7 +317,7 @@ describe('alertFormLogic', () => {
 
         it.each([
             {
-                name: 'prefills the single numeric column when none is picked (no label in last-row mode)',
+                name: 'prefills the value column and the first non-evaluated column as label (last-row mode)',
                 config: {},
                 insightData: {
                     columns: ['day', 'count'],
@@ -327,28 +327,28 @@ describe('alertFormLogic', () => {
                     ],
                 },
                 expectedColumn: 'count',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'day',
             },
             {
-                name: 'keeps an explicit pick',
+                name: 'keeps an explicit pick and labels by the other column',
                 config: { column: 'a' },
                 insightData: { columns: ['a', 'b'], results: [[1, 2]] },
                 expectedColumn: 'a',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'b',
             },
             {
                 name: 'prefills the last numeric column when several are numeric',
                 config: {},
                 insightData: { columns: ['a', 'b'], results: [[1, 2]] },
                 expectedColumn: 'b',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'a',
             },
             {
                 name: 'skips a trailing non-numeric column when picking the last numeric one',
                 config: {},
                 insightData: { columns: ['value', 'day'], results: [[5, '2026-06-01']] },
                 expectedColumn: 'value',
-                expectedLabelColumn: undefined,
+                expectedLabelColumn: 'day',
             },
             {
                 name: 'does not prefill when no column is numeric',
@@ -367,6 +367,13 @@ describe('alertFormLogic', () => {
             {
                 name: 'prefills the first non-evaluated column as the label in any-row mode',
                 config: { evaluation: 'any_row' },
+                insightData: { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
+                expectedColumn: 'count',
+                expectedLabelColumn: 'day',
+            },
+            {
+                name: 'prefills the label in first-row mode too (all modes unified)',
+                config: { evaluation: 'first_row' },
                 insightData: { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
                 expectedColumn: 'count',
                 expectedLabelColumn: 'day',

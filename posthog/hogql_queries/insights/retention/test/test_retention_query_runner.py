@@ -3830,6 +3830,114 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
+    def test_dwh_variant_breakdown_event_property_per_value_parity(self):
+        # Tracer bullet: the variant must mirror the legacy per-value cohort semantics
+        # for event-property breakdowns. person1 starts "clothing" then returns with a
+        # mismatched "electronics" purchase, which must not retain within the clothing
+        # bucket — identically on both the legacy and the DWH-variant paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person2", _date(0), {"category": "electronics", "$event_type": "signup"}),
+            ],
+            event="signup",
+        )
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(1), {"category": "clothing", "$event_type": "purchase"}),
+                ("person1", _date(2), {"category": "electronics", "$event_type": "purchase"}),
+                ("person2", _date(1), {"category": "electronics", "$event_type": "purchase"}),
+            ],
+            event="purchase",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": {"id": "signup", "type": "events"},
+                    "returningEntity": {"id": "purchase", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Clothing cohort retains person1 on day 1 (matching purchase) but not day 2
+        # (the electronics purchase belongs to a different bucket).
+        clothing = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
+        self.assertEqual(clothing[0][:3], [1, 1, 0])
+
+    def test_dwh_variant_breakdown_first_ever_parity(self):
+        # First-ever buckets each actor by the breakdown value on their absolute-first
+        # start event (argMinIf). old_user's first app_opened predates the flag, so they
+        # belong only to the empty bucket — never the later "control" one — on both paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["old_user"])
+        _create_person(team_id=self.team.pk, distinct_ids=["new_user"])
+
+        _create_events(self.team, [("old_user", _date(0))], "app_opened")
+        _create_events(self.team, [("old_user", _date(2), {"$feature/x": "control"})], "app_opened")
+        _create_events(self.team, [("old_user", _date(3), {"$feature/x": "control"})], "insight_viewed")
+        _create_events(self.team, [("new_user", _date(2), {"$feature/x": "variant"})], "app_opened")
+        _create_events(self.team, [("new_user", _date(3), {"$feature/x": "variant"})], "insight_viewed")
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "app_opened", "name": "app_opened", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "insight_viewed", "name": "insight_viewed", "type": "events"},
+                },
+                "breakdownFilter": {"breakdown": "$feature/x", "breakdown_type": "event"},
+            }
+        )
+        # old_user anchors on their flag-less first event, so "control" never appears.
+        self.assertNotIn("control", {c.get("breakdown_value") for c in result})
+
+    def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
+        # Cohort breakdown composes as a UNION ALL of per-cohort base queries, each
+        # itself a UNION ALL inside the variant. Both paths must agree on that shape.
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="c1",
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="c2",
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [("p1", _date(0)), ("p1", _date(1)), ("p2", _date(0)), ("p2", _date(2))],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            }
+        )
+        self.assertEqual({c.get("breakdown_value") for c in result}, {str(cohort1.pk), str(cohort2.pk)})
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_retention_with_breakdown_with_data_warehouse_person_properties(self):
         table_name = self.setup_data_warehouse_person_properties()

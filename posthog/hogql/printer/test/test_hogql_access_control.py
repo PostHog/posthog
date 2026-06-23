@@ -617,7 +617,7 @@ class TestWarehouseViewAccessControl(BaseTest):
             format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
             team=self.team,
             credential=credential,
-            url_pattern=f"s3://bucket/{view.name}/*",
+            url_pattern=view.url_pattern,
             columns={"id": "String"},
         )
         view.table = backing_table

@@ -170,10 +170,16 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             err_msg = str(err)
             # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
             # terse low-level error wording on syntax failures ("no viable alternative…",
-            # "trailing tokens after expression…", "unexpected token in expression…").
-            # Replace any of them with a single human/LLM-friendly message.
+            # "trailing tokens after expression…", "unexpected token in expression…",
+            # "mismatched input … expecting …"). Replace any of them with a single
+            # human/LLM-friendly message.
             if err_msg.startswith(
-                ("no viable alternative", "trailing tokens after expression", "unexpected token in expression")
+                (
+                    "no viable alternative",
+                    "trailing tokens after expression",
+                    "unexpected token in expression",
+                    "mismatched input",
+                )
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)

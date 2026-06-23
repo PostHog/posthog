@@ -1,6 +1,9 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
+/** Shipped onboarding variants. `legacy` is the existing experience; `redesign` is the new (stubbed) one. */
+export type OnboardingFlowVariant = 'legacy' | 'redesign'
+
 /**
  * Chrome rendered around an onboarding variant.
  * - `minimal`: slim top bar (logo + account menu) — the existing onboarding experience.
@@ -12,6 +15,7 @@ interface OnboardingVariantConfig {
     chrome: OnboardingVariantChrome
 }
 
+const DEFAULT_VARIANT: OnboardingFlowVariant = 'legacy'
 const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
 
 /**
@@ -19,20 +23,26 @@ const DEFAULT_VARIANT_CONFIG: OnboardingVariantConfig = { chrome: 'minimal' }
  * surrounding chrome. Kept free of React imports so it can be read without pulling the
  * onboarding scene chunk into the main bundle. The matching components live in
  * `onboardingVariantRegistry.tsx` — add a variant in both places to ship a new onboarding.
- *
- * Variants not listed here (including unshipped flag values) fall back to `minimal` chrome.
  */
-export const ONBOARDING_FLOW_VARIANTS: Record<string, OnboardingVariantConfig> = {
-    control: { chrome: 'minimal' },
+export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingVariantConfig> = {
+    legacy: { chrome: 'minimal' },
+    redesign: { chrome: 'minimal' },
 }
 
-/** Resolve the active flow variant from the raw flag value, defaulting to `control`. */
-export function resolveOnboardingFlowVariant(featureFlags: FeatureFlagsSet): string {
-    // Only a string variant is meaningful; a missing flag or a boolean value falls back to control.
+/**
+ * Resolve the active flow variant from the raw flag value, defaulting to `legacy`. Unknown values
+ * and the original `control` flag value (which selected the existing design) both map to `legacy`.
+ */
+export function resolveOnboardingFlowVariant(featureFlags: FeatureFlagsSet): OnboardingFlowVariant {
     const variant = featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]
-    return typeof variant === 'string' ? variant : 'control'
+    if (variant === 'control') {
+        return 'legacy'
+    }
+    return typeof variant === 'string' && variant in ONBOARDING_FLOW_VARIANTS
+        ? (variant as OnboardingFlowVariant)
+        : DEFAULT_VARIANT
 }
 
-export function onboardingVariantChrome(variant: string): OnboardingVariantChrome {
+export function onboardingVariantChrome(variant: OnboardingFlowVariant): OnboardingVariantChrome {
     return (ONBOARDING_FLOW_VARIANTS[variant] ?? DEFAULT_VARIANT_CONFIG).chrome
 }

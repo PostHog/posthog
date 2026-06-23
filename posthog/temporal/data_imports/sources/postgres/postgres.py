@@ -951,6 +951,18 @@ def _schemas_from_conn(
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Discover columns for tables on the given pre-opened connection."""
     with connection.cursor() as cursor:
+        # Raise statement_timeout for the catalog scan below. Some hosted/pooled Postgres set a
+        # short role/server default that cancels the `information_schema.columns` query
+        # (QueryCanceled) on large schemas before discovery finishes — the read path guards its own
+        # metadata query the same way in `_get_table`. Best-effort: engines without statement_timeout
+        # (e.g. DuckDB) reject the SET, so clear the aborted transaction and fall back to the default.
+        try:
+            cursor.execute(
+                sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
+            )
+        except psycopg.Error:
+            connection.rollback()
+
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
         if not discovered_tables:
             return {}
@@ -1759,6 +1771,13 @@ def _get_primary_keys(
         cursor.execute(child_partition_pk_query)
         child_pk_rows = cursor.fetchall()
     except Exception as e:
+        # A transient connection drop here means the fallback never ran — swallowing it would
+        # capture noise and wrongly report "no primary key" off a dead cursor. Re-raise so the
+        # setup retry loop reconnects (mirrors the unwrapped primary query above and the
+        # duplicate-PK probe). Genuine query-incompatibility errors (e.g. an engine that can't
+        # bind this pg_catalog query) still degrade to best-effort.
+        if _is_connection_dropped_error(e):
+            raise
         capture_exception(e)
         logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")
     if len(child_pk_rows) > 0:
@@ -1811,6 +1830,12 @@ def _has_duplicate_primary_keys(
 
         return row is not None
     except psycopg.errors.QueryCanceled:
+        raise
+    except psycopg.OperationalError:
+        # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
+        # connection with "too many connections") means the probe never ran — swallowing it as
+        # "no duplicate keys" would be a false negative. Propagate it so the activity's retry
+        # path handles it; these are transient and stay retryable.
         raise
     except Exception as e:
         capture_exception(e)
@@ -2774,7 +2799,7 @@ def postgres_source(
                 connection.commit()
                 return connection
 
-            def offset_chunking(offset: int, chunk_size: int):
+            def offset_chunking(offset: int, chunk_size: int, *, from_recovery_conflict: bool = False):
                 # If the db is a read replica and we're running into `conflict with recovery errors,
                 # we create a new query for each chunk. This is due to how the primary replicates
                 # over, we often run into errors when vacuums are happening
@@ -2879,6 +2904,20 @@ def postgres_source(
                         )
                         if timeout_error is not None:
                             raise timeout_error from e
+                        if from_recovery_conflict:
+                            # We only reach offset chunking here because the read replica just
+                            # canceled our reads with a recovery conflict. Hitting the statement
+                            # timeout on top of that means the chunked fallback can't finish a chunk
+                            # either, and a whole-activity retry just re-reads from the start into the
+                            # same conflicting, overloaded replica — so stop retrying. QueryTimeoutException
+                            # is already non-retryable (see source.py), unlike the raw QueryCanceled.
+                            raise QueryTimeoutException(
+                                "Reading from your read replica timed out: Postgres canceled the initial "
+                                "read with a recovery conflict, and the chunked fallback read still couldn't "
+                                "finish within the 10 minute statement timeout. Increase "
+                                "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
+                                "or sync from the primary database instead."
+                            ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if not _is_connection_dropped_error(e):
@@ -3013,7 +3052,7 @@ def postgres_source(
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                 if using_read_replica and "conflict with recovery" in "".join(e.args):
                     logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
-                    yield from offset_chunking(offset, chunk_size)
+                    yield from offset_chunking(offset, chunk_size, from_recovery_conflict=True)
                     return
 
                 raise

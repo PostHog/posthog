@@ -220,6 +220,10 @@ export GOPATH="$FLOX_ENV_CACHE/go"
 export GOCACHE="$FLOX_ENV_CACHE/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
 
+# uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
+# can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
+export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r

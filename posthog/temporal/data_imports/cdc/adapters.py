@@ -74,9 +74,10 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop and recreate the change-stream resource after invalidation, against the
         existing capture definition (recreating it when PostHog owns it). ``tables`` is
-        the capture set used if the definition must be recreated. Returns ``cdc_*``
-        job_inputs updates (e.g. the new consistent point). Raises when recreation isn't
-        possible (e.g. a customer-owned publication is missing)."""
+        the schema-qualified (``schema.table``) capture set used if the definition must be
+        recreated. Returns ``cdc_*`` job_inputs updates (e.g. the new consistent point).
+        Raises when recreation isn't possible (e.g. a customer-owned publication is
+        missing)."""
         ...
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...

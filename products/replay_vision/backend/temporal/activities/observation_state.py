@@ -1,11 +1,13 @@
 from collections.abc import Container
 
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
 from temporalio import activity
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionKind
 from products.replay_vision.backend.temporal.metrics import (
@@ -105,16 +107,26 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 @track_activity()
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
     """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
-    updated = ReplayObservation.objects.filter(
-        pk=inputs.observation_id,
-        status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
-    ).update(
-        status=ObservationStatus.SUCCEEDED,
-        completed_at=timezone.now(),
-        scanner_result=inputs.scanner_result.model_dump(mode="json"),
-    )
-    if not updated:
-        return  # No state transition — retry against an already-terminal row.
+    with transaction.atomic():
+        updated = ReplayObservation.objects.filter(
+            pk=inputs.observation_id,
+            status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
+        ).update(
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result=inputs.scanner_result.model_dump(mode="json"),
+        )
+        if not updated:
+            return  # No state transition — retry against an already-terminal row.
+        # Write the usage receipt in the same transaction as the transition so a crash can't undercount.
+        obs = ReplayObservation.objects.values("team__organization_id", "created_at").get(pk=inputs.observation_id)
+        ReplayObservationUsage.objects.get_or_create(
+            observation_id=inputs.observation_id,
+            defaults={
+                "organization_id": obs["team__organization_id"],
+                "observation_created_at": obs["created_at"],
+            },
+        )
     REPLAY_VISION_OBSERVATIONS.labels(status="succeeded", scanner_type=inputs.scanner_type).inc()
     logger.info(
         "replay_vision.observation.succeeded",

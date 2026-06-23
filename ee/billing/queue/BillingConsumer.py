@@ -9,7 +9,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
-from products.customer_analytics.backend.services.usage_spike_notifications import notify_managers_of_usage_spike
+from products.customer_analytics.backend.facade.api import notify_managers_of_usage_spike
 
 from ee.billing.billing_manager import BillingManager
 from ee.sqs.SQSConsumer import SQSConsumer

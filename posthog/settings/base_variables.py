@@ -3,7 +3,7 @@ import sys
 
 import structlog
 
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import assert_debug_not_in_production, get_from_env, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -79,3 +79,6 @@ if DEBUG and not TEST and not IS_INTERACTIVE_SHELL:
             "Be sure to unset DEBUG if this is supposed to be a PRODUCTION ENVIRONMENT!",
         ]
     )
+
+# Hard stop: DEBUG must never run on a deployed cloud env (US/EU/DEV) — it relaxes auth and exposes debug surfaces.
+assert_debug_not_in_production(debug=DEBUG, cloud_deployment=CLOUD_DEPLOYMENT, test=TEST)

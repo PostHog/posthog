@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -17,12 +18,12 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.services.sandbox_config import (
+from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -199,6 +200,12 @@ def _is_sandbox_event_ingest_enabled(
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # Local dev disables the analytics SDK, so the captured flag below is always False there.
+    # Pointing ingest at the local agent-proxy is the opt-in and must win over the captured value;
+    # prod (DEBUG off) still gates on the flag.
+    if settings.DEBUG and settings.TASKS_AGENT_PROXY_INGEST_URL:
+        return True
+
     state_override = (state or {}).get("sandbox_event_ingest_enabled")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -231,13 +238,35 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
+def _vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("origin_products") if isinstance(payload, dict) else payload
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
 def _is_modal_vm_sandbox_enabled(
     *,
     distinct_id: str,
     organization_id: str,
     run_id: str,
+    origin_product: str | None,
+    allowed_domains: list[str] | None,
     state: dict | None = None,
 ) -> bool:
+    if allowed_domains is not None:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
     state_override = (state or {}).get("use_modal_vm_sandbox")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -258,16 +287,30 @@ def _is_modal_vm_sandbox_enabled(
                 send_feature_flag_events=False,
             )
         )
+        allowed_origins: set[str] = set()
+        if enabled:
+            payload = posthoganalytics.get_feature_flag_payload(
+                MODAL_VM_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+            )
+            allowed_origins = _vm_sandbox_allowed_origin_products(payload)
     except Exception as e:
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
+    result = enabled and origin_product in allowed_origins
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        use_modal_vm_sandbox=enabled,
+        flag_enabled=enabled,
+        origin_product=origin_product,
+        allowed_origin_products=sorted(allowed_origins),
+        use_modal_vm_sandbox=result,
     )
-    return enabled
+    return result
 
 
 def _is_burstable_sandbox_resources_enabled(
@@ -452,6 +495,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
+        origin_product=task.origin_product,
+        allowed_domains=allowed_domains,
         state=state,
     )
     emit_agent_log(

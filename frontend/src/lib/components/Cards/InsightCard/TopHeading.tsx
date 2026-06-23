@@ -68,6 +68,7 @@ export function TopHeading({
             query == undefined || isInsightQueryNode(query) || isInsightVizNode(query) ? 'Last 7 days' : null
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
+    const dateLabel = showDate ? dateText : null
 
     const insightQueryNode = isInsightVizNode(query) ? query.source : isInsightQueryNode(query) ? query : null
     const interval = insightQueryNode ? getInterval(insightQueryNode) : null
@@ -78,10 +79,11 @@ export function TopHeading({
             typeLabel={insightType?.name}
             typeTitle={insightType?.description}
             showTypeLabel={showInsightType}
-            dateText={showDate ? dateText : null}
+            dateText={dateLabel}
             dateTooltip={resolvedDateTooltip}
         >
-            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+            {/* Freshness clock lives in the date row — without a date it would hold the row open on its own. */}
+            {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
         </CardTopHeadingRow>
     )
