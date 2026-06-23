@@ -13,10 +13,10 @@ export function DiffBlock({ diff }: { diff: string }): JSX.Element {
                 const removed = line.startsWith('-') && !line.startsWith('---')
                 const hunk = line.startsWith('@@')
                 return (
-                    <div
+                    <span
                         key={i}
                         className={clsx(
-                            'whitespace-pre',
+                            'block whitespace-pre',
                             added && 'bg-success-highlight text-success',
                             removed && 'bg-danger-highlight text-danger',
                             hunk && 'text-tertiary',
@@ -24,7 +24,7 @@ export function DiffBlock({ diff }: { diff: string }): JSX.Element {
                         )}
                     >
                         {line === '' ? ' ' : line}
-                    </div>
+                    </span>
                 )
             })}
         </pre>

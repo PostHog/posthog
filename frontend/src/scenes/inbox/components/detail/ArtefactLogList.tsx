@@ -10,6 +10,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { Task } from 'products/tasks/frontend/types'
+
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -177,7 +179,15 @@ function ReviewersBody({ reviewers }: { reviewers: EnrichedReviewer[] }): JSX.El
 }
 
 /** Per-type body for one artefact row. Content is read defensively — legacy rows may lack fields. */
-function ArtefactBody({ reportId, artefact }: { reportId: string; artefact: SignalReportArtefact }): JSX.Element {
+function ArtefactBody({
+    reportId,
+    artefact,
+    knownTasks,
+}: {
+    reportId: string
+    artefact: SignalReportArtefact
+    knownTasks?: Map<string, Task>
+}): JSX.Element {
     const content = artefact.content
 
     switch (artefact.type) {
@@ -201,8 +211,10 @@ function ArtefactBody({ reportId, artefact }: { reportId: string; artefact: Sign
         }
         case 'commit':
             return <ArtefactCommit reportId={reportId} artefactId={artefact.id} content={content as CommitContent} />
-        case 'task_run':
-            return <ArtefactTaskRun content={content as TaskRunArtefactContent} />
+        case 'task_run': {
+            const c = content as TaskRunArtefactContent
+            return <ArtefactTaskRun content={c} knownTask={knownTasks?.get(c.task_id) ?? null} />
+        }
         case 'note': {
             const c = content as NoteContent
             return <CollapsibleNote note={c.note} author={c.author} />
@@ -293,7 +305,15 @@ function ArtefactBody({ reportId, artefact }: { reportId: string; artefact: Sign
 }
 
 /** One log row: a header (type · location · attribution · timestamp) over the per-type body. */
-function ArtefactRow({ reportId, artefact }: { reportId: string; artefact: SignalReportArtefact }): JSX.Element {
+function ArtefactRow({
+    reportId,
+    artefact,
+    knownTasks,
+}: {
+    reportId: string
+    artefact: SignalReportArtefact
+    knownTasks?: Map<string, Task>
+}): JSX.Element {
     const { isDev } = useValues(preflightLogic)
     const [showRaw, setShowRaw] = useState(false)
     const location = artefactLocationLabel(artefact)
@@ -319,7 +339,7 @@ function ArtefactRow({ reportId, artefact }: { reportId: string; artefact: Signa
                     <TZLabel time={artefact.created_at} className="text-tertiary text-[11px]" />
                 </div>
             </div>
-            <ArtefactBody reportId={reportId} artefact={artefact} />
+            <ArtefactBody reportId={reportId} artefact={artefact} knownTasks={knownTasks} />
             {isDev && showRaw ? (
                 <pre className="mt-2 max-h-72 overflow-auto rounded bg-fill-highlight-50 p-2 text-[10px] leading-tight">
                     {JSON.stringify(artefact, null, 2)}
@@ -337,9 +357,12 @@ function ArtefactRow({ reportId, artefact }: { reportId: string; artefact: Signa
 export function ArtefactLogList({
     reportId,
     artefacts,
+    knownTasks,
 }: {
     reportId: string
     artefacts: SignalReportArtefact[]
+    /** Tasks the detail logic already resolved, keyed by id — `task_run` rows reuse these instead of refetching. */
+    knownTasks?: Map<string, Task>
 }): JSX.Element | null {
     if (artefacts.length === 0) {
         return null
@@ -348,7 +371,7 @@ export function ArtefactLogList({
     return (
         <div className="flex flex-col gap-2">
             {ordered.map((artefact) => (
-                <ArtefactRow key={artefact.id} reportId={reportId} artefact={artefact} />
+                <ArtefactRow key={artefact.id} reportId={reportId} artefact={artefact} knownTasks={knownTasks} />
             ))}
         </div>
     )

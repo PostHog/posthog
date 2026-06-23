@@ -15,11 +15,15 @@ import { RightColumnSection } from './DetailSection'
  * `ReportActivitySection`.
  */
 export function ReportActivitySection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { reportArtefacts, reportTasks } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     if (!reportArtefacts || reportArtefacts.length === 0) {
         return null
     }
+
+    // The logic already resolved the research/implementation tasks; hand them to the `task_run` rows
+    // so they don't re-fetch the same tasks the Runs section just loaded.
+    const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
 
     return (
         <RightColumnSection
@@ -31,7 +35,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
                 </span>
             }
         >
-            <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} />
+            <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} knownTasks={knownTasks} />
         </RightColumnSection>
     )
 }

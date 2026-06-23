@@ -33,8 +33,10 @@ import type { inboxReportDetailLogicType } from './inboxReportDetailLogicType'
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
-// gone). Pull a generous page so every association stays visible even on a report with many findings.
-const ARTEFACT_FETCH_LIMIT = 200
+// gone), and the activity timeline renders the whole log. Pull a generous page so early entries
+// (the first task runs, repo selection) stay visible on reports with many findings — matching the
+// limit the kickoff flow already uses to find the repo-selection artefact.
+const ARTEFACT_FETCH_LIMIT = 1000
 
 export interface InboxReportDetailLogicProps {
     reportId: string
@@ -108,7 +110,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -135,16 +137,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // The task↔report association lives in the `task_run` artefact log: each artefact's
                 // `(product, type)` derives the task's purpose. We group by task id (earliest
                 // association wins for `startedAt`), drop `repo_selection` (pipeline plumbing), then
-                // resolve each task. Mirrors desktop `useReportTasks`.
+                // resolve each task. Mirrors desktop `useReportTasks`. Derives from the already-loaded
+                // `reportArtefacts` (re-run after each artefact load) rather than re-fetching them.
                 loadReportTasks: async () => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
-                        limit: ARTEFACT_FETCH_LIMIT,
-                    })
+                    const artefacts = values.reportArtefacts ?? []
                     const associations = new Map<
                         string,
                         { purpose: ReportTaskPurpose; purposeLabel: string; startedAt: string }
                     >()
-                    for (const artefact of response.results) {
+                    for (const artefact of artefacts) {
                         if (artefact.type !== 'task_run') {
                             continue
                         }
@@ -374,18 +375,20 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.setOptimisticReviewers(null)
             }
         },
-        // Poll linked tasks only while the report is active; stop once it reaches a terminal status
-        // (or is unloaded). Mirrors desktop `useReportTasks` gating. The keyed disposable replaces
-        // any running interval on re-add and is torn down automatically on unmount / tab hide.
+        // The artefact log is the single source for the activity timeline AND the task associations,
+        // so deriving the linked tasks hangs off each successful artefact load rather than issuing a
+        // second identical fetch.
+        loadReportArtefactsSuccess: () => {
+            actions.loadReportTasks()
+        },
+        // Poll the artefact log only while the report is active; stop once it reaches a terminal status
+        // (or is unloaded). Tasks are re-derived via `loadReportArtefactsSuccess`. Mirrors desktop
+        // `useReportTasks` gating. The keyed disposable replaces any running interval on re-add and is
+        // torn down automatically on unmount / tab hide.
         setReport: () => {
             if (values.isReportActive) {
                 cache.disposables.add(() => {
-                    // Refresh both the linked tasks and the artefact log (which drives the activity
-                    // timeline + the task associations) while the report is still being worked.
-                    const interval = setInterval(() => {
-                        actions.loadReportTasks()
-                        actions.loadReportArtefacts()
-                    }, REPORT_TASKS_POLL_INTERVAL_MS)
+                    const interval = setInterval(() => actions.loadReportArtefacts(), REPORT_TASKS_POLL_INTERVAL_MS)
                     return () => clearInterval(interval)
                 }, 'reportTasksPoll')
             } else {
@@ -402,9 +405,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
+        // `loadReportTasks` is cascaded from `loadReportArtefactsSuccess`, so it isn't called here.
         actions.loadReportArtefacts()
         actions.loadReportSignals()
-        actions.loadReportTasks()
         actions.loadAvailableReviewers()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)

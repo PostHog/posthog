@@ -34,18 +34,35 @@ export function ArtefactCommit({
     const [error, setError] = useState<string | null>(null)
 
     // Fetch the diff only once, on first expand — commit diffs are immutable, so there's no reason
-    // to refetch. Keyed on artefactId so a recycled component instance refetches for a new commit.
+    // to refetch. Keyed on artefactId so a recycled component instance refetches for a new commit;
+    // `currentTeamId` is a dep so a late-arriving team still triggers the fetch once available.
     useEffect(() => {
         if (!expanded || diff || loading || error || !currentTeamId) {
             return
         }
         setLoading(true)
+        let cancelled = false
         signalsReportArtefactsDiff(String(currentTeamId), reportId, artefactId)
-            .then((response) => setDiff(response))
-            .catch(() => setError("Couldn't load this commit's diff — it may have been rewritten or removed."))
-            .finally(() => setLoading(false))
+            .then((response) => {
+                if (!cancelled) {
+                    setDiff(response)
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setError("Couldn't load this commit's diff — it may have been rewritten or removed.")
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setLoading(false)
+                }
+            })
+        return () => {
+            cancelled = true
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [expanded, artefactId])
+    }, [expanded, artefactId, currentTeamId])
 
     return (
         <div>

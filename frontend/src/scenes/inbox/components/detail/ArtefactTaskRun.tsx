@@ -20,14 +20,24 @@ import { TaskRunStatusDot } from './taskRunDisplay'
  * `ArtefactTaskRun` (which embeds `TaskLogsPanel`). The task is resolved lazily and the row is
  * disabled until it loads.
  */
-export function ArtefactTaskRun({ content }: { content: TaskRunArtefactContent }): JSX.Element {
+export function ArtefactTaskRun({
+    content,
+    knownTask,
+}: {
+    content: TaskRunArtefactContent
+    /** The resolved task, when the detail logic already fetched it (research/implementation runs) —
+     * lets the row skip a redundant `GET /tasks/{id}`. Falls back to a lazy fetch otherwise. */
+    knownTask?: Task | null
+}): JSX.Element {
     const [expanded, setExpanded] = useState(false)
-    const [task, setTask] = useState<Task | null>(null)
+    const [fetchedTask, setFetchedTask] = useState<Task | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(false)
+    const task = knownTask ?? fetchedTask
 
     useEffect(() => {
-        if (!content.task_id) {
+        // The detail logic already resolved this task — no need to fetch it again.
+        if (knownTask || !content.task_id) {
             return
         }
         setLoading(true)
@@ -36,7 +46,7 @@ export function ArtefactTaskRun({ content }: { content: TaskRunArtefactContent }
             .get(content.task_id)
             .then((result) => {
                 if (!cancelled) {
-                    setTask(result)
+                    setFetchedTask(result)
                 }
             })
             .catch(() => {
@@ -53,11 +63,15 @@ export function ArtefactTaskRun({ content }: { content: TaskRunArtefactContent }
             cancelled = true
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [content.task_id])
+    }, [content.task_id, knownTask])
 
     const status = task?.latest_run?.status ?? TaskRunStatus.NOT_STARTED
-    const runId = task?.latest_run?.id ?? null
-    const replayOnly = isTerminalRunStatus(task?.latest_run?.status)
+    // Prefer the run the artefact actually recorded; a task that's been re-run has a newer
+    // `latest_run`, so falling back to it would show the wrong transcript. A specific older run has
+    // an unknown status, so force the static replay rather than opening an SSE stream for it.
+    const isHistoricalRun = !!content.run_id && content.run_id !== task?.latest_run?.id
+    const runId = content.run_id ?? task?.latest_run?.id ?? null
+    const replayOnly = isHistoricalRun || isTerminalRunStatus(task?.latest_run?.status)
     const isCustom = isCustomAgentTaskRun(content)
 
     if (error) {
