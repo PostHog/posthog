@@ -74,6 +74,8 @@ def run_ducklake_shadow_comparison(
     data = EndpointRunRequest(variables=variables)
 
     ducklake_ms: float | None = None
+    ducklake_connect_ms: float | None = None
+    ducklake_query_ms: float | None = None
     ducklake_row_count: int | None = None
     ducklake_error: str | None = None
     try:
@@ -86,6 +88,9 @@ def run_ducklake_shadow_comparison(
             team=team,
         )
         ducklake_ms = (time.monotonic() - _start) * 1000
+        # connect_ms isolates the control-plane queue/activation; query_ms is the query alone.
+        ducklake_connect_ms = result.connect_ms
+        ducklake_query_ms = result.query_ms
         ducklake_row_count = len(result.results)
     except Exception as e:
         ducklake_error = f"{type(e).__name__}: {e}"
@@ -114,6 +119,8 @@ def run_ducklake_shadow_comparison(
                 "clickhouse_cached": clickhouse_cached,
                 "clickhouse_ms": clickhouse_ms,
                 "ducklake_ms": ducklake_ms,
+                "ducklake_connect_ms": ducklake_connect_ms,
+                "ducklake_query_ms": ducklake_query_ms,
                 "clickhouse_row_count": clickhouse_row_count,
                 "ducklake_row_count": ducklake_row_count,
                 "row_count_match": row_count_match,

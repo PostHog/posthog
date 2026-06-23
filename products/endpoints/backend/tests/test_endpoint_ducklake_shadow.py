@@ -96,7 +96,9 @@ class TestShadowComparison(APIBaseTest):
         with mock.patch.object(
             ducklake_shadow,
             "execute_ducklake_query",
-            return_value=DuckLakeQueryResult(columns=["cnt"], types=["20"], results=[[1]], sql="", hogql=None),
+            return_value=DuckLakeQueryResult(
+                columns=["cnt"], types=["20"], results=[[1]], sql="", hogql=None, connect_ms=8.0, query_ms=4.0
+            ),
         ):
             ducklake_shadow.run_ducklake_shadow_comparison(
                 team_id=self.team.pk,
@@ -114,6 +116,8 @@ class TestShadowComparison(APIBaseTest):
         props = captured[0]["properties"]
         assert props["clickhouse_ms"] == 12.5
         assert props["ducklake_ms"] is not None
+        assert props["ducklake_connect_ms"] == 8.0
+        assert props["ducklake_query_ms"] == 4.0
         assert props["clickhouse_row_count"] == 1
         assert props["ducklake_row_count"] == 1
         assert props["row_count_match"] is True
