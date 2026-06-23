@@ -15,6 +15,7 @@ from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -3735,3 +3736,76 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
         mock_report.assert_not_called()
+
+
+class TestGoogleSearchConsoleSitesEndpoint:
+    _SESSION_PATH = (
+        "posthog.temporal.data_imports.sources.google_search_console."
+        "google_search_console.google_search_console_session"
+    )
+    _LIST_SITES_PATH = "posthog.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
+
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "gsc@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_gsc_integration(self) -> Integration:
+        # No refresh_token → `_ensure_oauth_token_valid` treats the access token as valid and skips refresh.
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-search-console",
+            config={},
+            sensitive_config={"access_token": "ya29.test"},
+            integration_id="gsc_test",
+            created_by=self.user,
+        )
+
+    def _url(self, integration_id: int) -> str:
+        return f"/api/environments/{self.team.pk}/integrations/{integration_id}/google_search_console_sites/"
+
+    @staticmethod
+    def _http_error(status_code: int) -> requests.HTTPError:
+        response = requests.Response()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    @parameterized.expand([("forbidden", 403), ("unauthorized", 401)])
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_auth_error_returns_actionable_400(
+        self, _name, status_code, mock_session, mock_list_sites, client: HttpClient
+    ):
+        integration = self._create_gsc_integration()
+        mock_list_sites.side_effect = self._http_error(status_code)
+
+        client.force_login(self.user)
+        response = client.get(self._url(integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your account" in str(response.json()).lower()
+
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_success_returns_sites(self, mock_session, mock_list_sites, client: HttpClient):
+        integration = self._create_gsc_integration()
+        mock_list_sites.return_value = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+
+        client.force_login(self.user)
+        response = client.get(self._url(integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["sites"] == [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_non_auth_http_error_is_not_swallowed(self, mock_session, mock_list_sites, client: HttpClient):
+        integration = self._create_gsc_integration()
+        mock_list_sites.side_effect = self._http_error(500)
+
+        client.force_login(self.user)
+        with pytest.raises(requests.HTTPError):
+            client.get(self._url(integration.id))
