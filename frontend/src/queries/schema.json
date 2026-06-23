@@ -21422,7 +21422,8 @@
                 "Custom",
                 "Tile38",
                 "Chatwoot",
-                "Sanity"
+                "Sanity",
+                "Metronome"
             ],
             "type": "string"
         },
