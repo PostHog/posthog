@@ -20,7 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.permissions import IsStaffUser
 
 from products.growth.backend.constants import (
@@ -196,12 +196,13 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _latest_job_id(self) -> str | None:
         # argMax over an empty glob returns one row with the column's default (''); treat as no run.
-        result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — only the constant s3() structure/format and a team_id-derived path are interpolated; team_id is an int from the URL, all values parameterized
-            f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
-            {"team_id": self.team.pk},
-            settings=_S3_READ_SETTINGS,
-            team_id=self.team.pk,
-        )
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — only the constant s3() structure/format and a team_id-derived path are interpolated; team_id is an int from the URL, all values parameterized
+                f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
         job_id = result[0][0]
         return str(job_id) if job_id else None
 
@@ -215,7 +216,6 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         self._assert_storage_configured()
-        tag_queries(product=Product.GROWTH, feature=Feature.QUERY)
         filters = IdentityMatchingLinksFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
         params = filters.validated_data
@@ -250,49 +250,50 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         links_s3 = self._links_read_args(job_id)
         candidate_pairs_s3 = self._candidate_pairs_read_args(job_id)
 
-        count_result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
-            f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
-            query_params,
-            settings=_S3_READ_SETTINGS,
-            team_id=self.team.pk,
-        )
-        count = count_result[0][0]
-        rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
-            f"""
-            SELECT
-                lk.job_id,
-                lk.model_version,
-                lk.orphan_distinct_id,
-                lk.anchor_person_key,
-                lk.score,
-                lk.margin,
-                lk.tier,
-                lk.computed_at,
-                p.shared_ip_days,
-                p.shared_ips,
-                p.min_ip_block_size,
-                p.geo_city_match,
-                p.timezone_match,
-                p.language_match,
-                p.ua_exact_match,
-                p.orphan_is_webview,
-                p.device_type_complement,
-                p.days_overlap,
-                p.avg_path_jaccard,
-                p.orphan_paid_touch,
-                p.anchor_paid_touch
-            FROM s3({links_s3}) AS lk
-            LEFT JOIN s3({candidate_pairs_s3}) AS p
-                ON lk.orphan_distinct_id = p.orphan_distinct_id
-                AND lk.anchor_person_key = p.anchor_person_key
-            WHERE {where}
-            ORDER BY lk.score DESC, lk.orphan_distinct_id, lk.model_version
-            LIMIT %(limit)s OFFSET %(offset)s
-            """,
-            query_params,
-            settings=_S3_READ_SETTINGS,
-            team_id=self.team.pk,
-        )
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            count_result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+                f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
+                query_params,
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
+            count = count_result[0][0]
+            rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+                f"""
+                SELECT
+                    lk.job_id,
+                    lk.model_version,
+                    lk.orphan_distinct_id,
+                    lk.anchor_person_key,
+                    lk.score,
+                    lk.margin,
+                    lk.tier,
+                    lk.computed_at,
+                    p.shared_ip_days,
+                    p.shared_ips,
+                    p.min_ip_block_size,
+                    p.geo_city_match,
+                    p.timezone_match,
+                    p.language_match,
+                    p.ua_exact_match,
+                    p.orphan_is_webview,
+                    p.device_type_complement,
+                    p.days_overlap,
+                    p.avg_path_jaccard,
+                    p.orphan_paid_touch,
+                    p.anchor_paid_touch
+                FROM s3({links_s3}) AS lk
+                LEFT JOIN s3({candidate_pairs_s3}) AS p
+                    ON lk.orphan_distinct_id = p.orphan_distinct_id
+                    AND lk.anchor_person_key = p.anchor_person_key
+                WHERE {where}
+                ORDER BY lk.score DESC, lk.orphan_distinct_id, lk.model_version
+                LIMIT %(limit)s OFFSET %(offset)s
+                """,
+                query_params,
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
         field_names = [
             "job_id",
             "model_version",
@@ -329,47 +330,45 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"])
     def runs(self, request: Request, **kwargs: Any) -> Response:
         self._assert_storage_configured()
-        tag_queries(product=Product.GROWTH, feature=Feature.QUERY)
-        links_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
-            f"""
-            SELECT
-                job_id,
-                max(computed_at) AS latest_computed_at,
-                min(computed_at) AS earliest_computed_at,
-                model_version,
-                count() AS link_count,
-                countIf(tier = 'high') AS high_count,
-                countIf(tier = 'medium') AS medium_count,
-                countIf(tier = 'low') AS low_count,
-                count(DISTINCT orphan_distinct_id) AS unique_orphans
-            FROM s3({self._all_runs_links_read_args()})
-            WHERE team_id = %(team_id)s
-            GROUP BY job_id, model_version
-            ORDER BY latest_computed_at DESC
-            """,
-            {"team_id": self.team.pk},
-            settings=_S3_READ_SETTINGS,
-            team_id=self.team.pk,
-        )
-        # Paid touch counts come from candidate_pairs (links Parquet has no paid-touch columns).
-        # One row per (orphan, anchor) pair per run; we count distinct orphans where orphan_paid_touch=1
-        # and anchor_paid_touch=0 (a recovered paid touch).
-        pairs_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
-            f"""
-            SELECT job_id, count(DISTINCT orphan_distinct_id) AS paid_touches
-            FROM s3({self._all_runs_candidate_pairs_read_args()})
-            WHERE team_id = %(team_id)s AND orphan_paid_touch = 1 AND anchor_paid_touch = 0
-            GROUP BY job_id
-            """,
-            {"team_id": self.team.pk},
-            settings=_S3_READ_SETTINGS,
-            team_id=self.team.pk,
-        )
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            links_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
+                f"""
+                SELECT
+                    job_id,
+                    max(computed_at) AS latest_computed_at,
+                    min(computed_at) AS earliest_computed_at,
+                    model_version,
+                    count() AS link_count,
+                    countIf(tier = 'high') AS high_count,
+                    countIf(tier = 'medium') AS medium_count,
+                    countIf(tier = 'low') AS low_count,
+                    groupUniqArray(orphan_distinct_id) AS orphans
+                FROM s3({self._all_runs_links_read_args()})
+                WHERE team_id = %(team_id)s
+                GROUP BY job_id, model_version
+                ORDER BY latest_computed_at DESC
+                """,
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
+            # Paid touch counts come from candidate_pairs (links Parquet has no paid-touch columns).
+            pairs_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
+                f"""
+                SELECT job_id, count(DISTINCT orphan_distinct_id) AS paid_touches
+                FROM s3({self._all_runs_candidate_pairs_read_args()})
+                WHERE team_id = %(team_id)s AND orphan_paid_touch = 1 AND anchor_paid_touch = 0
+                GROUP BY job_id
+                """,
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
         paid_touches_by_run: dict[str, int] = {str(job_id): count for job_id, count in pairs_rows}
 
         runs: dict[str, dict[str, Any]] = {}
         for row in links_rows:
-            job_id, latest_at, earliest_at, model_version, link_count, high, medium, low, unique_orphans = row
+            job_id, latest_at, earliest_at, model_version, link_count, high, medium, low, orphans = row
             run = runs.setdefault(
                 str(job_id),
                 {
@@ -396,7 +395,9 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
             )
             run["total_links"] += link_count
-            run["unique_orphans"] = max(run["unique_orphans"], unique_orphans)
+            orphan_set = run.setdefault("_orphan_set", set())
+            orphan_set.update(orphans)
+            run["unique_orphans"] = len(orphan_set)
         results = list(runs.values())[:MAX_RUNS_LISTED]
         response = IdentityMatchingRunsResponseSerializer({"results": results})
         return Response(response.data)

@@ -159,7 +159,13 @@ function createCohortFromLinks(links: IdentityMatchingLinkApi[], modelPreference
         errors: { name: (name: string) => (!name ? 'You must enter a name' : undefined) },
         onSubmit: async ({ name }: Record<string, any>) => {
             try {
-                const csvContent = ids.join('\n')
+                const csvContent = ids
+                    .map((id) =>
+                        String(id)
+                            .replace(/[\n\r]/g, ' ')
+                            .replace(/[\s]*[=+\-@]/, "'$&")
+                    )
+                    .join('\n')
                 const csvFile = new File([csvContent], 'distinct_ids.csv', { type: 'text/csv' })
                 const formData = new FormData()
                 formData.append('name', name)
