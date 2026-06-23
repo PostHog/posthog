@@ -219,25 +219,11 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
     }
 }
 
-async function loadGlobalsForEventId({
-    eventId,
-    baseQuery,
-    groupTypes,
-    sourceName,
-}: {
-    eventId: string
-    baseQuery: EventsQuery
-    groupTypes: { group_type: string }[]
+async function loadGlobalsForQuery(
+    query: EventsQuery,
+    groupTypes: { group_type: string }[],
     sourceName: string
-}): Promise<CyclotronJobInvocationGlobals | null> {
-    // Point lookup by uuid: drop the configured filter (the event may no longer match it) and
-    // widen the timestamp window so old events can still be loaded from the logs flow.
-    const query: EventsQuery = {
-        ...baseQuery,
-        fixedProperties: undefined,
-        properties: [{ type: PropertyFilterType.HogQL, key: `uuid = '${eventId}'` }],
-        after: '-90d',
-    }
+): Promise<CyclotronJobInvocationGlobals | null> {
     const response = await performQuery(query)
     const row = response?.results?.[0]
     if (!row) {
@@ -658,40 +644,51 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
+                // The test panel renders the synthesized event by default (see `syntheticSampleGlobals`
+                // selector). This loader only runs when the user explicitly asks for a real event —
+                // either via the "Load event" button (no eventId, uses the configured filter) or via
+                // the "Test with this event" menu in the logs viewer (with eventId, uuid lookup).
+                // On any failure we surface an error and return the synth so the panel stays usable.
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
+                    const syntheticGlobals = values.syntheticSampleGlobals
+                    if (!values.lastEventQuery) {
+                        actions.setSampleGlobalsError('Loading a real event is not available for this configuration')
+                        return syntheticGlobals
+                    }
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        // Specific event from the logs flow — fetch it directly by uuid. uuid is in
-                        // the primary-key sparse index so this is a cheap point lookup even on huge
-                        // teams, and we drop the configured filter so the lookup still works if the
-                        // user has since changed it.
-                        if (eventId && values.lastEventQuery) {
-                            const realGlobals = await loadGlobalsForEventId({
-                                eventId,
-                                baseQuery: values.lastEventQuery,
-                                groupTypes: values.groupTypes,
-                                sourceName: values.configuration?.name ?? 'Unnamed',
-                            })
-                            if (realGlobals) {
-                                return realGlobals
-                            }
+                        const query: EventsQuery = eventId
+                            ? {
+                                  // Point lookup by uuid: drop the configured filter (the event may
+                                  // no longer match it) and widen the timestamp window so older
+                                  // events can still be opened from the logs flow.
+                                  ...values.lastEventQuery,
+                                  fixedProperties: undefined,
+                                  properties: [{ type: PropertyFilterType.HogQL, key: `uuid = '${eventId}'` }],
+                                  after: '-90d',
+                              }
+                            : values.lastEventQuery
+                        const realGlobals = await loadGlobalsForQuery(
+                            query,
+                            values.groupTypes,
+                            values.configuration?.name ?? 'Unnamed'
+                        )
+                        if (!realGlobals) {
                             actions.setSampleGlobalsError(
-                                'Could not find that event. Showing a synthesized example instead.'
+                                eventId
+                                    ? 'Could not find that event. Showing the synthesized example instead.'
+                                    : 'No matching event in the last 7 days. Showing the synthesized example instead.'
                             )
+                            return syntheticGlobals
                         }
-                        // Default path — no ClickHouse query. Build a sample event from the
-                        // configured filter and the inputs/templates the destination references, so
-                        // every property the user's hog code will read has a value to look at.
-                        return synthesizeSampleGlobals({
-                            base: values.exampleInvocationGlobals,
-                            filters: values.configuration?.filters,
-                            inputs: values.configuration?.inputs,
-                        })
+                        return realGlobals
                     } catch (e: any) {
                         if (!isBreakpoint(e)) {
-                            actions.setSampleGlobalsError(e.message ?? 'Failed to load sample event')
+                            actions.setSampleGlobalsError(
+                                e.message ?? 'Failed to load a real event. Showing the synthesized example instead.'
+                            )
                         }
-                        return values.exampleInvocationGlobals
+                        return syntheticGlobals
                     }
                 },
             },
@@ -973,9 +970,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return globals
             },
         ],
+        // The default sample event shown in the test panel. Derived synchronously from the example
+        // scaffold + the user's filter + the destination's input templates, so the editor always has
+        // something rendered before (and instead of) any ClickHouse round-trip.
+        syntheticSampleGlobals: [
+            (s) => [s.exampleInvocationGlobals, s.configuration],
+            (exampleInvocationGlobals, configuration): CyclotronJobInvocationGlobals =>
+                synthesizeSampleGlobals({
+                    base: exampleInvocationGlobals,
+                    filters: configuration?.filters,
+                    inputs: configuration?.inputs,
+                }),
+        ],
         sampleGlobalsWithInputs: [
-            (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
-            (sampleGlobals, exampleInvocationGlobals, configuration): CyclotronJobInvocationGlobalsWithInputs => {
+            (s) => [s.sampleGlobals, s.syntheticSampleGlobals, s.configuration],
+            (sampleGlobals, syntheticSampleGlobals, configuration): CyclotronJobInvocationGlobalsWithInputs => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type
@@ -992,7 +1001,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
+                const baseGlobals = sampleGlobals ?? syntheticSampleGlobals
 
                 // Transformations only receive `project` and `event` at runtime
                 // (see HogTransformerService.createInvocationGlobals). Hide `person`,

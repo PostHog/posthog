@@ -81,7 +81,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 'configurationHasErrors',
                 'sampleGlobals',
                 'sampleGlobalsLoading',
-                'exampleInvocationGlobals',
+                'syntheticSampleGlobals',
                 'sampleGlobalsError',
                 'type',
                 'currentHogCode',
@@ -393,6 +393,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.receiveExampleGlobals(values.exampleInvocationGlobals)
+        actions.receiveExampleGlobals(values.syntheticSampleGlobals)
     }),
 ])
