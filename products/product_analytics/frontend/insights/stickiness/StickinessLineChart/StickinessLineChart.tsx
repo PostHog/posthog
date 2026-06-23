@@ -93,14 +93,16 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
-        () =>
-            buildStickinessLineTimeSeriesConfig({
+        () => ({
+            ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
-                legend: legendConfig,
             }),
+            // Interactive legend is a component concern, kept out of the pure transform.
+            legend: legendConfig,
+        }),
         [yAxisScaleType, showValuesOnSeries, legendConfig]
     )
 

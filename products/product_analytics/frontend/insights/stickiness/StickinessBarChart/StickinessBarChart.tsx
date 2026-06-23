@@ -91,14 +91,16 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(
-        () =>
-            buildStickinessBarTimeSeriesConfig({
+        () => ({
+            ...buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
-                legend: legendConfig,
             }),
+            // Interactive legend is a component concern, kept out of the pure transform.
+            legend: legendConfig,
+        }),
         [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig]
     )
 

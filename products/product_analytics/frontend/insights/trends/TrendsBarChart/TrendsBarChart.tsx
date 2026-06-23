@@ -198,8 +198,8 @@ export function TrendsBarChart({
     )
 
     const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
-        () =>
-            buildTrendsBarTimeSeriesConfig({
+        () => ({
+            ...buildTrendsBarTimeSeriesConfig({
                 trendsFilter,
                 baseCurrency,
                 isPercentStackView,
@@ -213,8 +213,11 @@ export function TrendsBarChart({
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: TIME_SERIES_TOOLTIP_CONFIG,
-                legend: legendConfig,
             }),
+            // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
+            // of the pure transform so the builder stays free of React state.
+            legend: legendConfig,
+        }),
         [
             trendsFilter,
             baseCurrency,

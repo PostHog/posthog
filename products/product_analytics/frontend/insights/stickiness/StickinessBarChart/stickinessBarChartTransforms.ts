@@ -15,7 +15,6 @@ export interface BuildStickinessBarTimeSeriesConfigOpts {
     showGrid?: boolean
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TooltipConfig
-    legend?: TimeSeriesBarChartConfig['legend']
 }
 
 export function buildStickinessBarTimeSeriesConfig(
@@ -27,6 +26,5 @@ export function buildStickinessBarTimeSeriesConfig(
         valueLabels: opts.valueLabels,
         barLayout: opts.isGrouped ? 'grouped' : 'stacked',
         tooltip: opts.tooltip,
-        legend: opts.legend,
     }
 }

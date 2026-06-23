@@ -95,7 +95,6 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     goalLines?: GoalLineLike[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
-    legend?: TimeSeriesBarChartConfig['legend']
 }
 
 export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesConfigOpts): TimeSeriesBarChartConfig {
@@ -123,7 +122,6 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
         // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
         divergingStack: !opts.isPercentStackView && !opts.isGrouped,
         tooltip: opts.tooltip,
-        legend: opts.legend,
     }
 }
 
