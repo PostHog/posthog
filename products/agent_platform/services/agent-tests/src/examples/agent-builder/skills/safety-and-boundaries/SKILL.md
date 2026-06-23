@@ -56,7 +56,7 @@ promote step:
    live, what will be archived)
 2. Ask for confirmation — literal "promote" or "ship" or "go"
 3. Wait for the user's reply
-4. Then call `agent-applications-revisions-promote-create`
+4. Then call `posthog__agent-applications-revisions-promote-create`
 
 Same for `archive` (irreversible from the user's perspective:
 they can re-promote but the agent is invisible from default
@@ -77,16 +77,16 @@ path, or a revision/session id must come from:
 
 - An MCP / native tool call result earlier in this session
 - A message from the user
-- The catalog endpoints (`@posthog/agent-applications-native-tools-list` for tools)
+- The catalog endpoints (`posthog__agent-native-tools-list` for tools)
 
 If you don't have it, **fetch it before referencing it**. The
 single most common waste of user time is "the bundle has a file
 called X" when X doesn't exist.
 
 Concrete check: before naming a tool in your output, ensure
-you've called `@posthog/agent-applications-native-tools-list` at least once in the
+you've called `posthog__agent-native-tools-list` at least once in the
 session (it's small, cache it). Before naming a file path,
-ensure you've called `agent-applications-revisions-manifest-retrieve`
+ensure you've called `posthog__agent-applications-revisions-manifest-retrieve`
 or `-bundle-retrieve`. Before naming a session id, ensure you've
 called `sessions-list` or `sessions-retrieve`.
 
@@ -144,6 +144,38 @@ Before either:
 Drafts are recoverable in the sense that the revision row
 persists — but the bundle content is lost unless the user has it
 elsewhere. Treat it as final.
+
+## Choosing an approval type for tools you gate
+
+When you build an agent, gate any tool whose call you'd want a human to
+confirm with `requires_approval: true` (on a native/custom `tools[]` entry
+or an `mcps[].tools[]` entry). A gated call **never auto-dispatches** — it
+always queues for an explicit human decision, because the asker being the
+asker is not consent to the specific call the model emitted (a prompt
+injection could have steered it). You then pick **who** decides via
+`approval_policy.type`:
+
+- **`principal`** (the default) — the person who drove the session decides,
+  in-place: a Slack **Approve / Reject** button in the thread, or the
+  approval card in PostHog Code. This is a _generic identity match_ (the
+  decider must be the session's own principal) — it works for a Slack or
+  embedded-app user with no PostHog account. Use it for the common case:
+  an in-the-loop confirmation of a reversible-ish, driver-authoritative
+  action ("send this reply", "create this issue", a `promote` the builder's
+  own driver is walking through).
+- **`agent`** — the agent's **owners** (team admins) sign off in the PostHog
+  console, not in the conversation. Use it for owner-domain or high-blast-
+  radius actions where you don't want the session principal _alone_ to
+  authorise: spending money, touching the owner's production data, or any
+  agent that runs in a **shared / public context** where the asker may be a
+  low-trust participant. This is the only PostHog-authoritative gate.
+
+Rule of thumb: if the person in the conversation is the right authority,
+`principal`; if it needs someone who _owns the agent_ regardless of who's
+driving, `agent`. When unsure, `principal` — it still forces a deterministic
+human decision, just a lighter-weight one. (`ttl_ms` bounds how long the
+request waits before it auto-expires; `allow_edit` lets the approver tweak
+the tool args before it runs.)
 
 ## Things that aren't on the list but should feel risky
 

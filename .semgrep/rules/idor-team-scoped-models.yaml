@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -320,6 +322,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
