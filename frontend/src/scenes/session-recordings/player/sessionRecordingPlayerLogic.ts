@@ -43,6 +43,7 @@ import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogi
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
+    isWithinIngestionGracePeriod,
     SessionRecordingDataCoordinatorLogicProps,
     sessionRecordingDataCoordinatorLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -154,6 +155,21 @@ const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 // extra seek on nearly every playback.
 const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 
+// a leading unplayable region longer than this is worth surfacing to the user (banner + scrubber
+// marker); below it the dead-zone clamp handles things silently and a warning would be noise
+const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
+
+// While buffering on a still-ingesting recording we may receive no new events to re-trigger a
+// verdict re-evaluation: source polling can back off, and the grace check reads wall-clock time,
+// which isn't reactive. Re-run checkBufferingCompleted on this cadence so a recording stuck
+// buffering past the ingestion grace period still transitions to the terminal error rather than
+// sitting on "Still processing…" forever. A tick is inert unless buffering has genuinely
+// completed: checkBufferingCompleted early-returns when not buffering, and while still
+// legitimately buffering it only ends buffering on a definitive verdict — so a mid-buffer tick
+// never yanks the playhead. Cheap either way. The cadence is a deliberate safety-net interval,
+// not a tuned value: worst case is ~2 min of "Still processing…" after grace has already lapsed.
+const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -162,9 +178,21 @@ export type SeekRenderability =
     | { kind: 'clampToFullSnapshot'; timestamp: number }
     // not determinable yet — data that could contain a FullSnapshot is still loading
     | { kind: 'waitingForData' }
+    // everything currently loaded lacks a FullSnapshot, but the recording is still inside
+    // the ingestion grace period — a late FullSnapshot may yet arrive, so keep buffering
+    // and polling rather than declaring the seek unplayable
+    | { kind: 'waitingForIngestion' }
     // everything is loaded and no FullSnapshot exists anywhere at or after the
     // timestamp — playback there can never work
     | { kind: 'unplayable' }
+
+// Non-definitive verdicts where more data could still make the position renderable — playback
+// should buffer and keep polling rather than play or error. Centralized so the buffer-entry
+// (seekToTimestamp) and buffer-exit (checkBufferingCompleted) checks can't drift if a new
+// still-loading kind is added.
+export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
+    return renderability.kind === 'waitingForData' || renderability.kind === 'waitingForIngestion'
+}
 
 // weights should add up to 1
 const smoothingWeights = [
@@ -1091,11 +1119,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // how playback can recover (e.g. when the initial full snapshot was lost at
         // capture time, the recording is only playable from a later FullSnapshot).
         seekRenderability: [
-            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded],
+            (s) => [s.segmentForTimestamp, s.snapshotStore, s.allSourcesLoaded, s.sessionPlayerData],
             (
                 segmentForTimestamp: (timestamp?: number) => RecordingSegment | null,
                 snapshotStore: SnapshotStore,
-                allSourcesLoaded: boolean
+                allSourcesLoaded: boolean,
+                sessionPlayerData: SessionPlayerData
             ) => {
                 return (timestamp: number): SeekRenderability => {
                     const segment = segmentForTimestamp(timestamp)
@@ -1128,9 +1157,67 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             ? { kind: 'renderable' }
                             : { kind: 'clampToFullSnapshot', timestamp: recoveryTarget.timestamp }
                     }
-                    return allSourcesLoaded ? { kind: 'unplayable' } : { kind: 'waitingForData' }
+                    if (!allSourcesLoaded) {
+                        return { kind: 'waitingForData' }
+                    }
+                    // No FullSnapshot anywhere, everything loaded. Only definitive once the
+                    // ingestion grace period has passed — until then a late FullSnapshot may
+                    // still arrive, so keep buffering rather than showing a terminal error.
+                    return isWithinIngestionGracePeriod(sessionPlayerData.start)
+                        ? { kind: 'waitingForIngestion' }
+                        : { kind: 'unplayable' }
                 }
             },
+        ],
+
+        // The leading span playback can't render — when the initial full snapshot was lost or arrived
+        // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
+        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
+        // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
+        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
+        // loaded (and so can't later flip to `renderable`), so it gates itself — surfacing the marker as
+        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
+        leadingUnplayableMs: [
+            (s) => [s.sessionPlayerData, s.seekRenderability],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability
+            ): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null) {
+                    return 0
+                }
+                const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
+                if (!firstWindowSegment) {
+                    return 0
+                }
+                const renderability = seekRenderability(firstWindowSegment.startTimestamp)
+                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+            },
+        ],
+
+        hasLateFullSnapshot: [
+            (s) => [s.leadingUnplayableMs],
+            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
+        ],
+
+        // True while the player is buffering on a position whose FullSnapshot hasn't been
+        // ingested yet but still might be (within the grace period). Lets the overlay show a
+        // "still processing" message instead of the generic "Buffering…".
+        // The grace check reads wall-clock `now()` at call time, so this value is intentionally
+        // stale between recomputes — it only re-derives when seekRenderability/currentTimestamp
+        // change, not when the grace period elapses. That's fine: it only drives the overlay
+        // message, and the buffer machinery (seekToTimestamp, checkBufferingCompleted) re-reads
+        // seekRenderability fresh at event time, so the actual ERROR transition isn't gated on it.
+        // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS nudge guarantees that re-read happens
+        // even when no events fire, so a stuck-buffering recording still flips once grace lapses.
+        isWaitingForIngestion: [
+            (s) => [s.seekRenderability, s.currentTimestamp],
+            (
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                currentTimestamp: number | undefined
+            ): boolean =>
+                currentTimestamp != null && seekRenderability(currentTimestamp).kind === 'waitingForIngestion',
         ],
 
         debugSnapshots: [
@@ -1588,9 +1675,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 renderability.kind === 'clampToFullSnapshot' || renderability.kind === 'unplayable'
             const stillBuffering =
                 !hasDefinitiveVerdict &&
-                (isBufferingSegment ||
-                    values.isWaitingForPlayableFullSnapshot ||
-                    renderability.kind === 'waitingForData')
+                (isBufferingSegment || values.isWaitingForPlayableFullSnapshot || isAwaitingMoreData(renderability))
 
             if (!stillBuffering) {
                 actions.endBuffer()
@@ -1848,10 +1933,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // If next time is greater than last buffered time, set to buffering.
             // Also buffer while we can't yet tell whether this position has a
             // FullSnapshot to render from — playing would freeze on a blank frame.
+            // `waitingForIngestion` lands here too: a recent recording missing its
+            // FullSnapshot is still ingesting, so buffer and keep polling for late
+            // sources rather than showing the terminal error.
             else if (
                 segment?.kind === 'buffer' ||
                 values.isWaitingForPlayableFullSnapshot ||
-                renderability.kind === 'waitingForData'
+                isAwaitingMoreData(renderability)
             ) {
                 values.player?.replayer?.pause()
                 actions.startBuffer()
@@ -2471,6 +2559,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+
+        // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
+        // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal
+        // error once the grace period lapses — but only on a re-read of seekRenderability, which
+        // otherwise happens solely on incoming events. Paused on hidden tabs by the plugin.
+        cache.disposables.add(() => {
+            const intervalId = setInterval(() => actions.checkBufferingCompleted(), BUFFERING_REEVALUATION_INTERVAL_MS)
+            return () => clearInterval(intervalId)
+        }, 'bufferingReevaluation')
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

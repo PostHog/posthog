@@ -22,6 +22,7 @@ from posthog.models.person.util import (
     delete_persons_from_postgres,
 )
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
@@ -60,10 +61,12 @@ def resolve_persons_for_deletion(
     client = get_personhog_client()
     if client is not None:
         try:
-            if uuids:
-                return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
-            else:
-                return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
+            # Unbounded distinct_ids: downstream recording deletion needs the full set per person.
+            with personhog_caller_tag("persons/deletion-resolve"):
+                if uuids:
+                    return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+                else:
+                    return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
         except Exception:
             logger.warning("resolve_persons_for_deletion_personhog_failure", team_id=team_id, exc_info=True)
 

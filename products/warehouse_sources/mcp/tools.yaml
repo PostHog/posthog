@@ -146,6 +146,9 @@ tools:
             List all table schemas across all data warehouse sources. Each schema represents one table being synced from
             an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
             and latest error. Use this to see which tables are actively syncing and their health.
+    external-data-schemas-logs-retrieve:
+        operation: external_data_schemas_logs_retrieve
+        enabled: false
     external-data-schemas-partial-update:
         operation: external_data_schemas_partial_update
         enabled: true
@@ -242,9 +245,9 @@ tools:
         title: List direct-query connections
         description: >
             List external data sources that can be used as a connectionId when running execute-sql against an external
-            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
-            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
-            discover valid connectionId values.
+            source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each
+            — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this
+            to discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true

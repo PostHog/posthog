@@ -170,7 +170,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
-                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM_MCP]) {
+                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
                     scopes = scopes.filter((scope) => scope.key !== 'agents')
                 }
 

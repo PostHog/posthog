@@ -1,8 +1,16 @@
 import { scaleLinear, scalePoint } from 'd3-scale'
 
 import { dimensions, makeSeries } from '../testing'
-import { composeDrawHoverWithCrosshair, drawArea, drawGrid, drawLine, type DrawContext } from './canvas-renderer'
-import type { ChartDrawArgs, ChartScales, ChartTheme } from './types'
+import {
+    composeDrawHoverWithCrosshair,
+    composeDrawHoverWithSelection,
+    type DrawContext,
+    drawArea,
+    drawGrid,
+    drawLine,
+    drawSelectionRect,
+} from './canvas-renderer'
+import type { ChartDrawArgs, ChartTheme } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -13,6 +21,8 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         fill: jest.fn(),
         closePath: jest.fn(),
         arc: jest.fn(),
+        fillRect: jest.fn(),
+        strokeRect: jest.fn(),
         setLineDash: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
@@ -42,6 +52,22 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
 /** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
 function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
     return ctx.setLineDash.mock.calls.map(([p]) => p as number[])
+}
+
+function makeDrawArgs(ctx: CanvasRenderingContext2D, overrides: Partial<ChartDrawArgs> = {}): ChartDrawArgs {
+    return {
+        ctx,
+        dimensions,
+        scales: { x: () => undefined, y: () => 0, yTicks: () => [] },
+        series: [],
+        labels: ['Mon', 'Tue', 'Wed'],
+        hoverIndex: -1,
+        hoverPosition: null,
+        theme: {} as ChartTheme,
+        hoverProgress: 1,
+        resetHoverFade: () => 0,
+        ...overrides,
+    }
 }
 
 describe('hog-charts canvas-renderer', () => {
@@ -472,6 +498,62 @@ describe('hog-charts canvas-renderer', () => {
             drawArea(makeDrawContext(ctx, labels), series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
+
+        // The shaded (solid) area must end exactly where the trailing dashed/hatched area begins — same
+        // boundary the stroke uses — so the fill doesn't bleed a segment past where the line turns dashed.
+        it('solid fill meets the trailing hatch at one shared boundary, no overlap or gap', () => {
+            const fillRanges: { min: number; max: number }[] = []
+            let xs: number[] = []
+            const ctx = Object.assign(mockCanvasContext(), {
+                beginPath: jest.fn(() => {
+                    xs = []
+                }),
+                moveTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                lineTo: jest.fn((x: number) => {
+                    xs.push(x)
+                }),
+                fill: jest.fn(() => {
+                    fillRanges.push({ min: Math.min(...xs), max: Math.max(...xs) })
+                }),
+            }) as unknown as jest.Mocked<CanvasRenderingContext2D>
+
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's', data: [10, 20, 30, 40, 50], stroke: { partial: { fromIndex: 3 } } })
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            // Call order is solid then trailing hatch.
+            expect(fillRanges).toHaveLength(2)
+            const [solid, hatch] = fillRanges
+            expect(solid.max).toBe(hatch.min)
+        })
+
+        // A gradient fill must survive partial dashing — only the stroke dashes, so the fill stays a
+        // single gradient area rather than flipping to the solid + hatch treatment.
+        it('keeps a single gradient fill (no hatch) when the line is partially dashed', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            const series = makeSeries({
+                key: 's',
+                data: [10, 20, 30, 40, 50],
+                fill: { gradient: true },
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            drawArea(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+
+            expect(ctx.fill).toHaveBeenCalledTimes(1)
+            expect(recordedFillStyles).toEqual([gradient])
+        })
     })
 
     describe('drawArea — fill.lowerData edge cases', () => {
@@ -637,23 +719,7 @@ describe('hog-charts canvas-renderer', () => {
             hoverIndex: number,
             xValue: number | undefined
         ): ChartDrawArgs {
-            const scales: ChartScales = {
-                x: () => xValue,
-                y: () => 0,
-                yTicks: () => [],
-            }
-            return {
-                ctx,
-                dimensions,
-                scales,
-                series: [],
-                labels: ['Mon', 'Tue', 'Wed'],
-                hoverIndex,
-                hoverPosition: null,
-                theme: {} as ChartTheme,
-                hoverProgress: 1,
-                resetHoverFade: () => 0,
-            }
+            return makeDrawArgs(ctx, { hoverIndex, scales: { x: () => xValue, y: () => 0, yTicks: () => [] } })
         }
 
         it('always invokes the underlying drawHover', () => {
@@ -754,6 +820,89 @@ describe('hog-charts canvas-renderer', () => {
             composed(makeArgs(ctx, 0, 100))
             expect(first).toHaveBeenCalledTimes(1)
             expect(second).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawSelectionRect', () => {
+        it('draws a fill and a stroke for a positive rect', () => {
+            const ctx = mockCanvasContext()
+            drawSelectionRect(ctx, { x: 100, y: 20, width: 50, height: 200 })
+            expect(ctx.fillRect).toHaveBeenCalledWith(100, 20, 50, 200)
+            // Stroke is inset by half a pixel so the 1px border lands on whole pixels.
+            expect(ctx.strokeRect).toHaveBeenCalledWith(100.5, 20.5, 49, 199)
+        })
+
+        it('is a no-op for a zero-width rect', () => {
+            const ctx = mockCanvasContext()
+            drawSelectionRect(ctx, { x: 100, y: 20, width: 0, height: 200 })
+            expect(ctx.fillRect).not.toHaveBeenCalled()
+            expect(ctx.strokeRect).not.toHaveBeenCalled()
+        })
+
+        it('is a no-op for a zero-height rect', () => {
+            const ctx = mockCanvasContext()
+            drawSelectionRect(ctx, { x: 100, y: 20, width: 50, height: 0 })
+            expect(ctx.fillRect).not.toHaveBeenCalled()
+            expect(ctx.strokeRect).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('composeDrawHoverWithSelection', () => {
+        const plotLeft = dimensions.plotLeft
+        const plotTop = dimensions.plotTop
+        const plotWidth = dimensions.plotWidth
+        const plotHeight = dimensions.plotHeight
+
+        function makeSelectionArgs(
+            ctx: CanvasRenderingContext2D,
+            dragRect: { x0: number; x1: number } | null
+        ): ChartDrawArgs {
+            return makeDrawArgs(ctx, { dragRect })
+        }
+
+        it('always invokes the underlying drawHover', () => {
+            const ctx = mockCanvasContext()
+            const base = jest.fn()
+            composeDrawHoverWithSelection(base)(makeSelectionArgs(ctx, null))
+            expect(base).toHaveBeenCalledTimes(1)
+        })
+
+        it('draws nothing when there is no active drag', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(makeSelectionArgs(ctx, null))
+            expect(ctx.fillRect).not.toHaveBeenCalled()
+        })
+
+        it('draws a full-plot-height band spanning the dragged range', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, { x0: plotLeft + 100, x1: plotLeft + 250 })
+            )
+            expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
+        })
+
+        it('normalizes a right-to-left drag before drawing', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, { x0: plotLeft + 250, x1: plotLeft + 100 })
+            )
+            expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft + 100, plotTop, 150, plotHeight)
+        })
+
+        it('clamps a drag that extends past the plot edges', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, { x0: -500, x1: plotLeft + plotWidth + 500 })
+            )
+            expect(ctx.fillRect).toHaveBeenCalledWith(plotLeft, plotTop, plotWidth, plotHeight)
+        })
+
+        it('draws nothing when the selection collapses to zero width', () => {
+            const ctx = mockCanvasContext()
+            composeDrawHoverWithSelection(jest.fn())(
+                makeSelectionArgs(ctx, { x0: plotLeft + 10, x1: plotLeft + 10 })
+            )
+            expect(ctx.fillRect).not.toHaveBeenCalled()
         })
     })
 })

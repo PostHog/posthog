@@ -1,43 +1,11 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { CommonConfig } from '../common/config'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    HealthCheckResultOk,
-    PluginServerService,
-    RedisPool,
-} from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import {
-    EventIngestionRestrictionManager,
-    EventIngestionRestrictionManagerComponent,
-} from '../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
-import { logger } from '../utils/logger'
-import { PromiseScheduler } from '../utils/promise-scheduler'
-import { TeamManager } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
-import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
-import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from './analytics'
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './analytics/outputs'
-import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
+import { CommonConfig } from '~/common/config'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -45,12 +13,43 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from './common/outputs'
+} from '~/common/outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/pipelines/analytics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
+import { PostgresRouter } from '~/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
+import { logger } from '~/utils/logger'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+
+import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
-import { CookielessManager } from './cookieless/cookieless-manager'
-import { IngestionOutputs } from './outputs/ingestion-outputs'
-import { createOkContext } from './pipelines/helpers'
-import { TopHog } from './tophog'
+import {
+    FeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
+} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -62,6 +61,8 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
+    /** Dedicated pool for $feature_flag_called dedup claims; reuses redisPool when unset */
+    featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -81,7 +82,8 @@ export interface IngestionConsumerDeps {
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     cookielessManager: CookielessManager
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformer
+    aiSubpipelineFactory: AiEventSubpipelineFactory
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -111,9 +113,10 @@ export class IngestionConsumer {
     protected topic: string
     protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
-    public hogTransformer: HogTransformerService
+    public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
+    private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -191,6 +194,11 @@ export class IngestionConsumer {
             })
         }
 
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
+            this.config
+        )
+
         this.hogTransformer = deps.hogTransformer
 
         this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
@@ -260,7 +268,6 @@ export class IngestionConsumer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
-            groupId: this.groupId,
             outputs,
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -277,12 +284,14 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: this.deps.aiSubpipelineFactory,
             eventFilterManager: this.eventFilterManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService: this.featureFlagCalledDedupService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,

@@ -6,31 +6,35 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
+import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
+import { HogFunctionType } from '~/cdp/types'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import {
+    COOKIELESS_MODE_FLAG_PROPERTY,
+    COOKIELESS_SENTINEL_VALUE,
+} from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
+import { parseJSON } from '~/utils/json-parse'
+import { logger } from '~/utils/logger'
+import { UUIDT } from '~/utils/utils'
 
-import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
-import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionType } from '../cdp/types'
-import { PostgresUse } from '../utils/db/postgres'
-import { parseJSON } from '../utils/json-parse'
-import { logger } from '../utils/logger'
-import { UUIDT } from '../utils/utils'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { createPrepareEventStep } from './event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('../utils/posthog', () => {
-    const original = jest.requireActual('../utils/posthog')
+jest.mock('~/utils/posthog', () => {
+    const original = jest.requireActual('~/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -38,15 +42,15 @@ jest.mock('../utils/posthog', () => {
 })
 
 // Mock the prepare event step for error testing
-jest.mock('./event-processing/prepare-event-step', () => ({
+jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
-jest.mock('../utils/token-bucket', () => {
+jest.mock('~/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('../utils/token-bucket'),
+        ...jest.requireActual('~/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -111,6 +115,7 @@ describe('IngestionConsumer', () => {
                 ...hub,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(hub, {
                     ...hub,
                     monitoringOutputs: createTestMonitoringOutputs(mockProducer),
@@ -180,7 +185,7 @@ describe('IngestionConsumer', () => {
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
-            const original = jest.requireActual('./event-processing/prepare-event-step')
+            const original = jest.requireActual('~/ingestion/common/steps/event-processing/prepare-event-step')
             return original.createPrepareEventStep(...args)
         })
 
@@ -1281,10 +1286,12 @@ describe('IngestionConsumer', () => {
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
                 const localIngester = await createIngestionConsumer(hub)
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
+                // Create spies for methods after the service is configured. The consumer exposes the
+                // transformer via its interface, so cast to the concrete service for these internal spies.
+                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(concreteTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is in kafka headers
@@ -1325,9 +1332,10 @@ describe('IngestionConsumer', () => {
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
                 const localIngester = await createIngestionConsumer(hub)
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                // Create spies for methods after the service is configured (cast to the concrete service)
+                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({

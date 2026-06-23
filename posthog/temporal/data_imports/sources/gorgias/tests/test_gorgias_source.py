@@ -8,7 +8,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import GorgiasSourceConfig
 from posthog.temporal.data_imports.sources.gorgias.gorgias import GorgiasResumeConfig
-from posthog.temporal.data_imports.sources.gorgias.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.gorgias.settings import ENDPOINTS, GORGIAS_ENDPOINTS
 from posthog.temporal.data_imports.sources.gorgias.source import GorgiasSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -53,12 +53,17 @@ class TestGorgiasSource:
         assert fields["email"].type == SourceFieldInputConfigType.EMAIL
         assert all(fields[name].required for name in fields)
 
-    def test_get_schemas_lists_every_endpoint_as_full_refresh(self) -> None:
-        schemas = GorgiasSource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Gorgias has no server-side timestamp filter, so nothing supports incremental.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
+    def test_get_schemas_marks_incremental_per_endpoint(self) -> None:
+        schemas = {s.name: s for s in GorgiasSource().get_schemas(_config(), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+        # Incremental support mirrors the endpoint catalog: mutable/append-only resources
+        # are incremental-capable, mutable config tables stay full-refresh.
+        assert {name: s.supports_incremental for name, s in schemas.items()} == {
+            name: GORGIAS_ENDPOINTS[name].supports_incremental for name in ENDPOINTS
+        }
+        assert schemas["tickets"].supports_incremental is True
+        assert schemas["tags"].supports_incremental is False
+        assert all(s.supports_append is False for s in schemas.values())
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = GorgiasSource().get_schemas(_config(), team_id=1, names=["tickets", "customers"])
@@ -86,6 +91,15 @@ class TestGorgiasSource:
         response = GorgiasSource().source_for_pipeline(_config(), manager, _inputs(schema_name="customers"))
         assert response.name == "customers"
         assert response.primary_keys == ["id"]
+        assert response.sort_mode == "asc"
+
+    def test_source_for_pipeline_uses_desc_sort_when_incremental(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        inputs = _inputs(schema_name="tickets")
+        inputs.should_use_incremental_field = True
+        inputs.incremental_field = "updated_datetime"
+        response = GorgiasSource().source_for_pipeline(_config(), manager, inputs)
+        assert response.sort_mode == "desc"
 
     def test_non_retryable_errors_cover_auth_failures(self) -> None:
         errors = GorgiasSource().get_non_retryable_errors()

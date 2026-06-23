@@ -193,6 +193,8 @@ export interface FeatureFlagApi {
     filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
@@ -692,6 +694,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -728,6 +732,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -822,11 +828,27 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagRolloutSummaryApi {
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    effectively_full_rollout: boolean
+    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+    has_targeting_conditions: boolean
+    /**
+     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+     * @nullable
+     */
+    max_rollout_percentage: number | null
+    /** True if the flag serves multiple variants (has a multivariate variant set). */
+    is_multivariate: boolean
+}
+
 export interface FeatureFlagStatusResponseApi {
-    /** Flag status: active, stale, deleted, or unknown */
+    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
+    /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+    rollout: FeatureFlagRolloutSummaryApi
 }
 
 export interface FeatureFlagTestEvaluationRequestApi {
@@ -1037,8 +1059,12 @@ export interface BulkDeleteFiltersApi {
     excluded_properties?: string
     /** Tag names to filter by. Flags carrying at least one of these tags match. */
     tags?: string[]
+    /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+    excluded_tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
+    /** Filter by archived state. When omitted, archived flags are excluded. */
+    archived?: boolean
 }
 
 export interface BulkDeleteRequestApi {
@@ -1251,9 +1277,10 @@ export const ModelNameEnumApi = {
  * * `monthly` - monthly
  * * `yearly` - yearly
  */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+export type ScheduledChangeRecurrenceIntervalEnumApi =
+    (typeof ScheduledChangeRecurrenceIntervalEnumApi)[keyof typeof ScheduledChangeRecurrenceIntervalEnumApi]
 
-export const RecurrenceIntervalEnumApi = {
+export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1294,7 +1321,7 @@ export interface ScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1354,7 +1381,7 @@ export interface PatchedScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1388,6 +1415,10 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived
+    /**
      * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
@@ -1399,6 +1430,10 @@ export type FeatureFlagsListParams = {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -1426,6 +1461,13 @@ export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeo
 
 export const FeatureFlagsListActive = {
     Stale: 'STALE',
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
+
+export const FeatureFlagsListArchived = {
     False: 'false',
     True: 'true',
 } as const

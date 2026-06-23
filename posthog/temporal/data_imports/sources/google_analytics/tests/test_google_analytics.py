@@ -13,19 +13,20 @@ from posthog.temporal.data_imports.sources.google_analytics.google_analytics imp
     CHUNK_DAYS,
     HISTORY_DAYS,
     LOOKBACK_DAYS,
-    QUOTA_MAX_RETRIES,
+    RUNREPORT_MAX_RETRIES,
     GoogleAnalyticsQuotaExceededError,
     GoogleAnalyticsResumeConfig,
     _convert_metric_value,
     _credentials,
     _initial_start_date,
     _is_quota_error,
+    _is_retryable_server_error,
     _iter_chunks,
     _parse_ga4_date,
-    _quota_backoff_seconds,
     _resolve_window,
     _rows_to_dicts,
     _run_report,
+    _runreport_backoff_seconds,
     google_analytics_source,
     normalize_property_id,
 )
@@ -232,14 +233,30 @@ def test_is_quota_error(status_code, expected):
     assert _is_quota_error(_fake_response(status_code)) is expected
 
 
+@pytest.mark.parametrize(
+    "status_code,expected",
+    [
+        (500, True),
+        (502, True),
+        (503, True),
+        (504, True),
+        (429, False),
+        (403, False),
+        (200, False),
+    ],
+)
+def test_is_retryable_server_error(status_code, expected):
+    assert _is_retryable_server_error(_fake_response(status_code)) is expected
+
+
 def test_quota_backoff_honors_retry_after():
     response = _fake_response(429, headers={"Retry-After": "17"})
-    assert _quota_backoff_seconds(response, attempt=0) == 17.0
+    assert _runreport_backoff_seconds(response, attempt=0) == 17.0
 
 
 def test_quota_backoff_falls_back_to_exponential():
     response = _fake_response(429, headers={"Retry-After": "soon"})
-    assert _quota_backoff_seconds(response, attempt=2) == ga.QUOTA_BACKOFF_BASE_SECONDS * 4
+    assert _runreport_backoff_seconds(response, attempt=2) == ga.RUNREPORT_BACKOFF_BASE_SECONDS * 4
 
 
 def test_run_report_returns_payload_on_success():
@@ -307,7 +324,7 @@ def test_run_report_raises_after_exhausting_quota_retries(monkeypatch):
             offset=0,
         )
 
-    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
@@ -327,6 +344,49 @@ def test_run_report_raises_http_error_for_non_quota_failures(status_code):
         )
 
     assert session.post.call_count == 1
+
+
+def test_run_report_retries_server_errors_then_succeeds(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    payload = {"rows": [], "rowCount": 0}
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        _fake_response(503),
+        _fake_response(503),
+        _fake_response(200, payload),
+    ]
+
+    result = _run_report(
+        session=session,
+        property_id="123",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        dimensions=["date"],
+        metrics=["totalUsers"],
+        offset=0,
+    )
+
+    assert result == payload
+    assert session.post.call_count == 3
+
+
+def test_run_report_raises_http_error_after_exhausting_server_error_retries(monkeypatch):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(503)
+
+    with pytest.raises(requests.HTTPError):
+        _run_report(
+            session=session,
+            property_id="123",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            dimensions=["date"],
+            metrics=["totalUsers"],
+            offset=0,
+        )
+
+    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
 
 
 def _report_payload(dates: list[str], users: list[int], row_count: int | None = None) -> dict:

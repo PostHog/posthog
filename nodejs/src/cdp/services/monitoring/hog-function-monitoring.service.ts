@@ -1,8 +1,8 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'

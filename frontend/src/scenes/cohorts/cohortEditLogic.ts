@@ -77,7 +77,13 @@ export type CohortEditTab = 'overview' | 'history'
 const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
-    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+    cohort.pending_version != null &&
+    (cohort.version == null || cohort.pending_version !== cohort.version) &&
+    // A pending version that never catches up because every attempt failed is not pending, it's
+    // failed. Without this, `version` stays stuck behind `pending_version` forever (it only advances
+    // on success), so the cohort would show "pending" indefinitely and mask the calculation error.
+    // A genuine in-progress retry still flips `is_calculating`, which keeps the calculating banner up.
+    !cohort.errors_calculating
 
 const hasFilterCriteria = (cohort: CohortType): boolean =>
     Array.isArray(cohort.filters?.properties?.values) && cohort.filters.properties.values.length > 0

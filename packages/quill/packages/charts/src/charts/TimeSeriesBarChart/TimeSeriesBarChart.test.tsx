@@ -1,11 +1,20 @@
+import { fireEvent } from '@testing-library/react'
+
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { renderHogChart } from '../../testing'
+import { getHogChart, renderHogChart } from '../../testing'
 import { TimeSeriesBarChart } from './TimeSeriesBarChart'
 
-const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
+const THEME: ChartTheme = {
+    colors: ['#111', '#222', '#333'],
+    backgroundColor: '#ffffff',
+}
 const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
+const MULTI_SERIES: Series[] = [
+    { key: 'a', label: 'A', data: [1, 2, 3] },
+    { key: 'b', label: 'B', data: [3, 2, 1] },
+]
 
 describe('TimeSeriesBarChart', () => {
     describe('config.xAxis', () => {
@@ -52,7 +61,11 @@ describe('TimeSeriesBarChart', () => {
                     labels={['2024-06-10', '2024-06-11', '2024-06-12']}
                     theme={THEME}
                     config={{
-                        xAxis: { tickFormatter: explicit, timezone: 'UTC', interval: 'day' },
+                        xAxis: {
+                            tickFormatter: explicit,
+                            timezone: 'UTC',
+                            interval: 'day',
+                        },
                     }}
                 />
             )
@@ -105,7 +118,12 @@ describe('TimeSeriesBarChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit, format: 'percentage' } }}
+                    config={{
+                        yAxis: {
+                            tickFormatter: explicit,
+                            format: 'percentage',
+                        },
+                    }}
                 />
             )
             expect(chart.yTicks().every((t) => t.startsWith('y:'))).toBe(true)
@@ -154,7 +172,10 @@ describe('TimeSeriesBarChart', () => {
                     series={[{ key: 'a', label: 'A', data: [50] }]}
                     labels={['Mon']}
                     theme={THEME}
-                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                    config={{
+                        yAxis: { format: 'percentage' },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
@@ -167,7 +188,10 @@ describe('TimeSeriesBarChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                    config={{
+                        yAxis: { tickFormatter: explicit },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])
@@ -307,5 +331,27 @@ describe('TimeSeriesBarChart', () => {
             </TimeSeriesBarChart>
         )
         expect(container.querySelector('[data-attr="custom-overlay"]')).not.toBeNull()
+    })
+
+    describe('interactive legend', () => {
+        it('toggles a series off and on when its legend row is clicked', () => {
+            const { container, chart } = renderHogChart(
+                <TimeSeriesBarChart
+                    series={MULTI_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ legend: { show: true } }}
+                />
+            )
+            expect(chart.seriesCount).toBe(2)
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-timeseries-bar-legend"] button'))
+
+            fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(1)
+
+            fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
+        })
     })
 })

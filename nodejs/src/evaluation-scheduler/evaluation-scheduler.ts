@@ -17,7 +17,11 @@ import { AIObservabilityConfig } from '../ai-observability/config'
 import { EvaluationManagerService } from '../ai-observability/services/evaluation-manager.service'
 import { ProviderKeyManagerService } from '../ai-observability/services/provider-key-manager.service'
 import { TaggerManagerService } from '../ai-observability/services/tagger-manager.service'
-import { TemporalService, TemporalServiceConfig } from '../ai-observability/services/temporal.service'
+import {
+    TemporalService,
+    TemporalServiceConfig,
+    isEvaluationWorkflowRuntime,
+} from '../ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../ai-observability/types'
 import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
@@ -263,7 +267,7 @@ export const startEvaluationScheduler = async (
         })
     )
 
-    const onShutdown = async () => {
+    const onShutdown = async (): Promise<void> => {
         await temporalService.disconnect()
         await kafkaConsumer.disconnect()
     }
@@ -286,6 +290,13 @@ type ProviderKeyGateDefinition = {
     provider_key_id?: string | null
     evaluation_type?: string
     tagger_type?: string
+}
+
+const NON_PROVIDER_KEY_RUNTIMES = new Set(['hog', 'sentiment'])
+
+function definitionUsesProviderKey(definition: ProviderKeyGateDefinition): boolean {
+    const runtime = definition.evaluation_type ?? definition.tagger_type
+    return !runtime || !NON_PROVIDER_KEY_RUNTIMES.has(runtime)
 }
 
 export async function eachBatchEvaluationScheduler(
@@ -419,11 +430,12 @@ async function processEventEvaluationMatch(
 
     evaluationMatchesCounter.labels({ outcome: 'matched', type: 'evaluation' }).inc()
 
-    await temporalService.startEvaluationRunWorkflow(
-        evaluationDefinition.id,
-        event,
-        evaluationDefinition.evaluation_type as string
-    )
+    const evaluationRuntime = evaluationDefinition.evaluation_type
+    if (!isEvaluationWorkflowRuntime(evaluationRuntime)) {
+        throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
+    }
+
+    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event, evaluationRuntime)
     evaluationSchedulerEventsProcessed.labels({ status: 'success', type: 'evaluation' }).inc()
 }
 
@@ -470,7 +482,7 @@ async function getProviderKeySkipOutcome(
         return null
     }
 
-    if (definition.evaluation_type === 'hog' || definition.tagger_type === 'hog') {
+    if (!definitionUsesProviderKey(definition)) {
         return null
     }
 

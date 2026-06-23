@@ -87,7 +87,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
-from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -1241,6 +1241,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "teams_team_name",
             "teams_channel_id",
             "teams_channel_name",
+            "teams_channels",
         ):
             value.pop(managed_key, None)
         # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50

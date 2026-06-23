@@ -476,6 +476,7 @@ export interface AssistantTrendsFilter {
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -559,6 +560,60 @@ export interface AssistantTrendsFilter {
      * @default false
      */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+
+    /**
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
+     * @default true
+     */
+    metricShowChange?: boolean
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when
+     * the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.
+     */
+    metricChangeIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when
+     * the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.
+     */
+    metricChangeDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Color the sparkline under the big number by whether
+     * the metric increased or decreased over the period (using the increase/decrease line colors).
+     * @default false
+     */
+    metricColorByDirection?: boolean
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a
+     * "lower is better" metric.
+     */
+    metricLineIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a
+     * "lower is better" metric.
+     */
+    metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -876,7 +931,10 @@ export interface AssistantRetentionFilter {
      * The time window mode to use for retention calculations.
      */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
-    /** Custom brackets for retention calculations. */
+    /**
+     * Custom brackets for retention calculations.
+     * @maxItems 31
+     */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.
@@ -1340,6 +1398,67 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+}
+
+/**
+ * Drills into a retention insight to list the persons in one acquisition cohort and show, for each,
+ * which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`,
+ * followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`,
+ * … for a daily insight). Each interval column is `1` when the actor was active in that interval and
+ * `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how
+ * many intervals each actor returned in (most-retained first).
+ *
+ * The number and name of the interval columns are derived from the source — `retentionFilter.period`
+ * sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when
+ * custom brackets are set) sets the count.
+ *
+ * Retention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings
+ * column — its persons output is appearance-based.
+ */
+export interface AssistantRetentionActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: AssistantRetentionQuery
+
+    /**
+     * Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every
+     * actor who entered the cohort); `1` is the cohort that entered one interval later, and so on.
+     * Defaults to `0` when omitted.
+     */
+    interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
 }
 
 /**
