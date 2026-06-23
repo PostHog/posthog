@@ -495,7 +495,7 @@ async def _validate(
 
     system = """You validate whether a support reply is grounded in the provided knowledge base chunks.
 Return a JSON object with these keys:
-- grounded: boolean — true unless some factual claim in the reply CONTRADICTS the cited chunks. A claim does not need to appear verbatim in an excerpt; it only needs to be consistent with (not refuted by) the sources. Reasonable paraphrase, summary, and combination of the cited facts is grounded. Only mark grounded=false when the reply asserts something the sources actively contradict, or makes a specific factual claim with no support at all.
+- grounded: boolean — true unless some factual claim in the reply CONTRADICTS the cited chunks. A claim does not need to appear verbatim in an excerpt; it only needs to be consistent with (not refuted by) the sources. Reasonable paraphrase, summary, and combination of the cited facts is grounded. Only mark grounded=false when the reply asserts something the sources actively contradict, or invents a highly specific detail — such as an exact price, version number, date, or limit — that cannot be inferred from the sources at all.
 - coverage: float 0-1 — what fraction of the customer's question does the reply address?
 - confidence: float 0-1 — overall confidence the reply is correct and complete.
 - missing: list of strings — topics the customer asked about that are NOT covered by the reply or chunks.
