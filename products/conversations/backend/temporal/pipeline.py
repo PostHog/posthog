@@ -68,7 +68,7 @@ MAX_EXCERPT_CHARS = 1000
 # UTILITY_MODEL (haiku) is cheap/fast for query refinement. Validation grounds correct replies
 # against sources, so it uses a stronger sonnet-class model to avoid under-scoring good answers.
 UTILITY_MODEL = "claude-haiku-4-5"
-VALIDATOR_MODEL = "claude-sonnet-4-5"
+VALIDATOR_MODEL = "claude-sonnet-4-6"
 
 # One-shot triage of each ticket up front. `how_to`/`account_billing` are retrieval-solvable;
 # `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `unactionable`
