@@ -5,6 +5,7 @@ from typing import cast
 
 from asgiref.sync import async_to_sync
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
@@ -63,26 +64,31 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
 
+    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
+    # The span surfaces that cost so the N+1 is visible per request in APM.
+    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
     def _get_session_analysis_status(self, team_id: int) -> str | None:
         """ "running" iff any `summarize-session` workflow for this team is currently executing."""
         query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
 
-        # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
-        # The span surfaces that cost so the N+1 is visible per request in APM.
-        with tracer.start_as_current_span("signals.source_config.session_analysis_status"):
-            try:
-                temporal = sync_connect()
+        try:
+            temporal = sync_connect()
 
-                async def has_running() -> bool:
-                    async for _ in temporal.list_workflows(query=query, page_size=1):
-                        return True
-                    return False
+            async def has_running() -> bool:
+                async for _ in temporal.list_workflows(query=query, page_size=1):
+                    return True
+                return False
 
-                if async_to_sync(has_running)():
-                    return "running"
-            except Exception as e:
-                logger.warning("Failed to list session summarization workflows: %s", e)
-            return None
+            if async_to_sync(has_running)():
+                return "running"
+        except Exception as e:
+            # The except swallows the error, so OTel won't auto-record it on the span — mark it
+            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
+            span = trace.get_current_span()
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR))
+            logger.warning("Failed to list session summarization workflows: %s", e)
+        return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
