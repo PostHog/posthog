@@ -1583,6 +1583,11 @@ class JobNimbusSourceConfig(config.Config):
 
 
 @config.config
+class JobberSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class JotformSourceConfig(config.Config):
     pass
 
@@ -3761,6 +3766,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.JAMFPRO: JamfProSourceConfig,
         ExternalDataSourceType.JIRA: JiraSourceConfig,
         ExternalDataSourceType.JOBNIMBUS: JobNimbusSourceConfig,
+        ExternalDataSourceType.JOBBER: JobberSourceConfig,
         ExternalDataSourceType.JOTFORM: JotformSourceConfig,
         ExternalDataSourceType.JUDGEMEREVIEWS: JudgeMeReviewsSourceConfig,
         ExternalDataSourceType.JUSTCALL: JustCallSourceConfig,

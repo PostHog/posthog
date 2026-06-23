@@ -1798,6 +1798,7 @@ class ExternalDataSourceType(StrEnum):
     CHATWOOT = "Chatwoot"
     SANITY = "Sanity"
     METRONOME = "Metronome"
+    JOBBER = "Jobber"
 
 
 class ExternalQueryErrorCode(StrEnum):
