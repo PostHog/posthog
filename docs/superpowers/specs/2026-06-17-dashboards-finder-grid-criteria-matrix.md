@@ -1,9 +1,9 @@
-# Dashboards control/explorer/tree experiment — criteria matrix
+# Dashboards control/explorer experiment — criteria matrix
 
 Source spec: [2026-06-17-dashboards-finder-grid-experiment-design.md](2026-06-17-dashboards-finder-grid-experiment-design.md)
-Generated: 2026-06-17 (fresh-eyes test architect, proof-driven-dev Phase 2); updated for the control/explorer/tree reframe.
+Generated: 2026-06-17 (fresh-eyes test architect, proof-driven-dev Phase 2); updated for the two-arm control/explorer cut.
 
-> **Reframe note:** the experiment is now `control` / `explorer` / `tree` — the flat-card **grid arm was dropped**. `explorer` is the arm formerly called "finder" (drill-in). `tree` is a persistent `LemonTree` folder panel beside the familiar dashboards table, scoped recursively. REQ-04/REQ-05 (the grid arm) are **retired**; new requirements cover the tree arm, the explorer's new affordances (search, compacted chains, breadcrumb sibling dropdowns, "Move to…" picker, "New folder"), and the folder-rows data layer (empty folders). Items genuinely not built on the current branch are marked **DEFERRED**.
+> **Scope note:** the experiment is now a **two-arm A/B** — `control` (A) vs `explorer` (B). `explorer` is the arm formerly called "finder" (drill-in). Two cuts got here: the flat-card **grid arm was retired** (original finder/grid reframe), then the **tree arm was built but cut before launch** (the team's ship intent was to run explorer regardless of how tree performed, so a three-arm test risked an ambiguous tie). REQ-04/REQ-05 (the grid arm) **and** REQ-32 (the tree panel) are **retired** — kept as explicit retirement stubs, not deleted. The explorer's affordances (search, compacted chains, breadcrumb sibling dropdowns, "Move to…" picker, "New folder") and the shared folder-rows data layer (empty folders, `folderTree`, `folderSiblings`) all survive — the explorer still ships them. Items genuinely not built on the current branch are marked **DEFERRED**.
 
 ## Scale and triage (auto-applied while user away — confirm at human checkpoint)
 
@@ -20,13 +20,13 @@ Triage was applied by **rule** (not per-item by a human, who was away) — pleas
 
 ### Suggested PR increments (build order)
 
-The current branch bundles the foundation, **both** treatment arms (explorer + tree), the shared folder-data layer, the explorer's organizing toolkit (drag, per-card menu, "Move to…", clipboard, rename, "New folder"), and the load-bearing primary-metric event — all behind the flag, control untouched.
+The current branch bundles the foundation, the **explorer** treatment arm, the shared folder-data layer, the explorer's organizing toolkit (drag, per-card menu, "Move to…", clipboard, rename, "New folder"), and the load-bearing primary-metric event — all behind the flag, control untouched. The tree arm was built then cut (REQ-32 retired).
 
-1. **Foundation + both arms + core metric** (on this branch) — REQ-01, 02, 03, 06, 07, 08, 10, 11, 12, 13, 15, 17, 32, 33, 34, 35, 36, 37. Variant switch; control byte-for-byte unchanged; explorer + tree usable; folder rows loaded (empty folders appear); `dashboard moved to folder` emitting on the shared move path.
+1. **Foundation + explorer arm + core metric** (on this branch) — REQ-01, 02, 03, 06, 07, 08, 10, 11, 12, 13, 15, 17, 33, 34, 35, 36, 37. Variant switch; control byte-for-byte unchanged; explorer usable; folder rows loaded (empty folders appear); `dashboard moved to folder` emitting on the shared move path.
 2. **Measurement + analysis** — REQ-16 (DEFERRED `opened from list`), 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 24 (events, guardrails, robust/CUPED metric, segmentation, decision rules, staged rollout, exposure/group). Several are analysis/config + queries, not UI code.
 3. **Power features deferred from increment 1** — REQ-09 (multi-select / bulk), the move-event prop contract (`method` / `multi_select_count`), the feedback affordance + analytics events (REQ-14, 18, 19, 20), and copy=paste placement in the target folder.
 
-> **Retired:** REQ-04 (grid cards under folder headers) and REQ-05 (grid drag-to-header) are retired with the grid arm. Their useful drag/no-op/rollback edge cases are folded into the tree/explorer drag requirement (REQ-33).
+> **Retired:** REQ-04 (grid cards under folder headers) and REQ-05 (grid drag-to-header) are retired with the grid arm. REQ-32 (the LemonTree panel) is retired with the tree arm. Their useful drag/no-op/rollback edge cases are folded into the explorer drag requirement (REQ-33).
 
 ## Challenge items (spec under-specifies — must be pinned in the plan)
 
@@ -36,7 +36,7 @@ The current branch bundles the foundation, **both** treatment arms (explorer + t
 - CH-04: same-dashboard re-open is NOT a pogo-stick (only opening a _different_ dashboard counts as a failed first-open). (EC-21c)
 - CH-05: multi-tab opens (A in one tab, B in another, same session) must not be miscounted as a pogo-stick. (EC-21i, EC-24a)
 - CH-06: "New dashboard" created while drilled into an explorer subfolder — define where it lands (current folder vs Unfiled). (EC-07d)
-- CH-07: sidebar-vs-explorer/tree folder-create must not double-count `dashboard folder created` (a measurement-increment event). (EC-18a)
+- CH-07: sidebar-vs-explorer folder-create must not double-count `dashboard folder created` (a measurement-increment event). (EC-18a)
 - CH-08: CUPED handling for projects with no pre-exposure data (new projects) — drop vs impute; must not bias. (EC-23e)
 - CH-09: platform validation (gating, before build) — group-level experiment + winsorized/median custom-property metric + CUPED must be confirmed supported. (EC-24e, EC-23h, EC-31d)
 
@@ -45,8 +45,8 @@ The current branch bundles the foundation, **both** treatment arms (explorer + t
 ```text
 REQUIREMENTS:
   - id: REQ-01  priority: must-have
-    description: Multivariate feature flag `dashboards-list-view` resolves to one of three arms (control | explorer | tree)
-    happy_path: An enrolled project receives a stable variant; the dashboards page renders the matching arm for every member of that project.
+    description: Multivariate feature flag `dashboards-list-view` resolves to one of two live arms (control | explorer); retired strings (grid | finder | tree) resolve to control
+    happy_path: An enrolled project receives a stable variant; the dashboards page renders the matching arm for every member of that project; any retired variant string resolves to control.
     proof_type: [test]
     edge_cases:
       - EC-01a [must] flag undefined/null (service unreachable) → fall back to control, never blank/crash [test]
@@ -61,14 +61,14 @@ REQUIREMENTS:
 
   - id: REQ-02  priority: must-have
     description: Variant registry maps variant → component, mirroring authFlowVariants.ts
-    happy_path: resolveDashboardsListViewVariant + DASHBOARDS_LIST_VIEW_VARIANTS expose exactly control/explorer/tree; DashboardsContent renders DashboardsTableContainer / DashboardsExplorer / DashboardsTree accordingly.
+    happy_path: resolveDashboardsListViewVariant + DASHBOARDS_LIST_VIEW_VARIANTS expose exactly control/explorer; DashboardsContent renders DashboardsTableContainer / DashboardsExplorer accordingly.
     proof_type: [test]
     edge_cases:
       - EC-02a [must] missing key → control default, not undefined [test]
       - EC-02b [must] single source of arm defs — no duplicated switch elsewhere [test]
       - EC-02c [must] control (DashboardsTableContainer) byte-for-byte unchanged vs baseline [test, visual]
       - EC-02d [must] default fallback is control specifically, never a treatment arm [test]
-      - EC-02e [must] retired strings ("grid", "finder") resolve to control, not a treatment arm [test]
+      - EC-02e [must] retired strings ("grid", "finder", "tree") resolve to control, not a treatment arm [test]
 
   - id: REQ-03  priority: must-have
     description: Control arm renders today's flat list unchanged
@@ -83,13 +83,13 @@ REQUIREMENTS:
 
   - id: REQ-04  priority: RETIRED
     description: "[RETIRED with the grid arm] Grid arm renders cards grouped under collapsible folder headers"
-    happy_path: N/A — the flat-card grid arm was dropped in the control/explorer/tree reframe. Folder-grouping and collapse behavior now live in the explorer (subfolder cards) and tree (LemonTree expand/collapse) arms — see REQ-06, REQ-32. Empty-folder and stable-order coverage moved to REQ-37 (folder-rows data layer).
+    happy_path: N/A — the flat-card grid arm was dropped in the original finder/grid reframe. Folder-grouping now lives in the explorer (subfolder cards) — see REQ-06. Empty-folder and stable-order coverage moved to REQ-37 (folder-rows data layer).
     proof_type: []
     edge_cases: []
 
   - id: REQ-05  priority: RETIRED
     description: "[RETIRED with the grid arm] Grid drag-a-card-onto-a-folder-header to file a dashboard"
-    happy_path: N/A — drag-to-folder survives in both treatment arms but onto folder *cards* (explorer), not collapsible headers. The drag/no-op/rollback/keyboard-fallback edge cases moved to REQ-33.
+    happy_path: N/A — drag-to-folder survives in the explorer arm but onto folder *cards*, not collapsible headers. The drag/no-op/rollback/keyboard-fallback edge cases moved to REQ-33.
     proof_type: []
     edge_cases: []
 
@@ -116,12 +116,12 @@ REQUIREMENTS:
     happy_path: Tab bar, search, filters, "New dashboard" identical across arms; only the body differs.
     proof_type: [test, visual]
     edge_cases:
-      - EC-07a [must] switch tab in explorer/tree → body re-renders filtered set, chrome unchanged [test, visual-flow]
-      - EC-07b [must] zero search results → explorer shows "No dashboards match your search"; tree/control show their empty affordance [test, visual]
+      - EC-07a [must] switch tab in explorer → body re-renders filtered set, chrome unchanged [test, visual-flow]
+      - EC-07b [must] zero search results → explorer shows "No dashboards match your search"; control shows its empty affordance [test, visual]
       - EC-07c [must] explorer search flips to a flat results grid (DashboardsFiltersBar drives dashboardsLogic.filters.search) [test]
       - EC-07d [must] New dashboard created while drilled into an explorer subfolder → lands per defined rule (CH-06) — DEFERRED until CH-06 pinned [test]
-      - EC-07e [must] filter applied in tree → recursive subtree content reflects the filtered set, tree panel unchanged [test, visual]
-      - EC-07f [nice] Templates tab inside a folder arm → defined fallback (templates not folderable) [test, visual]
+      - EC-07e [n/a] RETIRED with the tree arm — filter-applied-in-tree recursive-subtree case [n/a]
+      - EC-07f [nice] Templates tab inside the explorer arm → defined fallback (templates not folderable) [test, visual]
       - EC-07g [must] search HTML/script injection → rendered safe, no XSS [test]
       - EC-07h [nice] unicode/emoji search query [test]
 
@@ -176,7 +176,7 @@ REQUIREMENTS:
       - EC-10k [nice] keyboard-only rename (Enter/Esc) [test, manual]
 
   - id: REQ-11  priority: must-have
-    description: Per-card actions menu in the explorer/tree cards (Open / Rename / Move to… / Cut / Copy / Delete)
+    description: Per-card actions menu in the explorer cards (Open / Rename / Move to… / Cut / Copy / Delete)
     happy_path: A DropdownMenu on each dashboard card exposes Open (router push), Rename (startRenaming), Move to… (moveToLogic.openMoveToModal with the card's FileSystem entry), Cut, Copy, and Delete (deleteDashboardLogic.showDeleteDashboardModal). It is a click-triggered actions dropdown, not a right-click context menu.
     proof_type: [test, visual]
     edge_cases:
@@ -209,8 +209,8 @@ REQUIREMENTS:
     happy_path: every mutation delegates — move → projectTreeDataLogic.moveItem, "Move to…" → moveToLogic, duplicate/rename → dashboardsModel, delete → deleteDashboardLogic, new folder → api.fileSystem.create; FileSystem rows are the single source of truth, so the sidebar reflects changes.
     proof_type: [test]
     edge_cases:
-      - EC-13a [must] explorer/tree move updates sidebar without manual refresh (shared moveItem path) [test]
-      - EC-13b [must] folder created in sidebar appears in explorer/tree and vice versa (folder rows reloaded) [test]
+      - EC-13a [must] explorer move updates sidebar without manual refresh (shared moveItem path) [test]
+      - EC-13b [must] folder created in sidebar appears in the explorer and vice versa (folder rows reloaded) [test]
       - EC-13c [must] rollback on server error reverts BOTH body and sidebar [test]
       - EC-13d [nice] undo of a move restores both views (moveItem undo) [test]
       - EC-13e [must] concurrent writes from body + sidebar → no duplicate calls, consistent [test]
@@ -218,8 +218,8 @@ REQUIREMENTS:
       - EC-13g [must] new folder created via api.fileSystem.create → loadFolderEntries refetch + navigate into it; failure surfaces a toast [test]
 
   - id: REQ-14  priority: DEFERRED
-    description: "[DEFERRED — not built] \"Not a fan? tell us\" feedback affordance in non-control arms only"
-    happy_path: explorer/tree show a lightweight feedback control; control does not; captures qualitative feedback, no exposure-leaking toggle. Not built on the current branch; edge cases retained for the later increment.
+    description: "[DEFERRED — not built] \"Not a fan? tell us\" feedback affordance in the explorer arm only"
+    happy_path: the explorer shows a lightweight feedback control; control does not; captures qualitative feedback, no exposure-leaking toggle. Not built on the current branch; edge cases retained for the later increment.
     proof_type: [test, visual]
     edge_cases:
       - EC-14a [must] control does NOT render the affordance [test, visual]
@@ -232,8 +232,8 @@ REQUIREMENTS:
       - EC-14h [nice] copy reads low-pressure + Sentence casing [manual]
 
   - id: REQ-15  priority: nice-to-have
-    description: Generic dashboard / folder type-icons in explorer/tree (v1, no thumbnails)
-    happy_path: explorer cards use IconDashboard / IconFolder; the tree uses LemonTree's folder rendering; consistent across all dashboards.
+    description: Generic dashboard / folder type-icons in the explorer (v1, no thumbnails)
+    happy_path: explorer cards use IconDashboard / IconFolder; consistent across all dashboards.
     proof_type: [visual, manual]
     edge_cases:
       - EC-15a [must] folder (IconFolder) vs dashboard (IconDashboard) icons distinguishable [visual]
@@ -273,10 +273,10 @@ REQUIREMENTS:
 
   - id: REQ-18  priority: DEFERRED
     description: "[DEFERRED to the measurement increment] Folder lifecycle events `dashboard folder created|renamed|deleted`"
-    happy_path: create/rename/delete a folder from explorer/tree fires the corresponding single event. Not emitted on the current branch (folder create/delete delegate to api.fileSystem.create / deleteDashboardLogic without a dedicated analytics event yet). Edge cases retained.
+    happy_path: create/rename/delete a folder from the explorer fires the corresponding single event. Not emitted on the current branch (folder create/delete delegate to api.fileSystem.create / deleteDashboardLogic without a dedicated analytics event yet). Edge cases retained.
     proof_type: [test]
     edge_cases:
-      - EC-18a [must] explorer/tree vs sidebar create → no double-count (CH-07) [test]
+      - EC-18a [must] explorer vs sidebar create → no double-count (CH-07) [test]
       - EC-18b [must] no-op rename does NOT fire renamed [test]
       - EC-18c [must] failed delete (403/409) does NOT fire deleted [test]
       - EC-18d [must] delete folder w/ dashboards → single delete event (not per child) per contract [test]
@@ -309,7 +309,7 @@ REQUIREMENTS:
 
   - id: REQ-21  priority: must-have
     description: First-open-success / anti-pogo-stick guardrail from existing pageview sequences (backtestable)
-    happy_path: a find "succeeds" iff the first dashboard opened in a session is the one kept (no bounce-to-list + open of a DIFFERENT dashboard in-window); pogo-stick rate must not rise for explorer/tree vs control.
+    happy_path: a find "succeeds" iff the first dashboard opened in a session is the one kept (no bounce-to-list + open of a DIFFERENT dashboard in-window); pogo-stick rate must not rise for explorer vs control.
     proof_type: [test]
     edge_cases:
       - EC-21a [must] open A, stay → success [test]
@@ -324,7 +324,7 @@ REQUIREMENTS:
 
   - id: REQ-22  priority: must-have
     description: Find-conversion (non-bounce) guardrail; first-class for cold-start
-    happy_path: share of list visits that open >= 1 dashboard in-session, per arm/project; must not drop for explorer/tree vs control, esp. cold-start.
+    happy_path: share of list visits that open >= 1 dashboard in-session, per arm/project; must not drop for explorer vs control, esp. cold-start.
     proof_type: [test]
     edge_cases:
       - EC-22a [must] visit opens >=1 → converted [test]
@@ -372,7 +372,7 @@ REQUIREMENTS:
       - EC-25b [must] user in multiple projects in different arms → per-project assignment, no cross-leak [test]
       - EC-25c [must] project with no group id → defined fallback (control), no random per-person split [test]
       - EC-25d [nice] new member mid-experiment → inherits project's arm [test]
-      - EC-25e [must] folder filed by an explorer/tree member visible to all, but each renders their (same) arm [test]
+      - EC-25e [must] folder filed by an explorer member visible to all, but each renders their (same) arm [test]
 
   - id: REQ-26  priority: must-have
     description: Pre-exposure dashboard-count segmentation (1-5 / 6-20 / 21+), pinned pre-exposure
@@ -398,7 +398,7 @@ REQUIREMENTS:
 
   - id: REQ-28  priority: must-have
     description: PRIMARY metric — folder-organization adoption: share of exposed projects that create a real (non-Unfiled) folder or move a dashboard into one within the window
-    happy_path: project-level adoption proportion at a low single-digit baseline, per arm; ship/no-ship gated on this PLUS the guardrails; derived primarily from the shared `dashboard moved to folder` event (REQ-17). Explorer and tree are compared to find which paradigm drives deeper organizing. Organizing depth (moves/creations per organizing project) is the supporting secondary.
+    happy_path: project-level adoption proportion at a low single-digit baseline, per arm; ship/no-ship gated on this PLUS the guardrails; derived primarily from the shared `dashboard moved to folder` event (REQ-17). Explorer is compared to control to see how much the drill-in paradigm lifts organizing. Organizing depth (moves/creations per organizing project) is the supporting secondary.
     proof_type: [test]
     edge_cases:
       - EC-28a [must] zero-organizing user counted in denominator [test]
@@ -418,14 +418,14 @@ REQUIREMENTS:
 
   - id: REQ-30  priority: must-have
     description: Ship/no-ship decision rules — adoption primary + guardrail vetoes + cold-start contingency
-    happy_path: ship the winning treatment arm on an adoption lift over control with NO guardrail regression (first-open success, find-conversion, engagement); A-vs-explorer, A-vs-tree, and explorer-vs-tree are all real reads; cold-start contingency (ship tree / gate explorer) honored.
+    happy_path: ship explorer on an adoption lift over control with NO guardrail regression (first-open success, find-conversion, engagement); A-vs-explorer is the single ship/no-ship read; cold-start contingency (hold the ship / gate explorer on onboarding) honored.
     proof_type: [test, manual]
     edge_cases:
       - EC-30a [must] explorer beats control but pogo-stick regresses → NO-SHIP explorer (guardrail veto) [test]
-      - EC-30b [must] explorer beats control but cold-start find-conversion drops → contingency (ship tree / gate explorer) [test]
-      - EC-30c [must] explorer-vs-tree is a real read but not the sole ship gate (adoption lift + guardrails gate) [test, manual]
+      - EC-30b [must] explorer beats control but cold-start find-conversion drops → contingency (hold the ship / gate explorer on onboarding) [test]
+      - EC-30c [n/a] RETIRED with the tree arm — explorer-vs-tree comparison [n/a]
       - EC-30d [nice] adoption result below the pre-registered MDE → require the powered threshold before ship [manual]
-      - EC-30e [must] both null → keep A, bank learning, no fishing [test, manual]
+      - EC-30e [must] explorer null vs control → keep A, bank learning, no fishing [test, manual]
       - EC-30f [must] guardrail regression with no primary win → no-ship [test]
 
   - id: REQ-31  priority: must-have
@@ -438,22 +438,13 @@ REQUIREMENTS:
       - EC-31c [nice] friendly-account list finite/explicit, no accidental broad enable [manual]
       - EC-31d [must] metric-validation go/no-go gate blocks start if primary is insane (CH-09) [manual]
 
-  # --- New requirements added in the control/explorer/tree reframe ---
+  # --- Requirements added in the explorer reframe (REQ-32 since retired with the tree arm) ---
 
-  - id: REQ-32  priority: must-have
-    description: Tree arm — persistent LemonTree folder panel (left) beside the dashboards table (right), scoped recursively
-    happy_path: variant=tree renders the sidebar's LemonTree as a left panel (with an "All dashboards" root) beside DashboardsTable on the right; clicking a folder shows every dashboard at or below it recursively (root = all); the table keeps its own search/filters bar + row actions, so organizing happens there.
-    proof_type: [test, visual, visual-flow]
-    edge_cases:
-      - EC-32a [must] root ("All dashboards") selected → table shows all dashboards (subtreeDashboards with empty prefix) [test]
-      - EC-32b [must] folder selected → table shows that folder's subtree recursively, including nested folders' dashboards [test]
-      - EC-32c [must] empty folder selected → empty table, panel still navigable, not a dead end [test, visual]
-      - EC-32d [must] expand/collapse a tree node → toggleFolder flips one folder; expandedItemIds derives from collapsedFolders [test]
-      - EC-32e [must] active folder highlighted (isItemActive matches currentFolder) [visual]
-      - EC-32f [nice] deep nesting / long folder names render in the fixed-width (240px) panel without breaking layout [visual]
-      - EC-32g [must] folder rows include empty folders so childless folders still appear and are clickable (record.type='folder') [test]
-      - EC-32h [nice] mobile/tablet two-column reflow [visual]
-      - EC-32i [nice] keyboard/screen-reader navigable tree + "All dashboards" button [test, manual]
+  - id: REQ-32  priority: RETIRED
+    description: "[RETIRED with the tree arm — built then cut before launch] Tree arm — persistent LemonTree folder panel beside the dashboards table, scoped recursively"
+    happy_path: N/A — the persistent-tree paradigm was built (DashboardsTree panel + recursive subtree content) but cut before launch to keep the experiment a crisp two-arm A/B (it was a science arm, not a decision arm). The tree-exclusive code was removed (DashboardsTree, the currentSubtreeDashboards selector, the subtreeDashboards util, toggleFolder/collapsedFolders expand-state). The shared folder-rows data layer it once shared survives in REQ-37 (the explorer still needs empty folders + folderTree + folderSiblings). The empty-folder coverage lives on in EC-37a.
+    proof_type: []
+    edge_cases: []
 
   - id: REQ-33  priority: must-have
     description: Drag-a-dashboard-onto-a-folder to file it (explorer folder cards) via the shared dnd helper
@@ -481,8 +472,8 @@ REQUIREMENTS:
       - EC-34f [must] search HTML/script injection rendered safe (REQ-07g) [test]
 
   - id: REQ-35  priority: must-have
-    description: "\"New folder\" affordance (explorer + tree) creates a folder inside the current folder"
-    happy_path: a "New folder" button (atop the tree / on the explorer breadcrumb row) opens a name dialog; on submit, createFolder joins the name under currentFolder, calls api.fileSystem.create({type:'folder'}), reloads folder rows, navigates into the new folder, and toasts success.
+    description: "\"New folder\" affordance (explorer) creates a folder inside the current folder"
+    happy_path: a "New folder" button on the explorer breadcrumb row opens a name dialog; on submit, createFolder joins the name under currentFolder, calls api.fileSystem.create({type:'folder'}), reloads folder rows, navigates into the new folder, and toasts success.
     proof_type: [test, visual-flow]
     edge_cases:
       - EC-35a [must] empty/whitespace name → dialog field error, no create call (LemonDialog errors + createFolder trim guard) [test]
@@ -504,10 +495,10 @@ REQUIREMENTS:
 
   - id: REQ-37  priority: must-have
     description: Folder-rows data layer — load BOTH dashboard and folder FileSystem rows so empty folders appear
-    happy_path: dashboardsFileSystemLogic loads type=dashboard rows (index each dashboard to its folder via ref) AND type=folder rows (so empty/just-created folders appear), then derives folderTree, folderContents/compactedSubfolders, subtreeDashboards, and the breadcrumb; dashboards with no row fall back to Unfiled/Dashboards.
+    happy_path: dashboardsFileSystemLogic loads type=dashboard rows (index each dashboard to its folder via ref) AND type=folder rows (so empty/just-created folders appear), then derives folderTree, folderContents/compactedSubfolders, and the breadcrumb / folderSiblings; dashboards with no row fall back to Unfiled/Dashboards. (The tree-exclusive subtreeDashboards derivation was removed with REQ-32.)
     proof_type: [test]
     edge_cases:
-      - EC-37a [must] empty folder (folder row, no dashboards) → appears in folderTree + as a subfolder card / tree node [test]
+      - EC-37a [must] empty folder (folder row, no dashboards) → appears in folderTree + as a subfolder card in the explorer [test]
       - EC-37b [must] dashboard with no FileSystem row → grouped under Unfiled/Dashboards [test]
       - EC-37c [must] folder tree is stable-sorted (shallowest-first build, label localeCompare) [test]
       - EC-37d [must] ancestors of a deep folder all appear even if only the leaf has dashboards (addWithAncestors) [test]
@@ -517,11 +508,13 @@ REQUIREMENTS:
       - EC-37h [nice] malformed row (missing path/ref) → skipped/Unfiled, no crash [test]
 
 SUMMARY:
-  total_requirements: 37 (REQ-04, REQ-05 retired; REQ-32..37 added in the control/explorer/tree reframe)
-  arms: control | explorer | tree (grid retired)
-  built_on_current_branch: REQ-01,02,03,06,07,08,10,11,12,13,15,17,32,33,34,35,36,37 (foundation + both arms + folder-rows layer + load-bearing move event)
+  total_requirements: 37 (REQ-04, REQ-05, REQ-32 retired; REQ-33..37 ship with the explorer arm)
+  live_requirements: 34 (37 total − 3 retired: REQ-04, REQ-05, REQ-32)
+  arms: control | explorer (grid and tree both retired)
+  built_on_current_branch: REQ-01,02,03,06,07,08,10,11,12,13,15,17,33,34,35,36,37 (foundation + explorer arm + folder-rows layer + load-bearing move event)
   deferred (measurement increment / later): REQ-09 (multi-select), REQ-14 (feedback affordance), REQ-16 (opened from list), REQ-18/19/20 (folder-lifecycle / clipboard / feedback events), the REQ-17 method+multi_select_count props, copy=paste target-folder placement, pagination
   retired_with_grid_arm: REQ-04, REQ-05
+  retired_with_tree_arm: REQ-32 (built then cut before launch)
   measurement/analysis (not UI): REQ-21,22,23,24,25,26,27,28,29,30,31
-  priority (rule-applied, confirm at checkpoint): must-have core ~ REQ-01,02,03,06,07,08,10,11,12,13,17,21,22,23,24,25,26,27,28,30,31,32,33,34,35,36,37; nice-to-have REQ-15,29 + flagged [nice] edge cases; DEFERRED REQ-09,14,16,18,19,20
+  priority (rule-applied, confirm at checkpoint): must-have core ~ REQ-01,02,03,06,07,08,10,11,12,13,17,21,22,23,24,25,26,27,28,30,31,33,34,35,36,37; nice-to-have REQ-15,29 + flagged [nice] edge cases; DEFERRED REQ-09,14,16,18,19,20; RETIRED REQ-04,05,32
 ```

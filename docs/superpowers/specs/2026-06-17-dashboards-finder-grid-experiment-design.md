@@ -1,10 +1,10 @@
-# Dashboards list: control/explorer/tree experiment — design
+# Dashboards list: control/explorer experiment — design
 
-Status: draft (brainstorm + inverse pass resolved; arms reframed control/explorer/tree, pending review)
+Status: draft (brainstorm + inverse pass resolved; cut to two arms control/explorer, pending review)
 Date: 2026-06-17
 Area: product analytics — dashboards list
 
-> **Reframe note (supersedes the original three-arm finder/grid design):** the experiment was reframed from `control` / `grid` / `finder` to a **paradigm test** — `control` / `explorer` / `tree`. The flat-card **grid arm was dropped**; the two treatment arms are now two genuinely different folder-navigation paradigms (drill-in vs persistent tree). The flag key (`dashboards-list-view`) is unchanged; its variants are now `control,explorer,tree`. Everywhere below, **explorer** is the arm formerly called "finder". The experiment goal, primary/secondary metrics, power analysis, guardrails, and randomization are unchanged — only the arms and their affordances changed.
+> **Scope note (supersedes the earlier three-arm design):** the experiment is now a **two-arm A/B test** — `control` (A) vs `explorer` (B). It went through two cuts. First, the flat-card **grid arm was retired** (in the original finder/grid reframe). Then the **tree arm was built but cut before launch** (see "Tree arm — considered and cut" in the Decisions log) — leaving a clean drill-in-vs-flat-list test. The flag key (`dashboards-list-view`) is unchanged; its variants are now `control,explorer`. Everywhere below, **explorer** is the arm formerly called "finder". The experiment goal, primary/secondary metrics, power analysis, and guardrails are unchanged — only the arm count and names changed. The shared folder-data layer (folder rows, `folderTree`, breadcrumb sibling helpers) survives the tree's removal because the explorer still depends on it.
 
 ## Problem
 
@@ -33,47 +33,44 @@ Folders are not new. The project-tree `FileSystem` system already ships, in prod
 - every dashboard auto-syncs a `FileSystem` entry (default path `Unfiled/Dashboards`) via `FileSystemSyncMixin`
 
 So this experiment is **not** "build folders."
-It is "does surfacing the existing folder structure _on the dashboards page_ — as a drill-in explorer or a persistent tree — beat the flat list?"
-The genuinely net-new UI is two folder-navigation paradigms over the existing FileSystem rows, a clipboard state machine (cut=move, copy=duplicate), and inline rename — almost all of which composes existing ProjectTree / FileSystem infrastructure (`LemonTree`, `projectTreeDataLogic.moveItem`, the `moveToLogic` FolderSelect modal, `dashboardsModel` duplicate/rename, `deleteDashboardLogic`).
+It is "does surfacing the existing folder structure _on the dashboards page_ — as a drill-in explorer — beat the flat list?"
+The genuinely net-new UI is a drill-in folder-navigation paradigm over the existing FileSystem rows, a clipboard state machine (cut=move, copy=duplicate), and inline rename — almost all of which composes existing ProjectTree / FileSystem infrastructure (`projectTreeDataLogic.moveItem`, the `moveToLogic` FolderSelect modal, `dashboardsModel` duplicate/rename, `deleteDashboardLogic`).
 
 ## Experiment design
 
-### Arms (one multivariate flag)
+### Arms (one multivariate flag, two live arms)
 
-Flag: `dashboards-list-view`, variants `control` | `explorer` | `tree`. The resolver defaults any missing, unknown, boolean, or empty value to `control` — a project is never silently enrolled in a treatment arm.
+Flag: `dashboards-list-view`, live variants `control` | `explorer`. The resolver defaults any missing, unknown, boolean, or empty value to `control` — a project is never silently enrolled in a treatment arm. Retired variant strings (`grid`, `finder`, `tree`) also resolve to `control`.
 
-| Arm | Variant    | What it is                                                                                                                                                                                                                                                                                                           | Role                                                              |
-| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| A   | `control`  | Today's flat list, byte-for-byte unchanged.                                                                                                                                                                                                                                                                          | Control                                                           |
-| B   | `explorer` | Drill-in folder navigation: breadcrumb with sibling-folder dropdowns, compacted single-child folder chains, folder + dashboard cards, drag-to-folder, per-card actions menu, clipboard (cut=move, copy=duplicate) with a paste affordance, "New folder", and a global name search that flips to a flat results grid. | Drill-in paradigm                                                 |
-| C   | `tree`     | Persistent folder tree on the **left** (reusing the sidebar's `LemonTree`) beside the familiar dashboards table on the **right**. Clicking a folder shows every dashboard at or below it **recursively** (root = all). The table brings its own row actions + search/filters bar; "New folder" sits atop the tree.   | Persistent-tree paradigm (the "C" idea, validated by a colleague) |
+| Arm | Variant    | What it is                                                                                                                                                                                                                                                                                                           | Role              |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| A   | `control`  | Today's flat list, byte-for-byte unchanged.                                                                                                                                                                                                                                                                          | Control           |
+| B   | `explorer` | Drill-in folder navigation: breadcrumb with sibling-folder dropdowns, compacted single-child folder chains, folder + dashboard cards, drag-to-folder, per-card actions menu, clipboard (cut=move, copy=duplicate) with a paste affordance, "New folder", and a global name search that flips to a flat results grid. | Drill-in paradigm |
 
-What is held identical across all arms (experiment hygiene):
+What is held identical across both arms (experiment hygiene):
 the tab bar (All / Yours / Pinned / Templates), search, filters, "New dashboard", and the underlying dashboard data.
 Only the body presentation differs.
 
-The format is **fixed per arm for the duration of the test** — no user-facing list/explorer/tree toggle (a toggle would let a user leave their assigned arm and blur exposure). Instead, each non-control arm carries a lightweight "not a fan? tell us" feedback affordance for qualitative signal without leaking exposure. A user-facing toggle is in scope only when shipping the winner.
+The format is **fixed per arm for the duration of the test** — no user-facing list/explorer toggle (a toggle would let a user leave their assigned arm and blur exposure). Instead, the explorer arm carries a lightweight "not a fan? tell us" feedback affordance for qualitative signal without leaking exposure. A user-facing toggle is in scope only when shipping the winner.
 
-### Decomposition the arms buy
+### Decomposition the comparison buys
 
-- A → B isolates **drill-in folder navigation** (the spatial, file-manager paradigm) plus the full organizing toolkit (drag, menu, clipboard, rename).
-- A → C isolates **a persistent folder tree beside the familiar table** — organizing stays in the table's own row actions; the tree adds folder scoping without changing the row presentation.
-- B vs C is the **paradigm comparison**: does drilling into folders (explorer) or keeping the whole table visible under a tree (tree) better drive organizing?
+- A → B isolates **drill-in folder navigation** (the spatial, file-manager paradigm) plus the full organizing toolkit (drag, menu, clipboard, rename) against today's flat list.
 
-The most actionable question: _which folder paradigm best moves organizing without hurting finding?_
-All comparisons are clean (group-level → no spillover). With folder-organization adoption as the well-powered primary, A-vs-B, A-vs-C, **and** B-vs-C can all be real reads — B-vs-C answers "drill-in explorer vs persistent tree" for organizing, combined with build-cost and dogfood feedback.
+The single actionable question: _does surfacing drill-in folder navigation on the dashboards page move organizing without hurting finding?_
+The comparison is clean (group-level → no spillover). With folder-organization adoption as the well-powered primary, A-vs-B is a crisp ship / no-ship read on the explorer paradigm — no third arm to force a tiebreaker.
 
 ### Randomization unit
 
 **Group-level on the `project` group type.**
 Folders are project-scoped shared state: if an `explorer` user files the team's dashboards into folders,
 those folders exist for everyone on that project. At group level every member of a project is in the same arm,
-so there is **no within-project spillover anywhere** — every comparison stays unbiased. (Person-level would buy more
-units but would bias exactly the explorer-vs-tree comparison via shared folders; unbiased-but-wide beats biased-but-narrow.)
+so there is **no within-project spillover anywhere** — the A-vs-B comparison stays unbiased. (Person-level would buy more
+units but would bias the comparison via shared folders — an `explorer` user's folders would be visible to a `control` user on the same project; unbiased-but-narrower beats biased-but-wide.)
 
 ### Power
 
-The primary (folder-organization adoption) is a **project-level proportion at a low single-digit baseline** — well-behaved variance, highly sensitive, group-level-native. Pre-launch sizing shows tens of thousands of qualifying projects, so detecting a meaningful lift (a low-single-digit baseline rising by roughly half) needs only ~1–2k projects per arm — comfortably powered even three ways. Choosing adoption as the primary is what sidesteps the power problem described next; the run can be sized to a realistic adoption lift rather than dragged out for a noisy duration.
+The primary (folder-organization adoption) is a **project-level proportion at a low single-digit baseline** — well-behaved variance, highly sensitive, group-level-native. Pre-launch sizing shows tens of thousands of qualifying projects, so detecting a meaningful lift (a low-single-digit baseline rising by roughly half) needs only ~1–2k projects per arm — comfortably powered for the two-arm A/B. (Supply was never the constraint — the earlier analysis established this even at three arms; cutting to two arms was a clarity decision, not a power decision.) Choosing adoption as the primary is what sidesteps the power problem described next; the run can be sized to a realistic adoption lift rather than dragged out for a noisy duration.
 
 The **secondary** time-to-open metric is the variance-cursed one: a session-level proxy is heavily right-skewed (idle tabs / distractions), so a naive per-project mean is underpowered at a single month's volume. We measure it robustly (per-project median, winsorized, idle-capped, optionally CUPED) and read it as a **directional value-check, not a gate** — so it can never block a decision on power grounds.
 
@@ -81,8 +78,8 @@ The **secondary** time-to-open metric is the variance-cursed one: a session-leve
 
 ### Population and rollout (staged)
 
-1. **Dogfood**: enable the flag for the PostHog org (and optionally a small set of friendly accounts) to shake out the explorer + tree UX, duplication, and clipboard edge cases _before_ the experiment clock starts. Also the window to **validate the new primary metric behaves sanely** before trusting it.
-2. **Experiment**: start the group-level control/explorer/tree experiment enrolling all projects; run to the power target above.
+1. **Dogfood**: enable the flag for the PostHog org (and optionally a small set of friendly accounts) to shake out the explorer UX, duplication, and clipboard edge cases _before_ the experiment clock starts. Also the window to **validate the new primary metric behaves sanely** before trusting it.
+2. **Experiment**: start the group-level control/explorer experiment enrolling all projects; run to the power target above.
 3. **Analysis**: pre-registered segments only (no post-hoc fishing) — **pre-exposure** dashboard-count buckets (1–5 / 6–20 / 21+), organization-state (has real folders vs not), and the cold-start segment (projects with ~no folders). Dashboard count is pinned to its pre-exposure value because the treatment can move it (see duplication, below).
 4. **Ship the winner** per the success criteria below.
 
@@ -105,37 +102,35 @@ Secondary, value check (not a gate) — **time to open**:
 per-project median (winsorized, idle-tab-capped) elapsed time from landing on the list to opening a dashboard. Tells us whether an adoption lift actually translates into faster finding. Read directionally, never as a gate — so the variance problem can't block a decision.
 
 Secondary — **organizing depth**:
-folder moves and folder creations per organizing project (how _much_ they organize, beyond the binary). Compared across explorer and tree to see which paradigm drives deeper organizing.
+folder moves and folder creations per organizing project (how _much_ they organize, beyond the binary). Compared between control and explorer to see how much deeper the drill-in paradigm drives organizing.
 
 ### Reading the result (ship/no-ship)
 
-Primary = folder-organization adoption. Every rule also requires **no regression on the guardrails** (first-open success, find-conversion, engagement). The winning treatment arm — explorer or tree — is the one shipped.
+Primary = folder-organization adoption. The decision is a crisp A/B read: ship `explorer` or keep `control`. Every rule also requires **no regression on the guardrails** (first-open success, find-conversion, engagement).
 
-- A treatment arm lifts adoption over A (group-level significance) and holds the guardrails → ship that arm.
-- Both explorer and tree lift adoption and are statistically indistinguishable → ship the cheaper / better-liked paradigm (the tree reuses far more existing UI). Because adoption is well-powered, this explorer-vs-tree comparison can now be a real read, not just directional.
-- One paradigm lifts adoption but the other does not → ship the one that does.
-- **Cold-start contingency**: if the explorer arm lifts adoption but regresses find-conversion / first-open success in the cold-start (un-organized) segment — an expected risk given its folder-first-by-default drill-in — that is a pre-registered signal to **ship tree instead**, or to gate the explorer behind an auto-organize onboarding. The tree arm keeps the full table visible (root = all dashboards), so it is the lower-risk paradigm for cold-start finding.
-- Nothing lifts adoption over A → keep the list; bank the learning that surfacing organizing on the page wasn't enough.
+- Explorer lifts adoption over control (group-level significance) and holds the guardrails → **ship explorer**.
+- Explorer lifts adoption but regresses a guardrail → **no-ship** (guardrail veto); the affordance was used but didn't help, or hurt finding.
+- **Cold-start contingency**: if explorer lifts adoption but regresses find-conversion / first-open success in the cold-start (un-organized) segment — an expected risk given its folder-first-by-default drill-in — that is a pre-registered signal to **hold the ship** and gate the explorer behind an auto-organize onboarding (or a flat-first default for un-organized projects) before a re-run, rather than shipping a paradigm that hurts the un-organized majority.
+- Explorer does not lift adoption over control → keep the list; bank the learning that surfacing organizing on the page wasn't enough.
 
 ## UX design
 
-Two layouts (beside the unchanged control table). Load-bearing UX decisions:
+One new layout (the explorer, beside the unchanged control table). Load-bearing UX decisions:
 
-- **Icons**: generic dashboard / folder type-icons for v1 (no thumbnail render pipeline exists; deferred — see future work). The explorer cards use `IconDashboard` / `IconFolder`; the tree uses `LemonTree`'s folder rendering.
-- **Explorer is folder-first by default, always**: it opens into the folder hierarchy rather than a flat "all" view. This maximizes its separation from the tree arm and is the more faithful file-manager experience. It is a **deliberate, measured risk**: for the un-organized majority (everything in `Unfiled`) it adds a navigation step that should slow first finds — so the find-conversion guardrail and the cold-start segment are first-class, and the cold-start contingency above is pre-registered. Two affordances soften the cost: **compacted single-child folder chains** (a pass-through chain of one-child folders collapses to a single card, one click to a buried dashboard) and a **global name search** that flips the explorer to a flat results grid.
+- **Icons**: generic dashboard / folder type-icons for v1 (no thumbnail render pipeline exists; deferred — see future work). The explorer cards use `IconDashboard` / `IconFolder`.
+- **Explorer is folder-first by default, always**: it opens into the folder hierarchy rather than a flat "all" view — the more faithful file-manager experience. It is a **deliberate, measured risk**: for the un-organized majority (everything in `Unfiled`) it adds a navigation step that should slow first finds — so the find-conversion guardrail and the cold-start segment are first-class, and the cold-start contingency above is pre-registered. Two affordances soften the cost: **compacted single-child folder chains** (a pass-through chain of one-child folders collapses to a single card, one click to a buried dashboard) and a **global name search** that flips the explorer to a flat results grid.
 - **Explorer breadcrumb**: each crumb navigates to that ancestor; crumbs with siblings carry a **jump-to-sibling dropdown** so a user can switch folders without drilling back up.
 - **Explorer organizing toolkit**: drag a dashboard card onto a folder card to file it; a **per-card actions menu** (Open / Rename / Move to… / Cut / Copy / Delete); a **clipboard** (cut = move on paste, copy = duplicate on paste) surfaced as a "Paste into this folder" button when the buffer is non-empty; inline rename; and a **"New folder"** button that creates a folder inside the current folder.
-- **Tree's representation**: a persistent folder tree on the left (the sidebar's `LemonTree`), an "All dashboards" root above it, and the familiar dashboards table on the right scoped to **everything at or below the selected folder, recursively** (root = all). The whole table — including its own search/filters bar and row actions (move / rename / delete) — stays visible, so the tree is a _scope selector_, not a drill-in. Organizing happens in the table's existing row actions; a **"New folder"** button sits atop the tree.
-- **Feedback affordance**: a "not a fan? tell us" control in the non-control arms — qualitative dissatisfaction signal without an exposure-leaking toggle. _(Deferred on the current branch — see Known limitations.)_
+- **Feedback affordance**: a "not a fan? tell us" control in the explorer arm — qualitative dissatisfaction signal without an exposure-leaking toggle. _(Deferred on the current branch — see Known limitations.)_
 
 ## Architecture
 
 Approach: **hybrid — focused read logic, shared writes; heavy reuse of existing ProjectTree / FileSystem infra.**
 
 - A small variant registry ([dashboardsListViewVariants.ts](../../../frontend/src/scenes/dashboard/dashboards/dashboardsListViewVariants.ts)) resolves the flag to an arm, mirroring [authFlowVariants.ts](../../../frontend/src/scenes/authentication/authFlowVariants.ts), defaulting unknown → `control`.
-- A [`DashboardsContent`](../../../frontend/src/scenes/dashboard/dashboards/DashboardsContent.tsx) switch renders `DashboardsTableContainer` (control, unchanged) / `DashboardsExplorer` (new) / `DashboardsTree` (new).
-- All arms reuse [dashboardsLogic.ts](../../../frontend/src/scenes/dashboard/dashboards/dashboardsLogic.ts) for list/search/filter, and the control table component ([`DashboardsTable`](../../../frontend/src/scenes/dashboard/dashboards/DashboardsTable.tsx)) is reused verbatim by the tree arm's content pane.
-- A new [`dashboardsFileSystemLogic`](../../../frontend/src/scenes/dashboard/dashboards/dashboardsFileSystemLogic.ts) owns the genuinely-new view state: it loads the FileSystem rows, builds the folder tree + folder contents, tracks folder navigation/collapse, and holds the clipboard buffer.
+- A [`DashboardsContent`](../../../frontend/src/scenes/dashboard/dashboards/DashboardsContent.tsx) switch renders `DashboardsTableContainer` (control, unchanged) / `DashboardsExplorer` (new).
+- Both arms reuse [dashboardsLogic.ts](../../../frontend/src/scenes/dashboard/dashboards/dashboardsLogic.ts) for list/search/filter; the control table component ([`DashboardsTable`](../../../frontend/src/scenes/dashboard/dashboards/DashboardsTable.tsx)) is untouched.
+- A new [`dashboardsFileSystemLogic`](../../../frontend/src/scenes/dashboard/dashboards/dashboardsFileSystemLogic.ts) owns the genuinely-new view state: it loads the FileSystem rows, builds the folder tree + folder contents, tracks folder navigation, and holds the clipboard buffer.
 
 ### Folder-rows data layer
 
@@ -144,7 +139,9 @@ Approach: **hybrid — focused read logic, shared writes; heavy reuse of existin
 - `type=dashboard` rows — index each dashboard to its folder path (`ref` = dashboard id), so dashboards group under their folder; dashboards with no row fall back to `Unfiled/Dashboards`.
 - `type=folder` rows — so **empty folders** (and ones the user just created) appear as navigable, droppable targets, not just folders inferred from dashboard paths.
 
-From those it derives, in [dashboardsFileSystemUtils.ts](../../../frontend/src/scenes/dashboard/dashboards/dashboardsFileSystemUtils.ts): the nested `folderTree` (the tree arm's `LemonTree` data, with ancestors + empty folders), `folderContents` and `compactedSubfolders` (the explorer's current-folder view + single-child chain collapse), `subtreeDashboards` (the tree arm's recursive scope), and the `breadcrumb` / sibling-folder helpers. Reads are a single 500-entry page per type (no pagination yet; warns when the cap is hit).
+From those it derives, in [dashboardsFileSystemUtils.ts](../../../frontend/src/scenes/dashboard/dashboards/dashboardsFileSystemUtils.ts): the nested `folderTree` (built via `buildFolderTree`, with ancestors + empty folders), `folderContents` and `compactedSubfolders` (the explorer's current-folder view + single-child chain collapse), and the `breadcrumb` / `folderSiblings` helpers that back the breadcrumb's sibling-folder dropdowns. Reads are a single 500-entry page per type (no pagination yet; warns when the cap is hit).
+
+> This folder-data layer **survives the tree arm's removal** — the explorer's breadcrumb sibling dropdowns and empty-folder rendering depend on `folderTree` / `folderSiblings` / the folder rows. Only the tree-exclusive derivations were removed (the recursive-subtree scope `currentSubtreeDashboards` and the `subtreeDashboards` util) along with the tree's expand/collapse state.
 
 ### Delegated writes (the reuse map)
 
@@ -156,10 +153,10 @@ Every mutation is **delegated** to existing infrastructure rather than re-implem
 - **Delete** → `deleteDashboardLogic.showDeleteDashboardModal` — the canonical confirm + "also delete insights" modal.
 - **New folder** → `api.fileSystem.create({ type: 'folder', ... })`, then refetch folder rows.
 
-So the only genuinely custom pieces are the folder-structure derivation (the utils above), the clipboard state machine, and the explorer's drill-in/breadcrumb/compaction — the rest composes shipped UI. The tree panel is `LemonTree` reused verbatim.
+So the only genuinely custom pieces are the folder-structure derivation (the utils above), the clipboard state machine, and the explorer's drill-in/breadcrumb/compaction — the rest composes shipped UI.
 
 Single source of truth: every arm reads and writes the same `FileSystem` rows that back the sidebar tree,
-so "organize in the explorer/tree" and "organize in the sidebar" can never diverge — there is no second folder model to sync.
+so "organize in the explorer" and "organize in the sidebar" can never diverge — there is no second folder model to sync.
 
 ### Clipboard over existing primitives, plus duplication
 
@@ -177,12 +174,9 @@ flowchart TD
   Flag["dashboards-list-view flag<br/>(group: project)"] --> Switch{variant}
   Switch -->|control| Table["DashboardsTableContainer<br/>(unchanged)"]
   Switch -->|explorer| Explorer["DashboardsExplorer (new)<br/>drill-in + clipboard"]
-  Switch -->|tree| Tree["DashboardsTree (new)<br/>LemonTree + DashboardsTable"]
   Table --> DLogic["dashboardsLogic<br/>list / search / filter"]
   Explorer --> DLogic
-  Tree --> DLogic
   Explorer --> FSLogic["dashboardsFileSystemLogic<br/>folder rows, tree/contents, nav, clipboard"]
-  Tree --> FSLogic
   FSLogic -->|"reads dashboard + folder rows"| API[("FileSystem API")]
   FSLogic -->|"move"| TreeData["projectTreeDataLogic.moveItem"]
   FSLogic -->|"move to…"| MoveTo["moveToLogic (FolderSelect modal)"]
@@ -211,7 +205,7 @@ Derived from existing pageview sequences (no new event, backtestable): the **fir
 - `dashboard opened from list` — props: `ms_since_list_loaded`, `used_search`, `clicks_before_open`, `open_source`. The secondary time-to-open / opened-from-list metric; not instrumented on this branch.
 - `dashboard folder created` / `dashboard folder renamed` / `dashboard folder deleted`.
 - `dashboards clipboard action` — props: `action`, `result`, `item_count`.
-- `dashboards view feedback` — the "not a fan?" affordance.
+- `dashboards view feedback` — the explorer's "not a fan?" affordance.
 
 Exposure and attribution:
 
@@ -229,7 +223,7 @@ Exposure and attribution:
 | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Between-project variance cursed the old (time-to-open) primary                           | Primary is now a low-baseline adoption proportion (well-powered); time-to-open is a robust secondary, not a gate                                                                                                                                           |
 | New events (adoption, opened-from-list) are novel                                        | Validate in dogfood; the first-open-success guardrail is backtestable from existing pageviews as an anchor                                                                                                                                                 |
-| Folder-first explorer slows finding for un-organized projects                            | Deliberate, measured: find-conversion guardrail + cold-start segment first-class; pre-registered cold-start contingency (ship tree / gate explorer on auto-organize onboarding); tree keeps the full table visible (root = all) as the lower-risk paradigm |
+| Folder-first explorer slows finding for un-organized projects                            | Deliberate, measured: find-conversion guardrail + cold-start segment first-class; pre-registered cold-start contingency (hold the ship and gate explorer on auto-organize onboarding / flat-first default for un-organized projects before a re-run)         |
 | Fast-but-wrong find reads as a win                                                       | First-open-success (anti-pogo-stick) quality guardrail                                                                                                                                                                                                     |
 | copy=duplicate inflates dashboard count (and is in tension with the anti-clutter thesis) | Segment on pre-exposure dashboard count; track duplication rate                                                                                                                                                                                            |
 | Post-hoc segment fishing                                                                 | Pre-register all segments before launch                                                                                                                                                                                                                    |
@@ -237,7 +231,7 @@ Exposure and attribution:
 
 ## Known limitations (current branch — deferred to the measurement increment)
 
-The arms (control / explorer / tree) and the shared folder-data layer ship on this branch behind the flag. These are honestly-deferred gaps, mostly belonging to the measurement increment:
+The arms (control / explorer) and the shared folder-data layer ship on this branch behind the flag. These are honestly-deferred gaps, mostly belonging to the measurement increment:
 
 - **Move event prop contract**: `dashboard moved to folder` carries `from_path` / `to_path` only. `method` (drag | menu | clipboard), `multi_select_count`, and undo net-out (EC-28d) are deferred — the shared arm-agnostic move path can't attribute them.
 - **Copy=paste placement**: copy=duplicate honors the canonical-duplicate reuse (CH-03 — sharing/subscriptions are not silently inherited), but the duplicate lands in the **default (Unfiled)** folder, not the paste-target folder. Placing it needs the new FileSystem entry after duplication — deferred.
@@ -251,18 +245,18 @@ The arms (control / explorer / tree) and the shared folder-data layer ship on th
 - Live dashboard thumbnail previews (needs a render/snapshot pipeline).
 - Colorable icon / emoji per dashboard (cheap personalization; good fast-follow if generic glyphs read too samey).
 - Keyboard shortcuts for clipboard.
-- A user-facing list/explorer/tree toggle — only when shipping the winner.
+- A user-facing list/explorer toggle — only when shipping the winner.
 
 ## Decisions log (incl. inverse-pass resolutions)
 
-0. **Reframe (2026-06-17): arms are control/explorer/tree, not control/grid/finder.** The flat-card grid arm was dropped; the two treatments are now two folder-navigation paradigms — `explorer` (drill-in finder, formerly "finder") and `tree` (persistent `LemonTree` panel + recursive table, the colleague-validated "C" idea). Flag key unchanged; variants now `control,explorer,tree`.
+0. **Final cut (2026-06-17): arms are control/explorer — two-arm A/B.** Two cuts got here. (a) The flat-card **grid arm was retired** in the original finder/grid reframe. (b) The **tree arm was built but cut before launch** — see "Tree arm — considered and cut" below. Flag key unchanged; live variants now `control,explorer` (retired strings `grid` / `finder` / `tree` all resolve to control).
 1. Primary metric: **folder-organization adoption** — share of exposed projects that create a real folder or move a dashboard into a non-`Unfiled` folder within the window; a low-baseline project-level proportion, well-powered. Hard guardrails: first-open success, find-conversion, engagement. Time-to-open (robust) and organizing depth are secondaries. (Revised 2026-06-17 after prod data showed only a single-digit percentage of dashboard users organize today.)
 2. Explorer arm: drill-in finder + clipboard, **folder-first by default**, with compacted single-child chains, breadcrumb sibling dropdowns, per-card actions menu, and a search that flips to a flat results grid.
-3. Tree arm: persistent folder tree (sidebar's `LemonTree`) on the left beside the familiar dashboards table on the right, scoped recursively to the selected folder (root = all); organizing via the table's own row actions.
+3. **Tree arm — considered and cut.** A persistent `LemonTree` folder panel beside the familiar dashboards table, scoped recursively to the selected folder (root = all), with organizing via the table's own row actions, was **built** but **cut before launch**. Rationale: the team's ship intent was to run `explorer` regardless of how `tree` performed, which made `tree` a **science arm** (interesting to learn from) rather than a **decision arm** (changes what we ship). A three-arm test also risked an ambiguous outcome — both treatments beat control but tie each other, forcing a tiebreaker. Cutting to two arms gives a crisp ship / no-ship read on the explorer paradigm. **Power was not the reason** — the earlier analysis established supply isn't the constraint even at three arms. What survives the removal: the shared folder-data layer (folder rows so empty folders appear, `folderTree` / `buildFolderTree`, `folderSiblings`) stays, because the explorer's breadcrumb sibling dropdowns and empty-folder rendering depend on it; only the tree-exclusive pieces were removed (the `DashboardsTree` component, the `currentSubtreeDashboards` selector, the `subtreeDashboards` util, and the `toggleFolder` / `collapsedFolders` expand-state).
 4. Population: staged — internal dogfood, then enroll all; pre-registered segments (pre-exposure dashboard-count, organization-state, cold-start); equal-weight projects.
-5. Randomization: group-level on `project` (every comparison unbiased, no within-project spillover). With adoption as primary, A-vs-explorer, A-vs-tree, and explorer-vs-tree can all be real reads.
+5. Randomization: group-level on `project` (the A-vs-B comparison stays unbiased, no within-project spillover). Person-level would bias the comparison via shared folders.
 6. Architecture: hybrid — `dashboardsFileSystemLogic` reads both dashboard + folder rows; writes delegate to `projectTreeDataLogic.moveItem`, `moveToLogic`, `dashboardsModel`, `deleteDashboardLogic`, and `api.fileSystem.create`.
-7. Icons: generic type icons for v1 (`IconDashboard` / `IconFolder`; `LemonTree` for the tree).
+7. Icons: generic type icons for v1 (`IconDashboard` / `IconFolder` on the explorer cards).
 8. Format fixed per arm; no user-facing toggle during the test; "not a fan?" feedback affordance instead (deferred on the current branch).
 9. Quality guardrail: first-open success / anti-pogo-stick (backtestable, no new event).
 10. Clipboard copy/paste = **true duplicate** (cut/paste = move); duplicate placement in the paste-target folder is deferred (lands in Unfiled for now).
@@ -275,6 +269,6 @@ The arms (control / explorer / tree) and the shared folder-data layer ship on th
 
 ## Success criteria
 
-- A live group-level control/explorer/tree experiment on `dashboards-list-view` with the folder-organization-adoption primary, the first-open-success / find-conversion / engagement guardrails, and the time-to-open + organizing-depth secondaries instrumented.
+- A live group-level control/explorer experiment on `dashboards-list-view` with the folder-organization-adoption primary, the first-open-success / find-conversion / engagement guardrails, and the time-to-open + organizing-depth secondaries instrumented.
 - A clear ship/no-ship decision per the reading rules above, on pre-registered segments, with the cold-start contingency honored.
-- New presentation code (explorer + tree) isolated behind the variant switch; control path untouched; folders consistent between the new views and the sidebar tree.
+- New presentation code (explorer) isolated behind the variant switch; control path untouched; folders consistent between the explorer and the sidebar tree.
