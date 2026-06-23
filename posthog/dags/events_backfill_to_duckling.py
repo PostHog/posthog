@@ -1491,13 +1491,17 @@ def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
     Parquet for an empty partition, so the glob matches nothing. duckgres returns
     that empty glob as a command-complete with no result set (rather than an empty
     row set), which psycopg surfaces as "the last operation didn't produce a result"
-    on fetch — so guard on a missing result description and treat it as "no files".
+    when the rows are fetched — catch that and treat it as "no files".
     """
     with conn.cursor() as cur:
         cur.execute("SELECT file FROM glob(%s) ORDER BY file", (s3_glob,))
-        if cur.description is None:
-            return []
-        return [row[0] for row in cur.fetchall()]
+        try:
+            rows = cur.fetchall()
+        except psycopg.ProgrammingError as exc:
+            if "didn't produce a result" in str(exc):
+                return []
+            raise
+        return [row[0] for row in rows]
 
 
 def register_files_with_duckling(

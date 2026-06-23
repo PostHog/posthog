@@ -1360,18 +1360,27 @@ class TestRegisterFilesWithDuckling:
 
     def test_glob_run_files_empty_day_returns_no_files(self, target=None):
         # A zero-event team-day writes no Parquet, so the glob matches nothing and
-        # duckgres returns a command-complete with no result set: cur.description is
-        # None and fetchall() would raise "the last operation didn't produce a
-        # result". _glob_run_files must absorb that and return [] (nothing to register).
+        # duckgres returns a command-complete with no result set: fetchall() raises
+        # "the last operation didn't produce a result". _glob_run_files must absorb
+        # that and return [] (nothing to register).
         conn = MagicMock()
         cur = MagicMock()
-        cur.description = None
         cur.fetchall.side_effect = psycopg.ProgrammingError("the last operation didn't produce a result")
         conn.cursor.return_value.__enter__.return_value = cur
         conn.cursor.return_value.__exit__.return_value = False
 
         assert _glob_run_files(conn, "s3://bkt/x/run1_*.parquet") == []
-        cur.fetchall.assert_not_called()
+
+    def test_glob_run_files_propagates_other_programming_errors(self, target=None):
+        # A genuine SQL error must not be swallowed as "no files".
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.side_effect = psycopg.ProgrammingError("syntax error at or near")
+        conn.cursor.return_value.__enter__.return_value = cur
+        conn.cursor.return_value.__exit__.return_value = False
+
+        with pytest.raises(psycopg.ProgrammingError, match="syntax error"):
+            _glob_run_files(conn, "s3://bkt/x/run1_*.parquet")
 
 
 # Column SELECT used to synthesize events Parquet files for the round-trip test.
