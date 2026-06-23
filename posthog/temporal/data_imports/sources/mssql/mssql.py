@@ -74,11 +74,24 @@ _T = TypeVar("_T")
 _TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
 
+# SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
+# rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
+# rerun the transaction: lock contention is momentary, so re-running the identical query usually
+# succeeds. Transient lock contention, not a config or data problem.
+_DEADLOCK_VICTIM_ERROR = "was deadlocked on lock resources"
+_MAX_DEADLOCK_ATTEMPTS = 5
+
 
 def _is_transient_connection_error(error: BaseException) -> bool:
     """True for a mid-stream TDS connection death that a fresh connection recovers from."""
     message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
     return _TRANSIENT_CONNECTION_ERROR in message
+
+
+def _is_deadlock_victim_error(error: BaseException) -> bool:
+    """True for a SQL Server 1205 deadlock-victim error that a rerun recovers from."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _DEADLOCK_VICTIM_ERROR in message
 
 
 def retry_on_transient_connection_error(
@@ -104,6 +117,36 @@ def retry_on_transient_connection_error(
                 raise
             structlog.get_logger().warning(
                 "Transient MSSQL connection death during schema discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
+
+
+def retry_on_deadlock(
+    operation: Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_DEADLOCK_ATTEMPTS,
+    logger: FilteringBoundLogger | None = None,
+) -> _T:
+    """Run `operation`, rerunning it with bounded backoff when SQL Server picks us as the deadlock victim.
+
+    A 1205 rolls back our transaction to break the lock cycle, so rerunning the identical query is
+    safe and usually succeeds once the contending process releases its locks. Used around the read
+    query before any rows are streamed — retrying mid-stream would re-yield already-emitted rows.
+    Anything other than a deadlock victim re-raises immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymssql.Error as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_deadlock_victim_error(e):
+                raise
+            (logger or structlog.get_logger()).warning(
+                "MSSQL query chosen as deadlock victim; rerunning",
                 attempt=attempt,
                 max_attempts=max_attempts,
                 exc_info=e,
@@ -819,7 +862,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
                     logger.debug(f"MS SQL query: {query} with args: {args}")
 
-                    cursor.execute(query, args)
+                    retry_on_deadlock(lambda: cursor.execute(query, args), logger=logger)
 
                     column_names = [column[0] for column in cursor.description or []]
 
