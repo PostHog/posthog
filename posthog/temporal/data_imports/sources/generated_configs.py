@@ -2998,6 +2998,11 @@ class SupabaseSourceConfig(config.Config):
 
 
 @config.config
+class SuperwallSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SurveyMonkeySourceConfig(config.Config):
     access_token: str
     data_center: Literal["us", "eu", "ca"] = config.value(default="us")
@@ -4049,6 +4054,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+        ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
