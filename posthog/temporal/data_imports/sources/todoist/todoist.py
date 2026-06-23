@@ -55,13 +55,11 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
 
 def validate_credentials(api_token: str) -> bool:
     # Cheapest authenticated probe: pull a single project. A genuine token returns 200; a bad/revoked
-    # one returns 401.
+    # one returns 401. Network/DNS/timeout failures are intentionally not caught here so they
+    # propagate rather than being misreported to the user as an invalid credential.
     url = _build_url("/projects", {"limit": 1})
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+    return response.status_code == 200
 
 
 @retry(

@@ -321,10 +321,6 @@ class TestFetchPageRetryClassification:
 
     def test_success_returns_json_body(self) -> None:
         session = MagicMock()
-        ok = _response_with_status(200)
-        ok.json = lambda: {"results": [], "next_cursor": None}  # type: ignore[method-assign]
-        session.get.return_value = ok
-        assert self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock()) == {
-            "results": [],
-            "next_cursor": None,
-        }
+        body = {"results": [], "next_cursor": None}
+        session.get.return_value = MagicMock(status_code=200, ok=True, **{"json.return_value": body})
+        assert self._fetch(session, "https://api.todoist.com/api/v1/tasks", {}, MagicMock()) == body
