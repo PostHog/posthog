@@ -5,11 +5,10 @@ from typing import Any, Optional
 import requests
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
-from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.paddle.settings import ENDPOINTS, INCREMENTAL_FIELDS
 
@@ -44,14 +43,12 @@ def _format_paddle_datetime_query_value(value: Any) -> str:
 
 
 def _get_paddle_session() -> requests.Session:
-    # Plain session with no retry adapter: errors fail fast so the caller
-    # can surface them immediately rather than silently retrying.
-    return make_tracked_session(retry=Retry(total=0))
+    # DEFAULT_RETRY backs off on 429/5xx (honoring Retry-After) but leaves auth/4xx
+    # failures to surface immediately, so a transient rate-limit doesn't fail the sync.
+    return make_tracked_session(retry=DEFAULT_RETRY)
 
 
 def paddle_request(session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
-    # No retry adapter on the session — errors surface immediately so the
-    # caller (get_rows / validate_credentials) can decide how to handle them.
     response = session.request(method, url, **kwargs)
     return response
 
