@@ -252,9 +252,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 2
 
     def test_filter_by_nonexisting_person(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
-        assert response.status_code == 200
-        assert len(response.json()["results"]) == 0
+        # Events exist for a real person; a person_id that resolves to nobody must return nothing —
+        # not fall through to all events. Guards the "no match -> empty" case for both id forms.
+        _create_person(distinct_ids=["real"], team=self.team, immediate=True)
+        _create_event(event="random event", team=self.team, distinct_id="real")
+        flush_persons_and_events()
+
+        nonexistent_pk = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
+        assert nonexistent_pk.status_code == 200
+        assert len(nonexistent_pk.json()["results"]) == 0
+
+        nonexistent_uuid = self.client.get(
+            f"/api/projects/{self.team.id}/events/?person_id=550e8400-e29b-41d4-a716-446655440000"
+        )
+        assert nonexistent_uuid.status_code == 200
+        assert len(nonexistent_uuid.json()["results"]) == 0
 
     @freeze_time("2020-01-10")
     def test_event_column_values(self):
