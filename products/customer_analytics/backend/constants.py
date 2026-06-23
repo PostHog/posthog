@@ -14,7 +14,4 @@ ACCOUNT_ASSIGNMENT_ROLE_FIELDS = ("csm", "account_executive", "account_owner")
 BILLING_USAGE_INSIGHT_SHORT_IDS = ["fiJDsKLp"]
 BILLING_SPEND_INSIGHT_SHORT_IDS = ["o4I9sdFE", "Tjo4bsux"]
 
-# Display types a custom account property can take, in the order the UI offers them. Mirrors
-# `DisplayType` in models/custom_property_definition.py — kept as a literal here so it stays
-# framework-free and reachable across the facade boundary without importing the model.
 CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = ["text", "number", "currency", "percent", "date", "datetime", "boolean"]

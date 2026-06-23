@@ -1662,9 +1662,6 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
 
     def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
-        # ``account`` is a child of the ``customer_analytics`` umbrella; child resource-level rows are
-        # intentionally bypassed (only the parent is consulted), so resource-level access is set on the
-        # parent — matching how accounts and journeys are gated.
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
