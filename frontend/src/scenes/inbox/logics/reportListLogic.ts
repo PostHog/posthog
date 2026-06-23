@@ -234,6 +234,9 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // Bulk archive happens in the singleton; refresh this tab once it lands.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
+        // A single report archived elsewhere (e.g. the detail pane) – reconcile this tab against
+        // the server so the report leaves Reports/Pull requests and joins Archived, counts included.
+        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.refresh(),
     })),
 
     events(({ actions }) => ({

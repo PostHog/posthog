@@ -285,8 +285,12 @@ class PostgresAdapter:
                             cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
                                 request.sql, request.values or None
                             )
-                            results = cursor.fetchall()
+                            # Statements that don't produce a result set (e.g. ATTACH, SET, other
+                            # DDL/utility commands) leave cursor.description as None; calling
+                            # fetchall() on them raises ProgrammingError. Treat them as a
+                            # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
+                            results = cursor.fetchall() if description else []
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:

@@ -7,8 +7,9 @@
  *
  *   - agentDb (AGENT_DB_URL): the queue / runtime database, owns
  *     agent_session, agent_user, agent_sandbox_instance. Schema is
- *     managed by @posthog/agent-migrations; this entry applies any
- *     pending migrations on boot (idempotent).
+ *     Django-owned (migrations in products/agent_platform/backend/migrations/,
+ *     applied in prod by the migrate_product_databases job); the runner
+ *     is a pure client and never migrates.
  *
  * In dev / CI both env vars can point at the same Postgres; production
  * deploys them separately so high-churn runtime writes don't pressure the
@@ -42,6 +43,8 @@ import {
     NoopAnalyticsSink,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
@@ -59,7 +62,6 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
-import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -197,14 +199,13 @@ async function main(): Promise<void> {
         })
     }
 
-    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-    // Lets a Slack user who's already a team admin drive a gated tool
-    // directly via chat instead of going through the queued-approval UI.
-    // Reuses the same identity table the ingress writes through. Threaded
-    // into `WorkerDeps.isAskerInApproverScope` → driver → gated tool's
-    // pre-queue check in build-agent-tools.
+    // Principal → agent_user mapping the ingress writes through; consulted by
+    // the runtime identity providers (spec.identity_providers).
     const identities = new PgIdentityStore(agentDb)
-    const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
+    // Persistent linked-credential store backing the runtime identity providers.
+    const identityCredentials = new PgIdentityCredentialStore(agentDb, {
+        encryptionSaltKeys: config.encryptionSaltKeys,
+    })
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     // ai-gateway is a cluster-internal service — use the direct client so the
     // call doesn't hit smokescreen (which would refuse it as RFC1918). The
@@ -343,7 +344,12 @@ async function main(): Promise<void> {
         maxOutputTokens: config.maxOutputTokens,
         memoryStore,
         tabularStore,
-        isAskerInApproverScope,
+        // Per-principal identity linking (spec.identity_providers): reuse the
+        // same agent DB + encryption the credential broker uses.
+        identityCredentials,
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        identities,
+        linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         devMcpBearerToken: config.devMcpBearerToken,
         // Per-integration-kind host allowlist. Without this, any external MCP
         // ref with `auth.integration` fails closed at open with

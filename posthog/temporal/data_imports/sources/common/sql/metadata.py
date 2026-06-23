@@ -22,7 +22,11 @@ def sql_schema_metadata(
     """Build the `schema_metadata` JSON for one schema row."""
     return {
         "columns": [
-            {"name": column_name, "data_type": column_type, "is_nullable": nullable}
+            {
+                "name": column_name,
+                "data_type": column_type,
+                "is_nullable": nullable,
+            }
             for column_name, column_type, nullable in columns
         ],
         "foreign_keys": [

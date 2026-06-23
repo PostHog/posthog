@@ -1087,3 +1087,7 @@ environment:
         bin_script: dev-open-when-ready
         description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
         hidden: true
+    migrate:agent:test:db:
+        bin_script: migrate-agent-test-db
+        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
+        hidden: true

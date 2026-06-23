@@ -106,6 +106,51 @@ For REST sources that mix top-level and fan-out endpoints, keep endpoint metadat
 2. generic fan-out helper path,
 3. top-level endpoint path.
 
+## Canonical descriptions (semantic enrichment)
+
+After a table syncs, a background activity (`workflow_activities/enrich_table_semantics.py`) writes
+`WarehouseColumnAnnotation` rows describing each table/column, surfaced to the AI agent. For
+fixed-schema sources (SaaS APIs) the schema is the same for everyone, so document it **once** from the
+official API docs instead of paying an LLM to re-derive it per team. These curated descriptions are
+authoritative — they're applied directly (`description_source="canonical"`) and never sent to the LLM.
+
+Add a `canonical_descriptions.py` **accompanying the source** (sibling of `source.py` / `settings.py`):
+
+```python
+# posthog/temporal/data_imports/sources/{source}/canonical_descriptions.py
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "Charge": {  # key = ExternalDataSchema.name (the endpoint name from get_schemas / ENDPOINTS)
+        "description": "A single attempt to move money into your account by charging a payment source.",
+        "docs_url": "https://stripe.com/docs/api/charges",  # passed to the LLM for columns not covered here
+        "columns": {  # column name -> one-line description, taken from the official API docs
+            "id": "Unique identifier for the charge.",
+            "amount": "Amount intended to be collected, in the smallest currency unit (e.g. cents).",
+        },
+    },
+}
+```
+
+Then override the hook on the source class with a lazy import of the sibling file:
+
+```python
+def get_canonical_descriptions(self) -> CanonicalDescriptions:
+    from posthog.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
+    return CANONICAL_DESCRIPTIONS
+```
+
+Rules:
+
+- Key entries by the **endpoint/schema name** `get_schemas` returns (matches `ENDPOINTS`), not the
+  prefixed warehouse table name.
+- Source descriptions from the **official API docs**, not guesses. Partial coverage is fine — any
+  missing endpoint, column, or table-level `description` falls back to the LLM, which is given the
+  source name, endpoint, `docs_url`, and column data types.
+- Optional and only meaningful for fixed-schema sources. SQL sources (arbitrary user schemas) ship
+  nothing — the base hook returns `{}`.
+- Don't touch `source.py`/`settings.py` transport logic — this is purely additive metadata.
+
 ## Source category & keywords
 
 Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
@@ -528,6 +573,7 @@ Source implementation:
 - [ ] Implement get_resumable_source_manager if ResumableSource
 - [ ] Implement webhook methods if WebhookSource
 - [ ] Add get_non_retryable_errors for auth/permission errors
+- [ ] (Fixed-schema sources) Add canonical_descriptions.py from the API docs + override get_canonical_descriptions
 
 Tooling & assets:
 - [ ] Icon in frontend/public/services/ (SVG preferred — ask user for Logo.dev key if needed)

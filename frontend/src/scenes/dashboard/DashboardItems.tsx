@@ -47,7 +47,6 @@ export function DashboardItems(): JSX.Element {
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
-        itemsLoading,
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
@@ -445,7 +444,6 @@ export function DashboardItems(): JSX.Element {
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
                                         refresh={() => refreshDashboardItem({ tile })}
-                                        refreshEnabled={!itemsLoading}
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
