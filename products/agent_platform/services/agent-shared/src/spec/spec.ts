@@ -740,35 +740,60 @@ export const ResumeConfigSchema = z.object({
  *     callback, and supplies endpoints + client_id + a `client_secret_ref`
  *     (a key in the agent's encrypted_env). One generic provider serves them all.
  */
-export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
-    z.object({
-        kind: z.literal('posthog'),
-        id: z.string().min(1).default('posthog'),
-        scopes: z.array(z.string()).default([]),
-        /** Who the credential acts as. Only `principal` (per-asker) is accepted:
-         *  the `agent` binding (one credential shared by the whole agent) isn't
-         *  implemented yet, so it's rejected at the schema until the app-scoped
-         *  credential shape lands. The runtime seam still exists (resolve throws
-         *  `agent_binding_not_implemented`) for when it does. */
-        binding: z.enum(['principal']).default('principal'),
-        /** Backend-injected on promote (the provisioned OAuthApplication's
-         *  client_id). Author never sets it; absent until the agent is promoted. */
-        client_id: z.string().optional(),
-    }),
-    z.object({
-        kind: z.literal('oauth2'),
-        id: z.string().min(1),
-        binding: z.enum(['principal']).default('principal'),
-        authorize_url: z.string().url(),
-        token_url: z.string().url(),
-        client_id: z.string().min(1),
-        /** Key in encrypted_env holding the client secret. Omit for public PKCE clients. */
-        client_secret_ref: z.string().optional(),
-        scopes: z.array(z.string()).default([]),
-        /** Userinfo endpoint, used for the email cross-check warn at link time. */
-        userinfo_url: z.string().url().optional(),
-    }),
-])
+export const IdentityProviderConfigSchema = z
+    .discriminatedUnion('kind', [
+        z.object({
+            kind: z.literal('posthog'),
+            id: z.string().min(1).default('posthog'),
+            scopes: z.array(z.string()).default([]),
+            /** Who the credential acts as.
+             *  - `principal` (default) — per-asker: each user links their own account;
+             *    resolution keys off the asking principal.
+             *  - `agent` — one credential shared by the whole agent. EVERY asker acts
+             *    as that single connected account; it's linked once (by an owner, at
+             *    config time) rather than per-asker. A confused-deputy by design, so
+             *    it requires `acknowledge_shared_credential: true`. */
+            binding: z.enum(['principal', 'agent']).default('principal'),
+            /** Must be `true` when `binding: 'agent'`. Explicit acknowledgement that
+             *  every user of this agent acts as the one shared connected account.
+             *  Ignored for `principal` binding. */
+            acknowledge_shared_credential: z.boolean().optional(),
+            /** Backend-injected on promote (the provisioned OAuthApplication's
+             *  client_id). Author never sets it; absent until the agent is promoted. */
+            client_id: z.string().optional(),
+        }),
+        z.object({
+            kind: z.literal('oauth2'),
+            id: z.string().min(1),
+            /** See the `posthog` variant's `binding`. `agent` = one shared credential
+             *  for the whole agent (requires `acknowledge_shared_credential: true`);
+             *  `principal` (default) = per-asker. */
+            binding: z.enum(['principal', 'agent']).default('principal'),
+            /** Must be `true` when `binding: 'agent'`. */
+            acknowledge_shared_credential: z.boolean().optional(),
+            authorize_url: z.string().url(),
+            token_url: z.string().url(),
+            client_id: z.string().min(1),
+            /** Key in encrypted_env holding the client secret. Omit for public PKCE clients. */
+            client_secret_ref: z.string().optional(),
+            scopes: z.array(z.string()).default([]),
+            /** Userinfo endpoint, used for the email cross-check warn at link time. */
+            userinfo_url: z.string().url().optional(),
+        }),
+    ])
+    .superRefine((cfg, ctx) => {
+        // `agent` binding shares one credential across every asker — a deliberate
+        // confused-deputy. Force the author to acknowledge it explicitly, same
+        // posture as `acknowledge_public_exposure` on public auth.
+        if (cfg.binding === 'agent' && cfg.acknowledge_shared_credential !== true) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                    "identity provider with binding: 'agent' must set acknowledge_shared_credential: true — every user of this agent will act as the one shared connected account.",
+                path: ['acknowledge_shared_credential'],
+            })
+        }
+    })
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
 export const AgentSpecSchema = z.object({

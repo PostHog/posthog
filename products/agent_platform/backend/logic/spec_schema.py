@@ -429,11 +429,14 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "kind": {"type": "string", "const": "posthog"},
                             "id": {"type": "string", "minLength": 1, "default": "posthog"},
-                            # `agent` (one app-scoped credential shared by every asker)
-                            # isn't implemented at runtime yet, so it's rejected here
-                            # until it lands — the runtime seam exists, but no spec can
-                            # select it. Keep in lockstep with the zod enum in spec.ts.
-                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            # `agent` = one credential shared by the whole agent (every
+                            # asker acts as it; requires acknowledge_shared_credential).
+                            # `principal` (default) = per-asker. Keep in lockstep with
+                            # the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
+                            # Must be true when binding is "agent" (enforced by the
+                            # allOf/if-then below). Ignored for principal binding.
+                            "acknowledge_shared_credential": {"type": "boolean"},
                             "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
                             # Backend-injected on promote (the provisioned
                             # OAuthApplication's client_id). Authors never set it.
@@ -441,17 +444,31 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         },
                         "required": ["kind"],
                         "additionalProperties": False,
+                        # binding: 'agent' must explicitly acknowledge the shared
+                        # credential — mirrors the zod superRefine in spec.ts.
+                        "allOf": [
+                            {
+                                "if": {"properties": {"binding": {"const": "agent"}}, "required": ["binding"]},
+                                "then": {
+                                    "properties": {"acknowledge_shared_credential": {"const": True}},
+                                    "required": ["acknowledge_shared_credential"],
+                                },
+                            }
+                        ],
                     },
                     {
                         "type": "object",
                         "properties": {
                             "kind": {"type": "string", "const": "oauth2"},
                             "id": {"type": "string", "minLength": 1},
-                            # `agent` (one app-scoped credential shared by every asker)
-                            # isn't implemented at runtime yet, so it's rejected here
-                            # until it lands — the runtime seam exists, but no spec can
-                            # select it. Keep in lockstep with the zod enum in spec.ts.
-                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            # `agent` = one credential shared by the whole agent (every
+                            # asker acts as it; requires acknowledge_shared_credential).
+                            # `principal` (default) = per-asker. Keep in lockstep with
+                            # the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
+                            # Must be true when binding is "agent" (enforced by the
+                            # allOf/if-then below). Ignored for principal binding.
+                            "acknowledge_shared_credential": {"type": "boolean"},
                             "authorize_url": {"type": "string", "format": "uri"},
                             "token_url": {"type": "string", "format": "uri"},
                             "client_id": {"type": "string", "minLength": 1},
@@ -461,6 +478,17 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         },
                         "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
                         "additionalProperties": False,
+                        # binding: 'agent' must explicitly acknowledge the shared
+                        # credential — mirrors the zod superRefine in spec.ts.
+                        "allOf": [
+                            {
+                                "if": {"properties": {"binding": {"const": "agent"}}, "required": ["binding"]},
+                                "then": {
+                                    "properties": {"acknowledge_shared_credential": {"const": True}},
+                                    "required": ["acknowledge_shared_credential"],
+                                },
+                            }
+                        ],
                     },
                 ]
             },

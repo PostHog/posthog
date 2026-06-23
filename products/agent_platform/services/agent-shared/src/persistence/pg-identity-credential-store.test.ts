@@ -135,4 +135,80 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
         const count = await pool.query('SELECT count(*) FROM agent_identity_credential')
         expect(Number(count.rows[0].count)).toBe(0)
     })
+
+    describe('agent-scoped (binding: "agent") credentials', () => {
+        const APP = randomUUID()
+        const putAgent = (
+            over: Partial<Parameters<PgIdentityCredentialStore['putAgentScoped']>[0]> = {}
+        ): Promise<void> =>
+            store.putAgentScoped({
+                teamId: 1,
+                applicationId: APP,
+                provider: 'dogs',
+                credential: cred(),
+                ...over,
+            })
+
+        it('round-trips an agent-scoped credential keyed by (application, provider) with agent_user_id NULL', async () => {
+            if (!reachable) {
+                return
+            }
+            await putAgent({ credential: cred({ access_token: 'shared-token' }), scopes: ['read:dog'] })
+
+            const got = await store.getAgentScoped(APP, 'dogs')
+            expect(got?.agentUserId).toBeNull()
+            expect(got?.credential.access_token).toBe('shared-token')
+            expect(got?.scopes).toEqual(['read:dog'])
+
+            // The row really has a NULL agent_user_id (not the empty string etc).
+            const raw = await pool.query(
+                'SELECT agent_user_id FROM agent_identity_credential WHERE application_id = $1 AND provider = $2',
+                [APP, 'dogs']
+            )
+            expect(raw.rowCount).toBe(1)
+            expect(raw.rows[0].agent_user_id).toBeNull()
+        })
+
+        it('returns null for an unconnected (application, provider)', async () => {
+            if (!reachable) {
+                return
+            }
+            expect(await store.getAgentScoped(randomUUID(), 'dogs')).toBeNull()
+        })
+
+        it('is independent of a per-principal get for the same provider', async () => {
+            if (!reachable) {
+                return
+            }
+            // Same application + provider, both axes populated: the agent-scoped
+            // read and the per-principal read see their own row, never each other.
+            await put({
+                applicationId: APP,
+                agentUserId: USER_A,
+                credential: cred({ access_token: 'principal-token' }),
+            })
+            await putAgent({ credential: cred({ access_token: 'agent-token' }) })
+
+            expect((await store.getAgentScoped(APP, 'dogs'))?.credential.access_token).toBe('agent-token')
+            expect((await store.get(USER_A, 'dogs'))?.credential.access_token).toBe('principal-token')
+
+            // A per-principal get of an unrelated user never sees the shared row.
+            expect(await store.get(USER_B, 'dogs')).toBeNull()
+        })
+
+        it('re-putAgentScoped upserts on (application, provider) — single row, last write wins', async () => {
+            if (!reachable) {
+                return
+            }
+            await putAgent({ credential: cred({ access_token: 'first' }) })
+            await putAgent({ credential: cred({ access_token: 'second' }) })
+
+            expect((await store.getAgentScoped(APP, 'dogs'))?.credential.access_token).toBe('second')
+            const count = await pool.query(
+                'SELECT count(*) FROM agent_identity_credential WHERE application_id = $1 AND agent_user_id IS NULL',
+                [APP]
+            )
+            expect(Number(count.rows[0].count)).toBe(1)
+        })
+    })
 })

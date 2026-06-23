@@ -56,8 +56,8 @@ export interface IdentityProvider {
     /** True only for a provider that proves the linker's identity (stamps `subject`). */
     readonly establishesIdentity: boolean
     /** `principal` = act as the asking user (per-asker link or trigger-edge seed).
-     *  `agent` = one author-linked credential shared by the whole agent — a marked
-     *  seam, `resolve()` throws `agent_binding_not_implemented` until it lands. */
+     *  `agent` = one credential shared by the whole agent, resolved app-scoped
+     *  (`getAgentScoped`) rather than per-asker. */
     readonly binding: 'principal' | 'agent'
     initiate(input: IdentityInitiateInput): Promise<IdentityInitiateResult>
     complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult>

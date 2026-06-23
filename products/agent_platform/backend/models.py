@@ -327,18 +327,26 @@ class AgentSessionCredential(ProductTeamModel):
 
 
 class AgentIdentityCredential(ProductTeamModel, UUIDModel):
-    """Persistent, per-principal, encrypted-at-rest linked credential.
+    """Persistent, encrypted-at-rest linked credential.
 
-    The "stored auth" an agent_user has consented to — e.g. a Slack user who
-    OAuth-linked their PostHog (or GitHub, …) account. Keyed by (agent_user,
-    provider). Read at turn start and copied into the ephemeral per-session
+    Two shapes, discriminated by `agent_user_id`:
+      - Per-principal (`agent_user_id` set) — the "stored auth" an agent_user
+        has consented to (e.g. a Slack user who OAuth-linked their PostHog
+        account). Keyed by (agent_user, provider).
+      - Agent-scoped (`agent_user_id` NULL) — one credential shared by the whole
+        agent, for an identity provider with `binding: 'agent'`. Every asker acts
+        as it; keyed by (application, provider).
+
+    Read at turn start and copied into the ephemeral per-session
     AgentSessionCredential broker; never read directly by tools.
     """
 
     application_id = models.UUIDField()
     # The principal this credential belongs to (agent_user.id). Plain id, not a
     # FK — consistent with the loose coupling the runtime tables use elsewhere.
-    agent_user_id = models.UUIDField()
+    # NULL for an agent-scoped (`binding: 'agent'`) credential — one row shared
+    # by the whole application, keyed by (application_id, provider) instead.
+    agent_user_id = models.UUIDField(null=True, blank=True)
     provider = models.TextField()  # "posthog" | "github" | "dogs" | ...
     # Fernet JSON: {access_token, refresh_token?, token_type?, expires_at?}.
     encrypted_credentials = models.TextField()
@@ -358,9 +366,19 @@ class AgentIdentityCredential(ProductTeamModel, UUIDModel):
     class Meta:
         db_table = "agent_identity_credential"
         constraints = [
+            # Per-principal links: one row per (agent_user, provider). Partial so
+            # NULL agent_user_id rows (agent-scoped) don't collide here.
             models.UniqueConstraint(
                 fields=["agent_user_id", "provider"],
+                condition=Q(agent_user_id__isnull=False),
                 name="agent_identity_credential_unique_user_provider",
+            ),
+            # Agent-scoped links (`binding: 'agent'`): one shared row per
+            # (application, provider) when agent_user_id IS NULL.
+            models.UniqueConstraint(
+                fields=["application_id", "provider"],
+                condition=Q(agent_user_id__isnull=True),
+                name="agent_identity_credential_unique_agent_provider",
             ),
         ]
         indexes = [

@@ -457,19 +457,21 @@ export type AgentRevisionApiSpecSkillsItem = {
 }
 
 export type AgentRevisionApiSpecIdentityProvidersItem =
-    | {
+    | (unknown & {
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal'
+          binding?: 'principal' | 'agent'
+          acknowledge_shared_credential?: boolean
           scopes?: string[]
           client_id?: string
-      }
-    | {
+      })
+    | (unknown & {
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal'
+          binding?: 'principal' | 'agent'
+          acknowledge_shared_credential?: boolean
           authorize_url: string
           token_url: string
           /** @minLength 1 */
@@ -477,7 +479,7 @@ export type AgentRevisionApiSpecIdentityProvidersItem =
           client_secret_ref?: string
           scopes?: string[]
           userinfo_url?: string
-      }
+      })
 
 export type AgentRevisionApiSpecSecretsItem =
     | string
@@ -835,19 +837,21 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
 }
 
 export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
-    | {
+    | (unknown & {
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal'
+          binding?: 'principal' | 'agent'
+          acknowledge_shared_credential?: boolean
           scopes?: string[]
           client_id?: string
-      }
-    | {
+      })
+    | (unknown & {
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal'
+          binding?: 'principal' | 'agent'
+          acknowledge_shared_credential?: boolean
           authorize_url: string
           token_url: string
           /** @minLength 1 */
@@ -855,7 +859,7 @@ export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
           client_secret_ref?: string
           scopes?: string[]
           userinfo_url?: string
-      }
+      })
 
 export type PatchedAgentRevisionApiSpecSecretsItem =
     | string

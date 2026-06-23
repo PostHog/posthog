@@ -8241,18 +8241,20 @@ export namespace Schemas {
       version?: number;
     };
 
-    export type AgentRevisionSpecIdentityProvidersItem = {
+    export type AgentRevisionSpecIdentityProvidersItem = unknown & ({
       kind: 'posthog';
       /** @minLength 1 */
       id?: string;
-      binding?: 'principal';
+      binding?: 'principal' | 'agent';
+      acknowledge_shared_credential?: boolean;
       scopes?: string[];
       client_id?: string;
-    } | {
+    }) | unknown & ({
       kind: 'oauth2';
       /** @minLength 1 */
       id: string;
-      binding?: 'principal';
+      binding?: 'principal' | 'agent';
+      acknowledge_shared_credential?: boolean;
       authorize_url: string;
       token_url: string;
       /** @minLength 1 */
@@ -8260,7 +8262,7 @@ export namespace Schemas {
       client_secret_ref?: string;
       scopes?: string[];
       userinfo_url?: string;
-    };
+    });
 
     export type AgentRevisionSpecSecretsItem = string | {
       /** @minLength 1 */
@@ -34105,18 +34107,20 @@ export namespace Schemas {
       version?: number;
     };
 
-    export type PatchedAgentRevisionSpecIdentityProvidersItem = {
+    export type PatchedAgentRevisionSpecIdentityProvidersItem = unknown & ({
       kind: 'posthog';
       /** @minLength 1 */
       id?: string;
-      binding?: 'principal';
+      binding?: 'principal' | 'agent';
+      acknowledge_shared_credential?: boolean;
       scopes?: string[];
       client_id?: string;
-    } | {
+    }) | unknown & ({
       kind: 'oauth2';
       /** @minLength 1 */
       id: string;
-      binding?: 'principal';
+      binding?: 'principal' | 'agent';
+      acknowledge_shared_credential?: boolean;
       authorize_url: string;
       token_url: string;
       /** @minLength 1 */
@@ -34124,7 +34128,7 @@ export namespace Schemas {
       client_secret_ref?: string;
       scopes?: string[];
       userinfo_url?: string;
-    };
+    });
 
     export type PatchedAgentRevisionSpecSecretsItem = string | {
       /** @minLength 1 */

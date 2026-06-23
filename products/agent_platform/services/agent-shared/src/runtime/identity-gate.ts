@@ -179,11 +179,16 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
          * provider with no OAuth app) — the caller then keeps the plain failure.
          */
         async relink(providerId): Promise<string | null> {
-            if (deps.unavailableReason || !deps.agentUserId) {
-                return null
-            }
             const provider = deps.registry.get(providerId)
             if (!provider) {
+                return null
+            }
+            // Agent-scoped credentials are connected once by an owner, never
+            // relinked per-asker — don't mint an asker-facing authorize link.
+            if (provider.binding === 'agent') {
+                return null
+            }
+            if (deps.unavailableReason || !deps.agentUserId) {
                 return null
             }
             try {
@@ -218,15 +223,56 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
                 return res
             }
 
-            // Shared-session gate FIRST — the seed must never resolve the owner's
-            // edge bearer for a different asker (confused deputy, T1).
+            const provider = deps.registry.get(providerId)
+
+            // Agent-scoped binding: one shared credential for the whole agent.
+            // None of the per-asker gates apply — there's no asker identity, the
+            // shared-session confused-deputy risk is moot (it isn't anyone's
+            // personal credential), and the edge seed is the asker's bearer, not
+            // the agent's. Resolve the shared credential directly; if it isn't
+            // connected, report unavailable rather than relaying an authorize
+            // link — connecting an agent credential is an owner action, not a
+            // per-asker one. (Checked before the per-asker gates below; a missing
+            // provider falls through to them via optional chaining.)
+            if (provider?.binding === 'agent') {
+                try {
+                    const credential = await provider.resolve({
+                        agentUserId: deps.agentUserId ?? '',
+                        teamId: deps.teamId,
+                        applicationId: deps.applicationId,
+                        scopes,
+                    })
+                    if (credential) {
+                        return emit(
+                            { kind: 'ok', credential, allowedHosts: provider.allowedHosts() },
+                            'agent_store',
+                            'agent'
+                        )
+                    }
+                    return emit(
+                        { kind: 'unavailable', provider: providerId, reason: 'agent_credential_not_connected' },
+                        'agent_store',
+                        'agent'
+                    )
+                } catch (err) {
+                    return emit(
+                        { kind: 'unavailable', provider: providerId, reason: (err as Error).message },
+                        'agent_store',
+                        'agent'
+                    )
+                }
+            }
+
+            // Shared-session gate FIRST (per-asker path) — the seed must never
+            // resolve the owner's edge bearer for a different asker (confused
+            // deputy, T1). Checked before provider validation to preserve the
+            // prior short-circuit ordering.
             if (deps.unavailableReason) {
                 return emit(
                     { kind: 'unavailable', provider: providerId, reason: deps.unavailableReason },
                     'unavailable'
                 )
             }
-            const provider = deps.registry.get(providerId)
             if (!provider) {
                 return emit({ kind: 'unavailable', provider: providerId, reason: 'unknown_provider' }, 'unavailable')
             }

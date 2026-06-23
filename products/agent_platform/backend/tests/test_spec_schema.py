@@ -194,12 +194,38 @@ def _with_auth(spec: dict) -> dict:
                 "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
             },
         ),
-        # identity_providers: the per-asker `principal` binding is accepted (the
-        # only one implemented at runtime). `client_id` is backend-injected on
-        # promote, so authors may omit it.
+        # identity_providers: the per-asker `principal` binding is accepted.
+        # `client_id` is backend-injected on promote, so authors may omit it.
         (
             "identity_provider_principal_binding",
             {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "principal"}]},
+        ),
+        # The `agent` binding (one app-scoped credential shared by every asker)
+        # is accepted ONLY when the author acknowledges the shared credential —
+        # mirrors the zod superRefine. Both provider kinds gate on the same flag.
+        (
+            "identity_provider_agent_binding_posthog_with_ack",
+            {
+                "model": "x",
+                "identity_providers": [{"kind": "posthog", "binding": "agent", "acknowledge_shared_credential": True}],
+            },
+        ),
+        (
+            "identity_provider_agent_binding_oauth2_with_ack",
+            {
+                "model": "x",
+                "identity_providers": [
+                    {
+                        "kind": "oauth2",
+                        "id": "dogs",
+                        "binding": "agent",
+                        "acknowledge_shared_credential": True,
+                        "authorize_url": "https://idp.test/authorize",
+                        "token_url": "https://idp.test/token",
+                        "client_id": "c",
+                    }
+                ],
+            },
         ),
     ],
 )
@@ -307,11 +333,29 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "secrets",
         ),
         # identity_providers: the `agent` binding (one app-scoped credential
-        # shared by every asker) isn't implemented at runtime yet, so the schema
-        # rejects it until it lands — kept in lockstep with the zod enum.
+        # shared by every asker) requires an explicit acknowledge_shared_credential —
+        # the if/then allOf rejects it when the flag is absent. Mirrors the zod
+        # superRefine. Both provider kinds gate on the same flag.
         (
-            "identity_provider_agent_binding_rejected",
+            "identity_provider_agent_binding_posthog_missing_ack",
             {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "agent"}]},
+            "identity_providers",
+        ),
+        (
+            "identity_provider_agent_binding_oauth2_missing_ack",
+            {
+                "model": "x",
+                "identity_providers": [
+                    {
+                        "kind": "oauth2",
+                        "id": "dogs",
+                        "binding": "agent",
+                        "authorize_url": "https://idp.test/authorize",
+                        "token_url": "https://idp.test/token",
+                        "client_id": "c",
+                    }
+                ],
+            },
             "identity_providers",
         ),
     ],

@@ -136,16 +136,61 @@ describe('createToolIdentity.resolve', () => {
         })
     })
 
-    it('degrades a provider throw (unimplemented agent binding) to unavailable', async () => {
+    it('degrades a provider resolve throw to unavailable', async () => {
         const provider = fakeProvider({
-            binding: 'agent',
             resolve: vi.fn(async () => {
-                throw new Error('agent_binding_not_implemented')
+                throw new Error('boom')
             }),
         })
         const { toolIdentity } = deps({ provider })
         const res = await toolIdentity.resolve('posthog')
-        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'agent_binding_not_implemented' })
+        expect(res).toEqual({ kind: 'unavailable', provider: 'posthog', reason: 'boom' })
+    })
+
+    describe('agent-bound provider (one shared credential, no per-asker gates)', () => {
+        it('resolves the shared credential → ok', async () => {
+            const provider = fakeProvider({ binding: 'agent', resolve: vi.fn(async () => OK_CRED) })
+            const { toolIdentity } = deps({ provider })
+            const res = await toolIdentity.resolve('posthog')
+            expect(res).toEqual({ kind: 'ok', credential: OK_CRED, allowedHosts: ['app.posthog.test'] })
+        })
+
+        it('reports agent_credential_not_connected (no asker-facing authorize link) when unconnected', async () => {
+            // Connecting an agent credential is an owner action, never per-asker —
+            // so a null resolve must NOT relay an authorize link.
+            const provider = fakeProvider({ binding: 'agent', resolve: vi.fn(async () => null) })
+            const { toolIdentity } = deps({ provider })
+            const res = await toolIdentity.resolve('posthog')
+            expect(res).toEqual({
+                kind: 'unavailable',
+                provider: 'posthog',
+                reason: 'agent_credential_not_connected',
+            })
+            expect(provider.initiate).not.toHaveBeenCalled()
+        })
+
+        it('resolves even for an anonymous asker (no agentUserId) — does NOT short-circuit to principal_not_linkable', async () => {
+            const provider = fakeProvider({ binding: 'agent', resolve: vi.fn(async () => OK_CRED) })
+            const { toolIdentity } = deps({ provider, agentUserId: null })
+            const res = await toolIdentity.resolve('posthog')
+            expect(res).toEqual({ kind: 'ok', credential: OK_CRED, allowedHosts: ['app.posthog.test'] })
+        })
+
+        it('resolves in a shared session — does NOT return the shared-session unavailable', async () => {
+            // The shared-credential confused-deputy is moot: it isn't anyone's
+            // personal credential, so the T1 gate doesn't apply.
+            const provider = fakeProvider({ binding: 'agent', resolve: vi.fn(async () => OK_CRED) })
+            const { toolIdentity } = deps({ provider, unavailableReason: 'shared_session_unsupported' })
+            const res = await toolIdentity.resolve('posthog')
+            expect(res).toEqual({ kind: 'ok', credential: OK_CRED, allowedHosts: ['app.posthog.test'] })
+        })
+
+        it('relink returns null (connected once by an owner, never relinked per-asker)', async () => {
+            const provider = fakeProvider({ binding: 'agent' })
+            const { toolIdentity } = deps({ provider })
+            expect(await toolIdentity.relink('posthog')).toBeNull()
+            expect(provider.initiate).not.toHaveBeenCalled()
+        })
     })
 
     it('logs one identity.resolved line per resolve with the source and no token', async () => {

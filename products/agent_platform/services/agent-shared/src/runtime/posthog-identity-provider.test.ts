@@ -12,7 +12,12 @@
 import { describe, expect, it } from 'vitest'
 
 import type { HttpFetcher } from './http-client'
-import type { IdentityCredentialStore, LinkedCredential, PutLinkedCredentialInput } from './identity-credential-store'
+import type {
+    IdentityCredentialStore,
+    LinkedCredential,
+    PutAgentScopedCredentialInput,
+    PutLinkedCredentialInput,
+} from './identity-credential-store'
 import type { CreateLinkStateInput, IdentityLinkStateStore, LinkState } from './identity-link-state-store'
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
 import { PostHogAuthProvider, SeedOnlyPostHogProvider } from './posthog-identity-provider'
@@ -111,6 +116,10 @@ class MemLinkStore implements IdentityLinkStateStore {
 
 class MemCredStore implements IdentityCredentialStore {
     private rows = new Map<string, { input: PutLinkedCredentialInput; subject?: string; state: string }>()
+    // Agent-scoped rows live on their own axis, keyed by (application, provider)
+    // with no principal — mirrors the partial-unique (application_id, provider)
+    // WHERE agent_user_id IS NULL in the real store.
+    private agentRows = new Map<string, { input: PutAgentScopedCredentialInput; subject?: string; state: string }>()
     private key(a: string, p: string): string {
         return `${a}::${p}`
     }
@@ -119,6 +128,12 @@ class MemCredStore implements IdentityCredentialStore {
         const existing = this.rows.get(k)
         // Mirror the SQL COALESCE: a refresh (subject undefined) keeps the prior subject.
         this.rows.set(k, { input, subject: input.subject ?? existing?.subject, state: 'active' })
+    }
+    async putAgentScoped(input: PutAgentScopedCredentialInput): Promise<void> {
+        const k = this.key(input.applicationId, input.provider)
+        const existing = this.agentRows.get(k)
+        // Same COALESCE-subject behavior as `put`: a refresh keeps the prior subject.
+        this.agentRows.set(k, { input, subject: input.subject ?? existing?.subject, state: 'active' })
     }
     async get(agentUserId: string, provider: string): Promise<LinkedCredential | null> {
         const r = this.rows.get(this.key(agentUserId, provider))
@@ -140,8 +155,18 @@ class MemCredStore implements IdentityCredentialStore {
         }
         return null
     }
-    async getAgentScoped(): Promise<LinkedCredential | null> {
-        throw new Error('agent_binding_not_implemented')
+    async getAgentScoped(applicationId: string, provider: string): Promise<LinkedCredential | null> {
+        const r = this.agentRows.get(this.key(applicationId, provider))
+        if (!r || r.state !== 'active') {
+            return null
+        }
+        return {
+            // Agent-scoped rows carry no principal.
+            agentUserId: null,
+            provider,
+            credential: r.input.credential,
+            scopes: r.input.scopes ?? r.input.credential.scopes ?? [],
+        }
     }
     async revoke(): Promise<void> {}
     async remove(): Promise<void> {}

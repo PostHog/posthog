@@ -61,10 +61,13 @@ maybeDescribe('Oauth2AuthProvider × dogs IdP (real PG + real HTTP)', () => {
         await pool?.end().catch(() => undefined)
     })
 
-    const buildProvider = (over: Partial<{ tokenTtlSeconds: number; now: () => number }> = {}): Oauth2AuthProvider => {
+    const buildProvider = (
+        over: Partial<{ tokenTtlSeconds: number; now: () => number; binding: 'principal' | 'agent' }> = {}
+    ): Oauth2AuthProvider => {
         return new Oauth2AuthProvider({
             config: {
                 id: 'dogs',
+                binding: over.binding,
                 authorizeUrl: dog.authorizeUrl,
                 tokenUrl: dog.tokenUrl,
                 clientId: 'dogs-client',
@@ -181,6 +184,68 @@ maybeDescribe('Oauth2AuthProvider × dogs IdP (real PG + real HTTP)', () => {
             expect(afterToken).not.toBe(beforeToken) // rotated
             const api = await fetch(dog.apiUrl, { headers: { Authorization: `Bearer ${afterToken}` } })
             expect(api.status).toBe(200)
+        } finally {
+            await dog.close()
+        }
+    })
+
+    it('agent binding resolves the app-scoped credential and refresh-on-expiry persists via putAgentScoped', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const credentials = new PgIdentityCredentialStore(pool, { encryptionSaltKeys: KEY })
+            const applicationId = randomUUID()
+            const asker = randomUUID() // an arbitrary asker — agent binding ignores it for resolution
+
+            // Connect the shared credential once. Link a throwaway principal to
+            // mint a real dogs-issued refresh token, then copy that credential
+            // into the agent-scoped (application, provider) row — agent_user_id
+            // NULL — which is what an owner-driven connect would write.
+            const linker = buildProvider()
+            const owner = randomUUID()
+            const { authorizeUrl, stateId } = await linker.initiate({
+                agentUserId: owner,
+                teamId: 1,
+                applicationId,
+                scopes: ['read:dog'],
+                redirectUri: REDIRECT,
+            })
+            const { code } = await visitAuthorize(authorizeUrl)
+            await linker.complete({ stateId, query: { code } })
+            const linked = await credentials.get(owner, 'dogs')
+            if (!linked) {
+                throw new Error('expected a linked credential to seed from')
+            }
+            await credentials.putAgentScoped({
+                teamId: 1,
+                applicationId,
+                provider: 'dogs',
+                credential: linked.credential,
+                scopes: linked.scopes,
+            })
+
+            // An agent-bound provider whose clock is far in the future sees the
+            // shared access token as expired and refreshes it.
+            const agentProvider = buildProvider({ binding: 'agent', now: () => Date.now() + 10 * 60 * 60 * 1000 })
+            const before = await credentials.getAgentScoped(applicationId, 'dogs')
+            const cred = await agentProvider.resolve({ agentUserId: asker, teamId: 1, applicationId, scopes: [] })
+            const token = cred?.kind === 'oauth_bearer' ? cred.token : ''
+            expect(token).not.toBe('')
+
+            // The refreshed token works against the real API.
+            const api = await fetch(dog.apiUrl, { headers: { Authorization: `Bearer ${token}` } })
+            expect(api.status).toBe(200)
+
+            // Refresh persisted to the AGENT-SCOPED row (agent_user_id NULL),
+            // rotating its access token — not to a per-principal row.
+            const after = await credentials.getAgentScoped(applicationId, 'dogs')
+            expect(after?.agentUserId).toBeNull()
+            expect(after?.credential.access_token).toBe(token)
+            expect(after?.credential.access_token).not.toBe(before?.credential.access_token)
+            // No per-principal row was written for the asker.
+            expect(await credentials.get(asker, 'dogs')).toBeNull()
         } finally {
             await dog.close()
         }

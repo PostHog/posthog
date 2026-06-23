@@ -156,11 +156,12 @@ export class Oauth2AuthProvider implements IdentityProvider {
 
     async resolve(input: IdentityResolveInput): Promise<Credential | null> {
         // `agent` binding resolves one app-scoped credential shared by every
-        // asker; `getAgentScoped` is a marked seam that throws until it lands.
-        const linked =
-            this.binding === 'agent'
-                ? await this.deps.credentials.getAgentScoped(input.applicationId, this.id)
-                : await this.deps.credentials.get(input.agentUserId, this.id)
+        // asker (keyed by application, not principal); `principal` resolves the
+        // asker's own linked credential.
+        const isAgent = this.binding === 'agent'
+        const linked = isAgent
+            ? await this.deps.credentials.getAgentScoped(input.applicationId, this.id)
+            : await this.deps.credentials.get(input.agentUserId, this.id)
         if (!linked) {
             return null
         }
@@ -170,14 +171,25 @@ export class Oauth2AuthProvider implements IdentityProvider {
         if (stored.expires_at && stored.expires_at - skew <= now && stored.refresh_token) {
             const token = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: stored.refresh_token })
             stored = this.toStored(token, stored.refresh_token)
-            await this.deps.credentials.put({
-                teamId: input.teamId,
-                applicationId: input.applicationId,
-                agentUserId: input.agentUserId,
-                provider: this.id,
-                credential: stored,
-                scopes: linked.scopes,
-            })
+            // Persist the refreshed token back to the same row shape it came from.
+            if (isAgent) {
+                await this.deps.credentials.putAgentScoped({
+                    teamId: input.teamId,
+                    applicationId: input.applicationId,
+                    provider: this.id,
+                    credential: stored,
+                    scopes: linked.scopes,
+                })
+            } else {
+                await this.deps.credentials.put({
+                    teamId: input.teamId,
+                    applicationId: input.applicationId,
+                    agentUserId: input.agentUserId,
+                    provider: this.id,
+                    credential: stored,
+                    scopes: linked.scopes,
+                })
+            }
         }
         return {
             kind: 'oauth_bearer',

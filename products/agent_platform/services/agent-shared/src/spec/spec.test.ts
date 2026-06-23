@@ -764,13 +764,56 @@ describe('AgentSpecSchema', () => {
             expect(spec.identity_providers[0]?.binding).toBe('principal')
         })
 
-        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+        it.each([
+            { kind: 'posthog' as const },
+            {
+                kind: 'oauth2' as const,
+                id: 'dogs',
+                authorize_url: 'https://idp.test/authorize',
+                token_url: 'https://idp.test/token',
+                client_id: 'c',
+            },
+        ])('accepts `agent` binding with acknowledge_shared_credential: true ($kind)', (extra) => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ ...extra, binding: 'agent', acknowledge_shared_credential: true }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('agent')
+            expect(spec.identity_providers[0]?.acknowledge_shared_credential).toBe(true)
+        })
+
+        it.each([
+            { kind: 'posthog' as const },
+            {
+                kind: 'oauth2' as const,
+                id: 'dogs',
+                authorize_url: 'https://idp.test/authorize',
+                token_url: 'https://idp.test/token',
+                client_id: 'c',
+            },
+        ])('rejects `agent` binding WITHOUT acknowledge_shared_credential ($kind)', (extra) => {
             expect(() =>
                 AgentSpecSchema.parse({
                     model: 'x',
-                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                    identity_providers: [{ ...extra, binding: 'agent' }],
                 })
-            ).toThrow()
+            ).toThrow(/acknowledge_shared_credential/)
+        })
+
+        it('parses `principal` binding regardless of the ack field (ignored for principal)', () => {
+            const omitted = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog', binding: 'principal' }],
+            })
+            expect(omitted.identity_providers[0]?.binding).toBe('principal')
+
+            // Even a stray ack on a principal-bound provider is harmless (ignored),
+            // not a parse error.
+            const withAck = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog', binding: 'principal', acknowledge_shared_credential: true }],
+            })
+            expect(withAck.identity_providers[0]?.binding).toBe('principal')
         })
     })
 })
