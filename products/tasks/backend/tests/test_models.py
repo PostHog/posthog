@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
 
@@ -676,6 +677,29 @@ class TestTaskRun(TestCase):
         self.assertEqual(log_entries[0]["message"], "First entry")
         self.assertEqual(log_entries[1]["message"], "New entry 1")
         self.assertEqual(log_entries[2]["message"], "New entry 2")
+
+    def test_append_log_tolerates_failed_pre_read(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        first_entries = [{"type": "info", "message": "First entry"}]
+        run.append_log(first_entries)
+
+        # A transient read failure during the read-modify-write must neither raise nor
+        # truncate the existing log; the batch is dropped and prior content is preserved.
+        with patch(
+            "products.tasks.backend.models.object_storage.read",
+            side_effect=ObjectStorageError("read failed"),
+        ):
+            run.append_log([{"type": "info", "message": "Lost entry"}])
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        log_entries = [json.loads(line) for line in log_content.strip().split("\n")]
+        self.assertEqual(len(log_entries), 1)
+        self.assertEqual(log_entries[0]["message"], "First entry")
 
     def test_log_file_tagged_with_ttl(self):
         run = TaskRun.objects.create(

@@ -1,5 +1,7 @@
 import abc
+import time
 import threading
+import http.client
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -8,11 +10,30 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ReadTimeoutError, ResponseStreamingError
+from urllib3.exceptions import (
+    IncompleteRead as Urllib3IncompleteRead,
+    ProtocolError,
+)
 
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
+
+# A streamed `Body.read()` can break mid-stream after the GET itself succeeded — the
+# connection drops between chunks and botocore raises `ResponseStreamingError` wrapping a
+# urllib3 `ProtocolError`/`IncompleteRead`. botocore's request-level retries (configured on
+# the client) do not cover the streamed body, so we re-issue the GET and re-read with bounded
+# backoff for these transient errors.
+_TRANSIENT_STREAMING_ERRORS = (
+    ResponseStreamingError,
+    ReadTimeoutError,
+    ProtocolError,
+    Urllib3IncompleteRead,
+    http.client.IncompleteRead,
+)
+_READ_STREAM_MAX_ATTEMPTS = 3
+_READ_STREAM_BACKOFF_SECONDS = 0.5
 
 
 class ObjectStorageError(Exception):
@@ -237,33 +258,62 @@ class ObjectStorage(ObjectStorageClient):
             return None
 
     def read_bytes(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[bytes]:
-        s3_response = {}
-        try:
-            s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
-            return s3_response["Body"].read()
-        except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code")
-            if error_code == "NoSuchKey" and missing_ok:
-                return None
-            logger.exception(
-                "object_storage.read_failed",
-                bucket=bucket,
-                file_name=key,
-                error=e,
-                s3_response={},
-            )
-            capture_exception(e)
-            raise ObjectStorageError("read failed") from e
-        except Exception as e:
-            logger.exception(
-                "object_storage.read_failed",
-                bucket=bucket,
-                file_name=key,
-                error=e,
-                s3_response=s3_response,
-            )
-            capture_exception(e)
-            raise ObjectStorageError("read failed") from e
+        last_streaming_error: Exception | None = None
+        for attempt in range(_READ_STREAM_MAX_ATTEMPTS):
+            s3_response: dict = {}
+            try:
+                s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
+                return s3_response["Body"].read()
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code == "NoSuchKey" and missing_ok:
+                    return None
+                logger.exception(
+                    "object_storage.read_failed",
+                    bucket=bucket,
+                    file_name=key,
+                    error=e,
+                    s3_response={},
+                )
+                capture_exception(e)
+                raise ObjectStorageError("read failed") from e
+            except _TRANSIENT_STREAMING_ERRORS as e:
+                # The GET succeeded but the body stream broke mid-read; re-issue and re-read.
+                last_streaming_error = e
+                is_last_attempt = attempt == _READ_STREAM_MAX_ATTEMPTS - 1
+                logger.warning(
+                    "object_storage.read_stream_interrupted",
+                    bucket=bucket,
+                    file_name=key,
+                    attempt=attempt + 1,
+                    max_attempts=_READ_STREAM_MAX_ATTEMPTS,
+                    error=e,
+                )
+                if not is_last_attempt:
+                    time.sleep(_READ_STREAM_BACKOFF_SECONDS * (2**attempt))
+                    continue
+                logger.exception(
+                    "object_storage.read_failed",
+                    bucket=bucket,
+                    file_name=key,
+                    error=e,
+                    s3_response=s3_response,
+                )
+                capture_exception(e)
+                raise ObjectStorageError("read failed") from e
+            except Exception as e:
+                logger.exception(
+                    "object_storage.read_failed",
+                    bucket=bucket,
+                    file_name=key,
+                    error=e,
+                    s3_response=s3_response,
+                )
+                capture_exception(e)
+                raise ObjectStorageError("read failed") from e
+
+        # Defensive: the loop either returns or raises on every path above.
+        raise ObjectStorageError("read failed") from last_streaming_error
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
         try:

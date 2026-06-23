@@ -38,6 +38,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
@@ -1017,7 +1018,20 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
+        try:
+            existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
+        except ObjectStorageError as e:
+            # This is a read-modify-write: a failed pre-read must not truncate the existing log
+            # (treating it as empty would overwrite prior history) nor surface as a user-facing
+            # 500. Drop this batch instead — the next append re-reads and continues from the
+            # persisted content.
+            logger.warning(
+                "task_run.append_log_read_failed",
+                task_run_id=str(self.id),
+                log_url=self.log_url,
+                error=str(e),
+            )
+            return
         is_new_file = not existing_content
 
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
