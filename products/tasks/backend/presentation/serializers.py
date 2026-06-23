@@ -326,6 +326,18 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Branch the user has selected for this cloud task. Write-only and not persisted on the "
+            "task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch "
+            "is otherwise carried on the run). Omit to match a warm Run on the default branch."
+        ),
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1163,6 +1175,50 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(errors)
 
         return attrs
+
+
+class WarmTaskRequestSerializer(serializers.Serializer):
+    """Request body for warming a full idling Run while composing a Code-app cloud task.
+
+    Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+    interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+    the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+    it to the caller's team before use.
+    """
+
+    repository = serializers.CharField(
+        max_length=255,
+        help_text="Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
+    )
+    github_integration = serializers.IntegerField(
+        help_text="Primary key of the team's GitHub integration to clone with.",
+    )
+    branch = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+        help_text="Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
+class WarmTaskResponseSerializer(serializers.Serializer):
+    """Response for a successful warm request — the draft Task + idling warm Run reused on submit."""
+
+    task_id = serializers.UUIDField(
+        help_text="Id of the draft Task birthed for the warm Run.",
+    )
+    run_id = serializers.UUIDField(
+        help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
+    )
 
 
 class TaskRunStartRequestSerializer(serializers.Serializer):

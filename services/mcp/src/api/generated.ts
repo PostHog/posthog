@@ -40253,6 +40253,12 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -49656,6 +49662,12 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -50492,6 +50504,40 @@ export namespace Schemas {
          * @nullable
          */
       table_suffix: string | null;
+    }
+
+    /**
+     * Request body for warming a full idling Run while composing a Code-app cloud task.
+     *
+     * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+     * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+     * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+     * it to the caller's team before use.
+     */
+    export interface WarmTaskRequest {
+      /**
+         * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+         * @maxLength 255
+         */
+      repository: string;
+      /** Primary key of the team's GitHub integration to clone with. */
+      github_integration: number;
+      /**
+         * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
+    }
+
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export interface WarmTaskResponse {
+      /** Id of the draft Task birthed for the warm Run. */
+      task_id: string;
+      /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
+      run_id: string;
     }
 
     export interface WeeklyDigestResponse {
