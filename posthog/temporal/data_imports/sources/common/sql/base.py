@@ -117,7 +117,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
             primary_keys = impl.get_primary_keys(conn, config, tables)
             row_counts = impl.get_row_counts(conn, config, tables) if with_counts else {}
             foreign_keys = impl.get_foreign_keys(conn, config, tables)
-            column_comments = impl.get_column_comments(conn, config, tables)
             metadata = impl.get_source_metadata(conn, config, tables)
             cdc_support = impl.get_cdc_support(conn, config, tables)
             indexed_columns_by_table = impl.get_leading_index_columns(conn, config, tables)
@@ -140,7 +139,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                     columns=columns,
                     row_count=row_counts.get(table_name),
                     foreign_keys=foreign_keys.get(table_name, []),
-                    column_descriptions=column_comments.get(table_name, {}),
                     source_catalog=metadata.catalog_by_table.get(table_name),
                     source_schema=metadata.schema_by_table.get(table_name),
                     source_table_name=metadata.table_name_by_table.get(table_name),
@@ -175,7 +173,6 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                 source_catalog=source_schema.source_catalog,
                 source_schema=source_schema.source_schema,
                 source_table_name=source_schema.source_table_name,
-                column_descriptions=source_schema.column_descriptions,
             )
             existing_config: dict[str, Any] = (
                 dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}

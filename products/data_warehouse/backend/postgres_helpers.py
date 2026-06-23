@@ -59,7 +59,6 @@ def postgres_schema_metadata(
     source_catalog: str | None = None,
     source_schema: str | None = None,
     source_table_name: str | None = None,
-    column_descriptions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Back-compat wrapper around `sql_schema_metadata`."""
     return _sql_schema_metadata(
@@ -68,7 +67,6 @@ def postgres_schema_metadata(
         source_catalog=source_catalog,
         source_schema=source_schema,
         source_table_name=source_table_name,
-        column_descriptions=column_descriptions,
     )
 
 
@@ -222,7 +220,6 @@ def reconcile_postgres_schemas(
             source_catalog=resolved_catalog,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
-            column_descriptions=source_schema.column_descriptions,
         )
         new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
         # Persist the detected primary key so tables discovered after source creation can be

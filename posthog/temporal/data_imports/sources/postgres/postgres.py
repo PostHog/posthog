@@ -353,8 +353,6 @@ class PostgresDiscoveredSchema:
     source_schema: str
     source_table_name: str
     columns: list[tuple[str, str, bool]]
-    # Native column comments (`COMMENT ON COLUMN`), keyed by column name. Empty when none/unavailable.
-    column_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _is_duckdb_connection(cursor: psycopg.Cursor) -> bool:
@@ -1008,37 +1006,12 @@ def _schemas_from_conn(
 
             columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
 
-        # Native column comments are advisory semantic metadata. Like FK/index discovery, degrade
-        # gracefully on any failure so a comment-query error never breaks schema listing.
-        comments_by_table: dict[str, dict[str, str]] = collections.defaultdict(dict)
-        try:
-            cursor.execute(
-                f"""
-                SELECT n.nspname, c.relname, a.attname, d.description
-                FROM pg_description d
-                JOIN pg_class c ON c.oid = d.objoid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_attribute a ON a.attrelid = d.objoid AND a.attnum = d.objsubid
-                WHERE d.objsubid > 0
-                  AND n.nspname IN ({schema_placeholders})
-                """,
-                schema_params,
-            )
-            for table_schema, table_name, column_name, description in cursor.fetchall():
-                display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
-                if display_name is not None and description:
-                    comments_by_table[display_name][column_name] = description
-        except Exception as e:
-            structlog.get_logger().warning("Failed to fetch Postgres column comments", exc_info=e)
-            comments_by_table = collections.defaultdict(dict)
-
         return {
             display_name: PostgresDiscoveredSchema(
                 source_catalog=source_catalog,
                 source_schema=schema_name,
                 source_table_name=table_name,
                 columns=columns_by_table.get(display_name, []),
-                column_descriptions=dict(comments_by_table.get(display_name, {})),
             )
             for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
         }

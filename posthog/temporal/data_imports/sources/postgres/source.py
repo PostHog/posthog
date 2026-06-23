@@ -690,7 +690,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     row_count=row_counts.get(table_name, None),
                     columns=discovered_schema.columns,
                     foreign_keys=db_foreign_keys.get(table_name, []),
-                    column_descriptions=discovered_schema.column_descriptions,
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,

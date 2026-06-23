@@ -298,43 +298,6 @@ class SnowflakeImplementation(
 
         return dict(schema_list)
 
-    def get_column_comments(
-        self,
-        conn: snowflake.connector.SnowflakeConnection,
-        config: SnowflakeSourceConfig,
-        tables: list[str],
-    ) -> dict[str, dict[str, str]]:
-        """Harvest native column `COMMENT` values. Best-effort; never breaks discovery."""
-        selected_schema = normalize_namespace(config.schema)
-        qualify = selected_schema is None
-
-        result: dict[str, dict[str, str]] = collections.defaultdict(dict)
-        try:
-            with conn.cursor() as cursor:
-                if selected_schema is not None:
-                    cursor.execute(
-                        "SELECT table_schema, table_name, column_name, comment"
-                        " FROM information_schema.columns"
-                        " WHERE table_schema = %(schema)s",
-                        {"schema": selected_schema},
-                    )
-                else:
-                    cursor.execute(
-                        "SELECT table_schema, table_name, column_name, comment"
-                        " FROM information_schema.columns"
-                        " WHERE table_schema != %(system_schema)s",
-                        {"system_schema": SNOWFLAKE_SYSTEM_SCHEMA},
-                    )
-                rows = cursor.fetchall()
-            for table_schema, table_name, column_name, comment in rows:
-                if comment:
-                    display_name = f"{table_schema}.{table_name}" if qualify else table_name
-                    result[display_name][column_name] = comment
-        except Exception as e:
-            structlog.get_logger().warning("Failed to fetch Snowflake column comments", exc_info=e)
-            return {}
-        return dict(result)
-
     def get_primary_keys(
         self,
         conn: snowflake.connector.SnowflakeConnection,

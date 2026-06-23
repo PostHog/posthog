@@ -4,7 +4,7 @@ Persisted on `ExternalDataSchema.sync_type_config.schema_metadata` so the column
 picker and per-row routing avoid re-querying the source. `data_type` strings stay
 driver-native — no consumer should branch on case.
 
-Shape: `{columns: [{name, data_type, is_nullable, description?}], foreign_keys: [...], source_catalog, source_schema, source_table_name}`
+Shape: `{columns: [{name, data_type, is_nullable}], foreign_keys: [...], source_catalog, source_schema, source_table_name}`
 """
 
 from __future__ import annotations
@@ -18,21 +18,14 @@ def sql_schema_metadata(
     source_catalog: str | None = None,
     source_schema: str | None = None,
     source_table_name: str | None = None,
-    column_descriptions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build the `schema_metadata` JSON for one schema row.
-
-    `column_descriptions` (column name → native comment) adds a `description` to matching column
-    entries, omitted when there is no comment for that column.
-    """
-    descriptions = column_descriptions or {}
+    """Build the `schema_metadata` JSON for one schema row."""
     return {
         "columns": [
             {
                 "name": column_name,
                 "data_type": column_type,
                 "is_nullable": nullable,
-                **({"description": descriptions[column_name]} if descriptions.get(column_name) else {}),
             }
             for column_name, column_type, nullable in columns
         ],
