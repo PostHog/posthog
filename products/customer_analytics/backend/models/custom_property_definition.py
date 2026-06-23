@@ -33,6 +33,10 @@ DATA_TYPE_BY_DISPLAY_TYPE: dict[DisplayType, DataType] = {
     DisplayType.BOOLEAN: DataType.BOOLEAN,
 }
 
+NUMERIC_DISPLAY_TYPES = [
+    display_type.value for display_type, data_type in DATA_TYPE_BY_DISPLAY_TYPE.items() if data_type == DataType.NUMERIC
+]
+
 
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -51,7 +55,11 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
             models.UniqueConstraint(
                 fields=["team", "name"],
                 name="unique_custom_property_per_team",
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(is_big_number=False) | models.Q(display_type__in=NUMERIC_DISPLAY_TYPES),
+                name="is_big_number_requires_numeric_display_type",
+            ),
         ]
 
     @property

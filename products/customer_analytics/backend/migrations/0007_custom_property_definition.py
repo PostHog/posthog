@@ -70,7 +70,15 @@ class Migration(migrations.Migration):
             ],
             options={
                 "constraints": [
-                    models.UniqueConstraint(fields=("team", "name"), name="unique_custom_property_per_team")
+                    models.UniqueConstraint(fields=("team", "name"), name="unique_custom_property_per_team"),
+                    models.CheckConstraint(
+                        condition=models.Q(
+                            ("is_big_number", False),
+                            ("display_type__in", ["number", "currency", "percent"]),
+                            _connector="OR",
+                        ),
+                        name="is_big_number_requires_numeric_display_type",
+                    ),
                 ],
             },
         ),
