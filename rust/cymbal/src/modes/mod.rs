@@ -1,7 +1,7 @@
 //! Run modes for the cymbal binary. The active mode is selected at boot via
 //! the `CYMBAL_MODE` env var; each mode owns its own server stack and (nested)
 //! config. Adding a mode is one submodule, one [`CymbalMode`] variant, one
-//! nested config field on [`crate::config::Config`], and one match arm in
+//! nested config field on [`crate::modes::processing::ProcessingConfig`], and one match arm in
 //! `main.rs`.
 
 use std::str::FromStr;

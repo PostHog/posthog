@@ -1167,12 +1167,23 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(body["error"], "invalid_grant")
         self.assertIn("error_description", body)
 
-    def test_token_endpoint_returns_temporarily_unavailable_on_pgbouncer_query_wait_timeout(self):
+    @parameterized.expand(
+        [
+            ("query_wait_timeout", "query_wait_timeout"),
+            (
+                "connection_reset",
+                "server closed the connection unexpectedly\n\tThis probably means the server "
+                "terminated abnormally before or while processing the request.",
+            ),
+            ("connection_failed", "connection failed"),
+        ]
+    )
+    def test_token_endpoint_returns_temporarily_unavailable_on_transient_db_error(self, _name, error_message):
         token_data = {**self.base_token_body, "code": "does_not_matter"}
 
         with patch(
             "oauth2_provider.views.base.TokenView.post",
-            side_effect=OperationalError("query_wait_timeout"),
+            side_effect=OperationalError(error_message),
         ):
             response = self.post("/oauth/token/", token_data)
 
