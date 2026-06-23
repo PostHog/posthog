@@ -66,7 +66,85 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 
+/**
+ * Cancel the conversation's in-progress LangGraph run.
+ */
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ */
+export const conversationsOpenCreateBodyContentMax = 40000
+
+export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(conversationsOpenCreateBodyContentMax)
+            .nullish()
+            .describe(
+                "The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message."
+            ),
+        trace_id: zod
+            .uuid()
+            .optional()
+            .describe("Client-generated trace id correlated with the resulting Run's SSE stream."),
+        attached_context: zod
+            .array(
+                zod
+                    .object({
+                        type: zod
+                            .enum([
+                                'action',
+                                'dashboard',
+                                'error_tracking_issue',
+                                'evaluation',
+                                'event',
+                                'insight',
+                                'notebook',
+                                'text',
+                            ])
+                            .describe(
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            )
+                            .describe(
+                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            ),
+                        id: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Entity identifier — integer for `dashboard`\/`action`, string short_id\/UUID otherwise. Absent for `text`.'
+                            ),
+                        name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional human-readable label rendered in the context block.'),
+                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                    })
+                    .describe('One typed attachment carried by a sandbox message.')
+            )
+            .optional()
+            .describe('Typed PostHog entities (and free text) attached to this message.'),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+            )
+            .optional()
+            .describe(
+                'Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+            ),
+        task_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation."
+            ),
+    })
+    .describe(
+        'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
+    )
 
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 

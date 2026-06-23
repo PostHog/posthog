@@ -107,6 +107,68 @@ describe('createInternalApiAuthMiddleware', () => {
         })
     })
 
+    describe('when fallback secrets configured', () => {
+        it.each([
+            ['primary', 'new-secret'],
+            ['first fallback', 'old-secret'],
+            ['second fallback', 'older-secret'],
+        ])('should allow request when %s matches', (_, provided) => {
+            const middleware = createInternalApiAuthMiddleware({
+                secret: 'new-secret',
+                fallbacks: ['old-secret', 'older-secret'],
+            })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': provided })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
+
+        it('should reject request when secret matches neither primary nor fallback', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: 'new-secret', fallbacks: ['old-secret'] })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': 'bogus-secret' })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).not.toHaveBeenCalled()
+            expect(res.status).toHaveBeenCalledWith(401)
+        })
+
+        it('should skip auth when primary and all fallbacks are empty', () => {
+            const middleware = createInternalApiAuthMiddleware({ secret: '', fallbacks: ['', ''] })
+            const req = mockRequest('/api/test', {})
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('whitespace handling', () => {
+        it.each([
+            ['configured secret has a trailing newline', 'my-secret\n', 'my-secret'],
+            ['provided secret has surrounding whitespace', 'my-secret', '  my-secret  '],
+        ])('matches when %s', (_, configured, provided) => {
+            const middleware = createInternalApiAuthMiddleware({ secret: configured })
+            const req = mockRequest('/api/test', { 'x-internal-api-secret': provided })
+            const res = mockResponse()
+            const next = jest.fn()
+
+            middleware(req, res, next)
+
+            expect(next).toHaveBeenCalled()
+            expect(res.status).not.toHaveBeenCalled()
+        })
+    })
+
     describe('path exclusions', () => {
         it.each([
             ['/public/webhooks/123', 'public path'],

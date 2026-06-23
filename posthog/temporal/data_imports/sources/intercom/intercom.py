@@ -383,17 +383,25 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
 def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
-    either parent or child."""
-    for company in _iter_companies(session):
+    either parent or child.
+
+    The scroll is drained up front rather than interleaved with the per-company
+    segment fetches: Intercom expires an idle companies scroll after ~1 minute,
+    and a slow stretch of `/companies/{id}/segments` calls between two scroll
+    pages lets the cursor lapse — the next continuation then 404s mid-walk.
+    Draining first keeps the scroll requests back-to-back so it stays alive;
+    only the ids are held, so the memory cost stays flat regardless of count."""
+    company_ids = [company["id"] for company in _iter_companies(session)]
+    for company_id in company_ids:
         try:
-            payload = _intercom_get(session, f"/companies/{company['id']}/segments")
+            payload = _intercom_get(session, f"/companies/{company_id}/segments")
         except HTTPError as exc:
             if _is_not_found(exc):
-                logger.warning("intercom_company_not_found", company_id=company["id"])
+                logger.warning("intercom_company_not_found", company_id=company_id)
                 continue
             raise
         for seg in payload.get("data", []) or []:
-            seg["company_id"] = company["id"]
+            seg["company_id"] = company_id
             yield seg
 
 

@@ -341,6 +341,9 @@ tools:
     logs-export-create:
         operation: logs_export_create
         enabled: false
+    logs-facet-values-create:
+        operation: logs_facet_values_create
+        enabled: false
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false

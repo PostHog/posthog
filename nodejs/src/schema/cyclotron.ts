@@ -61,6 +61,27 @@ export type CyclotronInputType = z.infer<typeof CyclotronInputSchema>
 
 export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
 
+// When `aws_sigv4` is present on a fetch queue payload, the cyclotron fetch
+// executor re-signs the request with AWS Signature V4 immediately before each
+// attempt (including retries), overwriting any stale `Authorization` and
+// `X-Amz-Date` headers. This is the only path that keeps a retry within AWS's
+// 5-minute signature window — never embed a pre-signed Authorization header
+// in the queue payload.
+//
+// Credentials are NOT carried on the queue payload — the `*_input` fields are
+// input-key references that the executor resolves against `HogFunction.inputs`
+// at fetch time. The cyclotron `cyclotron_jobs.state` blob is plaintext JSON;
+// embedding credential strings on the queue payload would defeat the at-rest
+// encryption that `EncryptedJSONStringField` provides on
+// `posthog_hogfunction.encrypted_inputs`.
+export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
+    service: z.string(),
+    region: z.string(),
+    access_key_id_input: z.string(),
+    secret_access_key_input: z.string(),
+    session_token_input: z.string().optional(),
+})
+
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
     url: z.string(),
@@ -68,6 +89,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
     headers: z.record(z.string(), z.string()).optional(),
+    aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
@@ -88,6 +110,9 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     html: z.string(),
 })
 
+export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
+>
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
 

@@ -31,6 +31,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import OrganizationMembership
@@ -46,7 +47,6 @@ from posthog.models.user import User
 from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 from posthog.synthetic_user import SyntheticUser
 
 
@@ -1001,16 +1001,18 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             or request.headers.get(self.HEADER_NAME.lower())
             or request.headers.get(self.HEADER_NAME.upper())
         )
-        configured_secret = settings.INTERNAL_API_SECRET
+        # Trim the inbound header (e.g. a trailing newline from a mounted secret) so it can't cause
+        # a spurious mismatch. The configured secrets are normalized at load (see data_stores.py).
+        if provided_secret:
+            provided_secret = provided_secret.strip()
 
-        if not settings.DEBUG and not settings.TEST and configured_secret == LOCAL_DEV_INTERNAL_API_SECRET:
-            logger.error(
-                "Internal API authentication attempted with default development secret in production environment",
-                extra={"path": request.path, "method": request.method},
-            )
-            raise AuthenticationFailed("Internal API authentication is not properly configured.")
+        # Primary secret plus any still-trusted fallbacks (zero-downtime rotation), dropping empties.
+        # This is the runtime guard: a deploy with no usable secret is rejected here (fail closed)
+        # rather than at startup — most Django/Temporal processes never get the secret injected and
+        # never serve these endpoints, so a startup check would wrongly crash them.
+        accepted_secrets = usable_internal_api_secrets()
 
-        if not configured_secret:
+        if not accepted_secrets:
             logger.error(
                 "Internal API authentication attempted without configured secret",
                 extra={"path": request.path, "method": request.method},
@@ -1024,7 +1026,7 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Missing internal API authentication header.")
 
-        if not hmac.compare_digest(configured_secret, provided_secret):
+        if not any(hmac.compare_digest(secret, provided_secret) for secret in accepted_secrets):
             logger.warning(
                 "Internal API request with invalid secret",
                 extra={"path": request.path, "method": request.method},

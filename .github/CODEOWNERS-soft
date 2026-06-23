@@ -24,9 +24,9 @@ frontend/src/toolbar/product-tours/** @PostHog/team-surveys
 # Nodejs Services - ownership is split between ingestion and workflows teams
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
+nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/session-replay/ @PostHog/team-replay
-nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
+nodejs/src/recording-rasterizer/ @PostHog/team-replay
 
 # CDP / Workflows - owned by @PostHog/team-workflows
 posthog/cdp/** @PostHog/team-workflows

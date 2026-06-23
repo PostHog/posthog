@@ -69,7 +69,10 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 
 __all__ = [
     "BigQueryAuthInfo",
+    "BIGQUERY_DATASET_NOT_FOUND_ERROR",
     "BIGQUERY_TOKEN_RESPONSE_ERROR",
+    "BigQueryCredentialsRejectedError",
+    "BigQueryDatasetNotFoundError",
     "BigQueryImplementation",
     "BigQueryTokenRefreshError",
     "bigquery_client",
@@ -92,6 +95,24 @@ BIGQUERY_SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googlea
 # so it must stay free of volatile data (urls, ids, timestamps).
 BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
 
+# User-facing message for a missing dataset/table during schema discovery. Raised below and matched
+# in `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data (ids, regions).
+BIGQUERY_DATASET_NOT_FOUND_ERROR = (
+    "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or "
+    "it may live in a different region — verify your dataset and table names, and set the dataset "
+    "region in your source configuration if it isn't in the US."
+)
+
+
+class BigQueryDatasetNotFoundError(Exception):
+    """Raised when schema discovery queries a dataset/table that doesn't exist in the queried region.
+
+    `client.query()` raises a `google.api_core.exceptions.NotFound` whose `str()` is a raw
+    "404 Not found: Dataset ... was not found in location US ... Job ID: ..." — BigQuery job
+    internals the user can't act on, which would otherwise leak straight to the create/validate
+    response. We re-raise it with the same actionable wording we map this condition to during syncs.
+    """
+
 
 class BigQueryTokenRefreshError(Exception):
     """Raised when the service-account OAuth token endpoint returns a non-JSON-object 200.
@@ -103,6 +124,17 @@ class BigQueryTokenRefreshError(Exception):
     `TypeError: string indices must be integers` instead of a `RefreshError`. We re-raise it
     as this clear, non-retryable error so the sync stops hammering an endpoint that can't
     authenticate us, and the user gets an actionable message.
+    """
+
+
+class BigQueryCredentialsRejectedError(Exception):
+    """Raised when Google rejects the service-account grant with `invalid_grant`.
+
+    google-auth raises a `RefreshError` whose `str()` is an opaque tuple repr
+    (`('invalid_grant: Invalid JWT Signature.', {...})`). A rotated/revoked key or deleted
+    service account can't be recovered by retrying, so we re-raise it as this clear message
+    rather than leaking the repr to the source-creation wizard. The message keeps the
+    `invalid_grant` marker so `get_non_retryable_errors` still matches it on the sync path.
     """
 
 
@@ -800,6 +832,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 config.dataset_id,
             )
             return {}
+        except NotFound as e:
+            structlog.get_logger().warning(
+                "BigQuery dataset '%s' not found during schema discovery: %s", config.dataset_id, e
+            )
+            raise BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR) from e
         except TypeError as e:
             # See `BigQueryTokenRefreshError`: google-auth raises an opaque
             # `TypeError: string indices must be integers` when the OAuth token endpoint
@@ -808,6 +845,18 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 raise
             raise BigQueryTokenRefreshError(
                 f"{BIGQUERY_TOKEN_RESPONSE_ERROR}. Please re-upload your service account key file and verify its token_uri."
+            ) from e
+        except google_auth_exceptions.RefreshError as e:
+            # google-auth rejects the service-account grant here with an `invalid_grant`
+            # `RefreshError` whose `str()` is an opaque tuple repr. Surface the actionable message
+            # instead of leaking it to the wizard. Other RefreshErrors (offline token_uri, transient
+            # token-endpoint failures) carry their own diagnoses, so let them propagate unchanged.
+            if "invalid_grant" not in str(e):
+                raise
+            raise BigQueryCredentialsRejectedError(
+                "Your BigQuery service account credentials were rejected by Google (invalid_grant). "
+                "The key may have been rotated or revoked, or the service account deleted. "
+                "Please upload a new Google Cloud JSON key file."
             ) from e
 
         for row in rows:

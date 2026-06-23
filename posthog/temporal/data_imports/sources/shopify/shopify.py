@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -80,10 +80,47 @@ class ShopifyPermissionError(Exception):
         super().__init__(message)
 
 
-class ShopifyRetryableError(Exception):
-    """Exception raised when Shopify issues a retryable error (e.g. rate limit, 5xx)."""
+# Shopify's GraphQL Admin API rate-limits on a cost-based leaky bucket, so a single bucket
+# can take this long to refill from empty (~2000 points at 100/sec on Plus). Cap the throttle
+# wait here so a malformed `restoreRate` can't stall the worker past its heartbeat.
+_SHOPIFY_MAX_THROTTLE_WAIT_SECONDS = 60.0
 
-    pass
+
+class ShopifyRetryableError(Exception):
+    """Exception raised when Shopify issues a retryable error (e.g. rate limit, 5xx).
+
+    `retry_after`, when set, is the number of seconds Shopify's throttle status says we
+    should wait before the leaky bucket has refilled enough to satisfy the query again.
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _throttle_retry_after(payload: Any) -> float | None:
+    """Seconds to wait for the cost bucket to refill enough for the requested query.
+
+    A throttled response carries `extensions.cost` with the points the query needed
+    (`requestedQueryCost`) and how fast the bucket refills (`throttleStatus.restoreRate`),
+    which is exactly how long to back off. Returns None when that data is missing or
+    malformed so the caller falls back to plain exponential backoff.
+    """
+    cost, ok = safe_unwrap(payload, path="extensions.cost")
+    if not ok or not isinstance(cost, dict):
+        return None
+    requested = cost.get("requestedQueryCost")
+    throttle = cost.get("throttleStatus")
+    if not isinstance(requested, int | float) or not isinstance(throttle, dict):
+        return None
+    available = throttle.get("currentlyAvailable")
+    restore_rate = throttle.get("restoreRate")
+    if not isinstance(available, int | float) or not isinstance(restore_rate, int | float) or restore_rate <= 0:
+        return None
+    deficit = requested - available
+    if deficit <= 0:
+        return None
+    return min(deficit / restore_rate, _SHOPIFY_MAX_THROTTLE_WAIT_SECONDS)
 
 
 def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
@@ -92,7 +129,7 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
     if ok:
         serialized_errors = json.dumps(errors).lower()
         if "throttled" in serialized_errors:
-            return ShopifyRetryableError("Shopify: rate limit exceeded...")
+            return ShopifyRetryableError("Shopify: rate limit exceeded...", retry_after=_throttle_retry_after(payload))
         if "internal_server_error" in serialized_errors:
             return ShopifyRetryableError(f"Shopify: internal errors in payload {serialized_errors}")
     currently_available, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.currentlyAvailable")
@@ -100,8 +137,27 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
         # this check is a little liberal. if we find that we are getting rate limited
         # too often might be worth it to check against the requestedCost instead
         if currently_available <= 0:
-            return ShopifyRetryableError("Shopify: rate limit exceeded...")
+            return ShopifyRetryableError("Shopify: rate limit exceeded...", retry_after=_throttle_retry_after(payload))
     return None
+
+
+_shopify_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _shopify_retry_wait(retry_state: RetryCallState) -> float:
+    """Back off exponentially, but never for less than Shopify's reported refill time.
+
+    Plain exponential backoff tops out around 15s across the 5 attempts, which can give up
+    while the cost bucket is still draining. When a rate-limit response told us how long the
+    bucket needs (see `_throttle_retry_after`), honor that instead.
+    """
+    backoff = _shopify_backoff(retry_state)
+    outcome = retry_state.outcome
+    if outcome is not None and not outcome.cancelled():
+        exc = outcome.exception()
+        if isinstance(exc, ShopifyRetryableError) and exc.retry_after is not None:
+            return max(backoff, exc.retry_after)
+    return backoff
 
 
 def _make_paginated_shopify_request(
@@ -119,7 +175,7 @@ def _make_paginated_shopify_request(
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        wait=_shopify_retry_wait,
         reraise=True,
     )
     def execute(vars: dict[str, Any]):

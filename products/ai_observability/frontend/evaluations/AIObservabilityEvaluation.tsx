@@ -223,16 +223,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
 
-    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = featureFlags[
-        FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'hog',
+            label: 'Hog code',
+        },
     ]
-        ? [
-              {
-                  value: 'hog',
-                  label: 'Hog code',
-              },
-          ]
-        : []
     const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
         evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
             ? [
@@ -444,7 +440,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of user messages on each matching generation.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
@@ -554,10 +550,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                                            <EvaluationModelPicker />
-                                        )}
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
+                                        <EvaluationModelPicker />
+                                    )}
 
                                     {/* Trigger Configuration */}
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -645,5 +640,6 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        evaluationType: searchParams.type === 'sentiment' ? 'sentiment' : undefined,
     }),
 }

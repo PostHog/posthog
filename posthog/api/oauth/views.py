@@ -61,7 +61,7 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +90,23 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
+
+
+# Substrings identifying transient database failures that OAuth clients should retry.
+# PgBouncer (port 6543) kills queries waiting too long for a backend connection with
+# `query_wait_timeout`, and surfaces dropped/reset backend connections as connection
+# failures. Both are retryable rather than permanent, so map them to a 503 instead of
+# letting them escape as an unhandled 500.
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def _is_transient_db_error(error: Exception) -> bool:
+    message = str(error)
+    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
 
 
 def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
@@ -1214,10 +1231,10 @@ class OAuthTokenView(TokenView):
                 status=400,
             )
         except OperationalError as e:
-            # PgBouncer kills queries that wait too long for a backend connection with
-            # `query_wait_timeout`. The resulting OperationalError otherwise bubbles up
-            # as an unhandled 500 — translate it into a retryable response.
-            if "query_wait_timeout" not in str(e):
+            # Transient database failures (PgBouncer `query_wait_timeout`, dropped/reset
+            # backend connections during client authentication) otherwise bubble up as an
+            # unhandled 500 — translate them into a retryable response.
+            if not _is_transient_db_error(e):
                 raise
             logger.warning(
                 "oauth_token_db_pool_pressure",
@@ -1475,8 +1492,11 @@ class OAuthAuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        # Build base URL from request
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        # Pin to SITE_URL rather than the request Host header so the advertised
+        # endpoints can't be steered to an attacker-controlled origin via Host on
+        # permissive ALLOWED_HOSTS, and so issuer matches the protected resource
+        # metadata's authorization_servers.
+        base_url = absolute_uri().rstrip("/")
 
         all_scopes = get_oauth_scopes_supported()
 
@@ -1511,5 +1531,38 @@ class OAuthAuthorizationServerMetadataView(APIView):
 
         if region_info := get_region_info():
             metadata.update(region_info)
+
+        return JsonResponse(metadata)
+
+
+class OAuthProtectedResourceMetadataView(APIView):
+    """
+    OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    PostHog already points agents at this document via the
+    `WWW-Authenticate: Bearer resource_metadata=...` header on 401 responses
+    (see posthog/exceptions.py). This serves the document it promises, letting
+    a client that hit a 401 discover which authorization server issues tokens
+    for this API, which scopes exist, and how to present the token.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request, *args, **kwargs):
+        # Pin to SITE_URL rather than the request Host header: with permissive
+        # ALLOWED_HOSTS an attacker could otherwise steer this discovery document
+        # to an attacker-controlled origin (matches posthog/exceptions.py).
+        base_url = absolute_uri().rstrip("/")
+
+        metadata = {
+            # Required by RFC 9728
+            "resource": base_url,
+            # The same PostHog instance is its own authorization server
+            "authorization_servers": [base_url],
+            "scopes_supported": get_oauth_scopes_supported(),
+            "bearer_methods_supported": ["header"],
+            "resource_documentation": "https://posthog.com/docs/api",
+        }
 
         return JsonResponse(metadata)

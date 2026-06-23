@@ -11,7 +11,9 @@ import type {
 } from 'lib/components/MarkdownNotebook'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
+    rebaseNotebookAIResponseRange,
     replaceNotebookAIResponseMarkdown,
+    streamNotebookAIResponseMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAI'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
@@ -65,6 +67,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)
+    const [aiCaretThinking, setAICaretThinking] = useState(false)
     const markdownEditorValueRef = useRef(markdownEditorValue)
     const inlineAIResponseNodeCountsRef = useRef<Record<string, number>>({})
     const inlineAIResponseNodeIndicesRef = useRef<Record<string, number>>({})
@@ -114,6 +117,25 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [handleMarkdownEditorChange]
     )
 
+    const handleMarkdownNotebookChange = useCallback(
+        (markdown: string): void => {
+            const previousMarkdown = markdownEditorValueRef.current
+            for (const request of inlineAIRequests) {
+                const currentRange = rebaseNotebookAIResponseRange(
+                    previousMarkdown,
+                    markdown,
+                    getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
+                    inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
+                )
+                inlineAIResponseNodeIndicesRef.current[request.conversationId] = currentRange.responseNodeIndex
+                inlineAIResponseNodeCountsRef.current[request.conversationId] = currentRange.responseNodeCount
+            }
+            markdownEditorValueRef.current = markdown
+            handleMarkdownEditorChange(markdown)
+        },
+        [handleMarkdownEditorChange, inlineAIRequests]
+    )
+
     const clearAIPresenceDepartureTimeout = useCallback((): void => {
         if (aiPresenceDepartureTimeoutRef.current !== null) {
             window.clearTimeout(aiPresenceDepartureTimeoutRef.current)
@@ -146,6 +168,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
             setAICaretPosition(null)
             setAICaretFading(false)
+            setAICaretThinking(false)
             setMarkdownAIPresenceActive(false)
         },
         [setMarkdownAIPresenceActive]
@@ -182,6 +205,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             aiPresenceActivityVersionRef.current += 1
             clearAIPresenceTimeouts()
             setAICaretFading(false)
+            setAICaretThinking(true)
             setMarkdownAIPresenceActive(true)
         },
         [clearAIPresenceTimeouts, setMarkdownAIPresenceActive]
@@ -199,6 +223,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         aiPresenceRetainedByPromptRef.current = true
         clearAIPresenceTimeouts()
         setAICaretFading(false)
+        setAICaretThinking(false)
         setAICaretPosition(promptCaretPosition)
         setMarkdownAIPresenceActive(true)
     }, [clearAIPresenceTimeouts, setMarkdownAIPresenceActive])
@@ -206,6 +231,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const markAIPresenceInactive = useCallback(
         (conversationId: string): void => {
             activeInlineAIRequestIdsRef.current.delete(conversationId)
+            if (activeInlineAIRequestIdsRef.current.size === 0) {
+                setAICaretThinking(false)
+            }
             scheduleAIPresenceDeparture()
         },
         [scheduleAIPresenceDeparture]
@@ -230,6 +258,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             aiPresenceRetainedByPromptRef.current = true
             clearAIPresenceTimeouts()
             setAICaretFading(false)
+            setAICaretThinking(false)
             setAICaretPosition(promptCaretPosition)
             setMarkdownAIPresenceActive(true)
             return
@@ -253,11 +282,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                           color: NOTEBOOK_AI_PRESENCE_COLOR,
                           position: aiCaretPosition,
                           version: notebook?.version,
+                          isAI: true,
+                          isAIThinking: aiCaretThinking,
                           isFading: aiCaretFading,
                       },
                   ]
                 : [],
-        [aiCaretFading, aiCaretPosition, notebook?.version]
+        [aiCaretFading, aiCaretPosition, aiCaretThinking, notebook?.version]
     )
     const remoteCarets = useMemo<RemoteNotebookCaret[]>(
         () => [...markdownRemoteCarets, ...aiCarets],
@@ -422,17 +453,17 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
             const replacedNodeCount = inlineAIResponseNodeCountsRef.current[request.conversationId] ?? 1
             updateMarkdownEditorValue((currentMarkdown) => {
-                const result = replaceNotebookAIResponseMarkdown(
+                const result = streamNotebookAIResponseMarkdown(
                     currentMarkdown,
                     getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current),
                     message.content,
                     replacedNodeCount
                 )
                 inlineAIResponseNodeIndicesRef.current[request.conversationId] = result.responseNodeIndex
+                inlineAIResponseNodeCountsRef.current[request.conversationId] = result.responseNodeCount
                 setAICaretPosition(getNotebookAICaretPosition(result.markdown, result.responseNodeIndex))
                 return result.markdown
             })
-            inlineAIResponseNodeCountsRef.current[request.conversationId] = getMarkdownBlockCount(message.content)
         },
         [updateMarkdownEditorValue]
     )
@@ -503,6 +534,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         [markAIPresenceInactive, updateMarkdownEditorValue]
     )
 
+    const aiWritingNodeIndexes = useMemo(
+        () =>
+            inlineAIRequests.map((request) =>
+                getInlineAIResponseNodeIndex(request, inlineAIResponseNodeIndicesRef.current)
+            ),
+        [inlineAIRequests, markdownEditorValue]
+    )
+
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
             <MarkdownNotebook
@@ -512,7 +551,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
                 extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
-                onChange={isEditable ? handleMarkdownEditorChange : undefined}
+                onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
@@ -528,6 +567,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 debugOpen={isDebugOpen}
                 onDebugOpenChange={handleDebugOpenChange}
                 focusAIPromptRequest={focusAIPromptRequest}
+                aiWritingNodeIndexes={aiWritingNodeIndexes}
             />
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner

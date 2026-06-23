@@ -1,1 +1,1 @@
-0276_query_log_archive_buffer
+0279_drop_daily_aggregated_query_log_archive_view

@@ -11,8 +11,10 @@ from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCD
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     add_table_to_publication,
     cdc_pg_connection,
+    create_publication,
     create_slot,
     create_slot_and_publication,
+    drop_publication,
     drop_slot,
     drop_slot_and_publication,
     get_max_slot_wal_keep_size_mb,
@@ -31,6 +33,15 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
+
+
+def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
+    """Split a ``schema.table`` name into ``(schema, table)``, falling back to
+    ``default_schema`` for a bare table name."""
+    if "." in qualified:
+        table_schema, table_name = qualified.split(".", 1)
+        return table_schema, table_name
+    return default_schema, qualified
 
 
 class PostgresCDCAdapter:
@@ -103,14 +114,17 @@ class PostgresCDCAdapter:
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing
         publication, recreating the publication first when PostHog owns it and it's gone.
-        Returns the job_inputs updates (new consistent point). Raises when recreation
-        isn't possible (no slot configured, customer-owned publication missing).
+
+        ``tables`` are schema-qualified ``schema.table`` names — a publication can span
+        schemas, so each table keeps its own schema rather than inheriting the source's
+        default. Returns the job_inputs updates (new consistent point). Raises when
+        recreation isn't possible (no slot configured, customer-owned publication missing).
         """
         cdc_config = self.parse_cdc_config(source)
         if not cdc_config.slot_name:
             raise RuntimeError("Cannot recreate CDC replication slot: no slot name configured for this source")
 
-        schema = self._resolve_schema(source)
+        default_schema = self._resolve_schema(source)
         with cdc_pg_connection(source) as conn:
             drop_slot(conn, cdc_config.slot_name)
             if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
@@ -120,7 +134,10 @@ class PostgresCDCAdapter:
                         "Recreate it (see the CDC setup instructions), then resync the source."
                     )
                 consistent_point = create_slot_and_publication(
-                    conn, cdc_config.slot_name, cdc_config.publication_name, schema, tables=tables
+                    conn,
+                    cdc_config.slot_name,
+                    cdc_config.publication_name,
+                    tables=[_split_qualified_table(t, default_schema) for t in tables],
                 )
             else:
                 consistent_point = create_slot(conn, cdc_config.slot_name)
@@ -139,11 +156,13 @@ class PostgresCDCAdapter:
         management_mode: Literal["posthog", "self_managed"] = (
             "self_managed" if payload.get("cdc_management_mode") == "self_managed" else "posthog"
         )
-        slot_name = payload.get("cdc_slot_name") or f"posthog_{source.id.hex[:12]}"
+        default_slot_name = f"posthog_{source.id.hex[:12]}"
+        slot_name = payload.get("cdc_slot_name") or default_slot_name
         default_pub_name = "posthog_pub" if management_mode == "self_managed" else f"posthog_pub_{source.id.hex[:12]}"
         pub_name = payload.get("cdc_publication_name") or default_pub_name
-
-        schema = self._resolve_schema(source)
+        uses_default_posthog_resources = (
+            management_mode == "posthog" and slot_name == default_slot_name and pub_name == default_pub_name
+        )
 
         resource_fields: dict[str, Any] = {
             "cdc_management_mode": management_mode,
@@ -152,22 +171,41 @@ class PostgresCDCAdapter:
         }
 
         if management_mode == "posthog":
+            created_publication = False
+            created_slot = False
             try:
                 with cdc_pg_connection(source) as conn:
-                    # Bail on pre-existing names so the rollback below only ever drops what we created.
-                    if slot_exists(conn, slot_name):
+                    slot_present = slot_exists(conn, slot_name)
+                    publication_present = publication_exists(conn, pub_name)
+                    # Default names are source-id derived, so pre-existing resources are recoverable
+                    # PostHog state from this source. Custom-name conflicts still belong to the user/DBA.
+                    if uses_default_posthog_resources and slot_present:
+                        if not publication_present:
+                            create_publication(conn, pub_name, tables=[])
+                        logger.info("Adopted existing CDC slot/publication for source_id=%s", source.id)
+                        return resource_fields, None
+                    if slot_present:
                         return {}, f"A replication slot named '{slot_name}' already exists on your database."
-                    if publication_exists(conn, pub_name):
+                    if uses_default_posthog_resources and publication_present:
+                        resource_fields["cdc_consistent_point"] = create_slot(conn, slot_name)
+                        logger.info("Adopted existing CDC publication for source_id=%s", source.id)
+                        return resource_fields, None
+                    if publication_present:
                         return {}, f"A publication named '{pub_name}' already exists on your database."
-                    resource_fields["cdc_consistent_point"] = create_slot_and_publication(
-                        conn, slot_name, pub_name, schema, tables=[]
-                    )
+                    create_publication(conn, pub_name, tables=[])
+                    created_publication = True
+                    resource_fields["cdc_consistent_point"] = create_slot(conn, slot_name)
+                    created_slot = True
             except Exception as e:
                 logger.exception("Failed to create CDC slot and publication: %s", e)
-                # Both verified absent above, so dropping anything present now is safe.
                 try:
                     with cdc_pg_connection(source, connect_timeout=10) as conn:
-                        drop_slot_and_publication(conn, slot_name, pub_name)
+                        if created_slot and created_publication:
+                            drop_slot_and_publication(conn, slot_name, pub_name)
+                        elif created_slot:
+                            drop_slot(conn, slot_name)
+                        elif created_publication:
+                            drop_publication(conn, pub_name)
                 except Exception as rollback_error:
                     logger.exception("Failed to roll back partial CDC slot/publication: %s", rollback_error)
                 return {}, f"Failed to create replication slot: {e}"

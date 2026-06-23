@@ -174,7 +174,10 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
+            end_date = Experiment.objects.filter(id=state.experiment_id).values_list("end_date", flat=True).first()
             proposed_query_to = timezone.now()
+            if end_date is not None:
+                proposed_query_to = min(proposed_query_to, end_date)
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,

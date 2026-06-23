@@ -12,9 +12,11 @@ from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
 from posthog.temporal.data_imports.pipelines.common.extract import (
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -94,6 +96,19 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         model = await _get_external_data_job(inputs.run_id)
+
+        if model.pipeline_version == ExternalDataJob.PipelineVersion.V3:
+            attempt = current_activity_attempt()
+            if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
+                await logger.ainfo(
+                    "Skipping retry - job already terminal",
+                    status=model.status,
+                    attempt=attempt,
+                )
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                )
 
         await logger.adebug("Running import_data_activity")
 
@@ -215,7 +230,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     )
             except CDCHandledExternally:
                 await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-                from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
                 await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
                     billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)

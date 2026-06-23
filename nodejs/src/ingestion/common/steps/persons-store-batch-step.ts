@@ -1,7 +1,7 @@
-import { PersonsStore } from '../../../worker/ingestion/persons/persons-store'
-import { BatchBoundPersonsStore, PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
-import { BeforeBatchStep } from '../../pipelines/batching-pipeline'
-import { ok } from '../../pipelines/results'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
+import { ok } from '~/ingestion/framework/results'
 
 export interface PersonsStoreBatchContext {
     personsStoreForBatch: PersonsStoreForBatch

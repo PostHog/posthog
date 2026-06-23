@@ -49,15 +49,21 @@ function slackEvent(opts: {
      *  distinct `ts` is treated as a separate event; tests simulating a retry
      *  pass the same event_id twice with the same ts. */
     event_id?: string
+    /** Event-level workspace (Slack sets it on app_mention, omits on message). */
+    team?: string
+    /** Envelope workspace id; message events rely on this. */
+    team_id?: string
 }): Record<string, unknown> {
     const ts = opts.ts ?? '1.0'
     return {
         type: 'event_callback',
         event_id: opts.event_id ?? `Ev_test_${ts}`,
+        team_id: opts.team_id,
         event: {
             type: opts.eventType ?? 'message',
             channel: opts.channel ?? 'C01',
             channel_type: opts.channel_type,
+            team: opts.team,
             user: opts.user ?? 'U01',
             text: opts.text ?? 'hi',
             ts,
@@ -198,6 +204,60 @@ describe('slack trigger: real e2e', () => {
         // Assistant should have replied exactly once.
         const assistantTexts = session!.conversation.filter((m) => m.role === 'assistant')
         expect(assistantTexts).toHaveLength(1)
+    })
+
+    it('app_mention + message.channels for one mention dedupe to a single turn', async () => {
+        // Slack fires both events for an @-mention: same ts, distinct event_id.
+        c.setScript([fauxText('once')])
+        await c.deployAgent({ slug: 'no-double', spec: {}, encrypted_env: SLACK_ENV })
+        const ts = '1700000200.000100'
+        const mention = await c.slackPost(
+            'no-double',
+            'events',
+            slackEvent({ eventType: 'app_mention', ts, event_id: 'Ev_mention', text: '<@U-bot> hi' }),
+            SLACK_SECRET
+        )
+        const message = await c.slackPost(
+            'no-double',
+            'events',
+            slackEvent({ eventType: 'message', ts, event_id: 'Ev_message', text: '<@U-bot> hi' }),
+            SLACK_SECRET
+        )
+        expect(mention.status).toBe(200)
+        expect(message.status).toBe(200)
+        expect(message.body.session_id).toBe(mention.body.session_id)
+
+        await c.drain()
+        const session = await c.queue.get(mention.body.session_id)
+        expect(session!.conversation.filter((m) => m.role === 'user')).toHaveLength(1)
+        expect(session!.pending_inputs).toHaveLength(0)
+        expect(session!.conversation.filter((m) => m.role === 'assistant')).toHaveLength(1)
+    })
+
+    it('message event without event.team gates trust on the envelope team_id', async () => {
+        c.setScript([fauxText('ok')])
+        await c.deployAgent({
+            slug: 'ws-fallback',
+            spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: ['T-TRUSTED'] } }] },
+            encrypted_env: SLACK_ENV,
+        })
+        // message events omit event.team — the envelope team_id must still gate.
+        const ok = await c.slackPost(
+            'ws-fallback',
+            'events',
+            slackEvent({ eventType: 'message', ts: '1.0', team_id: 'T-TRUSTED', text: 'hello' }),
+            SLACK_SECRET
+        )
+        expect(ok.status).toBe(200)
+        expect(ok.body.session_id).toBeTruthy()
+        // An untrusted envelope is still rejected.
+        const rejected = await c.slackPost(
+            'ws-fallback',
+            'events',
+            slackEvent({ eventType: 'message', ts: '2.0', team_id: 'T-OTHER', text: 'hello' }),
+            SLACK_SECRET
+        )
+        expect(rejected.status).toBe(403)
     })
 
     it('thread_ts falls back to ts when the mention is a top-level channel message', async () => {
