@@ -622,8 +622,6 @@ def enforce_detail_object_permissions(monkeypatch, request):
     original_save = drf_serializers.BaseSerializer.save
     original_check_access = UserAccessControl.check_access_level_for_object
     original_filter_qs = UserAccessControl.filter_queryset_by_access_level
-    original_user_perm_dashboard = UserPermissions.dashboard
-    original_user_perm_insight = UserPermissions.insight
     original_clone = QuerySet._clone
     original_fetch_all = QuerySet._fetch_all
     _orig_from_db_func = Model.from_db.__func__
@@ -729,16 +727,19 @@ def enforce_detail_object_permissions(monkeypatch, request):
         except Exception:
             pass
 
-    def tracked_user_perm_dashboard(self, dashboard):
-        # Legacy enforcement (mechanism #3): code gates dashboard writes via
-        # user_permissions.dashboard(obj).effective_privilege_level. Constructing the
-        # wrapper for an object means its access was consulted — treat it as gated.
-        _record_gated(dashboard)
-        return original_user_perm_dashboard(self, dashboard)
+    def _make_tracked_perm_accessor(original_accessor):
+        # Legacy enforcement (mechanism #3): some resources are gated through the
+        # UserPermissions privilege subsystem (e.g. user_permissions.dashboard(obj)
+        # .effective_privilege_level) rather than UserAccessControl. Constructing a
+        # per-object permission wrapper means that object's access was consulted, so
+        # record it as gated. Recording is generic (_record_gated handles any
+        # access-controlled resource) — only the accessor names are subsystem-specific,
+        # and they cover its full object-level surface (it exposes no others).
+        def tracked(self, obj):
+            _record_gated(obj)
+            return original_accessor(self, obj)
 
-    def tracked_user_perm_insight(self, insight):
-        _record_gated(insight)
-        return original_user_perm_insight(self, insight)
+        return tracked
 
     def tracked_filter_qs(self, queryset, include_all_if_admin=False):
         result = original_filter_qs(self, queryset, include_all_if_admin=include_all_if_admin)
@@ -954,8 +955,11 @@ def enforce_detail_object_permissions(monkeypatch, request):
     monkeypatch.setattr(drf_serializers.BaseSerializer, "save", tracked_save)
     monkeypatch.setattr(UserAccessControl, "check_access_level_for_object", tracked_check_access)
     monkeypatch.setattr(UserAccessControl, "filter_queryset_by_access_level", tracked_filter_qs)
-    monkeypatch.setattr(UserPermissions, "dashboard", tracked_user_perm_dashboard)
-    monkeypatch.setattr(UserPermissions, "insight", tracked_user_perm_insight)
+    # Patch the full object-level surface of the legacy privilege subsystem.
+    for _accessor_name in ("dashboard", "insight"):
+        monkeypatch.setattr(
+            UserPermissions, _accessor_name, _make_tracked_perm_accessor(getattr(UserPermissions, _accessor_name))
+        )
     monkeypatch.setattr(QuerySet, "_clone", tracked_clone)
     monkeypatch.setattr(QuerySet, "_fetch_all", tracked_fetch_all)
     monkeypatch.setattr(Model, "from_db", classmethod(tracked_from_db))
