@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.mux import mux
 from posthog.temporal.data_imports.sources.mux.mux import (
     MuxResumeConfig,
     _normalize_row,
+    _strip_sensitive_fields,
     get_rows,
     get_validation_status,
     mux_source,
@@ -80,6 +81,45 @@ class TestNormalizeRow:
     def test_missing_created_at_is_untouched(self) -> None:
         item = {"id": "a1"}
         assert _normalize_row(item, MUX_ENDPOINTS["assets"]) == item
+
+
+class TestStripSensitiveFields:
+    def test_live_stream_stream_key_is_dropped(self) -> None:
+        item = {"id": "ls1", "created_at": "1", "stream_key": "super-secret", "status": "idle"}
+        cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["live_streams"])
+        assert "stream_key" not in cleaned
+        assert cleaned == {"id": "ls1", "created_at": "1", "status": "idle"}
+
+    def test_live_stream_simulcast_target_stream_keys_are_dropped(self) -> None:
+        item = {
+            "id": "ls1",
+            "simulcast_targets": [
+                {"id": "t1", "url": "rtmp://example", "stream_key": "secret", "status": "idle"},
+            ],
+        }
+        cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["live_streams"])
+        assert cleaned["simulcast_targets"] == [{"id": "t1", "url": "rtmp://example", "status": "idle"}]
+
+    def test_upload_url_is_dropped(self) -> None:
+        item = {"id": "u1", "url": "https://storage.googleapis.com/upload?signature=secret", "status": "waiting"}
+        cleaned = _strip_sensitive_fields(item, MUX_ENDPOINTS["uploads"])
+        assert "url" not in cleaned
+        assert cleaned == {"id": "u1", "status": "waiting"}
+
+    def test_endpoint_without_sensitive_fields_is_untouched(self) -> None:
+        item = {"id": "a1", "status": "ready"}
+        assert _strip_sensitive_fields(item, MUX_ENDPOINTS["assets"]) is item
+
+    def test_get_rows_never_yields_stripped_fields(self, monkeypatch: Any) -> None:
+        # End-to-end guard: a secret present in the API response must not survive into batched rows.
+        pages = {
+            "https://api.mux.com/video/v1/live-streams?limit=100&page=1": {
+                "data": [{"id": "ls1", "created_at": "1609869152", "stream_key": "leak"}],
+            },
+        }
+        rows, _ = _collect(_FakeResumableManager(), monkeypatch, "live_streams", pages)
+        assert rows == [{"id": "ls1", "created_at": 1609869152}]
+        assert all("stream_key" not in row for row in rows)
 
 
 class TestGetValidationStatus:

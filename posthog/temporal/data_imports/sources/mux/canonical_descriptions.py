@@ -28,7 +28,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "Unique identifier for the Live Stream.",
             "created_at": "Time the Live Stream was created, as a Unix timestamp (seconds since epoch).",
-            "stream_key": "Secret used to begin broadcasting to this Live Stream.",
             "status": "Status of the Live Stream: idle, active, or disabled.",
             "playback_ids": "Array of Playback ID objects used to create playback URLs for the Live Stream.",
             "new_asset_settings": "Settings applied to Assets created from this Live Stream.",
@@ -46,7 +45,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://www.mux.com/docs/api-reference/video/direct-uploads/list-direct-uploads",
         "columns": {
             "id": "Unique identifier for the Direct Upload.",
-            "url": "The URL the source media is uploaded to.",
             "status": "Status of the upload: waiting, asset_created, errored, cancelled, or timed_out.",
             "asset_id": "Unique identifier of the Asset created from this upload, once available.",
             "new_asset_settings": "Settings applied to the Asset created from this upload.",

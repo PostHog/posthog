@@ -18,6 +18,10 @@ class MuxEndpointConfig:
     use_cursor: bool = False
     should_sync_default: bool = True
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Credential-bearing fields Mux returns in list responses but that must never reach the warehouse:
+    # importing them would let anyone who can query the table broadcast or upload media into the
+    # connected Mux environment (an analytics-read → Mux-write escalation). Stripped before batching.
+    sensitive_fields: tuple[str, ...] = ()
 
 
 MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
@@ -29,12 +33,16 @@ MUX_ENDPOINTS: dict[str, MuxEndpointConfig] = {
     "live_streams": MuxEndpointConfig(
         name="live_streams",
         path="/video/v1/live-streams",
+        # `stream_key` is the secret RTMP ingest key for broadcasting to the stream.
+        sensitive_fields=("stream_key",),
     ),
     "uploads": MuxEndpointConfig(
         name="uploads",
         path="/video/v1/uploads",
         # The Direct Upload object has no `created_at`, so it can't be datetime-partitioned.
         partition_key=None,
+        # `url` is the authenticated PUT URL for pushing media into the upload.
+        sensitive_fields=("url",),
     ),
     "playback_restrictions": MuxEndpointConfig(
         name="playback_restrictions",

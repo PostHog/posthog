@@ -67,6 +67,27 @@ def get_validation_status(access_token_id: str, secret_key: str, path: str) -> i
         return None
 
 
+def _strip_sensitive_fields(item: dict[str, Any], config: MuxEndpointConfig) -> dict[str, Any]:
+    """Drop credential-bearing fields before the row is batched into the warehouse.
+
+    Mux list responses embed live-stream ingest keys (`stream_key`) and direct-upload PUT URLs
+    (`url`). Persisting them would expose a valid broadcast/upload credential to anyone who can
+    query the imported table, crossing from analytics-read to write access in the customer's Mux
+    account, so we remove them rather than import them. Live-stream simulcast targets carry their
+    own per-destination `stream_key`, so those are stripped too.
+    """
+    if not config.sensitive_fields:
+        return item
+    cleaned = {k: v for k, v in item.items() if k not in config.sensitive_fields}
+    targets = cleaned.get("simulcast_targets")
+    if isinstance(targets, list):
+        cleaned["simulcast_targets"] = [
+            {k: v for k, v in target.items() if k != "stream_key"} if isinstance(target, dict) else target
+            for target in targets
+        ]
+    return cleaned
+
+
 def _normalize_row(item: dict[str, Any], config: MuxEndpointConfig) -> dict[str, Any]:
     """Coerce the partition timestamp to an int so datetime partitioning can parse it.
 
@@ -121,7 +142,7 @@ def get_rows(
             next_state = MuxResumeConfig(page=page + 1)
 
         for item in items:
-            batcher.batch(_normalize_row(item, config))
+            batcher.batch(_normalize_row(_strip_sensitive_fields(item, config), config))
 
             if batcher.should_yield():
                 yield batcher.get_table()
