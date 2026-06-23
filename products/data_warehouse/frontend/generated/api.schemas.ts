@@ -1515,6 +1515,7 @@ export interface CredentialApi {
  * * `Tile38` - Tile38
  * * `Chatwoot` - Chatwoot
  * * `Sanity` - Sanity
+ * * `Metronome` - Metronome
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2154,6 +2155,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Tile38: 'Tile38',
     Chatwoot: 'Chatwoot',
     Sanity: 'Sanity',
+    Metronome: 'Metronome',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
