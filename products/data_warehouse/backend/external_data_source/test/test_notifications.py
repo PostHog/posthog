@@ -70,6 +70,44 @@ class TestNotifyExternalDataSyncFailures:
         assert items[0]["source_type"] == "Stripe"
         assert f"managed-{source.id}/syncs?schema=Invoice" in items[0]["url"]
 
+    def test_prefers_label_over_name_for_display(self):
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="C08LGV7UHS9",
+            label="#data-alerts",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=True,
+            latest_error="rate limited",
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        # The displayed name uses the human-readable label...
+        assert items[0]["schema_name"] == "#data-alerts"
+        # ...but the deep link keeps using the raw identifier.
+        assert "?schema=C08LGV7UHS9" in items[0]["url"]
+
+    def test_falls_back_to_name_when_label_missing(self):
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            label=None,
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="transient error",
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert items[0]["schema_name"] == "Charge"
+
     @pytest.mark.parametrize(
         "status,should_sync,deleted",
         [
