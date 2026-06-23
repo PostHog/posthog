@@ -76,9 +76,24 @@ def _hostname(host: str) -> str:
     return (urlparse(normalize_host(host)).hostname or "").lower()
 
 
-def _resolve_auth_headers(
-    session: requests.Session, base_url: str, auth: MetabaseAuth, logger: FilteringBoundLogger
-) -> dict[str, str]:
+def _redact_values_for_data_requests(auth: MetabaseAuth, headers: dict[str, str]) -> tuple[str, ...]:
+    """Credential strings to value-mask in any captured data-request sample, on top of the
+    name-based header/body scrubbers. Covers the static secret (API key, or username/password)
+    plus the minted session token from ``headers`` — value-based defense-in-depth in case a
+    credential ever echoes into a response body."""
+    values: list[str] = []
+    if auth.method == API_KEY_AUTH:
+        if auth.api_key:
+            values.append(auth.api_key)
+    else:
+        values.extend(v for v in (auth.username, auth.password) if v)
+    token = headers.get("X-Metabase-Session")
+    if token:
+        values.append(token)
+    return tuple(values)
+
+
+def _resolve_auth_headers(base_url: str, auth: MetabaseAuth, logger: FilteringBoundLogger) -> dict[str, str]:
     """Build the auth header for every subsequent request.
 
     API-key auth is a static header. Session auth exchanges username/password for a token via
@@ -93,6 +108,12 @@ def _resolve_auth_headers(
     if not auth.username or not auth.password:
         raise MetabaseAuthError("Missing Metabase username or password")
 
+    # Mint on a capture-disabled session: the request body carries the password and the response
+    # body carries the freshly minted token under the generic key "id", neither of which the
+    # name-based body scrubbers recognise. Excluding this one exchange from sample capture keeps
+    # both out of any captured sample; every later request sends the token via the
+    # X-Metabase-Session header, which is on the capture denylist.
+    session = make_tracked_session(allow_redirects=False, capture=False)
     try:
         response = session.post(
             f"{base_url}/api/session",
@@ -155,12 +176,12 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    session = make_tracked_session()
     try:
-        headers = _resolve_auth_headers(session, base_url, auth, structlog.get_logger())
+        headers = _resolve_auth_headers(base_url, auth, structlog.get_logger())
     except (MetabaseAuthError, MetabaseRetryableError) as e:
         return False, str(e)
 
+    session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))
     try:
         response = session.get(f"{base_url}/api/user/current", headers=headers, timeout=10, allow_redirects=False)
     except requests.exceptions.RequestException as e:
@@ -201,8 +222,8 @@ def get_rows(
     if not host_ok:
         raise MetabaseHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
-    session = make_tracked_session()
-    headers = _resolve_auth_headers(session, base_url, auth, logger)
+    headers = _resolve_auth_headers(base_url, auth, logger)
+    session = make_tracked_session(redact_values=_redact_values_for_data_requests(auth, headers))
 
     url = f"{base_url}{config.path}"
     if config.params:
