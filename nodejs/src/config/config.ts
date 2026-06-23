@@ -1,3 +1,11 @@
+import { getDefaultErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
+import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import {
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
+
 import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
@@ -8,13 +16,6 @@ import {
 } from '../cdp/outputs/producers'
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
-import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import {
-    getDefaultLogsIngestionConsumerConfig,
-    getDefaultTracesIngestionConsumerConfig,
-} from '../logs-ingestion/config'
-import { getDefaultMetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
-import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
 

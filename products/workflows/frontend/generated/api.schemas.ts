@@ -783,6 +783,8 @@ export interface BlastRadiusApi {
     affected: number
     /** Total number of users */
     total: number
+    /** Maximum allowed audience size for batch triggers for this team. */
+    limit: number
 }
 
 export type HogFlowTemplatesListParams = {

@@ -31,6 +31,31 @@ class TestUrls(APIBaseTest):
             fetch_redirect_response=False,
         )
 
+    def test_integration_connect_redirect_authenticated(self):
+        response = self.client.get(
+            f"/integrations/connect/github/?project_id={self.team.id}&connect_from=slack", follow=False
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        location = response["Location"]
+        self.assertIn(f"/api/environments/{self.team.id}/integrations/authorize/", location)
+        self.assertIn("kind=github", location)
+        self.assertIn("account-connected", location)
+        self.assertIn("connect_from%3Dslack", location)
+
+    def test_integration_connect_redirect_requires_login(self):
+        self.client.logout()
+        response = self.client.get("/integrations/connect/github/?project_id=1&connect_from=slack", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login", response["Location"])
+
+    def test_integration_connect_redirect_rejects_bad_kind(self):
+        response = self.client.get(f"/integrations/connect/notreal/?project_id={self.team.id}&connect_from=slack")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_integration_connect_redirect_rejects_bad_connect_from(self):
+        response = self.client.get(f"/integrations/connect/github/?project_id={self.team.id}&connect_from=evil")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_unauthenticated_routes_get_loaded_on_the_frontend(self):
         self.client.logout()
 

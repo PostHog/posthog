@@ -101,6 +101,7 @@ export class RequestContext {
                 mcpClientVersion: this.props.mcpClientVersion,
                 mcpProtocolVersion: this.props.mcpProtocolVersion,
                 mcpConsumer: this.props.mcpConsumer,
+                taskId: this.props.taskId,
             })
         }
         return this.apiInstance

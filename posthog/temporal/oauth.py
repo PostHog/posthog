@@ -11,8 +11,12 @@ from posthog.utils import get_instance_region
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
+POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
+POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
+POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 
 McpScopePreset = Literal["read_only", "full", "signals_scout"]
+SandboxOAuthApplication = Literal["array", "posthog_ai"]
 
 
 INTERNAL_SCOPES: list[str] = [
@@ -102,29 +106,61 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
-        # `signals_scout` reports True so the MCP server doesn't enable read-only mode for
-        # the harness sandbox — the agent IS allowed to call its own internal-write tools
-        # (remember, forget, emit_finding) as well as the narrow user-facing writes in
-        # `SCOUT_USER_WRITE_SCOPES` (e.g. `notebook:write`). Read-only mode is a
-        # tool-annotation filter, not a scope filter, and would strip those tools
+        # `signals_scout` reports True so the MCP server doesn't enable read-only mode for the
+        # scout sandbox — the agent IS allowed to call the write tools its preset exists for
+        # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
+        # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
         return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
-def get_array_app() -> OAuthApplication:
-    region = get_instance_region()
+def _get_client_id_for_region(*, region: str | None, us: str, eu: str, dev: str) -> str:
     if region == "EU":
-        client_id = ARRAY_APP_CLIENT_ID_EU
-    elif region == "US":
-        client_id = ARRAY_APP_CLIENT_ID_US
-    else:
-        client_id = ARRAY_APP_CLIENT_ID_DEV
+        return eu
+    if region == "US":
+        return us
+    return dev
+
+
+def _get_oauth_app_for_client_id(client_id: str, app_name: str, region: str | None) -> OAuthApplication:
+    if not client_id:
+        raise RuntimeError(f"{app_name} app not configured for region {region}")
 
     try:
         return OAuthApplication.objects.get(client_id=client_id)
     except OAuthApplication.DoesNotExist as err:
-        raise RuntimeError(f"Array app not found for region {region} (client_id={client_id})") from err
+        raise RuntimeError(f"{app_name} app not found for region {region} (client_id={client_id})") from err
+
+
+def get_array_app() -> OAuthApplication:
+    region = get_instance_region()
+    client_id = _get_client_id_for_region(
+        region=region,
+        us=ARRAY_APP_CLIENT_ID_US,
+        eu=ARRAY_APP_CLIENT_ID_EU,
+        dev=ARRAY_APP_CLIENT_ID_DEV,
+    )
+
+    return _get_oauth_app_for_client_id(client_id, "Array", region)
+
+
+def get_posthog_ai_app() -> OAuthApplication:
+    region = get_instance_region()
+    client_id = _get_client_id_for_region(
+        region=region,
+        us=POSTHOG_AI_APP_CLIENT_ID_US,
+        eu=POSTHOG_AI_APP_CLIENT_ID_EU,
+        dev=POSTHOG_AI_APP_CLIENT_ID_DEV,
+    )
+
+    return _get_oauth_app_for_client_id(client_id, "PostHog AI", region)
+
+
+def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAuthApplication:
+    if application == "posthog_ai":
+        return get_posthog_ai_app()
+    return get_array_app()
 
 
 def create_oauth_access_token_for_user(
@@ -133,9 +169,10 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
+    application: SandboxOAuthApplication = "array",
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
-    app = get_array_app()
+    app = get_sandbox_oauth_app(application)
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(
