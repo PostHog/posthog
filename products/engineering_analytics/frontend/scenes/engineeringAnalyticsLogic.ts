@@ -212,6 +212,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+            setWorkflowFilter: (workflowName: string | null) => ({ workflowName }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -334,6 +335,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
             ],
             workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
+            // Client-side lens over the loaded workflow rows (the endpoint already caps at 100). Cleared
+            // when the date range reloads, since the chosen workflow may not exist in the new window.
+            workflowFilter: [
+                null as string | null,
+                { setWorkflowFilter: (_, { workflowName }) => workflowName, setWorkflowDateRange: () => null },
+            ],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -423,6 +430,18 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (s) => [s.pullRequests],
                 (pullRequests): string[] =>
                     Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
+            ],
+            // Distinct workflow names across the loaded rows; the same name can span repos, so the
+            // filter matches by name and may show that workflow from more than one repo.
+            workflowNameOptions: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): string[] =>
+                    Array.from(new Set(workflowHealth.map((row) => row.workflowName).filter(Boolean))).sort(),
+            ],
+            filteredWorkflowHealth: [
+                (s) => [s.workflowHealth, s.workflowFilter],
+                (workflowHealth, workflowFilter): WorkflowHealthRow[] =>
+                    workflowFilter ? workflowHealth.filter((row) => row.workflowName === workflowFilter) : workflowHealth,
             ],
             anyLoading: [
                 (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading],

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -53,14 +53,16 @@ function successRateClass(rate: number | null): string {
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
-        workflowHealth,
+        filteredWorkflowHealth,
         workflowHealthLoading,
         notConnected,
         workflowHealthLoadError,
         workflowDateFrom,
         workflowDateTo,
+        workflowFilter,
+        workflowNameOptions,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, refresh } = useActions(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, setWorkflowFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -168,17 +170,28 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onChange={setWorkflowDateRange}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
+                <LemonSelect
+                    size="small"
+                    placeholder="Workflow: all"
+                    value={workflowFilter}
+                    onChange={setWorkflowFilter}
+                    allowClear
+                    options={workflowNameOptions.map((name) => ({ value: name, label: name }))}
+                    data-attr="engineering-analytics-workflow-filter"
+                />
             </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
                 size="small"
                 columns={columns}
-                dataSource={workflowHealth}
+                dataSource={filteredWorkflowHealth}
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
-                emptyState="No workflow runs in this window."
+                emptyState={
+                    workflowFilter ? 'No runs for this workflow in this window.' : 'No workflow runs in this window.'
+                }
                 nouns={['workflow', 'workflows']}
             />
             <div className="text-xs text-tertiary">

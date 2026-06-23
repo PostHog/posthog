@@ -270,6 +270,37 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
     })
 
+    it('filters loaded workflow rows by name and clears the filter when the date range changes', async () => {
+        mockWorkflowHealth.mockResolvedValue([
+            WORKFLOWS[0],
+            {
+                ...WORKFLOWS[0],
+                repo: { provider: 'github', owner: 'posthog', name: 'posthog-js' },
+                workflow_name: 'Release',
+            },
+            {
+                ...WORKFLOWS[0],
+                repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
+                workflow_name: 'Release',
+            },
+        ])
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+
+        // Distinct, sorted names — "Release" spans two repos but appears once in the options.
+        expect(logic.values.workflowNameOptions).toEqual(['CI', 'Release'])
+        expect(logic.values.filteredWorkflowHealth).toHaveLength(3)
+
+        // Filtering by name matches that workflow across every repo.
+        logic.actions.setWorkflowFilter('Release')
+        expect(logic.values.filteredWorkflowHealth.map((row) => row.repoName)).toEqual(['posthog-js', 'posthog'])
+
+        // Reloading the window clears the filter — the chosen workflow may not exist in the new range.
+        logic.actions.setWorkflowDateRange('-90d', null)
+        expect(logic.values.workflowFilter).toBeNull()
+    })
+
     it('exposes source options and the multi-source flag only when more than one source exists', async () => {
         mockSources.mockResolvedValue(SOURCES)
         logic = engineeringAnalyticsLogic()
