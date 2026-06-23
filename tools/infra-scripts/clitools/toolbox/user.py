@@ -22,12 +22,12 @@ ELEVATE_PERMISSIONS_CHANNEL = "<#C09ULM0E6SW>"
 TOOLBOX_ACCESS_RUNBOOK_URL = "https://posthog.com/handbook/engineering/toolbox-access"
 
 
-def _get_user_info(*, context: str | None = None) -> dict:
+def get_user_info(*, context: str | None = None) -> dict:
     """Return the ``status.userInfo`` block from ``kubectl auth whoami``.
 
-    Centralizes the whoami call and its error handling so both identity parsing
-    (``get_current_user``) and the write-access gate (``ensure_write_access``)
-    share one code path. Exits the process on failure.
+    Centralizes the whoami call and its error handling. Callers fetch this once
+    and pass it to ``ensure_write_access`` and ``get_current_user`` so a single
+    toolbox start makes exactly one whoami call. Exits the process on failure.
     """
     try:
         print("Attempting to get user identity...")  # noqa: T201
@@ -56,15 +56,14 @@ def _get_user_info(*, context: str | None = None) -> dict:
         sys.exit(1)
 
 
-def ensure_write_access(*, context: str | None = None) -> None:
+def ensure_write_access(user_info: dict) -> None:
     """Exit early unless the caller belongs to a write-access kubernetes group.
 
     Claiming and deleting toolbox pods needs write RBAC, so a read-only identity
     would only fail later with an opaque permission error. We check group
-    membership from ``kubectl auth whoami`` up front and bail out with an
-    actionable message instead.
+    membership from the ``kubectl auth whoami`` ``userInfo`` up front and bail
+    out with an actionable message instead.
     """
-    user_info = _get_user_info(context=context)
     groups = set(user_info.get("groups", []))
 
     if WRITE_ACCESS_GROUPS.isdisjoint(groups):
@@ -79,19 +78,16 @@ def ensure_write_access(*, context: str | None = None) -> None:
         sys.exit(1)
 
 
-def get_current_user(*, claimed_label_key: str, context: str | None = None) -> dict:
-    """Get user identity from kubectl auth and parse it into labels.
+def get_current_user(*, claimed_label_key: str, user_info: dict) -> dict:
+    """Parse a ``kubectl auth whoami`` ``userInfo`` block into pod-claim labels.
 
     Args:
         claimed_label_key: Label key under which the sanitized session name is
             placed in the returned dict. Pool-specific (e.g. ``toolbox-claimed``
             for the toolbox-django pool, ``flags-jumphost-claimed`` for the
             flags-cache-jumphost pool); see ``POOLS`` in ``toolbox.py``.
-        context: Optional kubernetes context to scope the whoami call to,
-            instead of relying on the default kubeconfig context.
+        user_info: The ``status.userInfo`` block from ``get_user_info``.
     """
-    user_info = _get_user_info(context=context)
-
     # First try to get the ARN from the extra info
     if "extra" in user_info and "arn" in user_info["extra"]:
         return parse_arn(user_info["extra"]["arn"][0], claimed_label_key=claimed_label_key)  # ARN is in a list

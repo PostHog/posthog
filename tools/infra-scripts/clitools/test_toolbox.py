@@ -19,7 +19,14 @@ from toolbox.kubernetes import (
     validate_context,
 )
 from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
-from toolbox.user import WRITE_ACCESS_GROUPS, ensure_write_access, get_current_user, parse_arn, sanitize_label
+from toolbox.user import (
+    WRITE_ACCESS_GROUPS,
+    ensure_write_access,
+    get_current_user,
+    get_user_info,
+    parse_arn,
+    sanitize_label,
+)
 
 # Load toolbox.py (the script with main() and POOLS) by file path, since the
 # `toolbox` package shadows it in normal import resolution.
@@ -96,56 +103,30 @@ class TestToolbox(unittest.TestCase):
         }
         self.assertEqual(parse_arn(arn, claimed_label_key="flags-jumphost-claimed"), expected)
 
-    @patch("subprocess.run")
-    def test_get_current_user(self, mock_run):
-        """Test getting current user from kubectl auth."""
-        # Mock kubectl auth whoami response
-        mock_response = MagicMock()
-        mock_response.stdout = json.dumps(
-            {
-                "status": {
-                    "userInfo": {
-                        "username": "sso-developers",
-                        "extra": {
-                            "arn": [
-                                "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
-                            ],
-                            "sessionName": ["michael.k@posthog.com"],
-                        },
-                    }
-                }
-            }
-        )
-        mock_run.return_value = mock_response
+    def test_get_current_user(self):
+        """get_current_user parses a whoami userInfo block into pod-claim labels."""
+        user_info = {
+            "username": "sso-developers",
+            "extra": {
+                "arn": [
+                    "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
+                ],
+                "sessionName": ["michael.k@posthog.com"],
+            },
+        }
 
-        user_labels = get_current_user(claimed_label_key="toolbox-claimed")
+        user_labels = get_current_user(claimed_label_key="toolbox-claimed", user_info=user_info)
         expected = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
         self.assertEqual(user_labels, expected)
-        mock_run.assert_called_once_with(
-            ["kubectl", "auth", "whoami", "-o", "json"], capture_output=True, text=True, check=True
-        )
 
     @patch("subprocess.run")
-    def test_get_current_user_with_context(self, mock_run):
-        """get_current_user with context= scopes the whoami call to that context."""
+    def test_get_user_info_with_context(self, mock_run):
+        """get_user_info with context= scopes the whoami call to that context."""
         mock_response = MagicMock()
-        mock_response.stdout = json.dumps(
-            {
-                "status": {
-                    "userInfo": {
-                        "username": "sso-developers",
-                        "extra": {
-                            "arn": [
-                                "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
-                            ],
-                        },
-                    }
-                }
-            }
-        )
+        mock_response.stdout = json.dumps({"status": {"userInfo": {"username": "sso-developers"}}})
         mock_run.return_value = mock_response
 
-        get_current_user(claimed_label_key="toolbox-claimed", context="posthog-dev")
+        self.assertEqual(get_user_info(context="posthog-dev"), {"username": "sso-developers"})
         mock_run.assert_called_once_with(
             ["kubectl", "--context=posthog-dev", "auth", "whoami", "-o", "json"],
             capture_output=True,
@@ -155,9 +136,8 @@ class TestToolbox(unittest.TestCase):
 
     @patch("builtins.print")
     @patch("subprocess.run")
-    def test_get_current_user_token_expired(self, mock_run, mock_print):
-        """Test getting current user when token has expired and refresh failed."""
-        # Mock kubectl auth whoami to raise error with token expiration message
+    def test_get_user_info_token_expired(self, mock_run, mock_print):
+        """get_user_info exits with a reauth hint when the token has expired."""
         error = subprocess.CalledProcessError(
             returncode=1,
             cmd=["kubectl", "auth", "whoami", "-o", "json"],
@@ -166,7 +146,7 @@ class TestToolbox(unittest.TestCase):
         mock_run.side_effect = error
 
         with self.assertRaises(SystemExit) as ctx:
-            get_current_user(claimed_label_key="toolbox-claimed")
+            get_user_info()
         self.assertEqual(ctx.exception.code, 1)
 
         mock_run.assert_called_once_with(
@@ -176,37 +156,22 @@ class TestToolbox(unittest.TestCase):
             "Token has expired and refresh failed, please reauthenticate with `aws sso login --profile=<your-profile>`"
         )
 
-    @staticmethod
-    def _whoami_with_groups(groups):
-        response = MagicMock()
-        response.stdout = json.dumps({"status": {"userInfo": {"username": "sso-developers", "groups": groups}}})
-        return response
-
-    @patch("subprocess.run")
-    def test_ensure_write_access_allows_member(self, mock_run):
+    def test_ensure_write_access_allows_member(self):
         """ensure_write_access returns silently when the user is in a write-access group."""
         write_group = sorted(WRITE_ACCESS_GROUPS)[0]
-        mock_run.return_value = self._whoami_with_groups(["system:authenticated", write_group])
+        user_info = {"username": "sso-developers", "groups": ["system:authenticated", write_group]}
 
-        ensure_write_access(context="posthog-dev")
+        ensure_write_access(user_info)  # does not raise
 
-        mock_run.assert_called_once_with(
-            ["kubectl", "--context=posthog-dev", "auth", "whoami", "-o", "json"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-
-    @patch("sys.exit")
     @patch("builtins.print")
-    @patch("subprocess.run")
-    def test_ensure_write_access_blocks_non_member(self, mock_run, mock_print, mock_exit):
+    def test_ensure_write_access_blocks_non_member(self, mock_print):
         """ensure_write_access exits when the user is in no write-access group."""
-        mock_run.return_value = self._whoami_with_groups(["system:authenticated", "eks-readonly"])
+        user_info = {"username": "sso-developers", "groups": ["system:authenticated", "eks-readonly"]}
 
-        ensure_write_access(context="posthog-dev")
+        with self.assertRaises(SystemExit) as ctx:
+            ensure_write_access(user_info)
+        self.assertEqual(ctx.exception.code, 1)
 
-        mock_exit.assert_called_once_with(1)
         printed = " ".join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
         self.assertIn("don't have write access", printed)
         self.assertIn("<#C09ULM0E6SW>", printed)
@@ -1179,6 +1144,7 @@ class TestToolbox(unittest.TestCase):
         """
         connect_mock = MagicMock(return_value=0)
         return {
+            "get_user_info": patch.object(toolbox_script, "get_user_info", return_value={"username": "sso-developers"}),
             "ensure_write_access": patch.object(toolbox_script, "ensure_write_access"),
             "get_current_user": patch.object(
                 toolbox_script,
@@ -1217,6 +1183,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--pool", "flags-cache-jumphost"]),
             patch.dict(os.environ, {}, clear=False),
         ):
@@ -1225,7 +1192,9 @@ class TestToolbox(unittest.TestCase):
                 toolbox_script.main()
         self.assertEqual(ctx.exception.code, 0)
 
-        m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="posthog-dev")
+        m_user.assert_called_once_with(
+            claimed_label_key="flags-jumphost-claimed", user_info={"username": "sso-developers"}
+        )
         m_get_pod.assert_called_once_with(
             "user_at_posthog.com",
             check_claimed=True,
@@ -1269,6 +1238,7 @@ class TestToolbox(unittest.TestCase):
                     patches["select_context"],
                     patches["validate_context"],
                     patches["ensure_write_access"],
+                    patches["get_user_info"],
                     patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
                     patch.dict(os.environ, env_override, clear=False),
                 ):
@@ -1302,6 +1272,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"] as m_select,
             patches["validate_context"] as m_validate,
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {"KUBE_CONTEXT": "posthog-dev"}, clear=False),
         ):
@@ -1328,6 +1299,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"] as m_select,
             patches["validate_context"] as m_validate,
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {}, clear=False),
         ):
@@ -1353,6 +1325,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
             patch.dict(os.environ, {"KUBE_CONTEXT": "bogus"}, clear=False),
         ):
@@ -1377,6 +1350,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.signal, "signal"),
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
@@ -1406,6 +1380,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.signal, "signal") as m_signal,
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
@@ -1448,6 +1423,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.signal, "signal") as m_signal,
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
@@ -1474,6 +1450,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.signal, "signal"),
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete", "--update-claim"]),
@@ -1509,6 +1486,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--auto-delete"]),
             patch.dict(os.environ, {}, clear=False),
         ):
@@ -1545,6 +1523,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.atexit, "unregister") as m_unregister,
             patch.object(toolbox_script.signal, "signal"),
@@ -1593,6 +1572,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.atexit, "unregister") as m_unregister,
             patch.object(toolbox_script.signal, "signal"),
@@ -1640,6 +1620,7 @@ class TestToolbox(unittest.TestCase):
             patches["select_context"],
             patches["validate_context"],
             patches["ensure_write_access"],
+            patches["get_user_info"],
             patch.object(toolbox_script.atexit, "register") as m_atexit,
             patch.object(toolbox_script.atexit, "unregister") as m_unregister,
             patch.object(toolbox_script.signal, "signal"),
