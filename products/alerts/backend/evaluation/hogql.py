@@ -124,7 +124,7 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        rows, column_names = _calculate_rows_and_columns(insight, alert.team, user=None)
+        rows, column_names = _calculate_rows_and_columns(insight, alert.team, user=alert.created_by)
         if len(rows) == 0:
             # No rows means the metric is genuinely 0 this check (matching trends), so a lower
             # bound can still breach.
