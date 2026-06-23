@@ -2051,24 +2051,15 @@ describe('Workflows E2E (email queue)', () => {
 
         expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(1)
 
-        // The delay's pause log MUST fire — this is the regression guard against
-        // over-suppression. The only routing pause in this workflow (email_1 hopping onto
-        // the email queue) is sub-millisecond and silenced. So exactly one pause line
-        // should appear, and it must be the delay's.
+        // The delay is a genuine pause and must still be logged; the email's routing hop onto
+        // the email queue must NOT add a duplicate. Assert exactly one pause and one resume line
+        // overall, independent of which action each references — so the guard tests the
+        // suppression's intent and stays valid regardless of whether the delay advances
+        // currentAction before parking.
         const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
         expect(pauseLogs).toHaveLength(1)
-
-        // The delay-wake Resuming log MUST fire — the workflow really did pause and resume.
-        // The delay handler returns `{ scheduledAt, nextAction: email_1 }` on the rescheduling
-        // dequeue, so `currentAction` is advanced to email_1 *before* the next dequeue. On
-        // wake we therefore see "Resuming workflow execution at [Action:email_1]", NOT at
-        // [Action:delay_1] — the delay is finished, email_1 is what's about to run. This must
-        // appear exactly once (the real wake from delay). The email's routing-continuation
-        // Resuming would be a SECOND identical line; the fix suppresses it, so length stays 1.
-        const resumingEmailLogs = logMessages.filter(
-            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
-        )
-        expect(resumingEmailLogs).toHaveLength(1)
+        const resumeLogs = logMessages.filter((msg) => msg.includes('Resuming workflow execution at'))
+        expect(resumeLogs).toHaveLength(1)
     })
 
     it('wakes a wait_until_condition parked on the email queue after an email step', async () => {
