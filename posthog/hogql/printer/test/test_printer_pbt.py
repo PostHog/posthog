@@ -191,9 +191,11 @@ class TestPostgresIdentifier:
     unescaping that Postgres identifiers don't use).
     """
 
-    @given(s=st.text(min_size=1, max_size=63))
+    @given(s=st.text(alphabet=st.characters(blacklist_characters="%"), min_size=1, max_size=63))
     @settings(parent=_BASE, max_examples=1000)
     def test_roundtrip(self, s: str) -> None:
+        # '%' is excluded: escape_postgres_identifier rejects it (psycopg treats it
+        # as a parameter placeholder). Its rejection is covered separately below.
         escaped = escape_postgres_identifier(s)
         if escaped.startswith('"'):
             # Double-quoted: strip quotes and unescape "" → "
@@ -201,6 +203,18 @@ class TestPostgresIdentifier:
             assert inner.replace('""', '"') == s
         else:
             assert escaped == s
+
+    @given(
+        s=st.builds(
+            # Keep total length ≤ 63 so the '%' rejection fires before the length check.
+            lambda prefix, suffix: prefix + "%" + suffix,
+            prefix=st.text(max_size=31),
+            suffix=st.text(max_size=31),
+        )
+    )
+    def test_percent_always_rejected(self, s: str) -> None:
+        with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
+            escape_postgres_identifier(s)
 
     @given(s=st.from_regex(r"[a-z_][a-z0-9_$]*", fullmatch=True).filter(lambda s: len(s) <= 63))
     def test_simple_identifiers_returned_bare(self, s: str) -> None:
