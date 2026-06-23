@@ -271,9 +271,17 @@ Presentation may only import `facade` and other `presentation` modules within th
 
 If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
 
-- **Presentation concern** (response caching, rate limiting) → `presentation/`
-- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Presentation concern** (response caching, rate limiting, user RBAC — see below) → `presentation/`
+- **Business concern** (domain-level caching, tenant scoping, domain invariants) → `logic/`, exposed through the facade
 - **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
+### Who owns RBAC?
+
+User-based RBAC stays on the **viewset**, not in the facade. It is an HTTP-boundary concern that depends on the authenticated `request`/`user`, which the facade does not have (facades are also called from Celery tasks, CLIs, and other products with no request context). Declare it the standard way — `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions` on the viewset — and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) wired up by `TeamAndOrgViewSetMixin` enforce both API-scope and resource-level access. `products/visual_review/backend/presentation/views.py` is the reference.
+
+What the facade owns is **tenant scoping** (`team_id` must be passed in and enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state-machine rules, idempotency). These must hold for every caller regardless of how they arrived, so they live below the HTTP boundary; user RBAC must not.
+
+Keeping user RBAC in the shared DRF stack is also what lets cross-cutting permission tests (which reach endpoints by URL) enforce it consistently across products — moving it into each product's facade would fragment that.
 
 ### Why not mix with the facade?
 
