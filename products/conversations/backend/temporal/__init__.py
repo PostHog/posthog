@@ -5,6 +5,7 @@ from products.conversations.backend.temporal.coordinator import (
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     build_context_activity,
+    classify_activity,
     draft_activity,
     persist_reply_activity,
     refine_queries_activity,
@@ -19,6 +20,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     build_context_activity,
+    classify_activity,
     refine_queries_activity,
     retrieve_activity,
     draft_activity,

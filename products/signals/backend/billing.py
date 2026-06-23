@@ -6,7 +6,7 @@ deterministic — the first implementation `TaskRun` with a `pr_url` set — so 
 billed exactly once, in the period that PR first appeared, regardless of any later status
 changes, re-judgements, or additional runs.
 
-The PR↔report link lives on the `SignalReportTask` bridge (relationship=IMPLEMENTATION); the
+The PR↔report link lives on the `SignalReportTask` bridge (relationship="implementation"); the
 PR URL itself is written to `TaskRun.output['pr_url']`. There is no artefact that records the
 implementation task or its PR, so the query is rooted on that bridge, not on artefacts.
 
@@ -24,9 +24,10 @@ from datetime import datetime
 
 from django.db.models import F, QuerySet
 
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.models import SignalReportTask
 
-_IMPLEMENTATION = SignalReportTask.Relationship.IMPLEMENTATION
+_IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
 
 # Only PRs hosted on GitHub are billable. The PR URL is GitHub's `html_url`
 # (https://github.com/owner/repo/pull/N), so validate the host prefix to avoid charging

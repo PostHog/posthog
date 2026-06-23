@@ -16,6 +16,13 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .optional()
         .default('manual')
         .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+    always_include: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query."
+        ),
 })
 
 export const AgentResolveResourceSchema = z.object({

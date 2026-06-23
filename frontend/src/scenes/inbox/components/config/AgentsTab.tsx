@@ -17,7 +17,6 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
-import { AutoStartThresholdSection } from './AutoStartThresholdSection'
 import { ConnectionsSection } from './ConnectionsSection'
 import { McpServersSection } from './McpServersSection'
 import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
@@ -64,7 +63,7 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 /**
  * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
  * PostHog Code desktop Agents view. Composes Connections, the agent roster,
- * Slack, auto-start, and MCP servers. Session-analysis and data-source setup
+ * Slack, and MCP servers. Session-analysis and data-source setup
  * render inline (replacing the roster) when their sub-flow is open.
  */
 export function AgentsTab(): JSX.Element {
@@ -139,13 +138,6 @@ export function AgentsTab(): JSX.Element {
                         <SlackNotificationsSection />
                     </Subsection>
                 )}
-
-                <Subsection
-                    title="Auto-start"
-                    description="Self-driving can start coding tasks automatically when a report is immediately actionable and assigned to you."
-                >
-                    <AutoStartThresholdSection />
-                </Subsection>
 
                 <Subsection
                     title="MCP servers"

@@ -1233,6 +1233,21 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-sources-partial-update": {
+        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Only the fields you pass are changed.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Update business knowledge source",
+        "title": "Update business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "product-business-knowledge"
+    },
     "business-knowledge-sources-retrieve": {
         "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
         "category": "Business knowledge",
@@ -3911,6 +3926,76 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-report-artefacts-create": {
+        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report association: content.task_id defaults to your own task, product/type label the run and default to tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry), `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Returns the created artefact including its id.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Append an artefact to a report",
+        "title": "Append an artefact to a report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-delete": {
+        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete an artefact",
+        "title": "Delete an artefact",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-list": {
+        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's artefacts",
+        "title": "List a report's artefacts",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-artefacts-retrieve": {
+        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a single artefact",
+        "title": "Get a single artefact",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-artefacts-update": {
+        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace an artefact's content",
+        "title": "Replace an artefact's content",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-bulk-set-state": {
         "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
         "category": "Signals",
@@ -3926,7 +4011,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -3940,7 +4025,7 @@
         }
     },
     "inbox-reports-retrieve": {
-        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.",
+        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even research — first associate your task with it by appending a `task_run` artefact via inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready` reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than acting on it yourself.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get signal report",
