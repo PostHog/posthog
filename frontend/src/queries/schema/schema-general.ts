@@ -6932,6 +6932,7 @@ export const externalDataSources = [
     'Metronome',
     'Jobber',
     'Knock',
+    'Leexi',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
