@@ -98,14 +98,19 @@ def _build_outcome_assets(
 
 async def _emit_subscription_delivered(
     inputs: TrackedSubscriptionInputs,
-    delivery_id: uuid.UUID,
+    final_status: DeliveryStatus,
+    delivery_id: uuid.UUID | None,
     recipient_count: int,
     successful_asset_ids: list[int],
 ) -> None:
     """Best-effort: announce a successful delivery as an internal event so users can hook it
-    into CDP destinations (mirrors the alert flow). Swallows its own errors so a failed emit
-    never flips an already-succeeded delivery. Both delivery workflows call this from their
-    finally block, gated on COMPLETED (a free helper, not a shared base — no run-method sharing)."""
+    into CDP destinations (mirrors the alert flow). No-ops unless the delivery COMPLETED, so both
+    delivery workflows call it unconditionally from their finally block (the COMPLETED gate lives
+    here, not duplicated at each call site). Swallows its own errors so a failed emit never flips
+    an already-succeeded delivery. A single attempt is intentional: the activity swallows its own
+    exceptions, so it always reports success and retries would never fire."""
+    if final_status != DeliveryStatus.COMPLETED or delivery_id is None:
+        return
     try:
         await temporalio.workflow.execute_activity(
             emit_subscription_delivered_event,
@@ -118,7 +123,7 @@ async def _emit_subscription_delivered(
                 successful_asset_ids=successful_asset_ids,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
         )
     except Exception:
         temporalio.workflow.logger.warning(
@@ -408,6 +413,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         finally:
             # Finalize delivery record with whatever state we have
             if delivery_id is not None:
+                record_write_error: Exception | None = None
                 try:
                     await temporalio.workflow.execute_activity(
                         update_delivery_record,
@@ -425,18 +431,24 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception:
+                except Exception as e:
                     temporalio.workflow.logger.exception(
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
-                    if caught_error is None:
-                        raise
+                    record_write_error = e
 
-            # Announce a successful delivery for CDP destinations, carrying the screenshot URLs.
-            if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
+                # Announce a successful delivery for CDP destinations (carries the screenshot URLs).
+                # Runs after update_delivery_record so the persisted change_summary is on the row, but
+                # is not gated on that write succeeding — a transient history-write failure must not
+                # drop the event for an otherwise-completed delivery. The helper no-ops unless COMPLETED.
                 await _emit_subscription_delivered(
-                    inputs, delivery_id, len(delivery_recipient_results), list(successful_asset_ids)
+                    inputs, final_status, delivery_id, len(delivery_recipient_results), list(successful_asset_ids)
                 )
+
+                # Surface a history-write failure as a workflow failure only when the delivery itself
+                # otherwise succeeded (deferred to here so it can't skip the best-effort emit above).
+                if record_write_error is not None and caught_error is None:
+                    raise record_write_error
 
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
@@ -582,6 +594,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
 
         finally:
             if delivery_id is not None:
+                record_write_error: Exception | None = None
                 try:
                     await temporalio.workflow.execute_activity(
                         update_delivery_record,
@@ -597,17 +610,23 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                         start_to_close_timeout=dt.timedelta(minutes=2),
                         retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
                     )
-                except Exception:
+                except Exception as e:
                     temporalio.workflow.logger.exception(
                         "update_delivery_record failed (delivery history is best-effort when a prior error exists)"
                     )
-                    if caught_error is None:
-                        raise
+                    record_write_error = e
 
-            # Announce the delivery for CDP destinations. AI subs carry no screenshots — the
-            # event carries the generated report markdown as its summary instead.
-            if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
-                await _emit_subscription_delivered(inputs, delivery_id, len(delivery_recipient_results), [])
+                # Announce the delivery for CDP destinations. AI subs carry no screenshots — the
+                # event carries the generated report markdown as its summary instead. Not gated on
+                # the history write succeeding; the helper no-ops unless COMPLETED.
+                await _emit_subscription_delivered(
+                    inputs, final_status, delivery_id, len(delivery_recipient_results), []
+                )
+
+                # Surface a history-write failure as a workflow failure only when the delivery itself
+                # otherwise succeeded (deferred to here so it can't skip the best-effort emit above).
+                if record_write_error is not None and caught_error is None:
+                    raise record_write_error
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

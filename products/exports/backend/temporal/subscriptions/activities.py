@@ -18,10 +18,7 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
-    AI_REPORT_SNAPSHOT_KEY,
-    _deliver_ai_subscription,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import _deliver_ai_subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
@@ -32,7 +29,6 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
-    AI_PROMPT_RESOURCE_TYPE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -61,6 +57,10 @@ LOGGER = get_logger(__name__)
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+
+# Cap the summary copied onto the $subscription_delivered event so the Kafka message stays small —
+# the full report still lives on the delivery row and in the delivered email/Slack message.
+_MAX_EVENT_SUMMARY_CHARS = 10_000
 
 
 async def _persist_content_snapshot(
@@ -491,11 +491,6 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
     )
 
 
-# Cap the summary copied onto the event so the Kafka message stays small — the full
-# report still lives on the delivery row and in the delivered email/Slack message.
-_MAX_EVENT_SUMMARY_CHARS = 10_000
-
-
 @temporalio.activity.defn
 async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInputs) -> None:
     """Emit a `$subscription_delivered` internal event on successful delivery so users can
@@ -510,17 +505,10 @@ async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInp
         subscription = Subscription.objects.select_related("insight", "dashboard").get(
             pk=inputs.subscription_id, team_id=inputs.team_id
         )
-        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id)
+        delivery = SubscriptionDelivery.objects.get(pk=inputs.delivery_id, team_id=inputs.team_id)
 
         resource_type = subscription.resource_type
-        if resource_type == AI_PROMPT_RESOURCE_TYPE:
-            # AI subs carry the generated report markdown on the delivery row, not screenshots.
-            snapshot = delivery.content_snapshot if isinstance(delivery.content_snapshot, dict) else {}
-            raw_summary = snapshot.get(AI_REPORT_SNAPSHOT_KEY)
-            summary = raw_summary if isinstance(raw_summary, str) and raw_summary else None
-        else:
-            summary = delivery.change_summary or None
-
+        summary = delivery.get_event_summary(resource_type)
         if summary and len(summary) > _MAX_EVENT_SUMMARY_CHARS:
             summary = summary[:_MAX_EVENT_SUMMARY_CHARS]
 
