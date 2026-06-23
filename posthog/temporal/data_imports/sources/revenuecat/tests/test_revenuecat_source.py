@@ -3,8 +3,8 @@ from typing import cast
 
 from unittest.mock import MagicMock, patch
 
-import deltalake
 import pyarrow as pa
+import deltalake
 
 from posthog.schema import SourceFieldInputConfig
 

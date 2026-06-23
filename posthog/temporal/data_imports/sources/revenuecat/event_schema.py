@@ -1,6 +1,5 @@
 from typing import Any
 
-
 REVENUECAT_EVENT_DOUBLE_FIELDS = frozenset({"price", "price_in_purchased_currency"})
 
 
