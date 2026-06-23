@@ -1116,8 +1116,12 @@ def cleanup_orphan_slots_activity() -> None:
                         source_log.exception("failed_to_auto_drop_slot")
                         sources_errored += 1
                 elif cdc_config.management_mode == "self_managed":
-                    source.status = ExternalDataSource.Status.ERROR
-                    source.save(update_fields=["status", "updated_at"])
+                    try:
+                        source.status = ExternalDataSource.Status.ERROR
+                        source.save(update_fields=["status", "updated_at"])
+                    except Exception:
+                        source_log.exception("failed_to_update_source_status")
+                        sources_errored += 1
 
             elif lag_mb >= cdc_config.lag_warning_threshold_mb:
                 source_log.warning(
