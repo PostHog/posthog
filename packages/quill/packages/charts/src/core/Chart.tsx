@@ -120,6 +120,7 @@ export function Chart<Meta = unknown>({
         yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
+        showTickMarks = false,
         axisOrientation = 'vertical',
         isPercent = false,
         animateHover,
@@ -319,6 +320,7 @@ export function Chart<Meta = unknown>({
                         orientation={axisOrientation}
                         labelToCoord={labelToCoord}
                         maxCategoryLabelWidth={maxCategoryLabelWidth}
+                        showTickMarks={showTickMarks}
                     />
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
