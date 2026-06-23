@@ -153,7 +153,7 @@ def _iter_pages(
         if config.method == "POST":
             data = _fetch(session, "POST", url, headers, logger, body={"page": page, "hitsPerPage": config.page_size})
         else:
-            data = _fetch(session, "GET", url, headers, logger, params={"page": page})
+            data = _fetch(session, "GET", url, headers, logger, params={"page": page, "hitsPerPage": config.page_size})
 
         items = data.get(config.data_selector, [])
         next_page = page + 1

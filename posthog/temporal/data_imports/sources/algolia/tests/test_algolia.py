@@ -193,8 +193,10 @@ class TestPagePagination:
         rows = driver.run("indices", manager)
 
         assert [r["name"] for r in rows] == ["i1", "i2"]
-        # GET endpoints page via a query param, not a body.
+        # GET endpoints page via query params, and must request the configured page size so the
+        # listing doesn't fall back to Algolia's small server-side default.
         assert [c["params"]["page"] for c in driver.calls] == [0, 1]
+        assert all(c["params"]["hitsPerPage"] == ALGOLIA_ENDPOINTS["indices"].page_size for c in driver.calls)
 
     def test_resume_seeds_page(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
