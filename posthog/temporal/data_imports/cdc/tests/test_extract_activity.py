@@ -56,7 +56,20 @@ def _make_source(source_id=None, job_inputs=None):
     return source
 
 
-def _make_schema(name, cdc_mode="streaming", cdc_table_mode="consolidated", source=None, schema_id=None):
+def _make_schema(
+    name,
+    cdc_mode="streaming",
+    cdc_table_mode="consolidated",
+    source=None,
+    schema_id=None,
+    s3_folder_name=None,
+    partitioning_enabled=False,
+    partitioning_keys=None,
+    partition_mode=None,
+    partition_format=None,
+    partition_count=None,
+    partition_size=None,
+):
     schema = MagicMock()
     schema.id = schema_id or uuid.uuid4()
     schema.name = name
@@ -69,6 +82,16 @@ def _make_schema(name, cdc_mode="streaming", cdc_table_mode="consolidated", sour
     schema.cdc_table_mode = cdc_table_mode
     schema.should_sync = True
     schema.deleted = False
+    # Real value (not a MagicMock) so storage-name resolution can normalize it. `None` means the
+    # folder name falls back to the normalized schema `name`, matching a non-migrated schema.
+    schema.resolved_s3_folder_name = s3_folder_name
+    # Real partition values (not MagicMocks) so `_partition_kwargs` evaluates deterministically.
+    schema.partitioning_enabled = partitioning_enabled
+    schema.partitioning_keys = partitioning_keys
+    schema.partition_mode = partition_mode
+    schema.partition_format = partition_format
+    schema.partition_count = partition_count
+    schema.partition_size = partition_size
     schema.save = MagicMock()
     return schema
 
@@ -1107,6 +1130,166 @@ class TestCDCExtractActivity:
 
         resource_names = {call.kwargs["resource_name"] for call in MockProducer.call_args_list}
         assert resource_names == {"users", "users_cdc"}
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_consolidated_table_uses_pinned_folder_name_not_schema_name(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """A schema renamed bare→qualified during multi-schema migration keeps its Delta data at
+        the original (pinned) folder. The consolidated CDC write must target that folder — i.e.
+        the producer's `resource_name` must be the pinned `s3_folder_name`, not the qualified
+        `name`. Otherwise streamed changes land in a parallel table no query reads and the table
+        stays frozen at its snapshot. Regression test for the bare↔qualified storage-path bug.
+        """
+        source = _make_source()
+        # `name` is qualified, but the folder was pinned to the original bare path during migration.
+        schema = _make_schema("public.users", cdc_mode="streaming", source=source, s3_folder_name="users")
+        events = [_make_event(op="I", table="public.users", position="0/100", columns={"id": 1, "name": "Alice"})]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_s3.write_batch.assert_called_once()
+        assert MockProducer.call_count == 1
+        # The fix: storage resource name is the pinned folder ("users"), not "public.users".
+        assert MockProducer.call_args.kwargs["resource_name"] == "users"
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_partition_config_replayed_to_loader_when_snapshot_partitioned(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """When the snapshot partitioned the Delta on `_ph_partition_key`, the CDC batch notification
+        must re-send the stored partition config. Otherwise the loader skips partitioning the CDC
+        source and the incremental_merge prunes every target file (num_source_rows=0), dropping all
+        changes. Regression test for the partition-mismatch bug that froze the table at its snapshot.
+        """
+        source = _make_source()
+        schema = _make_schema(
+            "users",
+            cdc_mode="streaming",
+            source=source,
+            partitioning_enabled=True,
+            partitioning_keys=["id"],
+            partition_mode="numerical",
+            partition_size=1_000_000,
+        )
+        events = [_make_event(op="I", table="users", position="0/100", columns={"id": 1, "name": "Alice"})]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        assert MockProducer.call_count == 1
+        kwargs = MockProducer.call_args.kwargs
+        assert kwargs["partition_keys"] == ["id"]
+        assert kwargs["partition_mode"] == "numerical"
+        assert kwargs["partition_size"] == 1_000_000
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_partition_config_omitted_when_snapshot_unpartitioned(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """A small, unpartitioned table must not start sending partition keys — that would make the
+        loader try to partition an unpartitioned Delta. With `partitioning_enabled` false the CDC
+        notification sends no partition config.
+        """
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source, partitioning_enabled=False)
+        events = [_make_event(op="I", table="users", position="0/100", columns={"id": 1, "name": "Alice"})]
+
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        assert MockProducer.call_count == 1
+        kwargs = MockProducer.call_args.kwargs
+        assert kwargs.get("partition_keys") is None
+        assert kwargs.get("partition_mode") is None
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")

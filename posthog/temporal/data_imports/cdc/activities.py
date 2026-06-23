@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     enrich_delete_rows,
 )
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
+from posthog.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
@@ -194,7 +195,8 @@ class CDCExtractActivity:
                 job_id=job_id,
                 schema_id=str(schema.id),
                 source_id=str(source.id),
-                resource_name=schema.name,
+                # Fall back to `name` for entries persisted before resource_name was stored.
+                resource_name=run_meta.get("resource_name", schema.name),
                 sync_type=typing.cast(SyncTypeLiteral, "cdc"),
                 run_uuid=run_uuid,
                 logger=log,
@@ -203,6 +205,7 @@ class CDCExtractActivity:
                 cdc_table_mode=run_meta.get("cdc_table_mode"),
                 workflow_id=current_workflow_id(),
                 workflow_run_id=current_workflow_run_id(),
+                **self._partition_kwargs(schema),
             )
 
             from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
@@ -318,6 +321,7 @@ class CDCExtractActivity:
             cdc_table_mode=tracker.cdc_table_mode,
             workflow_id=current_workflow_id(),
             workflow_run_id=current_workflow_run_id(),
+            **self._partition_kwargs(schema),
         )
         try:
             producer.send_batch_notification(
@@ -361,6 +365,9 @@ class CDCExtractActivity:
             entry = {
                 "job_id": str(tracker.job.id),
                 "run_uuid": tracker.run_uuid,
+                # Storage resource name (canonical folder name for consolidated, `<name>_cdc` for the
+                # companion) so the deferred flush writes to the same Delta table this batch went to.
+                "resource_name": tracker.write_resource_name,
                 "data_folder": tracker.s3_writer.get_data_folder(),
                 "schema_path": None,  # written on finalization
                 "total_batches": 0,
@@ -396,6 +403,47 @@ class CDCExtractActivity:
         )
 
     # ------------------------------------------------------------------
+    # Storage naming
+    # ------------------------------------------------------------------
+    def _consolidated_resource_name(self, schema: ExternalDataSchema) -> str:
+        """Storage name for the consolidated table — must match the snapshot pipeline's.
+
+        The initial snapshot (regular pipeline) writes Delta and anchors the queryable
+        `DataWarehouseTable` at `folder_path/normalize(resolved_s3_folder_name or name)`
+        (the canonical *folder* name — see `postgres/source.py` and `resolve_table_and_folder_names`).
+        The CDC stream must target that same folder, otherwise streamed changes land in a
+        parallel Delta table that no query reads — the table stays frozen at its snapshot.
+        `name` and the folder diverge exactly for rows renamed bare→qualified during the
+        multi-schema migration (`name="public.users"`, folder pinned to `users`).
+        """
+        _table_storage_name, folder_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        return folder_name
+
+    def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
+        """Replay the snapshot's partitioning config so the loader partitions CDC rows identically.
+
+        The initial snapshot partitions large tables on `_ph_partition_key` and persists the exact
+        config via `set_partitioning_enabled`. The CDC batch notification must re-send it, otherwise
+        the loader's `_apply_partitioning` finds no partition keys and skips — leaving the CDC source
+        unpartitioned while the target Delta is partitioned. The `incremental_merge` then prunes every
+        target file (its `_ph_partition_key` predicate never matches) and silently drops all changes
+        (`num_source_rows=0`), freezing the table at its snapshot. Re-sending the stored config (same
+        keys/mode/format/count/size) reproduces matching partition values so the merge lands.
+
+        Safe when unpartitioned: with `partitioning_enabled` false we send nothing, and even if we did,
+        the loader skips partitioning a target Delta that isn't partitioned.
+        """
+        if not schema.partitioning_enabled:
+            return {}
+        return {
+            "partition_count": schema.partition_count,
+            "partition_size": schema.partition_size,
+            "partition_keys": schema.partitioning_keys,
+            "partition_mode": schema.partition_mode,
+            "partition_format": schema.partition_format,
+        }
+
+    # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
     def _process_flush(
@@ -424,15 +472,24 @@ class CDCExtractActivity:
 
             enriched_table = enrich_delete_rows(raw_table, key_columns)
 
+            # The consolidated table is shared with the initial snapshot, so it must use the
+            # canonical folder storage name. The `_cdc` companion is CDC-only and self-consistent
+            # with its snapshot seed (`_seed_cdc_companion_from_snapshot`), which keys off `name`.
+            consolidated_name = self._consolidated_resource_name(schema)
+
             batch_writes: list[tuple[pa.Table, str, str]] = []
             if cdc_table_mode == "consolidated":
-                batch_writes.append((deduplicate_table(enriched_table, key_columns), schema.name, "incremental_merge"))
+                batch_writes.append(
+                    (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
+                )
             elif cdc_table_mode == "cdc_only":
                 batch_writes.append(
                     (build_scd2_table(enriched_table, key_columns), f"{schema.name}_cdc", "scd2_append")
                 )
             elif cdc_table_mode == "both":
-                batch_writes.append((deduplicate_table(enriched_table, key_columns), schema.name, "incremental_merge"))
+                batch_writes.append(
+                    (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
+                )
                 batch_writes.append(
                     (build_scd2_table(enriched_table, key_columns), f"{schema.name}_cdc", "scd2_append")
                 )
