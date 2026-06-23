@@ -93,7 +93,10 @@ def _fetch_page(
 
 def validate_credentials(api_token: str) -> bool:
     try:
-        response = make_tracked_session().get(f"{PYLON_BASE_URL}/me", headers=_get_headers(api_token), timeout=10)
+        # redact_values masks the bearer token in logs/sample capture; allow_redirects=False keeps the
+        # credentialed request from following an off-origin redirect that could leak the token.
+        session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+        response = session.get(f"{PYLON_BASE_URL}/me", headers=_get_headers(api_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -266,11 +269,12 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PylonResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = PYLON_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    session = make_tracked_session()
+    # redact_values masks the bearer token in logs/sample capture; allow_redirects=False keeps the
+    # credentialed request from following an off-origin redirect that could leak the token.
+    session = make_tracked_session(redact_values=(api_token,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -298,7 +302,6 @@ def pylon_source(
     resumable_source_manager: ResumableSourceManager[PylonResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = PYLON_ENDPOINTS[endpoint]
 
@@ -311,7 +314,6 @@ def pylon_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
