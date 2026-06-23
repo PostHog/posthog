@@ -6875,9 +6875,9 @@ snapshots:
     scenes-other-login--sso-error--light:
         hash: v1.k794b7964.bf726aafab909db5abef95ba50728a484226b67a14df698563c5b9c5cdd6be53.uxC2xUEzUsarK6a8Ryr0pQf2IqTCz0vb5y6e7jo2_nY
     scenes-other-onboarding--ai-observability-sdk-install--dark:
-        hash: v1.k794b7964.7d236ef1181b0bfbc0cbf75d2ecd195cbb3ee7abcf30754fe1eca213bae30ded.owzvzjtP7YutlIt1_EJC7SROtdK3U5VQnWF4te51UP0
+        hash: v1.k794b7964.1b9bae7eb0e6a9af3c557646a05556795385ec5f6d6b73005234ec03ccac60e6.Vc-B4IVQxY_pFMpVeKebIYcXdCTn5hpCfvYZmBPdy7g
     scenes-other-onboarding--ai-observability-sdk-install--light:
-        hash: v1.k794b7964.4fec6955c9dbcd235a0fa044aa021e89793c0e7cc82edfaa9a52ff7ee8caa210.SiNAsUZiNtcozpiE60JFSKHxY-ditx2lEQ7u8W6fOvw
+        hash: v1.k794b7964.df3aa5330ee0572e60becf84e6258e7b38b9df3587a850b2719938fcfac54143.BZksO3bQ0K2C-_ZnYcEhWXsfgKWKqrS9t55hsukdpEc
     scenes-other-onboarding--alerts--dark:
         hash: v1.k794b7964.d66fb935e8f6fcf6d71031d9a59bf76501c90d29e5e5bae324b2cb2bbcd15ed7.4Cvshejpp_prXnrtkj5xZMl08OoFB6I6RreTrsQ4Hno
     scenes-other-onboarding--alerts--light:
@@ -6903,9 +6903,9 @@ snapshots:
     scenes-other-onboarding--product-analytics-configuration--light:
         hash: v1.k794b7964.4a2bcedebc129a67058f79b95c15dda9797691ce565f44d529cbf83e6948d10e.w_sFYsVPreMbVJO-APEJlFdnbCBsuFN6pADVErDgyj8
     scenes-other-onboarding--sdk-install--dark:
-        hash: v1.k794b7964.da85532719e44b390eb702a9bf4df7dd327fa9ee48f9fa756975dee8f0687c4b.qpGppQPiMG-9wsUnVVq0FRbrr6fYeeryRpFsep97KSE
+        hash: v1.k794b7964.2d9944b6993285774e2391d202ac96e127c5713430f75f3729bbb3b3ef093135.Ose5ZOSd-DfxLy6jutTlo0lW8spFf_BAI-7KJkZJoOM
     scenes-other-onboarding--sdk-install--light:
-        hash: v1.k794b7964.2d6f443a2e6c77162dacf2899843981bd0207c93d37927bfceb3c9573933ec10.54MggCDONQwkQoksbjMxaf5OyBQvL0lP4hWhoz4Tumo
+        hash: v1.k794b7964.512d51cd8b5eb08cb5fc108e28b444ff0e0b95fc765d68c06bf942739810a84e.0mJauXE8tjKPGqh7quOm5W60x8ceoRKuQRFJ-vU8cSI
     scenes-other-onboarding--session-replay-configuration--dark:
         hash: v1.k794b7964.32c694b9a586f8a71c1e309f5e13ee180c2ad0381560c5477cce901849c2e261.7Sv88LFiRZHddXLdspU3d-YHb1JB7YTWR22w_UYwfRE
     scenes-other-onboarding--session-replay-configuration--light:
@@ -6919,9 +6919,9 @@ snapshots:
     scenes-other-onboarding--source-maps--light:
         hash: v1.k794b7964.d7f5f7d7e2ddbe8b8cbe30e329b25da19e21ecc003a0f6d88f35c5456e2f4f4e.HpQSGkki7Sc6J5ofaU0VKqy7sF_LEHpVdmLW1HHs788
     scenes-other-onboarding--workflows-custom-installation-instructions--dark:
-        hash: v1.k794b7964.bd21410f269643405bb2f99f2b0066ce3408145099281f511e9605506bfd0fa2.tfN8yRpyJiBf7AkJyTdE90xgSuRnpIi2OO7vN_ebiKo
+        hash: v1.k794b7964.2cae8f97936488b4d626de3e1f450d814b51fa8f9a9e3b5c5bc133d789e05815.72pG3x8wdbbAvjhEOT1N0MIkbHVG2i-DqQptSAUA4L8
     scenes-other-onboarding--workflows-custom-installation-instructions--light:
-        hash: v1.k794b7964.2b86fc1172428acff28f9a1c1bf41bd403a91b6f867f5e3c9624c8dc282b214b.h5ITntLgMUja78FgDkd3_5BxiQiryXLqYxsubvU8w-w
+        hash: v1.k794b7964.85aed7f823d7888b1689838692b5da11889a12e594fca7cdfd0398bf7e7b9643.uvlfFhNFKByGcPYUWt7drUVp8I3opVLJy_PNyUUhdTM
     scenes-other-onboarding-product-selection--base--dark:
         hash: v1.k794b7964.98c8c237be42cdff687a4d0e17288cf9b87c0ecfd0d45f6fb7038b1c08343afc._0bNgtLiKO3hf65SU97DiFQ1mjUjgeIIbWy7qQl3MwY
     scenes-other-onboarding-product-selection--base--light:
