@@ -350,20 +350,18 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(do_path_cleaning=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
-    def test_path_cleaning_baked_into_insert_expr(self):
+    @parameterized.expand([("breakdown", "_breakdown_value_expr"), ("entry", "_entry_breakdown_value_expr")])
+    def test_path_cleaning_baked_into_insert_expr(self, _name: str, fn_name: str):
         # With team rules + doPathCleaning, the insert breakdown/entry exprs carry
         # the cleaning regex chain; without it (or without rules) they store raw.
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
-            _breakdown_value_expr,
-            _entry_breakdown_value_expr,
-        )
+        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
 
+        fn = getattr(mod, fn_name)
         self._set_path_cleaning_rules()
-        for fn in (_breakdown_value_expr, _entry_breakdown_value_expr):
-            cleaned = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=True)))
-            raw = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=False)))
-            assert "replaceRegexpAll" in repr(cleaned), f"{fn.__name__} must bake cleaning into the insert"
-            assert "replaceRegexpAll" not in repr(raw), f"{fn.__name__} must store raw paths when cleaning is off"
+        cleaned = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=True)))
+        raw = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=False)))
+        assert "replaceRegexpAll" in repr(cleaned), f"{fn_name} must bake cleaning into the insert"
+        assert "replaceRegexpAll" not in repr(raw), f"{fn_name} must store raw paths when cleaning is off"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_path_cleaning_gets_distinct_cache_entry(self):
