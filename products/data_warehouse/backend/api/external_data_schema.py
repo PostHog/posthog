@@ -560,7 +560,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
         if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
-            if self._is_webhook_only_schema(instance):
+            if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
                     f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
                 )
@@ -935,6 +935,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         except Exception:
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
+
+    def warm_webhook_only_check(self, instance: ExternalDataSchema, payload: dict[str, Any]) -> None:
+        """Pre-run the webhook-only validation that reaches the external source, caching the result.
+
+        `_is_webhook_only_schema` calls the source's `get_schemas`, which is a network round-trip (e.g.
+        Google Ads OAuth refresh + field query). update() runs this same check, but bulk_update_schemas
+        wraps each update() in a transaction — making the call there held the DB connection idle-in-
+        transaction long enough for the server to close it ("the connection is closed"). Calling this
+        first (outside the transaction) does the network work up front; update() then reads the cached
+        result and still raises per-schema, so failures stay isolated to one schema.
+        """
+        sync_type = payload.get("sync_type")
+        if "sync_type" in payload and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+            self._is_webhook_only_schema_cached(instance)
+
+    def _is_webhook_only_schema_cached(self, schema: ExternalDataSchema) -> bool:
+        if "_webhook_only_result" not in self.__dict__:
+            self.__dict__["_webhook_only_result"] = self._is_webhook_only_schema(schema)
+        return self.__dict__["_webhook_only_result"]
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source

@@ -499,6 +499,50 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_runs_source_discovery_outside_transaction(self, _mock_workflow_exists):
+        # `_is_webhook_only_schema` reaches the external source (e.g. Google Ads token refresh + field
+        # query). It must run before the per-schema transaction opens — running it inside update()'s
+        # transaction held the DB connection idle-in-transaction long enough for the server to close it.
+        from django.db import connection
+
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        # The bulk loop opens a per-schema transaction (a nested savepoint) around update(). Compare the
+        # savepoint depth at call time against the baseline before the request: equal ⇒ called from the
+        # pre-transaction warm step (the fix); baseline + 1 ⇒ called inside update()'s transaction.
+        baseline_savepoint_depth = len(connection.savepoint_ids)
+        savepoint_depth_at_call: list[int] = []
+
+        def record_savepoint_depth(_schema):
+            savepoint_depth_at_call.append(len(connection.savepoint_ids))
+            return False
+
+        with patch.object(ExternalDataSchemaSerializer, "_is_webhook_only_schema", side_effect=record_savepoint_depth):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "sync_type": "full_refresh"}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Called exactly once (memoized across warm + update), outside the per-schema transaction.
+        assert savepoint_depth_at_call == [baseline_savepoint_depth]
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+
     @parameterized.expand(
         [
             (
