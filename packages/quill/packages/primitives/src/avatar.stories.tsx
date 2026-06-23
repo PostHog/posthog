@@ -218,20 +218,25 @@ export const GroupStackedWithTooltips: Story = {
     ),
 } satisfies Story
 
-// An avatar that links somewhere: `render` makes the Avatar an anchor, so it's
-// focusable (keyboard focus also triggers the stacked spread via `:focus-within`).
-export const GroupStackedWithLink: Story = {
+// Each avatar links to its member: `render` makes the Avatar's root an anchor, so
+// every one is focusable (keyboard focus also triggers the stacked spread via
+// `:focus-within`).
+export const GroupStackedWithLinks: Story = {
     render: () => (
         <AvatarGroup stacked>
-            <Avatar
-                // eslint-disable-next-line react/forbid-elements
-                render={<a href="https://posthog.com" target="_blank" rel="noreferrer" aria-label={MEMBERS[0].name} />}
-            >
-                <AvatarImage src={MEMBERS[0].src} alt={MEMBERS[0].name} />
-                <AvatarFallback>{MEMBERS[0].initials}</AvatarFallback>
-            </Avatar>
-            {MEMBERS.slice(1).map((m) => (
-                <Avatar key={m.src}>
+            {MEMBERS.map((m) => (
+                <Avatar
+                    key={m.src}
+                    render={
+                        // eslint-disable-next-line react/forbid-elements
+                        <a
+                            href={`https://posthog.com/${m.initials.toLowerCase()}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={m.name}
+                        />
+                    }
+                >
                     <AvatarImage src={m.src} alt={m.name} />
                     <AvatarFallback>{m.initials}</AvatarFallback>
                 </Avatar>
