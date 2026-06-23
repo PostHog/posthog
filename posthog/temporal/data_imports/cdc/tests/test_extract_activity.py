@@ -832,6 +832,7 @@ class TestCDCExtractActivity:
         cdc_extract_activity(inputs)
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert schema.initial_sync_complete is False
         mock_reader.confirm_position.assert_called_once_with("0/500")
 
@@ -880,8 +881,9 @@ class TestCDCExtractActivity:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
 
-        # Schema should be set back to snapshot mode
+        # Schema should be set back to snapshot mode and forced to re-snapshot from scratch
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert schema.initial_sync_complete is False
         assert "cdc_last_log_position" not in schema.sync_type_config
 
@@ -1039,6 +1041,7 @@ class TestCDCExtractActivity:
         cdc_extract_activity(inputs)
 
         assert schema.sync_type_config.get("cdc_mode") == "snapshot"
+        assert schema.sync_type_config.get("reset_pipeline") is True
         assert schema.sync_type_config.get("cdc_last_log_position") is None
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
@@ -1443,6 +1446,7 @@ class TestSlotInvalidationRecovery:
         source.save.assert_called()
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_deferred_runs" not in schema.sync_type_config
         assert schema.initial_sync_complete is False

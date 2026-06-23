@@ -774,6 +774,12 @@ class CDCExtractActivity:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
         schema.sync_type_config["cdc_mode"] = "snapshot"
         schema.sync_type_config.pop("cdc_last_log_position", None)
+        # A source TRUNCATE (or a lost slot) leaves the warehouse table in place, so without
+        # reset_pipeline the re-snapshot takes the incremental-merge path and upserts the
+        # current rows over the stale ones — pre-truncate rows never deleted. Forcing it makes
+        # the batch import wipe the table first (handle_reset_or_full_refresh, which also clears
+        # the flag). The {name}_cdc companion is reset independently by the snapshot seed.
+        schema.sync_type_config["reset_pipeline"] = True
         if clear_deferred_runs:
             schema.sync_type_config.pop("cdc_deferred_runs", None)
         schema.initial_sync_complete = False
