@@ -6,7 +6,10 @@ use sha2::{Digest, Sha256};
 use crate::error::UnhandledError;
 use crate::metric_consts::REMOTE_RESOLUTION_SAMPLING;
 use crate::stages::pipeline::RawItem;
-use crate::types::{batch::Batch, exception_event::{ExceptionEvent, Raw}};
+use crate::types::{
+    batch::Batch,
+    exception_event::{ExceptionEvent, Raw},
+};
 
 use super::RemoteEvent;
 

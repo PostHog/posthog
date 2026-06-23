@@ -17,7 +17,6 @@ use crate::{
     },
 };
 
-
 #[derive(Clone)]
 pub struct SpikeAlertStage {
     context: Arc<AppContext>,

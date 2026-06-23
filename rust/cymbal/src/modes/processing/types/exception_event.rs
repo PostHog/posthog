@@ -20,8 +20,10 @@ use crate::issue_resolution::Issue;
 use crate::langs::native::DebugImage;
 
 use super::event::AnyEvent;
-use super::exception_properties::MAX_EXCEPTION_VALUE_LENGTH;
 use super::{ExceptionList, OutputErrProps, RawErrProps};
+
+/// Exception messages longer than this (in bytes) are truncated during parse.
+pub const MAX_EXCEPTION_VALUE_LENGTH: usize = 10_000;
 
 /// Not-yet-fingerprinted event, straight off ingestion.
 #[derive(Debug, Clone)]
@@ -178,12 +180,7 @@ impl ExceptionEvent<Raw> {
     /// identity. Unlike [`TryFrom<AnyEvent>`], this does no sanitization,
     /// truncation, or exception-id assignment — it is the direct constructor
     /// used when a `RawErrProps`/identity is already in hand (e.g. tests).
-    pub fn from_raw_props(
-        raw: RawErrProps,
-        uuid: Uuid,
-        team_id: i32,
-        timestamp: String,
-    ) -> Self {
+    pub fn from_raw_props(raw: RawErrProps, uuid: Uuid, team_id: i32, timestamp: String) -> Self {
         ExceptionEvent {
             uuid,
             team_id,
@@ -427,7 +424,6 @@ mod tests {
         let computed = Fingerprint {
             value: "computed".to_string(),
             record: vec![],
-            assignment: None,
         };
         let fp = raw.into_fingerprinted(computed);
         assert_eq!(fp.stage.fingerprint, "client-fp");
@@ -444,7 +440,6 @@ mod tests {
         let computed = Fingerprint {
             value: "computed".to_string(),
             record: vec![],
-            assignment: None,
         };
         // Drop the client fingerprint so the computed one is used.
         let mut fp = raw.into_fingerprinted(computed);

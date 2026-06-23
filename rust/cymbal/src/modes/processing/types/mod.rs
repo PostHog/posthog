@@ -18,7 +18,6 @@ use crate::tokenizer::CL100K_BPE;
 pub mod batch;
 pub mod event;
 pub mod exception_event;
-pub mod exception_properties;
 pub mod operator;
 pub mod stage;
 

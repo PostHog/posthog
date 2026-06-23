@@ -13,7 +13,9 @@ use crate::{
     issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
-        linking::{issue::link_issue, rule_suppression::RuleSuppression, suppression::IssueSuppression},
+        linking::{
+            issue::link_issue, rule_suppression::RuleSuppression, suppression::IssueSuppression,
+        },
         pipeline::{FingerprintedItem, LinkedItem},
     },
     types::{

@@ -14,7 +14,11 @@ use crate::{
             ResolutionStage,
         },
     },
-    types::{batch::Batch, exception_event::{ExceptionEvent, Raw}, Exception, ExceptionList},
+    types::{
+        batch::Batch,
+        exception_event::{ExceptionEvent, Raw},
+        Exception, ExceptionList,
+    },
 };
 
 use super::config::RemoteResolutionConfig;
@@ -89,8 +93,7 @@ fn assemble_output(
     local: Vec<(usize, RawItem)>,
     remote: Vec<(usize, RawItem)>,
 ) -> Result<Batch<RawItem>, UnhandledError> {
-    let mut output: Vec<Option<RawItem>> =
-        (0..batch_len).map(|_| None).collect();
+    let mut output: Vec<Option<RawItem>> = (0..batch_len).map(|_| None).collect();
     for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
         output[idx] = Some(item);
     }

@@ -56,7 +56,6 @@ fn test_props() -> ExceptionEvent<Fingerprinted> {
         Fingerprint {
             value: "test value".to_string(),
             record: vec![],
-            assignment: None,
         },
     )
 }
