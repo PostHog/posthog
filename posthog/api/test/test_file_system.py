@@ -427,7 +427,7 @@ class TestFileSystemOrdering(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/file_system/",
-            {"order_by": "last_viewed_at", "not_type": "folder", "limit": 2},
+            {"order_by": "last_viewed_at", "not_type": "folder", "limit": "2"},
         )
 
         assert response.status_code == status.HTTP_200_OK
