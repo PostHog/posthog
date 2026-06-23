@@ -218,18 +218,3 @@ export function compactFolderChain(
     }
     return { path, label: labels.join(' / ') }
 }
-
-// Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
-// arm feeds these to the dashboards table, scoped to the selected folder's subtree.
-export function subtreeDashboards(
-    dashboards: DashboardBasicType[],
-    entryByRef: Record<string, FileSystemEntry>,
-    currentFolder: string
-): DashboardBasicType[] {
-    const prefix = currentFolder ? splitPath(currentFolder) : []
-    return dashboards.filter((dashboard) => {
-        const entry = entryByRef[String(dashboard.id)]
-        const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : UNFILED_SEGMENTS
-        return prefix.every((segment, index) => segments[index] === segment)
-    })
-}

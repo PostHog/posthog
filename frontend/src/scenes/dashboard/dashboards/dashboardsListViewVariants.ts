@@ -1,13 +1,13 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-// Two folder-navigation paradigms tested against today's flat list: `explorer` (drill-in finder) and
-// `tree` (persistent folder tree beside the content). The old `grid` arm was dropped — see the design spec.
-export type DashboardsListViewVariant = 'control' | 'explorer' | 'tree'
+// One folder-navigation paradigm tested against today's flat list: `explorer` (drill-in finder).
+// The `grid` and `tree` arms were both dropped before launch — see the design spec.
+export type DashboardsListViewVariant = 'control' | 'explorer'
 
 const DEFAULT_VARIANT: DashboardsListViewVariant = 'control'
 
-export const DASHBOARDS_LIST_VIEW_VARIANTS: DashboardsListViewVariant[] = ['control', 'explorer', 'tree']
+export const DASHBOARDS_LIST_VIEW_VARIANTS: DashboardsListViewVariant[] = ['control', 'explorer']
 
 // Resolves the `dashboards-list-view` multivariate flag to a known arm, defaulting to control
 // so a missing, unknown, boolean, or empty flag value never silently enrolls a project in a treatment arm.

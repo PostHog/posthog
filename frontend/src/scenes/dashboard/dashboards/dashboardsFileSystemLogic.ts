@@ -9,7 +9,6 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { calculateMovePath, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { DashboardBasicType } from '~/types'
 
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
 import {
@@ -22,7 +21,6 @@ import {
     folderContents,
     FolderContents,
     FolderTreeNode,
-    subtreeDashboards,
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
@@ -54,9 +52,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         ],
     })),
     actions({
-        toggleFolder: (folder: string) => ({ folder }),
         moveDashboardToFolder: (dashboardId: number, folder: string) => ({ dashboardId, folder }),
-        // Finder arm: drill into / breadcrumb back to a folder ('' = the dashboards root).
+        // Explorer arm: drill into / breadcrumb back to a folder ('' = the dashboards root).
         navigateToFolder: (folder: string) => ({ folder }),
         // Clipboard: cut = move on paste, copy = duplicate on paste.
         cutDashboard: (dashboardId: number) => ({ dashboardId }),
@@ -100,12 +97,6 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         ],
     }),
     reducers({
-        collapsedFolders: [
-            {} as Record<string, boolean>,
-            {
-                toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
-            },
-        ],
         currentFolder: [
             '',
             {
@@ -146,20 +137,13 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 folderContents(dashboards, entryByRef, currentFolder, folderPaths),
         ],
         // Explorer arm: immediate subfolders with single-child pass-through chains collapsed, so one
-        // click reaches a buried dashboard. The tree arm shows the full hierarchy and doesn't use this.
+        // click reaches a buried dashboard.
         compactedSubfolders: [
             (s) => [s.currentFolderContents, s.dashboards, s.entryByRef, s.folderPaths],
             (currentFolderContents, dashboards, entryByRef, folderPaths): CompactedSubfolder[] =>
                 currentFolderContents.subfolders.map((subfolder) =>
                     compactFolderChain(subfolder, dashboards, entryByRef, folderPaths)
                 ),
-        ],
-        // Tree arm: every dashboard at or below the selected folder, recursively (root = all). The tree
-        // is a scope selector; the content pane shows everything in scope, so no drilling to leaf folders.
-        currentSubtreeDashboards: [
-            (s) => [s.dashboards, s.entryByRef, s.currentFolder],
-            (dashboards, entryByRef, currentFolder): DashboardBasicType[] =>
-                subtreeDashboards(dashboards, entryByRef, currentFolder),
         ],
         breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
     }),

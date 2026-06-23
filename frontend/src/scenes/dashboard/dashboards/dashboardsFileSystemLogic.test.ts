@@ -56,15 +56,6 @@ describe('dashboardsFileSystemLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('toggles folder collapse state independently', async () => {
-        await expectLogic(logic, () => logic.actions.toggleFolder('Marketing')).toMatchValues({
-            collapsedFolders: { Marketing: true },
-        })
-        await expectLogic(logic, () => logic.actions.toggleFolder('Marketing')).toMatchValues({
-            collapsedFolders: { Marketing: false },
-        })
-    })
-
     it('loads dashboard file-system entries indexed by ref', async () => {
         await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
         expect(logic.values.entryByRef['1']?.path).toEqual('Marketing/A')
