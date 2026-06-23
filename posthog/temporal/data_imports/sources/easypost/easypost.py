@@ -77,7 +77,7 @@ def validate_credentials(api_key: str) -> bool:
     """Probe a cheap list endpoint. EasyPost API keys carry full account access (no per-endpoint
     scopes), so a 200 means the key is genuine and active; anything else (401 invalid, 403 inactive)
     is a credential failure."""
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     session.auth = (api_key, "")
     try:
         response = session.get(
@@ -100,7 +100,7 @@ def get_rows(
     config = EASYPOST_ENDPOINTS[endpoint]
     incremental_field_name = incremental_field or "created_at"
 
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     session.auth = (api_key, "")
 
     # Incremental cursor: EasyPost returns newest-first, so we walk backwards (via `before_id`) and

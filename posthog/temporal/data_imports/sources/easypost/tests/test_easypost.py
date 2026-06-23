@@ -174,6 +174,24 @@ class TestValidateCredentials:
         with patch.object(easypost, "make_tracked_session", lambda *a, **k: session):
             assert validate_credentials("k") is False
 
+    def test_redacts_api_key_in_http_logging(self) -> None:
+        # The API key is sent as the Basic auth username; it must be registered for redaction so it
+        # cannot leak into HTTP telemetry/sample capture.
+        factory = MagicMock(return_value=MagicMock())
+        with patch.object(easypost, "make_tracked_session", factory):
+            validate_credentials("secret-key")
+        factory.assert_called_once_with(redact_values=("secret-key",))
+
+
+class TestGetRowsRedaction:
+    def test_redacts_api_key_in_http_logging(self, monkeypatch: Any) -> None:
+        # Same secret-leak guard as validate_credentials, on the sync request path.
+        factory = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(easypost, "make_tracked_session", factory)
+        _patch_pages(monkeypatch, {None: {"shipments": [], "has_more": False}})
+        list(get_rows("secret-key", "shipments", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
+        factory.assert_called_once_with(redact_values=("secret-key",))
+
 
 class TestEasypostSource:
     @parameterized.expand([(name,) for name in ENDPOINTS])
