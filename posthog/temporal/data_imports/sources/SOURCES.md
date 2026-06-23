@@ -570,6 +570,7 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - railz
 - razorpay
+- rb2b
 - rd_station_marketing
 - recreation
 - recruitee
@@ -639,6 +640,7 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- superwall
 - surveymonkey
 - surveysparrow
 - survicate
