@@ -84,6 +84,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
         return ast.And(exprs=exprs)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # nosemgrep: hogql-fstring-audit (interpolated SQL is static module constants from mcp_harness; user input — date range + properties — is injected via the {{where}} HogQL placeholder, not the f-string)
         return parse_select(
             f"""
             SELECT
