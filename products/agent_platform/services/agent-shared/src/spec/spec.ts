@@ -307,9 +307,11 @@ export const TriggerSchema = z.discriminatedUnion('type', [
  *     for a Slack or embedded-app asker with no PostHog account. Decided via the
  *     lightweight ingress decision API (a Slack button, a client tool, or the
  *     PostHog Code approval card).
- *   - `agent` — the agent's OWNERS: `created_by` + admins of the owning team.
- *     The one intrinsically-PostHog authority; decided only in the authenticated
- *     console / approvals inbox.
+ *   - `agent` — the agent's owning-team admins (org-membership ADMIN level on
+ *     the owning team; see Django `_require_team_admin`). The one intrinsically-
+ *     PostHog authority; decided only in the authenticated console / approvals
+ *     inbox. (A creator who isn't a team admin can't decide today — kept simple
+ *     until a finer owner grant exists.)
  *
  * Neither auto-dispatches: the owner/principal being the *asker* is not consent
  * to the specific call the model emitted (prompt injection in content the agent
