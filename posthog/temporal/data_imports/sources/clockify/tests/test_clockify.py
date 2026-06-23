@@ -43,10 +43,12 @@ class TestFormatDatetimeZ:
 class TestClampFutureValueToNow:
     @parameterized.expand(
         [
-            # Future cursor caps at now; anything at/before now (and non-datetime) passes through.
+            # Future cursor caps at now; anything at/before now (and non-ISO strings) passes through.
             ("future_datetime", datetime(2027, 2, 5, tzinfo=UTC), datetime(2026, 6, 15, 12, tzinfo=UTC)),
             ("past_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)),
-            ("string_passthrough", "cursor", "cursor"),
+            ("non_iso_string_passthrough", "cursor", "cursor"),
+            ("future_iso_string", "2030-01-01T00:00:00Z", datetime(2026, 6, 15, 12, tzinfo=UTC)),
+            ("past_iso_string", "2026-03-04T02:58:14Z", "2026-03-04T02:58:14Z"),
         ]
     )
     @freeze_time("2026-06-15T12:00:00Z")

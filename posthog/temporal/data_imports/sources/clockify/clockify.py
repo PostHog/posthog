@@ -68,6 +68,15 @@ def _clamp_future_value_to_now(value: Any) -> Any:
         return now if aware > now else value
     if isinstance(value, date):
         return now.date() if value > now.date() else value
+    if isinstance(value, str):
+        # The cursor can reach us as an ISO string depending on how it was persisted/deserialised.
+        # Parse it so a future-dated string is clamped too; a non-ISO string passes through.
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+        aware = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        return now if aware > now else value
     return value
 
 
