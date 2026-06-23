@@ -1,11 +1,19 @@
+import json
+import uuid
+
 import pytest
 from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.temporal.data_imports.workflow_activities import enrich_table_semantics as enrich
 from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    EnrichTableSemanticsInputs,
+    EnrichTableSemanticsWorkflow,
     build_enrichment_prompt,
+    enrich_table_semantics_activity,
     enrich_table_semantics_sync,
 )
 
@@ -595,3 +603,40 @@ class TestEnrichTableSemanticsSync:
         annotation = _annotations(team, table)["amount"]
         assert annotation.description == "fresh AI description"
         assert annotation.description_source == WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
+
+
+class TestEnrichTableSemanticsActivity:
+    """The Temporal activity wrapper around the sync function (heartbeat + error handling)."""
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_activity_returns_sync_result(self):
+        sentinel = {"status": "done", "canonical_annotations": 2, "ai_annotations": 1}
+        inputs = EnrichTableSemanticsInputs(team_id=1, schema_id=uuid.uuid4())
+        with patch.object(enrich, "enrich_table_semantics_sync", return_value=sentinel):
+            result = await ActivityEnvironment().run(enrich_table_semantics_activity, inputs)
+        assert result == sentinel
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_activity_captures_and_reraises_unexpected_errors(self):
+        # An unexpected failure (e.g. a DB error) must be reported to product analytics and re-raised so
+        # Temporal applies its retry policy.
+        inputs = EnrichTableSemanticsInputs(team_id=7, schema_id=uuid.uuid4())
+        with (
+            patch.object(enrich, "enrich_table_semantics_sync", side_effect=RuntimeError("db exploded")),
+            patch.object(enrich, "posthoganalytics") as mock_analytics,
+        ):
+            with pytest.raises(RuntimeError, match="db exploded"):
+                await ActivityEnvironment().run(enrich_table_semantics_activity, inputs)
+
+        assert mock_analytics.capture.called
+        kwargs = mock_analytics.capture.call_args.kwargs
+        assert kwargs["event"] == enrich.EVENT_ERROR
+        assert kwargs["properties"]["team_id"] == 7
+        assert "db exploded" in kwargs["properties"]["error"]
+
+
+class TestEnrichTableSemanticsWorkflow:
+    def test_parse_inputs_round_trips_json(self):
+        schema_id = uuid.uuid4()
+        inputs = EnrichTableSemanticsWorkflow.parse_inputs([json.dumps({"team_id": 42, "schema_id": str(schema_id)})])
+        assert inputs == EnrichTableSemanticsInputs(team_id=42, schema_id=schema_id)
