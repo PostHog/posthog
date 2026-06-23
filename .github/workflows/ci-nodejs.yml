@@ -57,6 +57,8 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
+                        - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
