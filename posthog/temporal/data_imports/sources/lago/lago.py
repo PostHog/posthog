@@ -227,11 +227,11 @@ def get_rows(
         next_page = (body.get("meta") or {}).get("next_page")
         if not next_page:
             break
+        page = int(next_page)
 
         # Checkpoint AFTER yielding the page: a crash before this write re-yields the page on resume
         # (dedupes on the primary key), while a crash after it resumes at the next page.
-        resumable_source_manager.save_state(LagoResumeConfig(next_page=int(next_page)))
-        page = int(next_page)
+        resumable_source_manager.save_state(LagoResumeConfig(next_page=page))
 
 
 def lago_source(

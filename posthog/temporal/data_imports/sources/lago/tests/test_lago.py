@@ -212,6 +212,18 @@ class TestGetRows:
             with pytest.raises(LagoHostNotAllowedError):
                 self._run(manager, [_page([{"lago_id": "1"}], next_page=None)])
 
+    @pytest.mark.parametrize("status_code", [429, 503])
+    def test_retries_retryable_status_then_succeeds(self, status_code):
+        # End-to-end: a retryable status raises LagoRetryableError, tenacity retries, and the
+        # subsequent 200 yields rows. Guards against accidentally dropping the retry predicate.
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        responses = [_response(status_code=status_code), _page([{"lago_id": "r1"}], next_page=None)]
+        with mock.patch.object(lago_module, "_retry_wait", return_value=0):
+            rows, session = self._run(manager, responses)
+        assert [r["lago_id"] for r in rows] == ["r1"]
+        assert session.get.call_count == 2
+
 
 class TestRetryAfter:
     @pytest.mark.parametrize(
