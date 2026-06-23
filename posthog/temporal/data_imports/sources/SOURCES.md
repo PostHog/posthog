@@ -47,6 +47,7 @@ the row lists both.
 | adroll            | HTTP                        | requests                                                        | ✅                          |
 | aircall           | HTTP                        | requests                                                        | ✅                          |
 | airtable          | HTTP                        | requests                                                        | ✅                          |
+| algolia           | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads        | HTTP                        | requests                                                        | ✅                          |
 | amplitude         | HTTP                        | requests                                                        | ✅                          |
 | apollo            | HTTP                        | requests                                                        | ✅                          |
@@ -240,7 +241,6 @@ doesn't conflict with concurrent PRs.
 - ahrefs
 - airbyte
 - akeneo
-- algolia
 - alpaca_broker_api
 - alpha_vantage
 - amazon_ads
