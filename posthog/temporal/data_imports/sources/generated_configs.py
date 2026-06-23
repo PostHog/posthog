@@ -680,7 +680,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class ClockifySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

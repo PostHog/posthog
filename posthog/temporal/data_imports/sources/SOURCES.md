@@ -78,6 +78,7 @@ the row lists both.
 | clerk             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse        | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup           | HTTP                        | requests                                                        | ✅                          |
+| clockify          | HTTP                        | requests                                                        | ✅                          |
 | close             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit        | HTTP                        | requests                                                        | ✅                          |
 | convex            | HTTP                        | requests                                                        | ✅                          |
@@ -305,7 +306,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clockify
 - clockodo
 - cloudbeds
 - coassemble
