@@ -64,6 +64,7 @@ the row lists both.
 | brevo             | HTTP                        | requests                                                        | ✅                          |
 | brex              | HTTP                        | requests                                                        | ✅                          |
 | buildbetter       | HTTP                        | requests                                                        | ✅                          |
+| buildkite         | HTTP                        | requests                                                        | ✅                          |
 | calendly          | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor  | HTTP                        | requests                                                        | ✅                          |
 | chargebee         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -280,7 +281,6 @@ doesn't conflict with concurrent PRs.
 - breezometer
 - breezy_hr
 - bugsnag
-- buildkite
 - bunny
 - buzzsprout
 - cal_com
