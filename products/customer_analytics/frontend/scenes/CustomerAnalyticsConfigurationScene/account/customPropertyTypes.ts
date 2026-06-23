@@ -21,3 +21,8 @@ export const DISPLAY_TYPE_OPTIONS: DisplayTypeOption[] = [
 export function labelForDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): string {
     return DISPLAY_TYPE_OPTIONS.find((option) => option.value === displayType)?.label ?? displayType
 }
+
+// Drives the big-number switch: it's only shown — and only meaningful in the payload — for numeric types.
+export function isNumericDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): boolean {
+    return DISPLAY_TYPE_OPTIONS.find((option) => option.value === displayType)?.isNumeric ?? false
+}

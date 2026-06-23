@@ -18,6 +18,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
+import { isNumericDisplayType } from './customPropertyTypes'
 
 export interface CustomPropertyFormValues {
     name: string
@@ -95,7 +96,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     name: name.trim(),
                     description: description?.trim() || null,
                     display_type: displayType,
-                    is_big_number: isBigNumber,
+                    // The switch is hidden for non-numeric types, so never send a stale flag for them.
+                    is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
                 }
                 const editing = values.editingDefinition
                 if (editing) {

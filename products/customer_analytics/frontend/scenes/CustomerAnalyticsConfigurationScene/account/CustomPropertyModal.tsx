@@ -6,14 +6,14 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSwitch, LemonTex
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
-import { DISPLAY_TYPE_OPTIONS } from './customPropertyTypes'
+import { DISPLAY_TYPE_OPTIONS, isNumericDisplayType } from './customPropertyTypes'
 
 export function CustomPropertyModal(): JSX.Element {
     const { modalVisible, editingDefinition, customPropertyForm, isCustomPropertyFormSubmitting } =
         useValues(customPropertyDefinitionsLogic)
     const { closeModal, submitCustomPropertyForm } = useActions(customPropertyDefinitionsLogic)
 
-    const selectedOption = DISPLAY_TYPE_OPTIONS.find((option) => option.value === customPropertyForm.displayType)
+    const showBigNumberSwitch = isNumericDisplayType(customPropertyForm.displayType)
 
     return (
         <LemonModal
@@ -50,7 +50,7 @@ export function CustomPropertyModal(): JSX.Element {
                 <LemonField name="displayType" label="Type">
                     <LemonSelect options={DISPLAY_TYPE_OPTIONS} fullWidth />
                 </LemonField>
-                {selectedOption?.isNumeric && (
+                {showBigNumberSwitch && (
                     <LemonField name="isBigNumber">
                         {({ value, onChange }) => (
                             <LemonSwitch

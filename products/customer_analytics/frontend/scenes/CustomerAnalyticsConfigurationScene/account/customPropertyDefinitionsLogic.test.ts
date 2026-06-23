@@ -95,6 +95,29 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.modalVisible).toBe(false)
     })
 
+    it('drops the big-number flag when switching to a non-numeric type', async () => {
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            patch: {
+                [DEFINITION_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildDefinition()
+                },
+            },
+        })
+        mountLogic()
+        // Edit a numeric definition that has the big-number flag on, then switch it to a
+        // non-numeric type without touching the (now hidden) switch.
+        logic.actions.openEditModal(buildDefinition({ display_type: 'currency', is_big_number: true }))
+        logic.actions.setCustomPropertyFormValue('displayType', 'text')
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        expect(patchedBody).toMatchObject({ display_type: 'text', is_big_number: false })
+    })
+
     it('surfaces a name conflict on the name field', async () => {
         useMocks({ ...defaultMocks(), post: { [DEFINITIONS_URL]: () => [409, { detail: 'conflict' }] } })
         mountLogic()
