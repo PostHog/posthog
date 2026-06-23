@@ -67,11 +67,17 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
  */
 function InboxListView(): JSX.Element {
     const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
     )
-    const showRail = size === 'wide'
+    const wide = size === 'wide'
+    // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
+    // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
+    // is dropped too, so the onboarding is the whole story – just run the one command.
+    const onboarding = onboardingMode === 'takeover'
+    const showRail = wide && !onboarding
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -81,15 +87,19 @@ function InboxListView(): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
                 <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
-                    <InboxTabBar showConfigTab={!showRail} />
-                    {isReportListTab(effectiveTab) && (
+                    <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
+                    {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">
                             <InboxScopeSelect />
                         </div>
                     )}
                 </div>
                 <div className="flex-1 overflow-auto min-h-0">
-                    <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    {onboarding ? (
+                        <InboxOnboardingTakeover />
+                    ) : (
+                        <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    )}
                 </div>
             </div>
             {showRail && (
@@ -145,16 +155,12 @@ export function InboxScene(): JSX.Element {
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
-            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-2 flex-1 min-h-0'}>
+            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
                     // The takeover's hero carries its own headline + pitch, so the scene description
                     // would be redundant there; keep it for the normal/banner states.
-                    description={
-                        onboardingMode === 'takeover'
-                            ? null
-                            : 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
-                    }
+                    description="Self-driving for your product. Look through work done by PostHog agents – code changes and reports."
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (
@@ -175,17 +181,12 @@ export function InboxScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {onboardingMode === 'takeover' ? (
-                        <InboxOnboardingTakeover />
-                    ) : (
-                        // 'none' (incl. the still-loading verdict) and 'banner' both render the inbox,
-                        // which shows its own list skeleton while loading.
-                        <>
-                            {onboardingMode === 'banner' && <InboxOnboardingBanner />}
-                            <InboxListView />
-                        </>
-                    )}
+                <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
+                    {/* The inbox always renders (its own list skeleton covers loading). When self-driving
+                        isn't set up, the list view itself swaps in a locked "Welcome" onboarding tab; the
+                        banner sits above the otherwise-normal inbox when there's already work to keep. */}
+                    {onboardingMode === 'banner' && <InboxOnboardingBanner />}
+                    <InboxListView />
                 </div>
             </div>
 

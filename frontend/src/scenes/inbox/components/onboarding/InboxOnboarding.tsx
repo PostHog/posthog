@@ -1,12 +1,12 @@
-import { useActions } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import './InboxOnboarding.scss'
 
-import { IconBolt, IconCheck, IconGithub, IconNotebook, IconPause, IconX } from '@posthog/icons'
+import { useActions } from 'kea'
+
+import { IconBolt, IconGithub, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { cn } from 'lib/utils/css-classes'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
@@ -67,7 +67,9 @@ function Hero(): JSX.Element {
             <span className="flex items-center justify-center [&_svg]:h-7 [&_svg]:w-auto">
                 <Logomark />
             </span>
-            <h1 className="m-0 text-3xl font-bold leading-tight tracking-tight">Put your product on self-driving</h1>
+            <h1 className="m-0 text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
+                Put your product on self-driving
+            </h1>
             <p className="m-0 max-w-prose text-sm text-secondary leading-relaxed">
                 <strong>Scouts and Signal Sources identify product issues and opportunities</strong>. Bugs in error
                 tracking, users expressing their needs in Slack, and more.
@@ -82,8 +84,8 @@ function Hero(): JSX.Element {
 function CommandCard(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 rounded-lg border border-primary bg-surface-primary p-5">
-            <div className="flex flex-col gap-0.5">
-                <h2 className="m-0 text-base font-semibold">One command. That's the whole setup.</h2>
+            <div>
+                <h2 className="-mt-1 mb-1 text-base font-semibold">One command. That's the whole setup.</h2>
                 <p className="m-0 text-sm text-secondary">
                     Run it in your project's repo – there are no in-app steps to click through.
                 </p>
@@ -96,7 +98,6 @@ function CommandCard(): JSX.Element {
                             {item.icon}
                         </span>
                         <span className="min-w-0">{item.label}</span>
-                        <IconCheck className="ml-auto size-4 shrink-0 text-success" />
                     </li>
                 ))}
             </ul>
@@ -114,79 +115,30 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
                     <span className="max-w-prose text-[13px] text-secondary leading-snug">{beat.description}</span>
                 </div>
             </div>
-            {/* Real inbox cards, kept inert by the preview's click interception (it meeps instead). */}
-            <div className="select-none pl-8">{beat.preview}</div>
+            {/* Real inbox cards, kept inert by the preview's click interception (it meeps instead).
+                Full-width on mobile; indented to align under the beat text from sm up. */}
+            <div className="select-none pl-0 sm:pl-8">{beat.preview}</div>
         </div>
     )
 }
 
 /**
- * Vertical scroll container that softly fades content into transparency at whichever edge has more
- * to scroll to (top once scrolled down, bottom while there's more below) – a fade-in rather than a
- * hard cut or a drop shadow. The mask is a plain CSS gradient toggled by scroll position.
- */
-function ScrollFade({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
-    const scrollRef = useRef<HTMLDivElement>(null)
-    const [fade, setFade] = useState({ top: false, bottom: false })
-
-    const measure = useCallback((): void => {
-        const el = scrollRef.current
-        if (!el) {
-            return
-        }
-        setFade({
-            top: el.scrollTop > 1,
-            bottom: Math.ceil(el.scrollTop + el.clientHeight) < el.scrollHeight - 1,
-        })
-    }, [])
-
-    useEffect(() => {
-        const el = scrollRef.current
-        if (!el) {
-            return
-        }
-        // Observe the container (viewport resizes) *and* its content child (late-rendering cards grow
-        // it past the fixed-height container without the container itself resizing) so the initial
-        // bottom fade shows before any scroll.
-        const observer = new ResizeObserver(measure)
-        observer.observe(el)
-        if (el.firstElementChild) {
-            observer.observe(el.firstElementChild)
-        }
-        return () => observer.disconnect()
-    }, [measure])
-
-    // Independent top/bottom stops joined in one gradient; the off-edge stop (black_0%/black_100%)
-    // is a no-op, so this matches a hard edge when that side isn't faded.
-    const topStop = fade.top ? 'transparent,black_24px' : 'black_0%'
-    const bottomStop = fade.bottom ? 'black_calc(100%-24px),transparent' : 'black_100%'
-    const mask = fade.top || fade.bottom ? `[mask-image:linear-gradient(to_bottom,${topStop},${bottomStop})]` : ''
-
-    return (
-        <div ref={scrollRef} onScroll={measure} className={cn('overflow-auto', mask, className)}>
-            {children}
-        </div>
-    )
-}
-
-/**
- * Full-pane self-driving onboarding takeover, shown in place of the inbox tabs when self-driving
- * isn't set up and there's nothing in the inbox yet. Sells the payoff (pull requests to ship,
- * reports that need your call) and centers the single wizard command. No skip – nothing behind it.
+ * Self-driving onboarding, shown when self-driving isn't set up and there's nothing in the inbox
+ * yet. Sells the payoff (pull requests to ship, reports that need your call) and centers the single
+ * wizard command. Rendered as the body of a locked "Welcome" tab (see `InboxTabBar`), in place of the
+ * report list – a plain centered column (not itself a card) that eases in with a subtle scale + fade.
  */
 export function InboxOnboardingTakeover(): JSX.Element {
     return (
-        <ScrollFade className="flex-1 min-h-0">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-8">
-                <Hero />
-                <CommandCard />
-                <div className="flex flex-col gap-7">
-                    {BEATS.map((beat, index) => (
-                        <BeatRow key={beat.label} beat={beat} index={index} />
-                    ))}
-                </div>
+        <div className="InboxOnboardingTakeover mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
+            <Hero />
+            <CommandCard />
+            <div className="flex flex-col gap-7">
+                {BEATS.map((beat, index) => (
+                    <BeatRow key={beat.label} beat={beat} index={index} />
+                ))}
             </div>
-        </ScrollFade>
+        </div>
     )
 }
 

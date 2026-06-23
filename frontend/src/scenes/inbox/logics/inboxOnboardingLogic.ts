@@ -61,7 +61,8 @@ export function computeOnboardingMode({
  * from what the wizard turns on: at least one signal source or scout watching.
  *
  * When self-driving is NOT set up, the presentation depends on whether there's anything to show:
- * - nothing landed yet (no reports or PRs) → a full-pane takeover. Nothing to block, so we lean in.
+ * - nothing landed yet (no reports or PRs) → the inbox becomes a locked "Welcome" tab whose body is
+ *   the onboarding card (the other tabs are visible but disabled). Nothing to block, so we lean in.
  * - reports or PRs already exist (they had sources/scouts before) → a sleek, non-blocking banner
  *   above the inbox, so the team keeps access to their work while we entice them to re-enable.
  *
