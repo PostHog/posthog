@@ -55,18 +55,18 @@ def _format_from(value: Any) -> str:
     truncate to the minute (the finest granularity the filter accepts); ``from`` is inclusive, so
     the boundary event is re-fetched and deduped on ``event_id`` by the merge.
     """
-    if isinstance(value, str):
-        # The stored watermark can come back as an ISO 8601 string; parse it so we still emit the
-        # ``YYYY-MM-DDTHH:MM`` SparkPost wants rather than passing e.g. ``2026-01-01T00:00:00Z``
-        # through verbatim (which the API rejects). Normalize a trailing ``Z`` for fromisoformat.
-        try:
-            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return value
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, date):
         dt = datetime.combine(value, datetime.min.time())
+    elif isinstance(value, str):
+        # The stored watermark can come back as an ISO 8601 string; parse it so we still emit the
+        # ``YYYY-MM-DDTHH:MM`` SparkPost wants rather than passing e.g. ``2026-01-01T00:00:00Z``
+        # through verbatim (which the API rejects). Normalize a trailing ``Z`` for fromisoformat.
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
     else:
         return str(value)
     dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
