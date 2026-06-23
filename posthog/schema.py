@@ -1547,6 +1547,26 @@ class IntegrationFilter(BaseModel):
     )
 
 
+class LLMSentimentMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    score: float
+    scores: dict[str, float] | None = None
+
+
+class LLMSentimentResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    message_count: float | None = None
+    messages: dict[str, LLMSentimentMessage] | None = None
+    score: float
+    scores: dict[str, float] | None = None
+
+
 class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1555,6 +1575,7 @@ class LLMTraceEvent(BaseModel):
     event: AIEventType | str
     id: str
     properties: dict[str, Any]
+    sentiment: LLMSentimentResult | None = None
 
 
 class LLMTracePerson(BaseModel):
@@ -5503,6 +5524,7 @@ class LLMTrace(BaseModel):
     outputTokens: float | None = None
     person: LLMTracePerson | None = None
     requestCost: float | None = None
+    sentiment: LLMSentimentResult | None = None
     tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None
@@ -20647,6 +20669,10 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for the trace and its generations."),
+    )
     kind: Literal["TraceQuery"] = "TraceQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: (
@@ -20720,6 +20746,10 @@ class TracesQuery(BaseModel):
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for returned traces and direct generation events."),
+    )
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

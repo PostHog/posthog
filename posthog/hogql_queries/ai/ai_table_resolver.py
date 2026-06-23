@@ -8,7 +8,7 @@ from prometheus_client import Counter, Histogram
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 
@@ -86,7 +86,7 @@ def execute_with_ai_events_fallback(
     if workload is not None:
         kwargs["workload"] = workload
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         if is_ai_events_enabled(team):
             tag_queries(ai_query_source="dedicated_table")
             ai_placeholders = {k: rewrite_expr_for_ai_events_table(v) for k, v in placeholders.items()}
