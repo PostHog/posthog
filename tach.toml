@@ -696,7 +696,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -856,6 +856,21 @@ expose = [
 ]
 from = [
     "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee), customer_analytics, reminders and signals still
+# import the Notebook ORM directly: file-system / search / reminders registries dispatch
+# on the model class, middleware returns a raw queryset, the read_data and notebook-context
+# Max tools need the instance for access-control checks, sharing re-fetches it for the
+# shared-export serializer, and customer_analytics owns a CRUD-over-Notebook surface that
+# moves in its own presentation wave. Shrinks as those migrate behind the facade; keeps
+# backend:contract-check off until empty.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.notebooks",
 ]
 
 [[modules]]
