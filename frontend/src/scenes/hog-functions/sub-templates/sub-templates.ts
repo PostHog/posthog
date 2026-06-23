@@ -143,6 +143,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
         flag: FEATURE_FLAGS.HEALTH_ALERTS,
     },
+    'subscription-delivered': {
+        sub_template_id: 'subscription-delivered',
+        type: 'internal_destination',
+        context_id: 'subscription-delivered',
+        filters: { events: [{ id: '$subscription_delivered', type: 'events' }] },
+    },
 }
 
 const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
@@ -1248,6 +1254,77 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'subscription-delivered': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['subscription-delivered'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on subscription delivered',
+            description: 'Send a webhook when a subscription report is delivered',
+            inputs: {
+                content: {
+                    value: '📊 Subscription **{event.properties.subscription_name}** was delivered via {event.properties.target_type}\n{event.properties.summary}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['subscription-delivered'],
+            template_id: 'template-discord',
+            name: 'Post to Discord on subscription delivered',
+            description: 'Posts a message to Discord when a subscription report is delivered',
+            inputs: {
+                content: {
+                    value: '📊 Subscription **{event.properties.subscription_name}** was delivered via {event.properties.target_type}\n{event.properties.summary}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['subscription-delivered'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on subscription delivered',
+            description: 'Posts a message to Microsoft Teams when a subscription report is delivered',
+            inputs: {
+                content: {
+                    value: '📊 Subscription **{event.properties.subscription_name}** was delivered via {event.properties.target_type}\n{event.properties.summary}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['subscription-delivered'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on subscription delivered',
+            description: 'Posts a message to Slack when a subscription report is delivered',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '📊 Subscription *{event.properties.subscription_name}* was delivered via {event.properties.target_type}',
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '{event.properties.summary}' },
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{event.properties.subscription_url}',
+                                    text: { text: 'View in PostHog', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Subscription {event.properties.subscription_name} was delivered',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1279,6 +1356,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$subscription_delivered':
+            return 'subscription-delivered'
         default:
             return 'standard'
     }

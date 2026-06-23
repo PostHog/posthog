@@ -78,6 +78,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$health_check_issue_resolved',
                 },
             ]
+        case 'subscription-delivered':
+            return [
+                {
+                    label: 'Subscription delivered',
+                    value: '$subscription_delivered',
+                },
+            ]
         default:
             return [
                 {
