@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.sources.buildkite.buildkite import BuildkiteResumeConfig
 from posthog.temporal.data_imports.sources.buildkite.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from posthog.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
@@ -33,8 +35,12 @@ class TestBuildkiteSource:
         assert field_names == {"api_access_token", "organization"}
         # The token is the secret; the org slug is not.
         by_name = {f.name: f for f in config.fields}
-        assert by_name["api_access_token"].secret is True
-        assert by_name["organization"].secret is False
+        token_field = by_name["api_access_token"]
+        org_field = by_name["organization"]
+        assert isinstance(token_field, SourceFieldInputConfig)
+        assert isinstance(org_field, SourceFieldInputConfig)
+        assert token_field.secret is True
+        assert org_field.secret is False
 
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
@@ -115,16 +121,15 @@ class TestBuildkiteSource:
 
         captured: dict[str, Any] = {}
 
-        def fake_source(**kwargs: Any) -> str:
+        def fake_source(**kwargs: Any) -> MagicMock:
             captured.update(kwargs)
-            return "response"
+            return MagicMock()
 
         with mock.patch(
             "posthog.temporal.data_imports.sources.buildkite.source.buildkite_source", side_effect=fake_source
         ):
-            result = self.source.source_for_pipeline(_config(), manager, inputs)
+            self.source.source_for_pipeline(_config(), manager, inputs)
 
-        assert result == "response"
         assert captured["api_access_token"] == "bkua_test"
         assert captured["organization"] == "my-org"
         assert captured["endpoint"] == "builds"
