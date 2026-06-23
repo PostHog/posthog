@@ -202,8 +202,8 @@ class TaskRunDetailSerializer(DataclassSerializer):
 
 # Only implementation is supported when linking a task to a report from the public task API
 # (e.g. PostHog Code inbox); research/repo-selection links are created by server-side flows.
-# The value/label mirror `signals` `SignalReportTask.Relationship.IMPLEMENTATION` — kept inline
-# so presentation never imports the other product's models.
+# Mirrors `signals` `task_run_artefacts.TASK_RUN_TYPE_IMPLEMENTATION` — kept inline
+# so presentation never imports the other product's internals.
 SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION = "implementation"
 
 

@@ -455,21 +455,25 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(**task_run_filter) -> Exists:
-    """``Exists`` over runs matching ``task_run_filter`` that produced a non-empty output.pr_url.
+def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
+    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
 
-    The caller supplies the correlation filter (e.g. ``task__signal_report_tasks__report_id=
-    OuterRef("id")`` plus its own relationship value). Returns a query expression to embed in
-    the caller's queryset — no ORM instances cross the boundary, and the tasks facade stays
-    free of the caller's domain.
+    The caller supplies the report→run correlation as keyword lookups (e.g.
+    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
+    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
+    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
+    stays free of the caller's domain.
     """
-    return Exists(TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False).exclude(output__pr_url=""))
+    return Exists(
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
+    )
 
 
-def latest_task_run_pr_url_subquery(**task_run_filter) -> Subquery:
-    """``Subquery`` of the latest non-empty output.pr_url for runs matching ``task_run_filter``."""
+def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
+    """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
+    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
     return Subquery(
-        TaskRun.objects.filter(**task_run_filter, output__pr_url__isnull=False)
+        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
         .order_by("-created_at")
         .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
@@ -2066,7 +2070,9 @@ def _trigger_task_processing_workflow(
         parse_run_state,
     )
 
-    full_mcp_run_sources = frozenset({None, RunSource.MANUAL})
+    # SIGNAL_REPORT: implementation runs log their work on the report (notes, code references)
+    # via the task:write artefact tools.
+    full_mcp_run_sources = frozenset({None, RunSource.MANUAL, RunSource.SIGNAL_REPORT})
     run_source = parse_run_state(run.state).run_source
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
@@ -2509,8 +2515,8 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        SignalReportTask,
+    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        record_implementation_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -2525,10 +2531,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    link_relationship = validated_data.pop(
-        "signal_report_task_relationship",
-        SignalReportTask.Relationship.IMPLEMENTATION,
-    )
+    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
+    # is recorded by record_implementation_task below.
+    validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -2562,11 +2567,12 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            SignalReportTask.objects.create(
+            # Dual-write the implementation gate row + task_run work-log artefact (see
+            # record_implementation_task) so a manually-started task matches autostarted ones.
+            record_implementation_task(
                 team_id=task.team_id,
-                report_id=task.signal_report_id,
-                task=task,
-                relationship=link_relationship,
+                report_id=str(task.signal_report_id),
+                task_id=str(task.id),
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))

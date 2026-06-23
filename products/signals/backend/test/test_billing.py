@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR, get_signals_billing_credits_by_team
 from products.signals.backend.models import SignalReport, SignalReportTask
 
@@ -51,7 +52,7 @@ class TestSignalsBilling(BaseTest):
         created_at: datetime,
         pr_url: str | None = "https://github.com/x/y/pull/1",
         team: Team | None = None,
-        relationship: str = SignalReportTask.Relationship.IMPLEMENTATION,
+        relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
         output: object = _UNSET,
     ) -> "TaskRunModel":
         team = team or self.team
@@ -127,9 +128,7 @@ class TestSignalsBilling(BaseTest):
         task = Task.objects.create(
             team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        SignalReportTask.objects.create(
-            team=other, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-        )
+        SignalReportTask.objects.create(team=other, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
         TaskRun.objects.create(
             team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
         )
@@ -144,7 +143,7 @@ class TestSignalsBilling(BaseTest):
             team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
         SignalReportTask.objects.create(
-            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+            team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         )
         TaskRun.objects.create(
             team=other, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
@@ -161,7 +160,7 @@ class TestSignalsBilling(BaseTest):
             team=other, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
         SignalReportTask.objects.create(
-            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+            team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         )
         TaskRun.objects.create(
             team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
@@ -178,7 +177,7 @@ class TestSignalsBilling(BaseTest):
             team=self.team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
         SignalReportTask.objects.create(
-            team=self.team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+            team=self.team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
         )
         TaskRun.objects.create(
             team=self.team, task=task, output={"pr_url": "https://github.com/x/y/pull/1"}, created_at=_at(10)
@@ -236,7 +235,7 @@ class TestSignalsBilling(BaseTest):
 
     def test_pr_on_non_implementation_task_not_billed(self) -> None:
         report = self._report()
-        self._pr_run(report, created_at=_at(19), relationship=SignalReportTask.Relationship.RESEARCH)
+        self._pr_run(report, created_at=_at(19), relationship=TASK_RUN_TYPE_RESEARCH)
         self.assertEqual(self._credits(), {})
 
     @parameterized.expand(

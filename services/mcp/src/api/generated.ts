@@ -13007,6 +13007,17 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    /**
+     * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+     * repository default branch.
+     */
+    export interface CommitDiffResponse {
+      /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+      readonly diff: string;
+      /** True when the diff was too large to return in full and has been truncated. */
+      readonly truncated: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -18701,9 +18712,14 @@ export namespace Schemas {
       sessions?: number;
     }
 
-    export interface ErrorTrackingIssueAssignment {
+    export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
-      readonly type: string;
+      type: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRead {
+      id: number;
+      name: string;
     }
 
     export interface ErrorTrackingTopFrame {
@@ -18919,46 +18935,6 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
-    /**
-     * @nullable
-     */
-    export type ErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    /**
-     * * `archived` - Archived
-     * * `active` - Active
-     * * `resolved` - Resolved
-     * * `pending_release` - Pending release
-     * * `suppressed` - Suppressed
-     */
-    export type ErrorTrackingIssueFullStatusEnum = typeof ErrorTrackingIssueFullStatusEnum[keyof typeof ErrorTrackingIssueFullStatusEnum];
-
-
-    export const ErrorTrackingIssueFullStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-    } as const;
-
-    export interface ErrorTrackingIssueFull {
-      readonly id: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      first_seen: string;
-      assignee: ErrorTrackingIssueAssignment;
-      external_issues: ErrorTrackingExternalReferenceResult[];
-      /** @nullable */
-      readonly cohort: ErrorTrackingIssueFullCohort;
-    }
-
     export interface ErrorTrackingIssueListItem {
       /** Error tracking issue ID. */
       id: string;
@@ -19043,6 +19019,23 @@ export namespace Schemas {
       volumeResolution?: number;
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
+    }
+
+    /**
+     * Read-only serializer for issue contract types returned by the facade.
+     */
+    export interface ErrorTrackingIssueRead {
+      id: string;
+      status: string;
+      /** @nullable */
+      name: string | null;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
+      external_issues: ErrorTrackingExternalReferenceResult[];
+      cohort: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface ErrorTrackingIssueSplitFingerprint {
@@ -19242,51 +19235,31 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Recommendation payload, shape depends on type.
-     */
-    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
-
-    /**
-     * * `ready` - Ready
-     * * `computing` - Computing
-     */
-    export type ErrorTrackingRecommendationStatusEnum = typeof ErrorTrackingRecommendationStatusEnum[keyof typeof ErrorTrackingRecommendationStatusEnum];
-
-
-    export const ErrorTrackingRecommendationStatusEnum = {
-      Ready: 'ready',
-      Computing: 'computing',
-    } as const;
-
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
-      readonly id: string;
+      id: string;
       /** Recommendation type identifier (e.g. 'alerts'). */
-      readonly type: string;
+      type: string;
       /** Recommendation payload, shape depends on type. */
-      readonly meta: ErrorTrackingRecommendationMeta;
+      meta: unknown;
       /** Whether the recommendation's recommended action has been satisfied. */
-      readonly completed: boolean;
-      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-       *
-       * * `ready` - Ready
-       * * `computing` - Computing */
-      readonly status: ErrorTrackingRecommendationStatusEnum;
+      completed: boolean;
+      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+      status: string;
       /**
          * Timestamp meta was last successfully computed.
          * @nullable
          */
-      readonly computed_at: string | null;
+      computed_at: string | null;
       /**
          * Timestamp the user dismissed this recommendation, if any.
          * @nullable
          */
-      readonly dismissed_at: string | null;
+      dismissed_at: string | null;
       /** Timestamp the recommendation row was first created. */
-      readonly created_at: string;
+      created_at: string;
       /** Timestamp the recommendation row was last updated. */
-      readonly updated_at: string;
+      updated_at: string;
     }
 
     /**
@@ -19537,38 +19510,17 @@ export namespace Schemas {
       sampling_rate?: number;
     }
 
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null;
-
     export interface ErrorTrackingSymbolSet {
-      /** Unique symbol set ID. */
-      readonly id: string;
-      /** Reference used to match stack frames to this symbol set. */
-      readonly ref: string;
-      /** Project/team ID that owns this symbol set. */
-      readonly team_id: number;
-      /** When this symbol set row was created. */
-      readonly created_at: string;
-      /**
-         * When this symbol set was last used to resolve a stack frame.
-         * @nullable
-         */
-      readonly last_used: string | null;
-      /**
-         * Reason symbol lookup failed, if the source map is missing or invalid.
-         * @nullable
-         */
-      readonly failure_reason: string | null;
-      /** Whether this symbol set has an uploaded source map file available to download. */
-      readonly has_uploaded_file: boolean;
-      /**
-         * Release associated with this symbol set, if any.
-         * @nullable
-         */
-      readonly release: ErrorTrackingSymbolSetRelease;
+      id: string;
+      ref: string;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      last_used: string | null;
+      /** @nullable */
+      failure_reason: string | null;
+      has_uploaded_file: boolean;
+      release: ErrorTrackingRelease | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkDelete {
@@ -22172,6 +22124,18 @@ export namespace Schemas {
     export const ExternalQueryStatus = {
       Success: 'success',
       Error: 'error',
+    } as const;
+
+    /**
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name
+     */
+    export type FacetFieldEnum = typeof FacetFieldEnum[keyof typeof FacetFieldEnum];
+
+
+    export const FacetFieldEnum = {
+      SeverityText: 'severity_text',
+      ServiceName: 'service_name',
     } as const;
 
     export type FeatureFlagFilters = { [key: string]: unknown };
@@ -29769,13 +29733,13 @@ export namespace Schemas {
       results: ErrorTrackingFingerprint[];
     }
 
-    export interface PaginatedErrorTrackingIssueFullList {
+    export interface PaginatedErrorTrackingIssueReadList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: ErrorTrackingIssueFull[];
+      results: ErrorTrackingIssueRead[];
     }
 
     export interface PaginatedErrorTrackingRecommendationList {
@@ -31496,6 +31460,73 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingPlaylist[];
+    }
+
+    /**
+     * * `video_segment` - Video Segment
+     * * `safety_judgment` - Safety Judgment
+     * * `actionability_judgment` - Actionability Judgment
+     * * `priority_judgment` - Priority Judgment
+     * * `signal_finding` - Signal Finding
+     * * `repo_selection` - Repo Selection
+     * * `suggested_reviewers` - Suggested Reviewers
+     * * `dismissal` - Dismissal
+     * * `code_reference` - Code Reference
+     * * `commit` - Commit
+     * * `task_run` - Task Run
+     * * `note` - Note
+     */
+    export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
+
+
+    export const SignalReportArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      Dismissal: 'dismissal',
+      CodeReference: 'code_reference',
+      Commit: 'commit',
+      TaskRun: 'task_run',
+      Note: 'note',
+    } as const;
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
+
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    export interface SignalReportArtefact {
+      readonly id: string;
+      readonly type: SignalReportArtefactTypeEnum;
+      readonly content: SignalReportArtefactContent;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    export interface PaginatedSignalReportArtefactList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportArtefact[];
     }
 
     /**
@@ -35160,25 +35191,20 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Read-only serializer for issue contract types returned by the facade.
      */
-    export type PatchedErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    export interface PatchedErrorTrackingIssueFull {
-      readonly id?: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
+    export interface PatchedErrorTrackingIssueRead {
+      id?: string;
+      status?: string;
       /** @nullable */
       name?: string | null;
       /** @nullable */
       description?: string | null;
-      first_seen?: string;
-      assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
-      readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+      first_seen?: string | null;
+      assignee?: ErrorTrackingIssueAssigneeRead | null;
+      external_issues?: ErrorTrackingExternalReferenceResult[];
+      cohort?: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -38663,6 +38689,16 @@ export namespace Schemas {
       product_context?: string;
       /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
+    }
+
+    /**
+     * Body for replacing the content of an existing artefact (addressed by id).
+     *
+     * Per-type schema validation happens in the view, which knows the artefact's type.
+     */
+    export interface PatchedSignalReportArtefactLogUpdate {
+      /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
+      content?: unknown;
     }
 
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
@@ -45615,6 +45651,46 @@ export namespace Schemas {
     }
 
     /**
+     * Body for appending an artefact to a report.
+     *
+     * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+     * version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+     * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+     */
+    export interface SignalReportArtefactLogCreate {
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      artefact_type: string;
+      /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
+      content: unknown;
+    }
+
+    /**
+     * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+     */
+    export interface SignalReportArtefactWriteResponse {
+      /** The artefact's unique id. */
+      readonly id: string;
+      /** The id of the report this artefact belongs to. */
+      readonly report_id: string;
+      /** The artefact type. */
+      readonly type: string;
+      /** The artefact payload, parsed from storage. */
+      readonly content: unknown;
+      /** When the artefact was created. */
+      readonly created_at: string;
+      /**
+         * When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    /**
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
@@ -45925,14 +46001,6 @@ export namespace Schemas {
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
       emitted_finding_ids: string[];
-    }
-
-    export interface _User {
-      readonly id: number;
-      readonly uuid: string;
-      readonly first_name: string;
-      readonly last_name: string;
-      readonly email: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -50064,6 +50132,13 @@ export namespace Schemas {
       event_name?: string;
     }
 
+    export interface _LogFacetValue {
+      /** The facet value (e.g. a severity level or service name). */
+      value: string;
+      /** Number of matching log records, with all active filters applied except this facet's own selection. */
+      count: number;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -50209,6 +50284,34 @@ export namespace Schemas {
     export interface _LogsCountResponse {
       /** Number of log entries matching the filters. */
       count: number;
+    }
+
+    export interface _LogsFacetValuesBody {
+      /** Column to facet on. Its own filter is excluded so counts reflect the other active filters.
+       *
+       * * `severity_text` - severity_text
+       * * `service_name` - service_name */
+      facetField: FacetFieldEnum;
+      /** Date range. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels (ignored when faceting on severity_text). */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names (ignored when faceting on service_name). */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFacetValuesRequest {
+      /** The facet values query to execute. */
+      query: _LogsFacetValuesBody;
+    }
+
+    export interface _LogsFacetValuesResponse {
+      /** Facet values with cross-filtered counts, ordered by count descending. */
+      results: _LogFacetValue[];
     }
 
     export interface _LogsQueryBody {
@@ -61637,6 +61740,21 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string;
+    };
+
+    export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
