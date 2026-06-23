@@ -34,7 +34,9 @@ time. Never put the secret in the manifest.
 | `{ "type": "api_key", "name": "api_key", "location": "query" }`    | `auth_api_key`     | `?api_key=<key>`                              |
 | `{ "type": "http_basic", "username": "user" }`                     | `auth_password`    | HTTP Basic with the given username + password |
 
-`location` is one of `header`, `query`, `param`, `cookie`. For an API with no auth, omit `auth` entirely.
+`location` is one of `header`, `query`, `param`, `cookie`. `query` and `param` are **synonyms** — both append
+`name=<key>` to the URL query string, so use either (prefer `query`); they differ only in spelling, not behavior. For
+an API with no auth, omit `auth` entirely.
 
 ## Endpoint fields
 
@@ -194,3 +196,29 @@ Credential: `auth_api_key`.
 ```
 
 Credential: `auth_password`.
+
+### Bearer + cursor pagination + incremental
+
+`paginator.cursor_path` and `incremental.cursor_path` are independent and easily confused: the **paginator's**
+`cursor_path` reads the _next-page cursor_ from the response envelope (drives pagination within a sync); the
+**incremental's** `cursor_path` reads the _watermark_ from each record (drives what a re-sync re-fetches).
+
+```json
+{
+  "client": { "base_url": "https://api.acme.com/v1", "auth": { "type": "bearer" } },
+  "resources": [
+    {
+      "name": "tickets",
+      "primary_key": "id",
+      "endpoint": {
+        "path": "/tickets",
+        "data_selector": "data",
+        "paginator": { "type": "cursor", "cursor_path": "meta.next_cursor", "cursor_param": "cursor" },
+        "incremental": { "cursor_path": "updated_at", "start_param": "since" }
+      }
+    }
+  ]
+}
+```
+
+Credential: `auth_token`.

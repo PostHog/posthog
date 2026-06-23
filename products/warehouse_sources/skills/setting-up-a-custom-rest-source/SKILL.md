@@ -116,8 +116,10 @@ fan-out example. Keep it to one level of nesting.
 
 ### Step 3 — Validate and list resources
 
-Call `external-data-sources-db-schema` with `{ source_type: "Custom", manifest_json: "<stringified manifest>", auth_*:
-"<credential>" }`. It validates the manifest structure, the fan-out graph, and the credential (a bounded live probe),
+Call `external-data-sources-db-schema` with `{ source_type: "Custom", manifest_json: "<stringified manifest>",
+auth_token: "<credential>" }`. The credential key is **not literally `auth_*`** — use the one for your auth type:
+`auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic). It validates the manifest structure,
+the fan-out graph, and the credential (a bounded live probe),
 then returns one table entry per resource with `detected_primary_keys` and `incremental_fields`. If it returns a 400,
 the `message` is plain English (e.g. `resources[0].endpoint.path: must not be empty`) — fix the manifest and retry.
 Loop here until it validates.
@@ -125,7 +127,8 @@ Loop here until it validates.
 ### Step 4 — Test-read each resource
 
 For each resource, call `external-data-sources-preview-resource` with `{ source_type: "Custom", payload: {
-manifest_json, auth_* }, resource_name: "<name>", limit: 10 }`. It returns up to `limit` real rows plus the inferred
+manifest_json, auth_token }, resource_name: "<name>", limit: 10 }` (the `auth_token` key varies by auth type, as in
+Step 3). It returns up to `limit` real rows plus the inferred
 `columns`. Check that:
 
 - **`data_selector` is right** — `rows` are the records you expect, not a wrapper object. If `rows` looks like
@@ -138,8 +141,8 @@ and retry. Iterate Steps 2–4 until the sample looks right.
 
 ### Step 5 — Create the source
 
-Call `data-warehouse-source-setup` with `{ source_type: "Custom", payload: { manifest_json, auth_* }, prefix:
-"<short_name>" }`. It enables **every** resource in the manifest with sensible sync defaults (incremental where the
+Call `data-warehouse-source-setup` with `{ source_type: "Custom", payload: { manifest_json, auth_token }, prefix:
+"<short_name>" }` (the `auth_token` key varies by auth type, as in Step 3). It enables **every** resource in the manifest with sensible sync defaults (incremental where the
 manifest declares a cursor, else full refresh) and creates the source. If the user only wants a subset of resources,
 use `external-data-sources-create` with a `schemas` array instead (see `setting-up-a-data-warehouse-source` for the
 schemas shape). Pick a short lowercase `prefix` — tables become `{prefix}_{resource_name}` in HogQL.
