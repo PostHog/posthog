@@ -223,16 +223,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
 
-    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = featureFlags[
-        FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'hog',
+            label: 'Hog code',
+        },
     ]
-        ? [
-              {
-                  value: 'hog',
-                  label: 'Hog code',
-              },
-          ]
-        : []
     const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
         evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
             ? [
@@ -554,10 +550,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                                            <EvaluationModelPicker />
-                                        )}
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
+                                        <EvaluationModelPicker />
+                                    )}
 
                                     {/* Trigger Configuration */}
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
