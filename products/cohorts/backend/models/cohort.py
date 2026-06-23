@@ -223,12 +223,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     objects = CohortManager()  # type: ignore
 
-    # Transient (non-persisted) attributes stashed on the instance by the pre_save signal in
-    # dependencies.py and read back in post_save to detect filter changes. Declared here so the
-    # change-detector helpers and their tests can read/write them under strict typing.
-    _previous_person_property_filters: Optional[str] = None
-    _previous_leaf_state_keys: Optional[str] = None
-
     class Meta:
         constraints = [
             models.UniqueConstraint(

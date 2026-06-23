@@ -144,7 +144,6 @@ post_save:products.cdp.backend.models.plugin.plugin_reload_needed
 post_save:products.cdp.backend.models.plugin.preinstall_plugins_for_new_organization
 post_save:products.cohorts.backend.models.dependencies.cohort_changed
 post_save:products.cohorts.backend.models.dependencies.cohort_conditions_changed_backfill
-post_save:products.cohorts.backend.models.dependencies.cohort_realtime_state_clear_on_edit
 post_save:products.conversations.backend.signals.emit_ticket_created_event
 post_save:products.conversations.backend.signals.post_github_reply_on_team_message
 post_save:products.conversations.backend.signals.post_slack_reply_on_team_message

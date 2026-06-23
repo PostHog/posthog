@@ -7,7 +7,6 @@ from collections import defaultdict
 from collections.abc import Iterator
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
-from django.db import connection, transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
 
@@ -79,7 +78,6 @@ from products.cohorts.backend.models.cohort import (
     CohortOrEmpty,
     CohortType,
 )
-from products.cohorts.backend.models.dependencies import walk_filter_leaves
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
     cohort_filters_have_values,
@@ -516,32 +514,6 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
-# First key of `pg_advisory_xact_lock(namespace, project_id)`, kept distinct from other advisory locks.
-COHORT_SAVE_ADVISORY_LOCK_NAMESPACE = int.from_bytes(hashlib.sha256(b"cohort_save").digest()[:4], "big", signed=True)
-
-# No project_id label (unbounded cardinality); the rare contended save is logged with its project id instead.
-COHORT_SAVE_ADVISORY_LOCK_WAIT = Histogram(
-    "posthog_cohort_save_advisory_lock_wait_seconds",
-    "Time spent waiting for the per-project cohort-save advisory lock (loop-check + save serialization)",
-)
-
-
-def _acquire_cohort_save_lock(project_id: int) -> None:
-    """Serialize cohort saves per project, closing the TOCTOU where two concurrent saves each pass
-    `will_create_loops_in_memory` and together form a cycle. Transaction-scoped; must run inside `transaction.atomic()`.
-    """
-    started = time.monotonic()
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(%s, %s)",
-            [COHORT_SAVE_ADVISORY_LOCK_NAMESPACE, project_id],
-        )
-    waited = time.monotonic() - started
-    COHORT_SAVE_ADVISORY_LOCK_WAIT.observe(waited)
-    if waited > 0.1:
-        logger.info("cohort_save_advisory_lock_contended", project_id=project_id, waited_seconds=waited)
-
-
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
@@ -693,15 +665,6 @@ class CohortSerializer(serializers.ModelSerializer):
                 "Invalid source for static cohort. Requires criteria, a csv, feature flag, existing cohort or query."
             )
 
-    def _project_id(self) -> int:
-        """Project id for advisory-lock keying and the project-wide loop check. Prefers the cached
-        `get_team` from the standard viewset, but falls back to `team_id` since some callers (e.g. the
-        feature-flag endpoints) build the serializer context with only `team_id`."""
-        get_team = self.context.get("get_team")
-        if get_team is not None:
-            return get_team().project_id
-        return Team.objects.only("project_id").get(pk=self.context["team_id"]).project_id
-
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -726,14 +689,7 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["cohort_type"] = computed_cohort_type
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
-
-        # Loop-check serialized with the advisory lock; a detected loop rolls the insert back. No
-        # irreversible side effect may run inside the block — ATOMIC_REQUESTS is off.
-        with transaction.atomic():
-            project_id = self._project_id()
-            _acquire_cohort_save_lock(project_id)
-            cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
-            _ensure_no_cohort_loops(cohort, project_id)
+        cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
             if (
@@ -991,71 +947,8 @@ class CohortSerializer(serializers.ModelSerializer):
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
 
-        self._reject_unsupported_realtime_intervals(raw)
         self._validate_feature_flag_constraints(raw)  # keep your side-rules
         return raw
-
-    def _reject_unsupported_realtime_intervals(self, raw: dict) -> None:
-        """Reject `performed_event_multiple` + `minute` here, not in the pydantic validator: that
-        raise is swallowed by `validate_filters_and_compute_realtime_support`'s broad try/except.
-        Only reject leaves this request newly introduces or changes — a cohort that already stored
-        such a leaf (only reachable via direct API/import) stays editable for unrelated edits."""
-        existing_minute_leaves = self._minute_performed_event_multiple_leaf_keys(
-            getattr(self.instance, "filters", None)
-        )
-        for leaf in walk_filter_leaves(raw.get("properties")):
-            if not self._is_minute_performed_event_multiple(leaf):
-                continue
-            if self._leaf_identity(leaf) in existing_minute_leaves:
-                continue  # unchanged, pre-existing leaf — leave editable
-            raise ValidationError(
-                detail="A 'minute' time interval is not supported for performed_event_multiple cohorts.",
-                code="minute_interval_not_supported",
-            )
-
-    @staticmethod
-    def _is_minute_performed_event_multiple(leaf: dict) -> bool:
-        return (
-            leaf.get("type") == "behavioral"
-            and leaf.get("value") == "performed_event_multiple"
-            and leaf.get("time_interval") == "minute"
-        )
-
-    @staticmethod
-    def _leaf_identity(leaf: dict) -> tuple:
-        # Identity over user-meaningful fields; ignores bytecode/conditionHash noise. `negation`,
-        # `time_value`, and `operator_value` are normalized because the incoming leaves are
-        # pydantic-normalized (`negation` defaults to `False`; the numeric fields are coerced to
-        # `int`) while a leaf stored un-normalized (direct API/import) can omit `negation` or hold a
-        # stringly-typed `"5"` — comparing raw would read `None != False` or `"5" != 5` and
-        # spuriously re-reject an unrelated edit to such a cohort.
-        def as_int(v: Any) -> Any:
-            try:
-                return int(v)
-            except (TypeError, ValueError):
-                return v
-
-        return (
-            leaf.get("type"),
-            leaf.get("value"),
-            leaf.get("key"),
-            leaf.get("event_type"),
-            leaf.get("time_interval"),
-            as_int(leaf.get("time_value")),
-            leaf.get("operator"),
-            as_int(leaf.get("operator_value")),
-            bool(leaf.get("negation", False)),
-        )
-
-    @classmethod
-    def _minute_performed_event_multiple_leaf_keys(cls, filters: dict | None) -> set[tuple]:
-        if not isinstance(filters, dict):
-            return set()
-        return {
-            cls._leaf_identity(leaf)
-            for leaf in walk_filter_leaves(filters.get("properties"))
-            if cls._is_minute_performed_event_multiple(leaf)
-        }
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -1245,12 +1138,10 @@ class CohortSerializer(serializers.ModelSerializer):
         elif not cohort.is_static:
             cohort.is_calculating = True
 
-        # Narrow block: the calculation enqueue and analytics below run after commit (no irreversible work inside).
-        with transaction.atomic():
-            project_id = cohort.team.project_id
-            _acquire_cohort_save_lock(project_id)
-            _ensure_no_cohort_loops(cohort, project_id)
-            cohort.save()
+        if will_create_loops(cohort):
+            raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+
+        cohort.save()
 
         if not deleted_state:
             from posthog.tasks.calculate_cohort import insert_cohort_from_query
@@ -1930,50 +1821,39 @@ class LegacyCohortViewSet(CohortViewSet):
     param_derived_from_user_current_team = "team_id"
 
 
-def _ensure_no_cohort_loops(cohort: Cohort, project_id: int) -> None:
-    # Only cohorts that reference other cohorts can form a loop; skip the project-wide
-    # fetch (and the lock-held round-trip) for the common no-cohort-leaf save.
-    if not any(p.type == "cohort" for p in cohort.properties.flat):
-        return
-    # will_create_loops_in_memory reads only .pk and .properties (derived from filters/groups).
-    cohorts_by_id = {
-        c.pk: c for c in Cohort.objects.filter(team__project_id=project_id).only("id", "filters", "groups")
-    }
-    cohorts_by_id[cohort.pk] = cohort  # overlay the in-memory instance: its new edges must be walked
-    if will_create_loops_in_memory(cohort, cohorts_by_id):
-        raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+def will_create_loops(cohort: Cohort) -> bool:
+    # Loops can only be formed when trying to update a Cohort, not when creating one
+    project_id = cohort.team.project_id
 
+    # We can model this as a directed graph, where each node is a Cohort and each edge is a reference to another Cohort
+    # There's a loop only if there's a cycle in the directed graph. The "directed" bit is important.
+    # For example, if Cohort A exists, and Cohort B references Cohort A, and Cohort C references both Cohort A & B
+    # then, there's no cycle, because we can compute cohort A, using which we can compute cohort B, using which we can compute cohort C.
 
-def will_create_loops_in_memory(cohort: Cohort, cohorts_by_id: dict[int, Cohort]) -> bool:
-    """Walk the cohort reference graph in memory to detect whether saving `cohort` would create a
-    cycle, without per-node DB round-trips. `cohorts_by_id` must hold every cohort in the project,
-    overlaid with the cohort being saved so its new edges are walked.
+    # However, if cohort A depended on Cohort C, then we'd have a cycle, because we can't compute Cohort A without computing Cohort C, and on & on.
 
-    The references form a directed graph: each node is a Cohort and each edge is a reference to
-    another Cohort. A loop exists only if that directed graph has a cycle — the "directed" bit is
-    important. For example, if Cohort A exists, Cohort B references A, and Cohort C references both A
-    and B, there is no cycle: we can compute A, then B, then C. But if A also depended on C, we'd
-    have a cycle, because A can't be computed without C and vice versa.
+    # For a good explainer of this algorithm, see: https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
 
-    For a good explainer of this cycle-detection algorithm, see:
-    https://www.geeksforgeeks.org/detect-cycle-in-a-graph/
-    """
+    def dfs_loop_helper(current_cohort: Cohort, seen_cohorts, cohorts_on_path):
+        seen_cohorts.add(current_cohort.pk)
+        cohorts_on_path.add(current_cohort.pk)
 
-    def dfs_loop_helper(current: Cohort, seen: set[int], on_path: set[int]) -> bool:
-        seen.add(current.pk)
-        on_path.add(current.pk)
-        for prop in current.properties.flat:
-            if prop.type == "cohort" and not isinstance(prop.value, list):
-                ref_id = int(prop.value)
-                if ref_id in on_path:
+        for property in current_cohort.properties.flat:
+            if property.type == "cohort":
+                if property.value in cohorts_on_path:
                     return True
-                if ref_id not in seen:
-                    nested = cohorts_by_id.get(ref_id)
-                    if nested is None:
+                elif property.value not in seen_cohorts:
+                    try:
+                        nested_cohort = Cohort.objects.get(
+                            pk=cast(str | int, property.value), team__project_id=project_id
+                        )
+                    except Cohort.DoesNotExist:
                         raise ValidationError("Invalid Cohort ID in filter")
-                    if dfs_loop_helper(nested, seen, on_path):
+
+                    if dfs_loop_helper(nested_cohort, seen_cohorts, cohorts_on_path):
                         return True
-        on_path.remove(current.pk)
+
+        cohorts_on_path.remove(current_cohort.pk)
         return False
 
     return dfs_loop_helper(cohort, set(), set())

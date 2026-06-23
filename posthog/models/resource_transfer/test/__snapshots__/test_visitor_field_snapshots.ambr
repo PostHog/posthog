@@ -491,8 +491,6 @@
     '_insert_batch_via_personhog',
     '_insert_users_list_with_batching',
     '_meta',
-    '_previous_leaf_state_keys',
-    '_previous_person_property_filters',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
     'calculate_people_ch',

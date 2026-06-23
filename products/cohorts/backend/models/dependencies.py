@@ -1,7 +1,3 @@
-import json
-import hashlib
-from collections.abc import Iterator
-
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -28,13 +24,6 @@ COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
     "posthog_cohort_dependency_cache_requests_total",
     "Total number of cohort dependency cache requests",
     labelnames=["cache_type", "result"],
-)
-
-COHORT_REALTIME_STATE_ORPHANED_COUNTER = Counter(
-    "posthog_cohort_realtime_state_orphaned_total",
-    "Realtime cohort edits that changed the LeafStateKey input set without changing the bytecode "
-    "conditionHash, orphaning cohort-stream-processor Stage 1 state",
-    labelnames=["reason"],
 )
 
 
@@ -211,6 +200,9 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
     Returns a hash string that can be used for comparison to detect changes.
     This captures both the individual conditions AND their logical structure.
     """
+    import json
+    import hashlib
+
     if not cohort.filters:
         return ""
 
@@ -255,100 +247,6 @@ def _extract_person_property_filters(cohort: Cohort) -> str:
     # Convert to a stable JSON representation and hash it
     normalized_json = json.dumps(normalized_tree, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(normalized_json.encode()).hexdigest()
-
-
-def walk_filter_leaves(node: object) -> Iterator[dict]:
-    if not isinstance(node, dict):
-        return
-    if node.get("type") in ("AND", "OR"):
-        for child in node.get("values", []):
-            yield from walk_filter_leaves(child)
-    else:
-        yield node
-
-
-def _extract_leaf_state_keys(cohort: Cohort) -> str:
-    """Structural fingerprint of the leaf fields that feed the Stage 1 `LeafStateKey`, used as a
-    change-detector so a behavioral window/operator edit (which leaves `conditionHash` unchanged) is
-    still seen as a change at save time.
-
-    This is NOT the real 16-byte `LeafStateKey` and is deliberately not byte-comparable to it: the
-    Rust key (`rust/cohort-stream-processor/src/stage1/key.rs`, `LeafStateKey::for_behavioral`) is a
-    delimiter-free little-endian hash of the raw config values, whereas this returns a hex SHA-256
-    over JSON descriptors of the whole leaf set. The two share a *field set*, not a byte layout, so a
-    golden vector cannot guard them — only that the field set stays in sync.
-
-    Mirrored field set (must match the Rust key):
-      - behavioral: conditionHash, value, time_value, time_interval, explicit_datetime,
-        explicit_datetime_to, operator, operator_value. `negation` is EXCLUDED (negated and positive
-        leaves share state; the output is inverted at Stage 2).
-      - person: conditionHash only (the bytecode already encodes key/value/operator).
-      - cohort ref: value and negation.
-
-    Drift risk: if a field is added to the Rust `LeafStateKey` without mirroring it here, an edit to
-    that field changes Stage 1 state without changing this fingerprint, so the orphan-on-edit detector
-    misses it and Stage 1 state is silently orphaned — with no failing test, because the two encodings
-    are not byte-comparable. Keep this field set and the Rust one in lockstep.
-    """
-    if not cohort.filters:
-        return ""
-    properties = cohort.filters.get("properties")
-    if not properties:
-        return ""
-
-    keys: list[list] = []
-    for leaf in walk_filter_leaves(properties):
-        leaf_type = leaf.get("type")
-        if leaf_type == "person":
-            condition_hash = leaf.get("conditionHash")
-            if condition_hash is not None:
-                keys.append(["person", condition_hash])
-        elif leaf_type == "behavioral":
-            condition_hash = leaf.get("conditionHash")
-            if condition_hash is not None:
-                keys.append(
-                    [
-                        "behavioral",
-                        condition_hash,
-                        leaf.get("value"),
-                        leaf.get("time_value"),
-                        leaf.get("time_interval"),
-                        leaf.get("explicit_datetime"),
-                        leaf.get("explicit_datetime_to"),
-                        leaf.get("operator"),
-                        leaf.get("operator_value"),
-                    ]
-                )
-        elif leaf_type == "cohort":
-            keys.append(["cohort", leaf.get("value"), bool(leaf.get("negation", False))])
-
-    if not keys:
-        return ""
-
-    # Order-independent: sort the per-leaf serializations so reordering filters is not seen as a change.
-    serialized = sorted(json.dumps(key, sort_keys=True) for key in keys)
-    return hashlib.sha256(json.dumps(serialized, separators=(",", ":")).encode()).hexdigest()
-
-
-def _leaf_state_keys_changed(cohort: Cohort) -> bool:
-    """True if the LeafStateKey input set changed vs the `pre_save` snapshot; a `None` snapshot means nothing to clear."""
-    previous = getattr(cohort, "_previous_leaf_state_keys", None)
-    if previous is None:
-        return False
-    return previous != _extract_leaf_state_keys(cohort)
-
-
-def _clear_orphaned_realtime_state(cohort: Cohort) -> None:
-    """Detect (count + log only) edits that orphan Stage 1 state. Runs inside the save's atomic block, so
-    any future seed/clear added here must schedule its produce via `transaction.on_commit`."""
-    if not _leaf_state_keys_changed(cohort):
-        return
-    COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed").inc()
-    logger.info(
-        "cohort_realtime_state_orphaned_on_edit",
-        cohort_id=cohort.pk,
-        team_id=cohort.team_id,
-    )
 
 
 def _trigger_cohort_backfill(cohort: Cohort) -> None:
@@ -407,25 +305,21 @@ def cohort_pre_save(sender, instance, **kwargs):
         # Skip non-realtime cohorts to avoid extra DB queries
         if not instance.pk or instance.cohort_type != CohortType.REALTIME:
             instance._previous_person_property_filters = ""
-            instance._previous_leaf_state_keys = None
             return
 
         # Check if filters field is being updated - if not, skip the expensive DB read
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and "filters" not in update_fields:
             instance._previous_person_property_filters = ""
-            instance._previous_leaf_state_keys = None
             return
 
         # Get the previous version from database
         previous_cohort = Cohort.objects.get(pk=instance.pk)
         # Store the previous person property filters hash on the instance
         instance._previous_person_property_filters = _extract_person_property_filters(previous_cohort)
-        instance._previous_leaf_state_keys = _extract_leaf_state_keys(previous_cohort)
     except Cohort.DoesNotExist:
         # Cohort doesn't exist yet (should not happen), treat as new
         instance._previous_person_property_filters = ""
-        instance._previous_leaf_state_keys = None
     except Exception as e:
         logger.warning(
             "error_capturing_previous_person_property_filters",
@@ -434,7 +328,6 @@ def cohort_pre_save(sender, instance, **kwargs):
         )
         # If we can't capture previous state, mark as None to be safe
         instance._previous_person_property_filters = None
-        instance._previous_leaf_state_keys = None
 
 
 @receiver(post_save, sender=Cohort)
@@ -499,25 +392,6 @@ def cohort_conditions_changed_backfill(sender, instance, **kwargs):
 
     # Use transaction.on_commit to ensure backfill runs after the current transaction
     transaction.on_commit(lambda: _trigger_cohort_backfill(instance))
-
-
-@receiver(post_save, sender=Cohort)
-def cohort_realtime_state_clear_on_edit(sender, instance, **kwargs):
-    """Detect realtime cohort edits that orphan Stage 1 state; see :func:`_clear_orphaned_realtime_state`."""
-    if is_cohort_recalculation_only_save(kwargs):
-        return
-
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "filters" not in update_fields:
-        return
-
-    if instance.cohort_type != CohortType.REALTIME or instance.is_static or instance.deleted:
-        return
-
-    if kwargs.get("created", False):
-        return
-
-    _clear_orphaned_realtime_state(instance)
 
 
 @receiver(post_delete, sender=Cohort)
