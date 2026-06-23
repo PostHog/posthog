@@ -12,11 +12,14 @@ Content-tree helpers live in ``facade.content``; collaborative-edit publishing
 lives in ``facade.collab``.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .. import logic
 from ..models import Notebook
 from . import contracts
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 def _to_notebook_data(notebook: Notebook) -> contracts.NotebookData:
@@ -79,8 +82,8 @@ def get_notebook_activity_summary(team_id: int, limit: int) -> contracts.Noteboo
 # --- Access control ---
 
 
-async def acan_user_edit_notebook(team_id: int, user_id: int, short_id: str) -> bool:
-    return await logic.acan_user_edit_notebook(team_id, user_id, short_id)
+async def acan_user_edit_notebook(team_id: int, short_id: str, *, user_access_control: "UserAccessControl") -> bool:
+    return await logic.acan_user_edit_notebook(team_id, short_id, user_access_control)
 
 
 # --- Writes ---

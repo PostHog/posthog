@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -121,10 +122,12 @@ async def save_notebook_to_db(
     notebooks the user couldn't edit themselves.
     """
     existing_notebook = await notebooks.aget_notebook(team.id, artifact.short_id, include_deleted=True)
-    if existing_notebook and not await notebooks.acan_user_edit_notebook(team.id, user.id, artifact.short_id):
-        raise NotebookEditNotAllowedError(
-            f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
-        )
+    if existing_notebook is not None:
+        access_control = UserAccessControl(user=user, team=team)
+        if not await notebooks.acan_user_edit_notebook(team.id, artifact.short_id, user_access_control=access_control):
+            raise NotebookEditNotAllowedError(
+                f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
+            )
 
     if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
         previous_content = existing_notebook.content
@@ -137,7 +140,8 @@ async def save_notebook_to_db(
             text_content=markdown_content,
             last_modified_by_id=user.id,
         )
-        assert updated_notebook is not None
+        if updated_notebook is None:
+            raise RuntimeError(f"Notebook {artifact.short_id} disappeared during content update")
         # The base_crc inside the diff lets receivers detect a racing concurrent edit
         # (this path has no version CAS) and fall back to a reload instead of misapplying.
         await collab.apublish_notebook_update(

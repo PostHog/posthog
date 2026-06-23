@@ -14,7 +14,6 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
-from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 
 from .models import Notebook, ResourceNotebook
@@ -43,16 +42,13 @@ async def aget_notebook(team_id: int, short_id: str, *, include_deleted: bool = 
     return await _base_queryset(team_id, include_deleted=include_deleted).filter(short_id=short_id).afirst()
 
 
-async def acan_user_edit_notebook(team_id: int, user_id: int, short_id: str) -> bool:
+async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_control: UserAccessControl) -> bool:
     notebook = await aget_notebook(team_id, short_id, include_deleted=True)
     if notebook is None:
         return False
-    team = await Team.objects.aget(pk=team_id)
-    user = await User.objects.aget(pk=user_id)
 
     def check() -> bool:
-        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        return bool(access_control.check_access_level_for_object(notebook, "editor"))
+        return bool(user_access_control.check_access_level_for_object(notebook, "editor"))
 
     return await sync_to_async(check)()
 

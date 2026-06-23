@@ -3,6 +3,8 @@ from posthog.test.base import BaseTest
 
 from django.apps import apps
 
+from posthog.rbac.user_access_control import UserAccessControl
+
 from products.notebooks.backend import logic
 from products.notebooks.backend.facade import api, content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -155,11 +157,13 @@ class TestNotebooksFacadeAsync(BaseTest):
     @pytest.mark.asyncio
     async def test_acan_user_edit_notebook_creator(self):
         notebook = await Notebook.objects.acreate(team=self.team, title="t", created_by=self.user)
-        self.assertTrue(await api.acan_user_edit_notebook(self.team.id, self.user.id, notebook.short_id))
+        uac = UserAccessControl(user=self.user, team=self.team)
+        self.assertTrue(await api.acan_user_edit_notebook(self.team.id, notebook.short_id, user_access_control=uac))
 
     @pytest.mark.asyncio
     async def test_acan_user_edit_missing_notebook(self):
-        self.assertFalse(await api.acan_user_edit_notebook(self.team.id, self.user.id, "missing"))
+        uac = UserAccessControl(user=self.user, team=self.team)
+        self.assertFalse(await api.acan_user_edit_notebook(self.team.id, "missing", user_access_control=uac))
 
 
 def test_logic_is_internal_only():
