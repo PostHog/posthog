@@ -1,7 +1,8 @@
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -211,6 +212,43 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.started_at == first_started_at
         # Both attempts return the same canonical query_to so the workflow threads the same value either way.
         assert first == second == first_query_to.isoformat()
+
+    @parameterized.expand(
+        [
+            # name, end_date_offset_days (None = running experiment), expect query_to clamped to end_date
+            ("running_uses_now", None, False),
+            ("stopped_uses_end_date", -5, True),
+            ("future_end_uses_now", 5, False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_query_to_is_data_window_end(self, name: str, end_date_offset_days, expect_end_date: bool):
+        # query_to is the data-window end (experiment_window_end), not bare now. For a stopped experiment it
+        # resolves to end_date — a fixed value — so reruns reuse the same result row instead of appending a
+        # redundant post-end timeseries point. Running / future-dated experiments still advance with now.
+        now = timezone.now()
+        exp = self._experiment(flag_key=f"window-end-{name}")
+        if end_date_offset_days is not None:
+            exp.end_date = now + timedelta(days=end_date_offset_days)
+            exp.save(update_fields=["end_date"])
+        recalc = self._recalc(exp)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to is not None
+        if expect_end_date:
+            assert recalc.query_to == now + timedelta(days=end_date_offset_days)
+        else:
+            assert recalc.query_to == now
 
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.

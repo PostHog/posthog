@@ -26,6 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -174,7 +175,12 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            proposed_query_to = timezone.now()
+            # query_to is the run's data-window end, not bare "now": for a stopped experiment
+            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
+            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
+            # timeseries point on every run. A running experiment still advances with now.
+            experiment = Experiment.objects.get(id=state.experiment_id)
+            proposed_query_to = experiment_window_end(experiment, timezone.now())
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
