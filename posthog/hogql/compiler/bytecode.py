@@ -223,6 +223,18 @@ class BytecodeCompiler(Visitor):
                     f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
                 )
 
+        # Membership against a constant list compiles to the IN/NOT_IN opcode, which the Hog VM
+        # evaluates with strict equality (raw `includes`/`in`) — unlike EQ/NotEq/GT/LT, which unify
+        # operand types first. A numeric property (e.g. a survey rating sent as a number) therefore
+        # never matches a list of string literals like ("1","2","3"). Lower a constant-list IN/NOT IN
+        # to an OR-of-EQ / AND-of-NotEq chain so membership inherits the same type coercion as a
+        # single-value equality check. Only constant lists are lowered; dynamic `x in someArray`
+        # keeps the opcode and its existing semantics.
+        if operation in (Operation.IN, Operation.NOT_IN):
+            lowered = self._lower_constant_membership(node, operation)
+            if lowered is not None:
+                return self.visit(lowered)
+
         # For null-safe comparisons on GT, GTE, LT, LTE operations
         if self.null_safe_comparisons and operation in [Operation.GT, Operation.GT_EQ, Operation.LT, Operation.LT_EQ]:
             # Generate: if(isNull(left) or isNull(right), false, left <op> right)
@@ -250,6 +262,28 @@ class BytecodeCompiler(Visitor):
             return result
 
         return [*self.visit(node.right), *self.visit(node.left), operation]
+
+    def _lower_constant_membership(self, node: ast.CompareOperation, operation: Operation) -> Optional[ast.Expr]:
+        """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals to a chain of
+        type-coercing equality checks. Returns None when the right side isn't a non-empty list of
+        constants, leaving the raw opcode in place."""
+        if not isinstance(node.right, ast.Tuple | ast.Array):
+            return None
+        elements = node.right.exprs
+        if not elements or not all(isinstance(element, ast.Constant) for element in elements):
+            return None
+
+        if operation == Operation.IN:
+            comparisons = [
+                ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=node.left, right=element)
+                for element in elements
+            ]
+            return comparisons[0] if len(comparisons) == 1 else ast.Or(exprs=comparisons)
+
+        comparisons = [
+            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=node.left, right=element) for element in elements
+        ]
+        return comparisons[0] if len(comparisons) == 1 else ast.And(exprs=comparisons)
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         response: list[Any] = []
