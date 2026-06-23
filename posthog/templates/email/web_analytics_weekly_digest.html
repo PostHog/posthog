@@ -151,7 +151,11 @@
     <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top: 4px;">
         <tr>
             <td align="center">
+                {% if recap_enabled %}
+                <a href="{{ section.recap_url }}" target="_blank" style="display: inline-block; padding: 12px 24px; background-color: #1d4aff; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.95em; font-weight: 500;">View your weekly recap</a>
+                {% else %}
                 <a href="{{ section.dashboard_url }}" target="_blank" style="display: inline-block; padding: 12px 24px; background-color: #1d4aff; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 0.95em; font-weight: 500;">View Web analytics dashboard</a>
+                {% endif %}
             </td>
         </tr>
     </table>

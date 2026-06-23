@@ -1,5 +1,10 @@
+import { useValues } from 'kea'
+
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { WebAnalyticsDigestMetadata, WebAnalyticsDigestMetric, WebAnalyticsDigestMetricChange } from '~/types'
 
@@ -25,6 +30,8 @@ export function WebAnalyticsDigestNotification({
     onOpen: (e: React.MouseEvent) => void
     onAskMax: (e: React.MouseEvent) => void
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const recapEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
     const byKey = (key: string): WebAnalyticsDigestMetric | undefined => metadata.metrics.find((m) => m.key === key)
     const hero = byKey('visitors')
     const pageviews = byKey('pageviews')
@@ -53,7 +60,7 @@ export function WebAnalyticsDigestNotification({
                     sideIcon={<IconArrowRight />}
                     onClick={onOpen}
                 >
-                    View web analytics
+                    {recapEnabled ? 'See your weekly recap' : 'View web analytics'}
                 </LemonButton>
                 <LemonButton type="secondary" size="small" fullWidth center icon={<IconSparkles />} onClick={onAskMax}>
                     Ask PostHog AI

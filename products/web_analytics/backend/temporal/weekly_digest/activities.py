@@ -26,6 +26,7 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
+from products.web_analytics.backend.recap import recap_url_for_team
 from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
@@ -161,6 +162,14 @@ def _send_digest_for_user(
     if dry_run:
         return DigestOutcome.DRY_RUN
 
+    # When the recap experience is enabled for this user, the email CTA points at the recap page.
+    recap_enabled = _is_user_recap_enabled(user, str(org.id))
+    if recap_enabled:
+        for section in user_team_sections:
+            section["recap_url"] = recap_url_for_team(
+                section["team"], utm_source="web_analytics_weekly_digest", utm_medium="email"
+            )
+
     try:
         message = EmailMessage(
             campaign_key=campaign_key,
@@ -170,6 +179,7 @@ def _send_digest_for_user(
                 "organization": org,
                 "project_sections": user_team_sections,
                 "disabled_project_names": disabled_team_names,
+                "recap_enabled": recap_enabled,
                 "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=wa-weekly-digest",
             },
         )
@@ -190,11 +200,11 @@ def _send_digest_for_user(
     return DigestOutcome.SENT
 
 
-def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
+def _is_user_flag_enabled(user: User, org_id: str, flag_key: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                "web-analytics-weekly-digest",
+                flag_key,
                 distinct_id=str(user.distinct_id),
                 groups={"organization": org_id},
                 only_evaluate_locally=False,
@@ -203,13 +213,22 @@ def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
         )
     except Exception as e:
         logger.warning(
-            "wa digest: flag eval failed, treating user as not targeted",
+            "wa digest: flag eval failed, treating user as not enabled",
+            flag_key=flag_key,
             user_id=str(user.uuid),
             org_id=org_id,
             error=str(e),
         )
         capture_exception(e, {"user_id": str(user.uuid), "org_id": org_id})
         return False
+
+
+def _is_user_recap_enabled(user: User, org_id: str) -> bool:
+    return _is_user_flag_enabled(user, org_id, "web-analytics-recap")
+
+
+def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
+    return _is_user_flag_enabled(user, org_id, "web-analytics-weekly-digest")
 
 
 def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCounts:
