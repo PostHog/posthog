@@ -9,15 +9,15 @@ SparkPost (now part of Bird) — transactional & marketing email delivery. REST/
 
 ## Endpoints
 
-| Schema             | Path                       | Pagination | Primary key            | Partition key | Incremental                  |
-| ------------------ | -------------------------- | ---------- | ---------------------- | ------------- | ---------------------------- |
-| `events`           | `/api/v1/events/message`   | cursor     | `event_id`             | `timestamp`   | yes — `from` filter on `timestamp` |
-| `suppression_list` | `/api/v1/suppression-list` | cursor     | `recipient`, `type`    | `created`     | no (full refresh)            |
-| `recipient_lists`  | `/api/v1/recipient-lists`  | none       | `id`                   | —             | no (full refresh)            |
-| `templates`        | `/api/v1/templates`        | none       | `id`                   | —             | no (full refresh)            |
-| `sending_domains`  | `/api/v1/sending-domains`  | none       | `domain`               | —             | no (full refresh)            |
-| `subaccounts`      | `/api/v1/subaccounts`      | none       | `id`                   | —             | no (full refresh)            |
-| `webhooks`         | `/api/v1/webhooks`         | none       | `id`                   | —             | no (full refresh)            |
+| Schema             | Path                       | Pagination | Primary key         | Partition key | Incremental                        |
+| ------------------ | -------------------------- | ---------- | ------------------- | ------------- | ---------------------------------- |
+| `events`           | `/api/v1/events/message`   | cursor     | `event_id`          | `timestamp`   | yes — `from` filter on `timestamp` |
+| `suppression_list` | `/api/v1/suppression-list` | cursor     | `recipient`, `type` | `created`     | no (full refresh)                  |
+| `recipient_lists`  | `/api/v1/recipient-lists`  | none       | `id`                | —             | no (full refresh)                  |
+| `templates`        | `/api/v1/templates`        | none       | `id`                | —             | no (full refresh)                  |
+| `sending_domains`  | `/api/v1/sending-domains`  | none       | `domain`            | —             | no (full refresh)                  |
+| `subaccounts`      | `/api/v1/subaccounts`      | none       | `id`                | —             | no (full refresh)                  |
+| `webhooks`         | `/api/v1/webhooks`         | none       | `id`                | —             | no (full refresh)                  |
 
 ## Notes / gotchas
 
@@ -35,5 +35,5 @@ SparkPost (now part of Bird) — transactional & marketing email delivery. REST/
   marked incremental (the one endpoint with a documented server-side timestamp filter); everything else ships
   full refresh and dedupes on its primary key.
 - **Webhooks:** SparkPost exposes a programmatic Event Webhooks API (`/api/v1/webhooks`). This source pulls the
-  webhook *configuration* as a table but does not (yet) register PostHog as a push destination — a future
+  webhook _configuration_ as a table but does not (yet) register PostHog as a push destination — a future
   `WebhookSource` enhancement.
