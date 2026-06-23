@@ -1642,7 +1642,7 @@ def export_persons_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
-    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
+    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL
@@ -1743,7 +1743,7 @@ def export_persons_full_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
-    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
+    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL
