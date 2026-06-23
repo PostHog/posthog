@@ -182,6 +182,7 @@ the row lists both.
 | supabase          | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey      | HTTP                        | requests                                                        | ✅                          |
 | taboola           | HTTP                        | requests                                                        | ✅                          |
+| teamwork          | HTTP                        | requests                                                        | ✅                          |
 | temporalio        | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trello            | HTTP                        | requests                                                        | ✅                          |
@@ -646,7 +647,6 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tavus
 - teamtailor
-- teamwork
 - tempo
 - testrail
 - thinkific

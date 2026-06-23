@@ -3045,7 +3045,8 @@ class TeamtailorSourceConfig(config.Config):
 
 @config.config
 class TeamworkSourceConfig(config.Config):
-    pass
+    site: str
+    api_key: str
 
 
 @config.config
