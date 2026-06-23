@@ -679,6 +679,7 @@ class ExternalDataSourceType(models.TextChoices):
     METRONOME = "Metronome", "Metronome"
     JOBBER = "Jobber", "Jobber"
     KNOCK = "Knock", "Knock"
+    LEEXI = "Leexi", "Leexi"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
