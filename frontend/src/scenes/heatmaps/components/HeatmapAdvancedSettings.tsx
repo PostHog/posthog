@@ -48,17 +48,18 @@ export function HeatmapAdvancedSettings({
                                     <HeatmapsForbiddenURL />
                                 ) : null}
                             </div>
-                            {type === 'screenshot' ? (
-                                <div>
-                                    <LemonSwitch
-                                        checked={blockConsentModals}
-                                        onChange={setBlockConsentModals}
-                                        label="Dismiss cookie & consent banners"
-                                        bordered
-                                    />
-                                    <div className="text-xs text-muted mt-1">{consentHelp}</div>
-                                </div>
-                            ) : null}
+                            <div>
+                                <LemonSwitch
+                                    checked={blockConsentModals}
+                                    onChange={setBlockConsentModals}
+                                    label="Dismiss cookie & consent banners"
+                                    bordered
+                                    disabledReason={
+                                        type !== 'screenshot' ? 'Only available for screenshot heatmaps' : undefined
+                                    }
+                                />
+                                <div className="text-xs text-muted mt-1">{consentHelp}</div>
+                            </div>
                         </div>
                     ),
                 },
