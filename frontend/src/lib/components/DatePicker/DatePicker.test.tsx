@@ -19,9 +19,10 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 }))
 
 const QUILL_STUB_DATE = new Date(2023, 0, 20)
-jest.mock('@posthog/quill-components', () => {
+jest.mock('@posthog/quill', () => {
     const react = require('react')
     return {
+        ...jest.requireActual('@posthog/quill'),
         DatePicker: ({ onApply, onCancel }: { onApply: (value: Date) => void; onCancel: () => void }) =>
             react.createElement('div', null, [
                 react.createElement('button', { key: 'apply', onClick: () => onApply(QUILL_STUB_DATE) }, 'stub-apply'),
@@ -124,7 +125,7 @@ describe('DatePicker', () => {
         it('clears to null via the trigger clear control when clearable', async () => {
             const { container, onChange } = renderDatePicker(dayjs('2023-01-15'), { clearable: true })
 
-            await userEvent.click(within(container).getByLabelText('Clear'))
+            await userEvent.click(within(container).getByLabelText('Clear date'))
 
             expect(onChange).toHaveBeenCalledWith(null)
         })

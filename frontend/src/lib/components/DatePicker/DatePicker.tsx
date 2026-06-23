@@ -1,8 +1,7 @@
 import { useState } from 'react'
 
 import { IconCalendar, IconX } from '@posthog/icons'
-import { DatePicker as QuillDatePicker } from '@posthog/quill-components'
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
+import { Button, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -77,7 +76,10 @@ function quillCanRender(props: DatePickerProps): boolean {
         props.showTimeToggle === undefined &&
         props.use24HourFormat === undefined &&
         props.months === undefined &&
-        props.visible === undefined
+        props.visible === undefined &&
+        props.onOpen === undefined &&
+        props.onClickOutside === undefined &&
+        props.onClose === undefined
     )
 }
 
@@ -136,7 +138,7 @@ function DatePickerQuill({
             {clearable && value && !disabledReason && (
                 <Button
                     variant="outline"
-                    aria-label="Clear"
+                    aria-label="Clear date"
                     data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
                     onClick={() => onChange(null)}
                 >
