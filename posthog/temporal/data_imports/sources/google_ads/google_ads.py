@@ -15,7 +15,7 @@ from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
-from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient
+from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient, pagers
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
@@ -501,7 +501,7 @@ def _search_with_transient_retry(
     request: dict,
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
-) -> ga_services.SearchGoogleAdsResponse:
+) -> pagers.SearchPager:
     """Call ``GoogleAdsService.search``, retrying a transient gRPC ``UNAVAILABLE`` with backoff.
 
     Only retries before any page is yielded or checkpointed, so there is no partial state to
