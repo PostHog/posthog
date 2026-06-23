@@ -2593,9 +2593,9 @@
       INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_attributes2', '{replica}-{shard}')
-  PARTITION BY toDate(time_bucket)
+  PARTITION BY toDate(original_expiry_time_bucket)
   ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
-  TTL time_bucket + toIntervalDay(15)
+  TTL original_expiry_time_bucket
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
@@ -8838,9 +8838,9 @@
       INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_attributes2', '{replica}-{shard}')
-  PARTITION BY toDate(time_bucket)
+  PARTITION BY toDate(original_expiry_time_bucket)
   ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
-  TTL time_bucket + toIntervalDay(15)
+  TTL original_expiry_time_bucket
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
