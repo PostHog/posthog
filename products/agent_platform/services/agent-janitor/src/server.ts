@@ -689,9 +689,10 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 }
             )
             if (!result.ok) {
-                const status =
-                    result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
-                res.status(status).json(result.state ? { error: result.error, state: result.state } : { error: result.error })
+                const status = result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                res.status(status).json(
+                    result.state ? { error: result.error, state: result.state } : { error: result.error }
+                )
                 return
             }
             res.json({ ok: true, state: result.state })

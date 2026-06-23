@@ -34,6 +34,7 @@ import { reset } from '@posthog/agent-shared/testing'
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 
 import { buildApprovalDecidedMarker } from '@posthog/agent-shared'
+
 import { runSession } from './driver'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 

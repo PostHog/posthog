@@ -341,28 +341,36 @@ function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undef
  * defaults live here — the dispatcher reads `approval_policy` directly after Zod
  * parsing, so omitting fields falls through to these values.
  */
-export const ApprovalPolicySchema = z.preprocess((raw) => {
-    // Back-compat: pre-rebuild specs carry `approvers[]` + `allow_agent_approver`
-    // instead of `type`. Derive `type` from the old scope and drop the legacy
-    // keys so old frozen revisions still validate.
-    if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as Record<string, unknown>).type === undefined) {
-        const obj = { ...(raw as Record<string, unknown>) }
-        const type = legacyApproversToApprovalType(obj.approvers)
-        delete obj.approvers
-        delete obj.allow_agent_approver
-        return type ? { ...obj, type } : obj
-    }
-    return raw
-}, z.object({
-    type: ApprovalTypeSchema.default('principal'),
-    allow_edit: z.boolean().default(false),
-    ttl_ms: z
-        .number()
-        .int()
-        .min(60_000) // 1 minute
-        .max(7 * 24 * 60 * 60 * 1000) // 7 days
-        .default(24 * 60 * 60 * 1000), // 24h
-}))
+export const ApprovalPolicySchema = z.preprocess(
+    (raw) => {
+        // Back-compat: pre-rebuild specs carry `approvers[]` + `allow_agent_approver`
+        // instead of `type`. Derive `type` from the old scope and drop the legacy
+        // keys so old frozen revisions still validate.
+        if (
+            raw &&
+            typeof raw === 'object' &&
+            !Array.isArray(raw) &&
+            (raw as Record<string, unknown>).type === undefined
+        ) {
+            const obj = { ...(raw as Record<string, unknown>) }
+            const type = legacyApproversToApprovalType(obj.approvers)
+            delete obj.approvers
+            delete obj.allow_agent_approver
+            return type ? { ...obj, type } : obj
+        }
+        return raw
+    },
+    z.object({
+        type: ApprovalTypeSchema.default('principal'),
+        allow_edit: z.boolean().default(false),
+        ttl_ms: z
+            .number()
+            .int()
+            .min(60_000) // 1 minute
+            .max(7 * 24 * 60 * 60 * 1000) // 7 days
+            .default(24 * 60 * 60 * 1000), // 24h
+    })
+)
 
 const DEFAULT_APPROVAL_POLICY = {
     type: 'principal' as const,

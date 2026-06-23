@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ApprovalRequest, ApprovalStore, DecideApprovalInput } from './approval-store'
-import {
-    applyApprovalDecision,
-    buildApprovalDecidedMarker,
-    parseApprovalDecidedMarker,
-} from './approval-decision'
 import type { ConversationMessage } from '../spec/spec'
+import { applyApprovalDecision, buildApprovalDecidedMarker, parseApprovalDecidedMarker } from './approval-decision'
+import type { ApprovalRequest, ApprovalStore, DecideApprovalInput } from './approval-store'
 import type { SessionQueue } from './queue'
 
 function fakeRow(over: Partial<ApprovalRequest> = {}): ApprovalRequest {
@@ -60,13 +56,21 @@ function harness(opts: { row: ApprovalRequest | null; markReturnsNull?: boolean 
             opts.row && opts.row.id === id && opts.row.application_id === applicationId ? opts.row : null,
         markApproving: async (id: string, input: DecideApprovalInput) => {
             calls.markApproving.push(input)
-            return opts.markReturnsNull ? null : fakeRow({ ...opts.row!, id, state: 'approving', decision_by: input.decided_by })
+            return opts.markReturnsNull
+                ? null
+                : fakeRow({ ...opts.row!, id, state: 'approving', decision_by: input.decided_by })
         },
         markRejected: async (id: string, input: DecideApprovalInput) => {
             calls.markRejected.push(input)
             return opts.markReturnsNull
                 ? null
-                : fakeRow({ ...opts.row!, id, state: 'rejected', decision_by: input.decided_by, decision_reason: input.reason ?? null })
+                : fakeRow({
+                      ...opts.row!,
+                      id,
+                      state: 'rejected',
+                      decision_by: input.decided_by,
+                      decision_reason: input.reason ?? null,
+                  })
         },
     } as unknown as ApprovalStore
     const queue = {
@@ -124,7 +128,12 @@ describe('applyApprovalDecision', () => {
     it('returns not_queued for an already-decided row', async () => {
         const h = harness({ row: fakeRow({ state: 'approving' }) })
         expect(
-            await applyApprovalDecision(h, { requestId: 'req-1', applicationId: 'app-1', decision: 'approve', decidedBy: 'u' })
+            await applyApprovalDecision(h, {
+                requestId: 'req-1',
+                applicationId: 'app-1',
+                decision: 'approve',
+                decidedBy: 'u',
+            })
         ).toEqual({ ok: false, error: 'not_queued', state: 'approving' })
     })
 
@@ -144,7 +153,12 @@ describe('applyApprovalDecision', () => {
     it('returns race_lost when the atomic flip loses to a concurrent decider', async () => {
         const h = harness({ row: fakeRow(), markReturnsNull: true })
         expect(
-            await applyApprovalDecision(h, { requestId: 'req-1', applicationId: 'app-1', decision: 'approve', decidedBy: 'u' })
+            await applyApprovalDecision(h, {
+                requestId: 'req-1',
+                applicationId: 'app-1',
+                decision: 'approve',
+                decidedBy: 'u',
+            })
         ).toEqual({ ok: false, error: 'race_lost' })
     })
 

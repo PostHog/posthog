@@ -296,7 +296,11 @@ export async function postSlackApprovalButtons(http: HttpFetcher, opts: PostAppr
         return true
     } catch (err) {
         opts.logger?.warn(
-            { session_id: opts.sessionId, channel: opts.channel, err: err instanceof Error ? err.message : String(err) },
+            {
+                session_id: opts.sessionId,
+                channel: opts.channel,
+                err: err instanceof Error ? err.message : String(err),
+            },
             'slack_approval_buttons_threw'
         )
         return false

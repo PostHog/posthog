@@ -21,9 +21,7 @@
             "config": {
                 "ack_reaction": "eyes",
                 "mention_only": true,
-                "trusted_workspaces": [
-                    "TSS5W8YQZ"
-                ],
+                "trusted_workspaces": ["TSS5W8YQZ"],
                 "auto_resume_threads": true,
                 "allow_workspace_participants": false,
                 "allow_direct_messages": true
@@ -149,16 +147,12 @@
     "secrets": [
         {
             "name": "SLACK_BOT_TOKEN",
-            "allowed_hosts": [
-                "slack.com"
-            ]
+            "allowed_hosts": ["slack.com"]
         },
         "SLACK_SIGNING_SECRET",
         {
             "name": "INCIDENT_IO_TOKEN",
-            "allowed_hosts": [
-                "api.incident.io"
-            ]
+            "allowed_hosts": ["api.incident.io"]
         },
         "WEBHOOK_SECRET"
     ],

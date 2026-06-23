@@ -400,8 +400,7 @@ export function buildApp(opts: BuildAppOpts): Express {
                 }
             )
             if (!result.ok) {
-                const status =
-                    result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                const status = result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
                 res.status(status).json(
                     result.state ? { error: result.error, state: result.state } : { error: result.error }
                 )
