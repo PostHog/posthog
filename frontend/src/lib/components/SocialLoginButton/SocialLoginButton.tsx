@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { type ReactNode } from 'react'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
@@ -83,33 +82,28 @@ export function SocialLoginButton({
     )
 }
 
-interface PasskeyIconButtonProps {
-    onClick: () => void
-    loading?: boolean
+interface PasskeyLoginButtonProps {
     isLastUsed?: boolean
-    tooltip?: string
-    'data-attr'?: string
+    extraQueryParams?: Record<string, string>
 }
 
-/** Icon-only passkey button for the social-login row. Caller supplies the action (login or signup). */
-export function PasskeyIconButton({
-    onClick,
-    loading,
-    isLastUsed,
-    tooltip = 'Passkey',
-    'data-attr': dataAttr = 'passkey-login',
-}: PasskeyIconButtonProps): JSX.Element {
+export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
+    const { beginPasskeyLogin } = useActions(passkeyLogic)
+    const { isLoading } = useValues(passkeyLogic)
+
     return (
         <div className="relative">
             <LemonButton
                 size="large"
                 icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
                 active={isLastUsed}
-                tooltip={tooltip}
+                tooltip="Passkey"
                 htmlType="button"
-                onClick={onClick}
-                loading={loading}
-                data-attr={dataAttr}
+                onClick={() => {
+                    beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)
+                }}
+                loading={isLoading}
+                data-attr="passkey-login"
             />
             {isLastUsed && (
                 <LemonTag
@@ -124,24 +118,6 @@ export function PasskeyIconButton({
     )
 }
 
-interface PasskeyLoginButtonProps {
-    isLastUsed?: boolean
-    extraQueryParams?: Record<string, string>
-}
-
-export function PasskeyLoginButton({ isLastUsed, extraQueryParams }: PasskeyLoginButtonProps): JSX.Element {
-    const { beginPasskeyLogin } = useActions(passkeyLogic)
-    const { isLoading } = useValues(passkeyLogic)
-
-    return (
-        <PasskeyIconButton
-            isLastUsed={isLastUsed}
-            loading={isLoading}
-            onClick={() => beginPasskeyLogin(undefined, extraQueryParams as BeginPasskeyLoginParams)}
-        />
-    )
-}
-
 interface SocialLoginButtonsProps {
     title?: string
     caption?: string
@@ -152,8 +128,6 @@ interface SocialLoginButtonsProps {
     extraQueryParams?: Record<string, string>
     lastUsedProvider?: LoginMethod
     showPasskey?: boolean
-    /** Extra buttons rendered inside the icon row, after the social providers (e.g. a signup passkey button). */
-    extraButtons?: ReactNode
 }
 
 export function SocialLoginButtons({
@@ -165,12 +139,11 @@ export function SocialLoginButtons({
     bottomDivider,
     lastUsedProvider,
     showPasskey = false,
-    extraButtons,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    if (!preflight || (!socialAuthAvailable && !showPasskey && !extraButtons)) {
+    if (!preflight || (!socialAuthAvailable && !showPasskey)) {
         return null
     }
 
@@ -196,7 +169,6 @@ export function SocialLoginButtons({
                         />
                     ))}
                     {showPasskey && <PasskeyLoginButton isLastUsed={lastUsedProvider === 'passkey'} {...props} />}
-                    {extraButtons}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>

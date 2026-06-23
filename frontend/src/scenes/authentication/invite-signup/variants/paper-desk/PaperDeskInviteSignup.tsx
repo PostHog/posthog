@@ -6,13 +6,12 @@ import { PostHogLogo } from 'lib/brand/v2'
 import { JudgeHog } from 'lib/components/hedgehogs'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import {
-    PasskeyIconButton,
-    SocialLoginButtons,
-    SSOEnforcedLoginButton,
-} from 'lib/components/SocialLoginButton/SocialLoginButton'
+import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { SocialLoginButton, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -23,12 +22,70 @@ import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { OrgTile } from 'scenes/authentication/shared/paperDesk/OrgTile'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { PrevalidatedInvite } from '~/types'
+import { PrevalidatedInvite, SSOProvider } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
+
+/**
+ * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
+ * The passkey button is assembled here (not in SocialLoginButtons) because a passkey isn't a social login.
+ */
+function InviteAlternativeLogins({
+    invite,
+    showPasskey,
+    onRegisterPasskey,
+    passkeyRegistering,
+}: {
+    invite: PrevalidatedInvite
+    showPasskey: boolean
+    onRegisterPasskey: () => void
+    passkeyRegistering: boolean
+}): JSX.Element | null {
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
+
+    const order = Object.keys(SSO_PROVIDER_NAMES)
+    const socialProviders =
+        socialAuthAvailable && preflight
+            ? Object.keys(preflight.available_social_auth_providers).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+            : []
+
+    if (!socialProviders.length && !showPasskey) {
+        return null
+    }
+
+    return (
+        <>
+            <LemonDivider dashed className="my-4" />
+            <div className="text-center deprecated-space-y-4">
+                <p className="text-secondary">or continue with</p>
+                <div className="flex gap-4 justify-center flex-wrap">
+                    {socialProviders.map((provider) => (
+                        <SocialLoginButton
+                            key={provider}
+                            provider={provider as SSOProvider}
+                            extraQueryParams={{ invite_id: invite.id }}
+                        />
+                    ))}
+                    {showPasskey && (
+                        <LemonButton
+                            size="large"
+                            htmlType="button"
+                            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                            tooltip="Sign up with a passkey"
+                            onClick={onRegisterPasskey}
+                            loading={passkeyRegistering}
+                            data-attr="invite-signup-passkey"
+                        />
+                    )}
+                </div>
+            </div>
+        </>
+    )
+}
 
 function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const {
@@ -209,21 +266,11 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                     )}
                 </Form>
                 {!extraFieldsHidden && (
-                    <SocialLoginButtons
-                        topDivider
-                        caption="or continue with"
-                        captionLocation="top"
-                        extraQueryParams={{ invite_id: invite.id }}
-                        extraButtons={
-                            passkeySignupEnabled && !passkeyRegistered ? (
-                                <PasskeyIconButton
-                                    onClick={() => registerPasskey()}
-                                    loading={isPasskeyRegistering}
-                                    tooltip="Sign up with a passkey"
-                                    data-attr="invite-signup-passkey"
-                                />
-                            ) : undefined
-                        }
+                    <InviteAlternativeLogins
+                        invite={invite}
+                        showPasskey={passkeySignupEnabled && !passkeyRegistered}
+                        onRegisterPasskey={() => registerPasskey()}
+                        passkeyRegistering={isPasskeyRegistering}
                     />
                 )}
             </PaperDeskCard>
