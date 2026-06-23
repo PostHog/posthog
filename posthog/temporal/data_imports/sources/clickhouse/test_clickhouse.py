@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterable
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
@@ -25,9 +26,12 @@ from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
     get_primary_keys_for_schemas,
 )
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestQuoteIdentifier:
@@ -231,7 +235,8 @@ class TestBuildQuery:
             "SELECT `id`, `name` FROM `default`.`events` WHERE `id` > %(row_filter_0)s AND `name` = %(row_filter_1)s"
         )
         assert params == {"row_filter_0": 21, "row_filter_1": "x'; DROP TABLE y; --"}
-        assert "DROP TABLE" not in query.replace("%(row_filter_1)s", "")
+        # The value binds as a param, so the injection payload never reaches the SQL string.
+        assert "DROP TABLE" not in query
 
     def test_incremental_ands_row_filters_after_cursor(self):
         query, params = _build_query(
@@ -1065,3 +1070,30 @@ class TestGetRowsBatching:
 
     def test_empty_stream_yields_nothing(self):
         assert self._run_get_rows([]) == []
+
+
+class TestClickHouseReconcileSchemaMetadata(BaseTest):
+    """The ClickHouse-specific override that routes through the shared reconcile helper."""
+
+    def test_persists_schema_metadata_for_clickhouse_source(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.CLICKHOUSE)
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="events")
+
+        result = ClickHouseSource().reconcile_schema_metadata(
+            source=source,
+            source_schemas=[
+                SourceSchema(
+                    name="events",
+                    supports_incremental=False,
+                    supports_append=False,
+                    columns=[("uuid", "UUID", False), ("timestamp", "DateTime64(6)", False)],
+                )
+            ],
+            team_id=self.team.pk,
+        )
+
+        assert result == []
+        schema.refresh_from_db()
+        metadata = schema.schema_metadata
+        assert metadata is not None
+        assert [column["name"] for column in metadata["columns"]] == ["uuid", "timestamp"]

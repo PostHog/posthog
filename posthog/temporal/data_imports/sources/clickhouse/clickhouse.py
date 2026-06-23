@@ -1024,7 +1024,7 @@ def _build_query(
     if not should_use_incremental_field:
         if filter_conditions:
             return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
-        return f"SELECT {select_list} FROM {qualified}", {}
+        return f"SELECT {select_list} FROM {qualified}", filter_params
 
     if incremental_field is None:
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")

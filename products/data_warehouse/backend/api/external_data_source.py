@@ -2189,11 +2189,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource) and source.supports_column_selection:
-                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
-            elif isinstance(source, ClickHouseSource):
-                # ClickHouse isn't a SQLSource but exposes the same reconcile hook so
-                # row filters validate and the column picker populates.
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
