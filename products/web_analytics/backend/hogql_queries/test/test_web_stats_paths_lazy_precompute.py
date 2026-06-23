@@ -384,19 +384,25 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"doPathCleaning on/off must produce distinct cache keys, got overlap: {raw_hashes & cleaned_hashes}"
         )
 
-    def test_top_k_ranking_expr_matches_sort(self):
+    @parameterized.expand(
+        [
+            # Descending sorts cap by the matching merge metric; default is visitors DESC.
+            ("default_visitors", None, "uniqMerge"),
+            ("views_desc", [WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC], "sumMerge"),
+            ("bounce_desc", [WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC], "avgMerge"),
+            # Ascending sorts are not capped (the "top" is a tied long tail) → store full set.
+            ("visitors_asc", [WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC], None),
+        ]
+    )
+    def test_top_k_ranking_expr_matches_sort(self, _name: str, order_by, expected_metric):
         from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import _top_k_ranking_expr
 
-        def expr_for(order_by):
-            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(order_by=order_by))
-            return _top_k_ranking_expr(runner)
-
-        # Descending sorts cap by the matching merge metric; the default is visitors DESC.
-        assert "uniqMerge" in repr(expr_for(None))
-        assert "sumMerge" in repr(expr_for([WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC]))
-        assert "avgMerge" in repr(expr_for([WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC]))
-        # Ascending sorts are not capped (the "top" is a tied long tail) → store full set.
-        assert expr_for([WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC]) is None
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(order_by=order_by))
+        expr = _top_k_ranking_expr(runner)
+        if expected_metric is None:
+            assert expr is None
+        else:
+            assert expected_metric in repr(expr)
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_sort_key_gets_distinct_cache_entry(self):

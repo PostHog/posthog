@@ -344,10 +344,13 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     set uncapped instead. Field/direction default to `visitors DESC`, matching
     `WebStatsTableQueryRunner._resolve_sort_field`. Bounce NaN (paths with no entry
     sessions) ranks last via the `-1.0` sentinel, matching the read's NULLS-LAST."""
-    direction = runner.query.orderBy[1] if runner.query.orderBy else WebAnalyticsOrderByDirection.DESC
+    order_by = runner.query.orderBy or []
+    # A missing direction (single-element or empty orderBy) defaults to DESC, matching
+    # `_resolve_sort_field`'s fallback — so we still cap rather than storing the full set.
+    direction = order_by[1] if len(order_by) > 1 else WebAnalyticsOrderByDirection.DESC
     if direction != WebAnalyticsOrderByDirection.DESC:
         return None
-    field = runner.query.orderBy[0] if runner.query.orderBy else WebAnalyticsOrderByFields.VISITORS
+    field = order_by[0] if order_by else WebAnalyticsOrderByFields.VISITORS
     if field == WebAnalyticsOrderByFields.VIEWS:
         return parse_expr("sumMerge(sum_pageviews_state)")
     if field == WebAnalyticsOrderByFields.BOUNCE_RATE:
