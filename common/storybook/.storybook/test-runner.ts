@@ -403,8 +403,62 @@ async function takeSnapshotWithTheme(
     // final wait for any remaining renders
     await page.waitForTimeout(1000)
 
+    // Deterministically settle every animation on its final keyframe before snapshotting.
+    // The CSS override (animation-duration:0ms + forwards, see base.scss) is meant to do
+    // this, but headless Chromium in CI fills a zero-duration animation inconsistently and
+    // can paint the 0% keyframe — which collapses entrance animations whose final layout
+    // exists only via the fill (Fade -> opacity 0, BillingGauge/progress bars -> width 0),
+    // blanking content. finish() jumps each animation to its end, commitStyles() writes the
+    // exact end-keyframe values to inline style, and cancel() drops the mis-painting
+    // animation so the committed inline values win. Committing the exact end keyframe (not a
+    // re-timed frame) keeps it byte-identical to baselines, so unaffected stories don't drift.
+    await freezeAnimationsToEnd(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+async function freezeAnimationsToEnd(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // Pass 1: settle still-running animations onto their final keyframe.
+        for (const animation of document.getAnimations()) {
+            let finished = false
+            try {
+                animation.finish()
+                finished = true
+            } catch {
+                // Infinite/unfinishable animations can't be finished — leave them to the CSS override.
+            }
+            if (!finished) {
+                continue
+            }
+            try {
+                animation.commitStyles()
+            } catch {
+                // commitStyles throws for pseudo-element targets or non-committable props — skip.
+            }
+            try {
+                animation.cancel()
+            } catch {
+                // ignore
+            }
+        }
+
+        // Pass 2: rescue collapsed entrance animations. A short entrance animation
+        // (opacity 0 -> 1 forwards) finishes well before the snapshot and Chromium
+        // auto-removes it from getAnimations(), so pass 1 can't reach it. In CI that
+        // removed animation can paint its 0% keyframe (the element's opacity:0 base)
+        // instead of the held end value, leaving content invisible. Detect that
+        // signature — an element that still carries an animation-name but computes to
+        // opacity 0 — and pin it visible. (Local Chromium holds the end value, so this
+        // is a no-op there and stays byte-identical to baselines.)
+        for (const el of document.querySelectorAll<HTMLElement>('*')) {
+            const style = getComputedStyle(el)
+            if (style.animationName !== 'none' && parseFloat(style.opacity) === 0) {
+                el.style.setProperty('opacity', '1', 'important')
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(

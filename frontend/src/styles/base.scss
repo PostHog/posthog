@@ -1629,6 +1629,26 @@
             animation-iteration-count: 1 !important;
         }
 
+        // The animation-duration:0ms + forwards override above is meant to snap every
+        // animation to its final keyframe, but headless Chromium in CI handles a
+        // zero-duration animation's fill inconsistently and can paint the 0% keyframe
+        // instead. For entrance animations whose final layout exists ONLY via the
+        // forwards fill, that doesn't just dim the element — it collapses it (faded-in
+        // content stays invisible; width-expanded markers stay at width 0 and pile up at
+        // the bar's left edge). Pin the end state directly for those components; as
+        // !important author rules these override the animation regardless of how the
+        // frame settles.
+        .fade-component-container {
+            // Fade animates opacity 0 -> 1.
+            opacity: 1 !important;
+        }
+
+        .BillingGaugeItem {
+            // BillingGaugeItem animates width 0 -> --billing-gauge-item-width, which
+            // positions its marker/label along the gauge bar.
+            width: var(--billing-gauge-item-width) !important;
+        }
+
         // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
         // makes it inherently non-deterministic, CSS animation overrides don't help
         .Hogfetti {
