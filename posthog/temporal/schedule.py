@@ -323,7 +323,8 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
 async def create_sync_events_retention_schedule(client: Client):
     """Create or update the schedule for the events retention sync workflow.
 
-    This schedule runs daily at 2 AM UTC.
+    Runs daily at 02:22 UTC — an off-the-hour minute so it doesn't pile onto the cluster of jobs that fire at the
+    top of the hour.
     """
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -338,8 +339,9 @@ async def create_sync_events_retention_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at 2 AM UTC",
+                    comment="Daily at 02:22 UTC",
                     hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=22, end=22)],
                 )
             ]
         ),
