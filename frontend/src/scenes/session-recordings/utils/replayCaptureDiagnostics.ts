@@ -7,6 +7,7 @@ export type DiagnosisVerdict =
     | 'trigger_pending'
     | 'sampled_out'
     | 'buffering_empty'
+    | 'recorder_error'
     | 'unknown'
 
 export interface SuggestedAction {
@@ -29,17 +30,27 @@ const DIAGNOSTIC_KEYS = [
     '$session_recording_url_trigger_activated_session',
     '$session_recording_url_trigger_status',
     '$session_recording_remote_config',
+    '$session_recording_event_trigger_activated_session',
     '$sdk_debug_replay_url_trigger_status',
     '$sdk_debug_replay_event_trigger_status',
     '$sdk_debug_replay_linked_flag_trigger_status',
+    '$sdk_debug_replay_trigger_groups_count',
+    '$sdk_debug_replay_matched_recording_trigger_groups',
     '$sdk_debug_replay_internal_buffer_length',
     '$sdk_debug_replay_internal_buffer_size',
     '$sdk_debug_replay_flushed_size',
     '$sdk_debug_replay_remote_trigger_matching_config',
     '$sdk_debug_recording_script_not_loaded',
+    '$sdk_debug_rrweb_start_attempted',
+    '$sdk_debug_rrweb_attached',
+    '$sdk_debug_replay_rrweb_error',
     '$sdk_debug_session_start',
     '$replay_sample_rate',
     '$replay_minimum_duration',
+    '$replay_override_sampling',
+    '$replay_override_linked_flag',
+    '$replay_override_url_trigger',
+    '$replay_override_event_trigger',
 ] as const
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
@@ -84,6 +95,9 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
+    const rrwebStartAttempted = properties['$sdk_debug_rrweb_start_attempted']
+    const rrwebAttached = properties['$sdk_debug_rrweb_attached']
+    const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
     const settingsAction: SuggestedAction = {
         label: 'Open replay settings',
@@ -150,6 +164,21 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    if (rrwebStartAttempted === true && rrwebAttached === false) {
+        return {
+            verdict: 'recorder_error',
+            headline: 'The recorder was started but failed to attach',
+            reasons: [
+                'The SDK attempted to start the rrweb recorder for this session, but it never attached — so no snapshots were produced.',
+                rrwebError
+                    ? `rrweb reported an error: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`
+                    : 'No rrweb error was reported — the page may have navigated or torn down the recorder before it could attach.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
         }
     }
 

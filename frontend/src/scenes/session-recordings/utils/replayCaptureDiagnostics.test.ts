@@ -88,6 +88,35 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
+            name: 'rrweb start attempted but never attached → recorder_error',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_rrweb_start_attempted: true,
+                $sdk_debug_rrweb_attached: false,
+            },
+            expected: 'recorder_error',
+        },
+        {
+            name: 'rrweb start attempted and attached → not recorder_error',
+            properties: {
+                $recording_status: 'active',
+                $sdk_debug_rrweb_start_attempted: true,
+                $sdk_debug_rrweb_attached: true,
+                $sdk_debug_replay_flushed_size: 1024,
+            },
+            expected: 'captured',
+        },
+        {
+            name: 'pending trigger takes precedence over an unattached recorder',
+            properties: {
+                $recording_status: 'buffering',
+                $sdk_debug_replay_event_trigger_status: 'trigger_pending',
+                $sdk_debug_rrweb_start_attempted: true,
+                $sdk_debug_rrweb_attached: false,
+            },
+            expected: 'trigger_pending',
+        },
+        {
             name: 'string-valued flushed size is coerced to a number',
             properties: {
                 $recording_status: 'active',
@@ -243,6 +272,32 @@ describe('diagnoseReplayCapture', () => {
         expect(result.reasons[0]).toContain('URL trigger')
         expect(result.reasons[0]).toContain('event trigger')
         expect(result.reasons[0]).not.toContain('linked flag trigger')
+    })
+
+    it('recorder_error surfaces the rrweb error message when present', () => {
+        const result = diagnoseReplayCapture({
+            $recording_status: 'buffering',
+            $sdk_debug_rrweb_start_attempted: true,
+            $sdk_debug_rrweb_attached: false,
+            $sdk_debug_replay_rrweb_error: 'boom',
+        })
+        expect(result.verdict).toBe('recorder_error')
+        expect(result.reasons.some((r) => r.includes('boom'))).toBe(true)
+    })
+
+    it('preserves newly added replay debug keys in rawSignals', () => {
+        const result = diagnoseReplayCapture({
+            $replay_override_sampling: true,
+            $sdk_debug_rrweb_attached: false,
+            $sdk_debug_replay_trigger_groups_count: 3,
+            $session_recording_event_trigger_activated_session: 'abc',
+            $not_a_signal: 'ignored',
+        })
+        expect(result.rawSignals).toHaveProperty('$replay_override_sampling')
+        expect(result.rawSignals).toHaveProperty('$sdk_debug_rrweb_attached')
+        expect(result.rawSignals).toHaveProperty('$sdk_debug_replay_trigger_groups_count')
+        expect(result.rawSignals).toHaveProperty('$session_recording_event_trigger_activated_session')
+        expect(result.rawSignals).not.toHaveProperty('$not_a_signal')
     })
 
     it('preserves all known diagnostic keys in rawSignals', () => {

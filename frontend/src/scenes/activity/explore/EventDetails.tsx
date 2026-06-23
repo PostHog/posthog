@@ -185,24 +185,14 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 />
                             </div>
                         )
-                    case 'debug_properties':
-                        return (
-                            <div className="mx-3 deprecated-space-y-2">
-                                {hasReplayDiagnosticSignals(properties) && (
-                                    <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
-                                )}
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    tableProps={tableProps}
-                                    sortProperties
-                                    searchable
-                                />
-                            </div>
-                        )
                     default:
                         return (
                             <div className="mx-3">
+                                {tabKey === 'debug_properties' && hasReplayDiagnosticSignals(properties) && (
+                                    <div className="mb-2">
+                                        <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
+                                    </div>
+                                )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
