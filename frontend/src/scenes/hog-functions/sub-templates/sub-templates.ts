@@ -1283,7 +1283,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Post to Microsoft Teams on subscription delivered',
             description: 'Posts a message to Microsoft Teams when a subscription report is delivered',
             inputs: {
-                content: {
+                text: {
                     value: '📊 Subscription **{event.properties.subscription_name}** was delivered via {event.properties.target_type}\n{event.properties.summary}',
                 },
             },

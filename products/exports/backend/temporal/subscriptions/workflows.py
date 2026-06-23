@@ -96,6 +96,37 @@ def _build_outcome_assets(
     return outcome_assets, successful_asset_ids
 
 
+async def _emit_subscription_delivered(
+    inputs: TrackedSubscriptionInputs,
+    delivery_id: uuid.UUID,
+    recipient_count: int,
+    successful_asset_ids: list[int],
+) -> None:
+    """Best-effort: announce a successful delivery as an internal event so users can hook it
+    into CDP destinations (mirrors the alert flow). Swallows its own errors so a failed emit
+    never flips an already-succeeded delivery. Both delivery workflows call this from their
+    finally block, gated on COMPLETED (a free helper, not a shared base — no run-method sharing)."""
+    try:
+        await temporalio.workflow.execute_activity(
+            emit_subscription_delivered_event,
+            EmitSubscriptionDeliveredInputs(
+                subscription_id=inputs.subscription_id,
+                team_id=inputs.team_id,
+                delivery_id=delivery_id,
+                trigger_type=inputs.trigger_type,
+                recipient_count=recipient_count,
+                successful_asset_ids=successful_asset_ids,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+    except Exception:
+        temporalio.workflow.logger.warning(
+            "emit_subscription_delivered_event failed (best-effort)",
+            extra={"subscription_id": inputs.subscription_id},
+        )
+
+
 @temporalio.workflow.defn(name="schedule-all-subscriptions")
 class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -401,29 +432,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Best-effort: announce a successful delivery as an internal event so users can
-            # hook it into CDP destinations (mirrors the alert flow). Runs only on COMPLETED
-            # and swallows its own errors, so it never flips an already-succeeded delivery.
+            # Announce a successful delivery for CDP destinations, carrying the screenshot URLs.
             if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        emit_subscription_delivered_event,
-                        EmitSubscriptionDeliveredInputs(
-                            subscription_id=inputs.subscription_id,
-                            team_id=inputs.team_id,
-                            delivery_id=delivery_id,
-                            trigger_type=inputs.trigger_type,
-                            recipient_count=len(delivery_recipient_results),
-                            successful_asset_ids=list(successful_asset_ids),
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=1),
-                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-                    )
-                except Exception:
-                    temporalio.workflow.logger.warning(
-                        "emit_subscription_delivered_event failed (best-effort)",
-                        extra={"subscription_id": inputs.subscription_id},
-                    )
+                await _emit_subscription_delivered(
+                    inputs, delivery_id, len(delivery_recipient_results), list(successful_asset_ids)
+                )
 
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
@@ -591,29 +604,10 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Best-effort: announce the delivery as an internal event for CDP destinations
-            # (mirrors the alert flow). AI subs carry no screenshots, so no asset URLs — the
+            # Announce the delivery for CDP destinations. AI subs carry no screenshots — the
             # event carries the generated report markdown as its summary instead.
             if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
-                try:
-                    await temporalio.workflow.execute_activity(
-                        emit_subscription_delivered_event,
-                        EmitSubscriptionDeliveredInputs(
-                            subscription_id=inputs.subscription_id,
-                            team_id=inputs.team_id,
-                            delivery_id=delivery_id,
-                            trigger_type=inputs.trigger_type,
-                            recipient_count=len(delivery_recipient_results),
-                            successful_asset_ids=[],
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=1),
-                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
-                    )
-                except Exception:
-                    temporalio.workflow.logger.warning(
-                        "emit_subscription_delivered_event failed (best-effort)",
-                        extra={"subscription_id": inputs.subscription_id},
-                    )
+                await _emit_subscription_delivered(inputs, delivery_id, len(delivery_recipient_results), [])
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

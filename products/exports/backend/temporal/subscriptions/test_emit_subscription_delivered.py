@@ -93,7 +93,7 @@ async def test_emit_for_insight_subscription_includes_summary_and_asset_urls(tea
     assert kwargs["team_id"] == team.id
     event = kwargs["event"]
     assert event.event == "$subscription_delivered"
-    assert event.uuid == f"subscription_delivered:{delivery.id}"
+    assert event.uuid == str(delivery.id)
     props = event.properties
     assert props["resource_type"] == "insight"
     assert props["target_type"] == Subscription.SubscriptionTarget.SLACK

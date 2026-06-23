@@ -525,10 +525,15 @@ async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInp
             summary = summary[:_MAX_EVENT_SUMMARY_CHARS]
 
         # Reuse the screenshots the email/Slack delivery sent — same signed exporter URLs.
+        # Preserve the caller's asset order (a `pk__in` queryset doesn't guarantee it).
         asset_urls: list[str] = []
         if inputs.successful_asset_ids:
-            assets = ExportedAsset.objects.filter(pk__in=inputs.successful_asset_ids)
-            asset_urls = [asset.get_subscription_delivery_content_url() for asset in assets]
+            assets_by_id = {a.id: a for a in ExportedAsset.objects.filter(pk__in=inputs.successful_asset_ids)}
+            asset_urls = [
+                assets_by_id[asset_id].get_subscription_delivery_content_url()
+                for asset_id in inputs.successful_asset_ids
+                if asset_id in assets_by_id
+            ]
 
         properties = {
             "subscription_id": subscription.id,
@@ -552,8 +557,9 @@ async def emit_subscription_delivered_event(inputs: EmitSubscriptionDeliveredInp
                 event="$subscription_delivered",
                 distinct_id=f"team_{inputs.team_id}",
                 properties=properties,
-                # Deterministic uuid → ingestion dedups if this activity is retried.
-                uuid=f"subscription_delivered:{inputs.delivery_id}",
+                # Reuse the delivery's UUID as the event uuid — a valid, stable id that lets
+                # ingestion dedup if this best-effort activity is retried (one event per delivery).
+                uuid=str(inputs.delivery_id),
                 timestamp=tz.now().isoformat(),
             ),
         )
