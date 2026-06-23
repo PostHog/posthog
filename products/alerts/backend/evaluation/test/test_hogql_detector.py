@@ -19,6 +19,7 @@ ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
 # zscore floors min-samples at 31, so a scoreable series needs >=32 rows. Build a stable-ish
 # history (non-zero variance) so the detector has a baseline to flag a spike against.
 STABLE_HISTORY = [round(1.0 + (i % 3) * 0.1, 2) for i in range(31)]
+_LATEST = len(STABLE_HISTORY)  # index of the appended (evaluated) row in [*STABLE_HISTORY, latest]
 
 
 def _alert(rows_config: dict | None = None, detector_config: dict | None = ZSCORE) -> MagicMock:
@@ -98,10 +99,7 @@ def test_any_row_not_supported():
 
 
 # The evaluated (latest) row's label, like the threshold path: explicit label_column, else the first
-# non-evaluated column, else the value-column name (never "row N"). i is the latest row's index.
-_LATEST = len(STABLE_HISTORY)
-
-
+# non-evaluated column, else the value-column name (never "row N").
 @pytest.mark.parametrize(
     "columns,rows_config,row_fn,expected_label",
     [
