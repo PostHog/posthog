@@ -341,18 +341,29 @@ async def test_github_workflow_jobs_full_refresh(
 async def test_github_workflow_jobs_load_bearing_fields_land_queryable(
     team, mock_github_api, external_data_source, external_data_schema_workflow_jobs_full_refresh
 ):
-    # The cost-attribution + log-join keys (run_id, conclusion, head_sha/head_branch,
-    # labels, runner_group_name) must survive the fan-out and stay queryable; nested
-    # steps/labels must arrive as JSON lists, not flattened or dropped.
+    # Every column the engineering_analytics cost model reads must survive the
+    # fan-out and stay queryable. This is the full WORKFLOW_JOBS_COLUMNS contract
+    # (products/engineering_analytics/.../views/source_schema.py); a column dropped
+    # here breaks per-PR attribution (run_id/head_branch), retry analysis
+    # (run_attempt), duration/cost (started_at/completed_at), or runner-tier parsing
+    # (labels). Nested steps/labels must arrive as JSON lists, not flattened.
     expected_num_rows = len(WORKFLOW_JOBS)
     load_bearing_columns = [
         "id",
         "run_id",
+        "run_attempt",
+        "name",
+        "workflow_name",
+        "status",
         "conclusion",
         "head_sha",
         "head_branch",
         "labels",
+        "runner_name",
         "runner_group_name",
+        "created_at",
+        "started_at",
+        "completed_at",
         "steps",
     ]
 
@@ -374,10 +385,18 @@ async def test_github_workflow_jobs_load_bearing_fields_land_queryable(
         return job[res.columns.index(column)]
 
     assert value("run_id") == 1001
+    assert value("run_attempt") == 1
+    assert value("name") == "build"
+    assert value("workflow_name") == "CI"
+    assert value("status") == "completed"
     assert value("conclusion") == "success"
     assert value("head_sha") == "abc123"
     assert value("head_branch") == "master"
+    assert value("runner_name") == "ubuntu-latest"
     assert value("runner_group_name") == "GitHub Actions"
+    # Timestamps land as strings (parsed reader-side); duration = completed - started.
+    assert value("started_at") == "2026-01-20T10:00:30Z"
+    assert value("completed_at") == "2026-01-20T10:10:00Z"
 
     # steps + labels are stored as JSON; they must round-trip as lists, not
     # stringified scalars or dropped columns.
