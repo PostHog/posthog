@@ -95,7 +95,7 @@ def _fetch_page(
         raise TeamworkRetryableError(f"Teamwork API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Teamwork API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error("Teamwork API error", status=response.status_code, body=response.text, url=url)
         response.raise_for_status()
 
     return response.json()

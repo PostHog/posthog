@@ -14,6 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import TeamworkSourceConfig
 from posthog.temporal.data_imports.sources.teamwork import source as source_module
 from posthog.temporal.data_imports.sources.teamwork.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from posthog.temporal.data_imports.sources.teamwork.settings import ENDPOINTS
@@ -84,8 +85,7 @@ class TestValidateCredentials:
     def test_success(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_teamwork_credentials", lambda host, api_key: True)
         ok, error = TeamworkSource().validate_credentials(
-            SimpleNamespace(site="mycompany", api_key="key"),
-            team_id=1,  # type: ignore[arg-type]
+            TeamworkSourceConfig(site="mycompany", api_key="key"), team_id=1
         )
         assert ok is True
         assert error is None
@@ -93,8 +93,7 @@ class TestValidateCredentials:
     def test_failure(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_teamwork_credentials", lambda host, api_key: False)
         ok, error = TeamworkSource().validate_credentials(
-            SimpleNamespace(site="mycompany", api_key="bad"),
-            team_id=1,  # type: ignore[arg-type]
+            TeamworkSourceConfig(site="mycompany", api_key="bad"), team_id=1
         )
         assert ok is False
         assert error is not None
@@ -108,8 +107,7 @@ class TestValidateCredentials:
 
         monkeypatch.setattr(source_module, "validate_teamwork_credentials", fake_validate)
         TeamworkSource().validate_credentials(
-            SimpleNamespace(site="https://mycompany.teamwork.com/", api_key="key"),
-            team_id=1,  # type: ignore[arg-type]
+            TeamworkSourceConfig(site="https://mycompany.teamwork.com/", api_key="key"), team_id=1
         )
         assert captured["host"] == "mycompany.teamwork.com"
 
@@ -151,12 +149,13 @@ class TestSourceForPipeline:
     def _response(self, endpoint: str, **input_overrides: Any) -> Any:
         inputs = SimpleNamespace(
             schema_name=endpoint,
+            team_id=1,
             logger=MagicMock(),
             should_use_incremental_field=input_overrides.get("should_use_incremental_field", False),
             db_incremental_field_last_value=input_overrides.get("db_incremental_field_last_value", None),
         )
         return TeamworkSource().source_for_pipeline(
-            SimpleNamespace(site="mycompany", api_key="key"),  # type: ignore[arg-type]
+            TeamworkSourceConfig(site="mycompany", api_key="key"),
             MagicMock(),
             inputs,  # type: ignore[arg-type]
         )
@@ -176,6 +175,13 @@ class TestSourceForPipeline:
         response = self._response("tasks")
         assert response.partition_mode is None
         assert response.partition_keys is None
+
+    def test_unsafe_host_blocks_sync(self, monkeypatch: Any) -> None:
+        # An internal/private host must be rejected at sync time, not just at source creation —
+        # otherwise an edited `site` could redirect the stored API key (SSRF).
+        monkeypatch.setattr(source_module, "_is_host_safe", lambda host, team_id: (False, "blocked"))
+        with pytest.raises(ValueError):
+            self._response("tasks")
 
 
 class TestCanonicalDescriptions:

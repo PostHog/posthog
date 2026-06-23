@@ -96,9 +96,9 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=(inc := INCREMENTAL_FIELDS.get(endpoint)) is not None,
+                supports_append=inc is not None,
+                incremental_fields=inc or [],
                 should_sync_default=TEAMWORK_ENDPOINTS[endpoint].should_sync_default,
             )
             for endpoint in ENDPOINTS
@@ -131,8 +131,17 @@ Find your API key under **Profile → Edit my details → API & Mobile** in Team
         resumable_source_manager: ResumableSourceManager[TeamworkResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        host = normalize_host(config.site)
+
+        # Re-check host safety at sync time, not just at source creation: `site` can be edited after
+        # validation, and every request below sends the stored API key to it — block internal/private
+        # hosts to prevent SSRF and credential redirection.
+        host_is_safe, host_error = _is_host_safe(host, inputs.team_id)
+        if not host_is_safe:
+            raise ValueError(host_error or "Teamwork site host is not allowed")
+
         return teamwork_source(
-            host=normalize_host(config.site),
+            host=host,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
