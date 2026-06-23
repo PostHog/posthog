@@ -187,7 +187,14 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 return
             }
             if (item.mode === 'cut') {
+                // Keep the clipboard if the move can't proceed yet (e.g. the FileSystem entry hasn't
+                // loaded — "Cut" is always available, so this races the initial load). moveDashboardToFolder
+                // owns the warning; preserving the clipboard lets the user retry instead of losing the cut.
+                const canMove = !!values.entryByRef[String(item.dashboardId)]
                 actions.moveDashboardToFolder(item.dashboardId, folder)
+                if (!canMove) {
+                    return
+                }
             } else {
                 const source = values.dashboards.find((dashboard) => dashboard.id === item.dashboardId)
                 // Reuses the canonical duplicate so the copy inherits exactly the established Duplicate

@@ -123,6 +123,15 @@ describe('dashboardsFileSystemLogic', () => {
         expect(logic.values.clipboard).toBeNull()
     })
 
+    it('keeps the clipboard when a cut paste cannot move (entry not loaded) so the user can retry', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
+        jest.spyOn(lemonToast, 'warning').mockReturnValue('' as any)
+        logic.actions.cutDashboard(999) // no FileSystem entry for 999
+        await expectLogic(logic, () => logic.actions.pasteIntoFolder('Product')).toFinishAllListeners()
+        // Clipboard preserved (not cleared) so the paste can be retried once the entry loads.
+        expect(logic.values.clipboard).toEqual({ mode: 'cut', dashboardId: 999 })
+    })
+
     it('copy then paste duplicates the dashboard', async () => {
         logic.actions.copyDashboard(1)
         await expectLogic(dashboardsModel, () => {
