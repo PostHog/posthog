@@ -49,15 +49,16 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
         return set()
 
     temporal = await async_connect()
-    list_kwargs: dict[str, str] = {}
     if candidate_dag_ids is not None:
         # Filtering on a search attribute (PostHogDagId) is supported server-side; filtering on
         # WorkflowType is not, so we still narrow to the execute-dag workflow client-side below.
         quoted = ", ".join(f"'{dag_id}'" for dag_id in candidate_dag_ids)
-        list_kwargs["query"] = f"{POSTHOG_DAG_ID_KEY.name} IN ({quoted})"
+        schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} IN ({quoted})")
+    else:
+        schedules = await temporal.list_schedules()
 
     dag_ids: set[str] = set()
-    async for listing in await temporal.list_schedules(**list_kwargs):
+    async for listing in schedules:
         action = listing.schedule.action if listing.schedule else None
         if (
             isinstance(action, ScheduleListActionStartWorkflow)
