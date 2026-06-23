@@ -45271,7 +45271,7 @@ export namespace Schemas {
      * change without a deploy to either app.
      */
     export interface ScoutMetadata {
-      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      /** Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" wildcard (every project that turns scouts on) — and not in skip_team_ids. */
       enrolled: boolean;
       /**
          * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.

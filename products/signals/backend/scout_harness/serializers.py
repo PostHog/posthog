@@ -1145,7 +1145,11 @@ class ScoutMetadataSerializer(serializers.Serializer):
     change without a deploy to either app."""
 
     enrolled = serializers.BooleanField(
-        help_text="Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist)."
+        help_text=(
+            "Whether this project runs scouts. True when the project is in the signals-scout flag's "
+            'enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" '
+            "wildcard (every project that turns scouts on) — and not in skip_team_ids."
+        )
     )
     banner_message = serializers.CharField(
         allow_null=True,
