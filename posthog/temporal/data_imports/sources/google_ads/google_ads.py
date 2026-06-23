@@ -6,6 +6,7 @@ import collections.abc
 from django.conf import settings
 from django.db import close_old_connections
 
+import grpc
 import pyarrow as pa
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
@@ -15,6 +16,7 @@ from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient
+from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
@@ -473,6 +475,50 @@ def google_ads_source(
     )
 
 
+# A transient gRPC ``UNAVAILABLE`` (e.g. Google's frontend returning ``502:Bad Gateway``) is the
+# canonical retry-me status: the request never reached a healthy backend, so a fresh attempt after
+# a short backoff usually succeeds. Riding the blip out in-process keeps the whole import activity
+# from failing — which would otherwise re-fetch schemas, rebuild the gRPC client, and restart
+# pagination from the last checkpoint — and avoids the captured error-tracking noise.
+_MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
+
+
+def _is_transient_grpc_unavailable(exc: BaseException) -> bool:
+    """Return True for a transient gRPC ``UNAVAILABLE`` failure.
+
+    The gapic transport usually surfaces it as ``google.api_core.exceptions.ServiceUnavailable``,
+    but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns ``StatusCode.UNAVAILABLE``)
+    can also propagate, so we accept either shape.
+    """
+    if isinstance(exc, google_api_exceptions.ServiceUnavailable):
+        return True
+    code = getattr(exc, "code", None)
+    return callable(code) and code() == grpc.StatusCode.UNAVAILABLE
+
+
+def _search_with_transient_retry(
+    service: GoogleAdsServiceClient,
+    request: dict,
+    *,
+    max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
+) -> ga_services.SearchGoogleAdsResponse:
+    """Call ``GoogleAdsService.search``, retrying a transient gRPC ``UNAVAILABLE`` with backoff.
+
+    Only retries before any page is yielded or checkpointed, so there is no partial state to
+    reconcile. Non-transient errors (including ``GoogleAdsException``) re-raise immediately so the
+    caller's ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
+    """
+    attempt = 0
+    while True:
+        try:
+            return service.search(request=request)
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_unavailable(e):
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
 def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
     """Return True if a ``GoogleAdsException`` was caused by an expired/invalid page token.
 
@@ -517,12 +563,13 @@ def _search_as_arrow_tables(
         # as convenience kwargs — `page_token` must be passed via the `request`
         # argument (a dict is coerced to ``SearchGoogleAdsRequest`` by gapic).
         try:
-            response = service.search(
-                request={
+            response = _search_with_transient_retry(
+                service,
+                {
                     "customer_id": customer_id,
                     "query": query,
                     "page_token": page_token,
-                }
+                },
             )
         except GoogleAdsException as e:
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
