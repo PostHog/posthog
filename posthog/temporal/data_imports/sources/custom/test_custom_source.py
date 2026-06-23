@@ -843,6 +843,19 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
 
 
+class TestCustomSourceNonRetryableErrors(SimpleTestCase):
+    def test_missing_resource_message_is_classified_non_retryable(self):
+        # The message `source_for_pipeline` raises when a schema points to a resource
+        # the manifest no longer defines must be recognized by the source's classifier,
+        # so `_handle_import_error` stops the job instead of capturing + retrying it.
+        with self.assertRaises(ValueError) as ctx:
+            _fanout_chain(_minimal_manifest(), "nonexistent")
+        error_msg = str(ctx.exception)
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable)
+
+
 def _fanout_manifest() -> dict:
     """A parent (`forms`) + fan-out child (`responses`) that binds the parent's
     `id` into its path via a `type: "resolve"` param."""
