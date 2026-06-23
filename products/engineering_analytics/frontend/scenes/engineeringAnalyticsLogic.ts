@@ -77,6 +77,8 @@ export interface WorkflowHealthDay {
     runCount: number
     completed: number
     successes: number
+    /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
+    failures: number
 }
 
 export interface WorkflowHealthRow {
@@ -94,16 +96,16 @@ export interface WorkflowHealthRow {
 }
 
 /**
- * Daily series for the trend sparkline. Bar height is the non-pass rate over runs
- * that completed that day, so healthy rows stay flat and bad days spike.
+ * Daily series for the trend sparkline. Bar height is the failure rate (decisive
+ * failures over runs that completed that day), so healthy rows stay flat and bad days
+ * spike. Skipped, cancelled, and action_required runs are not failures — counting them
+ * as non-passing made green workflows look broken.
  */
 export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: number[]; labels: string[] } {
-    const values = daily.map((d) => (d.completed > 0 ? (d.completed - d.successes) / d.completed : 0))
+    const values = daily.map((d) => (d.completed > 0 ? d.failures / d.completed : 0))
     const labels = daily.map((d) => {
         const date = dayjs(d.day).format('MMM D')
-        return d.completed > 0
-            ? `${date} · ${d.completed - d.successes} of ${d.completed} non-passing`
-            : `${date} · no completed runs`
+        return d.completed > 0 ? `${date} · ${d.failures} of ${d.completed} failed` : `${date} · no completed runs`
     })
     return { values, labels }
 }
@@ -212,6 +214,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+            // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
+            // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
+            setBranchFilter: (branch: string) => ({ branch }),
+            applyBranchFilter: true,
+            setAppliedBranch: (branch: string) => ({ branch }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -279,6 +286,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.workflowDateFrom ?? undefined,
                             date_to: values.workflowDateTo ?? undefined,
+                            branch: values.appliedBranch || undefined,
                             source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
@@ -296,6 +304,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     runCount: d.run_count,
                                     completed: d.completed,
                                     successes: d.successes,
+                                    // Defensive ?? 0: a new frontend can briefly hit an older backend whose
+                                    // response predates this field — degrade to 0, don't compute NaN bars.
+                                    failures: d.failures ?? 0,
                                 })),
                             })
                         )
@@ -334,6 +345,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
             ],
             workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
+            // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
+            // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
+            // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
+            branchInput: ['', { setBranchFilter: (_, { branch }) => branch }],
+            appliedBranch: ['', { setAppliedBranch: (_, { branch }) => branch }],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -472,6 +488,25 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Cards, the PR list, and workflow health are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
             setWorkflowDateRange: () => {
+                actions.loadWorkflowHealth()
+            },
+            setBranchFilter: ({ branch }) => {
+                // The search input's built-in clear (×) only fires onChange(''), never Enter/blur, so
+                // clearing it would otherwise leave the table scoped to the old branch. Apply on empty
+                // so the × resets to all-branches immediately.
+                if (branch.trim() === '') {
+                    actions.applyBranchFilter()
+                }
+            },
+            applyBranchFilter: () => {
+                const next = values.branchInput.trim()
+                // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).
+                if (next === values.appliedBranch) {
+                    return
+                }
+                actions.setAppliedBranch(next)
+            },
+            setAppliedBranch: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {

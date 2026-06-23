@@ -343,6 +343,7 @@
           ExternalDataSourceType.LATTICE: LatticeSourceConfig,
           ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
           ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
+          ExternalDataSourceType.LEEXI: LeexiSourceConfig,
           ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
           ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
           ExternalDataSourceType.LEVER: LeverSourceConfig,
