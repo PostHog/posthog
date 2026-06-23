@@ -472,6 +472,37 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         callback()
 
+    def _save_merging_sync_type_config(
+        self,
+        instance: ExternalDataSchema,
+        validated_data: dict[str, Any],
+        original_sync_type_config: dict[str, Any],
+    ) -> ExternalDataSchema:
+        """Persist the update, replaying only the sync_type_config keys this request changed onto a
+        freshly-locked copy of the row.
+
+        super().update() does a full-instance save that rewrites sync_type_config wholesale from the
+        copy loaded at the start of the request, so without this it would revert any key a concurrent
+        CDC extract activity (cdc_last_log_position, cdc_deferred_runs, cdc_mode) committed in between.
+        The lock is held across the save so nothing interleaves.
+        """
+        intended = instance.sync_type_config or {}
+        changed = {
+            key: value
+            for key, value in intended.items()
+            if key not in original_sync_type_config or original_sync_type_config[key] != value
+        }
+        removed = [key for key in original_sync_type_config if key not in intended]
+        with transaction.atomic():
+            locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
+            merged = locked.sync_type_config or {}
+            merged.update(changed)
+            for key in removed:
+                merged.pop(key, None)
+            instance.sync_type_config = merged
+            validated_data["sync_type_config"] = merged
+            return super().update(instance, validated_data)
+
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
 
@@ -856,27 +887,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             instance.sync_type_config.update({"reset_pipeline": True})
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
-        # super().update() does a full-instance save that rewrites sync_type_config wholesale from
-        # the copy loaded at the start of this request — silently reverting any key a concurrent CDC
-        # extract activity (cdc_last_log_position, cdc_deferred_runs, cdc_mode) committed in between.
-        # Re-read the row under a lock and replay only the keys this request changed onto the fresh
-        # config, holding the lock across the save so nothing interleaves.
-        intended_sync_type_config = instance.sync_type_config or {}
-        changed_sync_type_config = {
-            key: value
-            for key, value in intended_sync_type_config.items()
-            if key not in original_sync_type_config or original_sync_type_config[key] != value
-        }
-        removed_sync_type_config = [key for key in original_sync_type_config if key not in intended_sync_type_config]
-        with transaction.atomic():
-            locked = ExternalDataSchema.objects.select_for_update().get(pk=instance.pk)
-            merged_sync_type_config = locked.sync_type_config or {}
-            merged_sync_type_config.update(changed_sync_type_config)
-            for key in removed_sync_type_config:
-                merged_sync_type_config.pop(key, None)
-            instance.sync_type_config = merged_sync_type_config
-            validated_data["sync_type_config"] = merged_sync_type_config
-            updated_instance = super().update(instance, validated_data)
+        # Persist under a row lock, replaying only the sync_type_config keys this request changed
+        # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
+        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
 
         if source.supports_scheduled_sync and (
             should_sync is not None or was_sync_frequency_updated or was_sync_time_of_day_updated

@@ -2783,6 +2783,34 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
         assert self.schema.enabled_columns == ["id"]
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
+    def test_patch_changing_sync_type_config_key_keeps_concurrent_write(self):
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        instance = ExternalDataSchema.objects.get(id=self.schema.id)  # in-memory copy, position 0/100
+
+        # A CDC extract activity commits a newer position while the request is mid-flight.
+        update_sync_type_config_keys(self.schema.id, self.team.pk, updates={"cdc_last_log_position": "0/900"})
+
+        # The user changes a sync_type_config key (cdc_table_mode). The re-snapshot it would trigger is
+        # deferred to post-commit (which we don't run), so only the merge itself is under test here.
+        serializer = ExternalDataSchemaSerializer(
+            instance,
+            data={"cdc_table_mode": "both"},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.data_warehouse.backend.api.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+        self.schema.refresh_from_db()
+        # The user's key change landed AND the concurrent position (a key the request didn't touch) survived.
+        assert self.schema.cdc_table_mode == "both"
+        assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
 
 class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
     """`available_columns` is source-type-agnostic — it reads `schema_metadata.columns`.
