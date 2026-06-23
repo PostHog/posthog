@@ -131,10 +131,12 @@ export function DashboardItems(): JSX.Element {
     }, [scrollToBottomSignal])
     const className = clsx({
         'dashboard-view-mode mb-8': !layoutEditMode,
-        // Leave room below the last tile in edit mode so the scroll container can scroll past it —
-        // otherwise there's nowhere to drag a tile into to create a new bottom row, since the grid
-        // height is content-driven and dragging is bounded to the grid.
-        'dashboard-edit-mode mb-[40vh]': layoutEditMode,
+        // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
+        // content height — so there's nowhere to drag a tile into to create a new bottom row.
+        // box-content + padding-bottom grows clientHeight (padding only counts under content-box,
+        // since preflight defaults everything to border-box), opening up draggable space below the
+        // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
+        'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
