@@ -2823,10 +2823,12 @@ class TestApprovalComment:
 
         body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
 
-        # Changed table: baseline (thumbnail) before, current after
+        # Changed table: baseline before, current after — full-resolution originals,
+        # not thumbnails, so clicking opens the image at full size
         assert "**Changed**" in body
         assert "| Snapshot | Before | After |" in body
-        assert "https://cdn.example/thumb_a" in body  # prefers the thumbnail
+        assert "https://cdn.example/base_a" in body  # full-res original, not thumb_a
+        assert "https://cdn.example/thumb_a" not in body
         assert "https://cdn.example/curr_a" in body
         # Removed snapshot lives in the changed table with an empty after cell
         assert "_(removed)_" in body
@@ -2928,20 +2930,16 @@ class TestApprovalComment:
         assert f"/visual_review/runs/{run_with_artifacts.id}" in body
 
     def test_image_cell_escapes_alt_and_src(self):
-        # Every attribute is escaped so a quote in any of them can't break out of the tag
-        cell = logic._image_cell(('https://cdn.example/x?a="b', 'https://cdn.example/full?a="b'), 'a"b')
+        # Both attributes are escaped so a quote in either can't break out of the tag
+        cell = logic._image_cell('https://cdn.example/x?a="b', 'a"b')
         assert 'alt="a&quot;b"' in cell
         assert 'src="https://cdn.example/x?a=&quot;b"' in cell
-        assert 'href="https://cdn.example/full?a=&quot;b"' in cell
 
-    def test_image_cell_links_thumbnail_to_full_resolution(self):
-        # The small thumbnail in the table opens the full-resolution image when clicked
-        cell = logic._image_cell(("https://cdn.example/thumb", "https://cdn.example/full"), "after")
-        assert cell == (
-            '<a href="https://cdn.example/full">'
-            f'<img src="https://cdn.example/thumb" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
-            "</a>"
-        )
+    def test_image_cell_constrains_width_but_serves_full_resolution(self):
+        # The cell shows a width-constrained image whose src is the full-resolution
+        # original, so GitHub opens it at full size when clicked — no <a> wrapper needed.
+        cell = logic._image_cell("https://cdn.example/full", "after")
+        assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
 
     @pytest.mark.parametrize(
         "identifier,expected",
@@ -2967,7 +2965,7 @@ class TestApprovalComment:
         assert "\n" not in cell
         assert cell == "`x \\| --- \\|`"
 
-    def test_comment_image_urls_requests_seven_day_expiry(self, repo, mocker):
+    def test_comment_image_url_requests_seven_day_expiry(self, repo, mocker):
         # The 7-day expiry is load-bearing: GitHub's image proxy may fetch the URL
         # long after the comment is posted, so lock the behaviour with a test.
         captured = {}
@@ -2984,19 +2982,18 @@ class TestApprovalComment:
         mocker.patch.object(logic, "ArtifactStorage", _RecordingStorage)
 
         artifact = self._mk_artifact(repo, "h1")
-        urls = logic._comment_image_urls(repo, artifact)
+        url = logic._comment_image_url(repo, artifact)
 
-        # No thumbnail, so both the displayed and click-through URL are the full image
-        assert urls == ("https://cdn.example/x", "https://cdn.example/x")
+        assert url == "https://cdn.example/x"
         assert captured["content_hash"] == "h1"
         assert captured["expiration"] == 60 * 60 * 24 * 7 == 604800
 
-    def test_comment_image_urls_links_thumbnail_to_full(self, repo, mocker):
-        # When a thumbnail exists, show it but link to the full-resolution original
+    def test_comment_image_url_serves_full_resolution_not_thumbnail(self, repo, mocker):
+        # Serve the original artifact, not the thumbnail, so clicking opens it full-size
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
 
         artifact = self._mk_artifact(repo, "full_h", with_thumbnail="thumb_h")
-        thumb_url, full_url = logic._comment_image_urls(repo, artifact)
+        url = logic._comment_image_url(repo, artifact)
 
-        assert "thumb_h" in thumb_url
-        assert "full_h" in full_url
+        assert "full_h" in url
+        assert "thumb_h" not in url
