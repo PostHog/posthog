@@ -1133,11 +1133,53 @@ class TestFanOutJobs:
         assert any("/runs/1003/jobs" in c for c in jobs_calls)
         assert not any("/runs/1001/jobs" in c for c in jobs_calls)
 
+    def _fan_out_with_lookback(self, session: _RoutingSession, lookback_days: int | None, **kwargs: Any) -> list[Any]:
+        # Override the production initial_lookback_days so the floor mechanism can be
+        # tested independently of whatever default the workflow_jobs endpoint ships.
+        patched = dict(GITHUB_ENDPOINTS)
+        patched["workflow_jobs"] = dataclasses.replace(
+            GITHUB_ENDPOINTS["workflow_jobs"], initial_lookback_days=lookback_days
+        )
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.GITHUB_ENDPOINTS", patched):
+            return self._fan_out(session, **kwargs)
+
     def test_first_incremental_sync_floors_fan_out_to_lookback_window(self) -> None:
-        # First incremental sync (watermark configured, nothing synced yet): the
-        # backfill is floored at settings' initial_lookback_days instead of crawling
-        # all history. Runs are newest-first; 1003 lands a day before the frozen now
-        # (inside any small window) and 1001 over a month back (outside).
+        # First incremental sync (watermark configured, nothing synced yet) with a
+        # non-zero floor: the backfill is bounded at initial_lookback_days instead of
+        # crawling all history. Runs are newest-first; 1003 lands a day before the
+        # frozen now (inside a 30-day window) and 1001 over a month back (outside).
+        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github._now_utc",
+            return_value=frozen_now,
+        ):
+            rows = self._fan_out_with_lookback(
+                session,
+                lookback_days=30,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+            )
+
+        # Only the run inside the lookback window is fanned out; the older one is
+        # skipped without a jobs request.
+        assert [row["id"] for row in rows] == [9]
+        jobs_calls = [c for c in session.calls if "/jobs" in c]
+        assert any("/runs/1003/jobs" in c for c in jobs_calls)
+        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+
+    def test_first_incremental_sync_does_no_backfill_by_default(self) -> None:
+        # The shipped default is initial_lookback_days=0: the per-run fan-out is too
+        # expensive to backfill at high run volume, so the first sync fans out over
+        # nothing and the webhook becomes the source of truth. Both historical runs
+        # are skipped — no jobs request is made for either.
         frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
         session = _RoutingSession(
             runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
@@ -1157,12 +1199,8 @@ class TestFanOutJobs:
                 db_incremental_field_last_value=None,
             )
 
-        # Only the run inside the lookback window is fanned out; the older one is
-        # skipped without a jobs request.
-        assert [row["id"] for row in rows] == [9]
-        jobs_calls = [c for c in session.calls if "/jobs" in c]
-        assert any("/runs/1003/jobs" in c for c in jobs_calls)
-        assert not any("/runs/1001/jobs" in c for c in jobs_calls)
+        assert rows == []
+        assert not any("/jobs" in c for c in session.calls)
 
     def test_resume_starts_from_saved_parent_page_url(self) -> None:
         saved_url = "https://api.github.com/repos/owner/repo/actions/runs?per_page=100&page=3"
