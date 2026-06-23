@@ -6,7 +6,11 @@ import { PostHogLogo } from 'lib/brand/v2'
 import { JudgeHog } from 'lib/components/hedgehogs'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import {
+    PasskeyIconButton,
+    SocialLoginButtons,
+    SSOEnforcedLoginButton,
+} from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -121,18 +125,6 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
 
                     {!extraFieldsHidden && (
                         <>
-                            {passkeySignupEnabled && !passkeyRegistered && (
-                                <LemonButton
-                                    size="large"
-                                    center
-                                    fullWidth
-                                    onClick={registerPasskey}
-                                    disabled={isPasskeyRegistering}
-                                    data-attr="invite-signup-passkey"
-                                >
-                                    Sign up with a passkey
-                                </LemonButton>
-                            )}
                             {!passkeyRegistered && (
                                 <LemonField
                                     name="password"
@@ -222,6 +214,16 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         caption="or continue with"
                         captionLocation="top"
                         extraQueryParams={{ invite_id: invite.id }}
+                        extraButtons={
+                            passkeySignupEnabled && !passkeyRegistered ? (
+                                <PasskeyIconButton
+                                    onClick={() => registerPasskey()}
+                                    loading={isPasskeyRegistering}
+                                    tooltip="Sign up with a passkey"
+                                    data-attr="invite-signup-passkey"
+                                />
+                            ) : undefined
+                        }
                     />
                 )}
             </PaperDeskCard>
