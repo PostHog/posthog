@@ -33,8 +33,10 @@ class GiphyResumeConfig:
     offset: int
 
 
-def _get_session() -> requests.Session:
-    return make_tracked_session(headers={"Accept": "application/json"})
+def _get_session(api_key: str) -> requests.Session:
+    # The API key rides in the query string (GIPHY has no header auth), so register it for
+    # value-based redaction — otherwise it leaks into tracked request URLs and captured samples.
+    return make_tracked_session(headers={"Accept": "application/json"}, redact_values=(api_key,))
 
 
 def _build_url(api_key: str, config: GiphyEndpointConfig, offset: int, search_query: str | None) -> str:
@@ -51,7 +53,7 @@ def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is genuine with one cheap trending request."""
     url = _build_url(api_key, GIPHY_ENDPOINTS["gifs_trending"], offset=0, search_query=None)
     try:
-        response = _get_session().get(url, timeout=10)
+        response = _get_session(api_key).get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -99,7 +101,7 @@ def get_rows(
             f"GIPHY endpoint '{endpoint}' requires a search query. Set the search query on the source and reconnect."
         )
 
-    session = _get_session()
+    session = _get_session(api_key)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume_config.offset if resume_config is not None else 0

@@ -83,6 +83,9 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
             # per-request query/offset varies, but the status text and base host are stable.
             "401 Client Error: Unauthorized for url: https://api.giphy.com": "Your GIPHY API key is invalid or has been revoked. Create a new key in the GIPHY Developer Dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.giphy.com": "Your GIPHY API key has been banned or lacks access. Check the key in the GIPHY Developer Dashboard, then reconnect.",
+            # A search table syncing without a query (e.g. the query was cleared after setup) raises a
+            # ValueError before any HTTP call. Retrying can't fix missing config, so fail fast.
+            "requires a search query": "The search tables (gifs_search, stickers_search) need a search query. Set one on the source and reconnect.",
         }
 
     def get_schemas(

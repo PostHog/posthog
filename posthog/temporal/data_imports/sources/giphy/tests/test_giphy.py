@@ -234,11 +234,26 @@ class TestValidateCredentials:
     def test_status_maps_to_validity(self, monkeypatch: Any, status_code: int, expected: bool) -> None:
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=status_code)
-        monkeypatch.setattr(giphy, "_get_session", lambda: session)
+        monkeypatch.setattr(giphy, "_get_session", lambda *_: session)
         assert giphy.validate_credentials("KEY") is expected
 
     def test_network_error_is_invalid(self, monkeypatch: Any) -> None:
         session = MagicMock()
         session.get.side_effect = Exception("boom")
-        monkeypatch.setattr(giphy, "_get_session", lambda: session)
+        monkeypatch.setattr(giphy, "_get_session", lambda *_: session)
         assert giphy.validate_credentials("KEY") is False
+
+
+class TestSessionRedaction:
+    def test_api_key_registered_for_redaction(self, monkeypatch: Any) -> None:
+        # The key travels in the query string, so it must be passed to make_tracked_session as a
+        # redacted value — otherwise it leaks into tracked URLs/samples.
+        captured: dict[str, Any] = {}
+
+        def fake_make_session(**kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(giphy, "make_tracked_session", fake_make_session)
+        giphy._get_session("super-secret-key")
+        assert captured["redact_values"] == ("super-secret-key",)

@@ -75,6 +75,14 @@ class TestGiphySource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    def test_missing_search_query_error_is_non_retryable(self):
+        # The ValueError raised when a search table syncs without a query must fail fast, not retry.
+        observed_error = (
+            "GIPHY endpoint 'gifs_search' requires a search query. Set the search query on the source and reconnect."
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
     def test_get_schemas_hides_search_without_query(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
         names = {s.name for s in schemas}
