@@ -206,7 +206,7 @@ class TestPostgresIdentifier:
 
     @given(
         s=st.builds(
-            # Keep total length ≤ 63 so the '%' rejection fires before the length check.
+            # Keep total length ≤ 63 so inputs clear the length check (len > 63) and reach the '%' rejection.
             lambda prefix, suffix: prefix + "%" + suffix,
             prefix=st.text(max_size=31),
             suffix=st.text(max_size=31),
