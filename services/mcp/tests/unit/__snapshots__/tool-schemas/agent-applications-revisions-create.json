@@ -134,13 +134,6 @@
                     },
                     "type": "array"
                 },
-                "integrations": {
-                    "default": [],
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "limits": {
                     "default": {
                         "max_cpu_cores": 0.25,
@@ -194,9 +187,6 @@
                         "properties": {
                             "auth": {
                                 "properties": {
-                                    "integration": {
-                                        "type": "string"
-                                    },
                                     "provider": {
                                         "type": "string"
                                     }
