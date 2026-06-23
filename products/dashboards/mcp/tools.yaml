@@ -283,8 +283,8 @@ tools:
         description: >
             Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and
             restriction level, and widget tile placement (layouts, show_description). To change a widget's own settings
-            (config, name, description) — e.g. a session replay widget's savedFilterId — prefer
-            dashboard-widgets-batch-update, which takes just a tile_id per widget. You can also update widget tiles here
+            (config, name, description), prefer dashboard-widgets-batch-update, which takes just a tile_id per widget.
+            You can also update widget tiles here
             by passing `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`,
             `description`) from dashboard-get — the same PATCH path the UI uses. To add new widget tiles to this
             dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context
@@ -414,10 +414,9 @@ tools:
             by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change.
             Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass
             `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see
-            dashboard-widget-catalog-list. To retarget a session replay widget at a saved filter, set
-            `config.savedFilterId` to the playlist short_id. All updates succeed or fail together. Tile placement
-            (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that.
-            To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.
+            dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout,
+            show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new
+            widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.
         param_overrides:
             id:
                 cast: string-int
