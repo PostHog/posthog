@@ -18,7 +18,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -451,11 +451,15 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    def _print_select(self, select: str):
+    def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
             expr,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=modifiers or HogQLQueryModifiers(),
+            ),
             "clickhouse",
         )
         return pretty_print_in_tests(query, self.team.pk)
@@ -470,6 +474,25 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         with materialized("events", "$browser"):
             printed = self._print_select(query)
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
+            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+
+    def test_jsonextractstring_rewritten_to_person_on_events_mat_column(self):
+        # In person-on-events mode person.properties physically lives on the events table's person_properties
+        # column, so the rewrite should target that materialized column (mat_pp_) instead of the raw JSON blob.
+        with materialized("events", "$browser", table_column="person_properties"):
+            printed = self._print_select(
+                "select JSONExtractString(person.properties, '$browser') from events",
+                HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            )
+            assert "mat_pp_$browser" in printed, f"Expected mat_pp_$browser in output, got: {printed}"
+            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+
+    def test_jsonextractstring_rewritten_to_mat_column_on_persons_table(self):
+        # The persons table is "raw_persons" in HogQL but "person" in ClickHouse, and its materialized column is
+        # pmat_. The rewrite must key off the ClickHouse name to find it (regression guard for the table-name fix).
+        with materialized("person", "$browser"):
+            printed = self._print_select("select JSONExtractString(properties, '$browser') from raw_persons")
+            assert "pmat_$browser" in printed, f"Expected pmat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):

@@ -68,7 +68,7 @@ from posthog.clickhouse.custom_metrics import (
     CUSTOM_METRICS_VIEW,
     TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
 )
-from posthog.clickhouse.materialized_columns import MaterializedColumn
+from posthog.clickhouse.materialized_columns import MaterializedColumn, TableColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.clickhouse.preaggregation.sql import (
     DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL,
@@ -1228,6 +1228,7 @@ def materialized(
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
+    table_column: TableColumn = "properties",
 ) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
@@ -1246,6 +1247,7 @@ def materialized(
         column = materialize(
             table,
             property,
+            table_column=table_column,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
             column_type=column_type,

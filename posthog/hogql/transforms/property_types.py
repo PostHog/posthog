@@ -339,7 +339,10 @@ class PropertySwapper(CloningVisitor):
         if not isinstance(table_type, ast.TableType):
             return None
 
-        table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
+        # The materialized-column registry is keyed by the ClickHouse table name, not the HogQL name
+        # (RawPersonsTable is "raw_persons" in HogQL but "person" in ClickHouse). Match clickhouse_property_resolution,
+        # or person/group properties read off `raw_persons`/`raw_groups` would miss their materialized column here.
+        table_name = table_type.resolve_database_table(self.context).to_printed_clickhouse(self.context)
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
