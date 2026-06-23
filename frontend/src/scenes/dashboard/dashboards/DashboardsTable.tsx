@@ -25,7 +25,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
@@ -50,8 +49,9 @@ interface DashboardsTableProps {
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
-    // Tree arm: add a Folder column so a recursive subtree list shows which folder each dashboard lives in.
-    showFolderColumn?: boolean
+    // Tree arm: when provided, render a Folder column resolving each dashboard's folder. Passed in (rather
+    // than computed here) so it reads the same FileSystem source as the tree's scoping and stays in sync.
+    folderForDashboard?: (dashboard: DashboardBasicType) => string
 }
 
 export function DashboardsTable({
@@ -59,7 +59,7 @@ export function DashboardsTable({
     dashboardsLoading,
     extraActions,
     hideActions,
-    showFolderColumn,
+    folderForDashboard,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged } = useActions(dashboardsLogic)
@@ -256,15 +256,13 @@ export function DashboardsTable({
               },
     ]
 
-    if (showFolderColumn) {
+    if (folderForDashboard) {
         // Tree arm: a recursive subtree list mixes dashboards from many folders, so show each one's folder.
         columns.splice(2, 0, {
             title: 'Folder',
             key: 'folder',
-            render: function RenderFolder(_, { id }: DashboardType) {
-                const entry = itemsByRef[`dashboard::${id}`]
-                const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
-                return <span className="text-secondary">{segments.length > 0 ? joinPath(segments) : 'Unfiled'}</span>
+            render: function RenderFolder(_, dashboard: DashboardType) {
+                return <span className="text-secondary">{folderForDashboard(dashboard)}</span>
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>)
     }

@@ -7,10 +7,13 @@ import { DashboardsTree } from './DashboardsTree'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 jest.mock('./DashboardsTable', () => ({
-    DashboardsTable: ({ dashboards }: { dashboards: { id: number; name: string }[] }) => (
+    DashboardsTable: ({ dashboards, folderForDashboard }: any) => (
         <div>
-            {dashboards.map((dashboard) => (
-                <span key={dashboard.id}>{dashboard.name}</span>
+            {dashboards.map((dashboard: { id: number; name: string }) => (
+                <span key={dashboard.id}>
+                    {dashboard.name}
+                    {folderForDashboard ? ` @ ${folderForDashboard(dashboard)}` : ''}
+                </span>
             ))}
         </div>
     ),
@@ -42,7 +45,7 @@ describe('DashboardsTree', () => {
             folderTree: [],
             currentFolder: '',
             currentSubtreeDashboards: [],
-            currentSubfolders: [],
+            entryByRef: {},
             dashboardsLoading: false,
             ...overrides,
         })
@@ -64,7 +67,7 @@ describe('DashboardsTree', () => {
         expect(screen.getByText('All dashboards')).toBeInTheDocument()
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
-        expect(screen.getByText('Revenue')).toBeInTheDocument()
+        expect(screen.getByText(/Revenue/)).toBeInTheDocument()
     })
 
     it('navigates to a folder when its tree node is clicked', () => {
@@ -81,17 +84,17 @@ describe('DashboardsTree', () => {
         expect(navigateToFolder).toHaveBeenCalledWith('')
     })
 
-    it('renders clickable subfolder chips in the content view and drills in on click', () => {
+    it('resolves each dashboard folder from entryByRef (the same source as scoping)', () => {
         mockValues({
-            currentFolder: 'Marketing',
-            currentSubfolders: [
-                { path: 'Marketing/Q1', label: 'Q1', children: [] },
-                { path: 'Marketing/Q2', label: 'Q2', children: [] },
+            currentSubtreeDashboards: [
+                { id: 1, name: 'Revenue' },
+                { id: 2, name: 'Loose' },
             ],
+            entryByRef: { '1': { path: 'Marketing/Q1/Revenue' } },
         })
         render(<DashboardsTree />)
-        expect(screen.getByText('Q2')).toBeInTheDocument()
-        fireEvent.click(screen.getByText('Q1'))
-        expect(navigateToFolder).toHaveBeenCalledWith('Marketing/Q1')
+        // A filed dashboard shows its parent folder; one with no FileSystem entry shows Unfiled.
+        expect(screen.getByText('Revenue @ Marketing/Q1')).toBeInTheDocument()
+        expect(screen.getByText('Loose @ Unfiled')).toBeInTheDocument()
     })
 })

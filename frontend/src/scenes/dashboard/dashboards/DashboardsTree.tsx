@@ -2,11 +2,11 @@ import './DashboardsTree.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconFolder } from '@posthog/icons'
-
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType } from '~/types'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { FolderTreeNode } from './dashboardsFileSystemUtils'
@@ -30,10 +30,10 @@ function toTreeData(nodes: FolderTreeNode[]): TreeDataItem[] {
 // familiar dashboards table on the right scoped to everything at or below the selected folder (root = all).
 // LemonTree owns expansion (uncontrolled, expand-all by default) so collapsing sticks; a folder click
 // selects it and scopes the table. The table brings its own row actions (move / rename / delete), so
-// organizing happens there.
+// organizing happens there. The table's Folder column reads the same entryByRef the scoping uses, so the
+// displayed folder always matches where the dashboard actually is.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentFolder, currentSubtreeDashboards, currentSubfolders } =
-        useValues(dashboardsFileSystemLogic)
+    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -45,6 +45,12 @@ export function DashboardsTree(): JSX.Element {
             children: toTreeData(folderTree),
         },
     ]
+
+    const folderForDashboard = (dashboard: DashboardBasicType): string => {
+        const entry = entryByRef[String(dashboard.id)]
+        const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        return segments.length > 0 ? joinPath(segments) : 'Unfiled'
+    }
 
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
@@ -65,28 +71,11 @@ export function DashboardsTree(): JSX.Element {
                     onFolderClick={(folder) => folder && navigateToFolder((folder.record?.path as string) ?? '')}
                 />
             </div>
-            <div className="min-w-0 flex flex-col gap-3" data-attr="dashboards-tree-content">
-                {currentSubfolders.length > 0 ? (
-                    // Immediate subfolders of the selected folder, so the structure stays visible while the
-                    // table below lists everything in the subtree. Click one to scope down into it.
-                    <div className="flex items-center gap-2 flex-wrap" aria-label="Subfolders">
-                        {currentSubfolders.map((subfolder) => (
-                            <button
-                                key={subfolder.path}
-                                type="button"
-                                className="flex items-center gap-1.5 px-2 py-1 rounded border border-border hover:bg-fill-button-tertiary-hover text-sm"
-                                onClick={() => navigateToFolder(subfolder.path)}
-                            >
-                                <IconFolder className="text-muted shrink-0" />
-                                {subfolder.label}
-                            </button>
-                        ))}
-                    </div>
-                ) : null}
+            <div className="min-w-0" data-attr="dashboards-tree-content">
                 <DashboardsTable
                     dashboards={currentSubtreeDashboards}
                     dashboardsLoading={dashboardsLoading}
-                    showFolderColumn
+                    folderForDashboard={folderForDashboard}
                 />
             </div>
         </div>
