@@ -8560,8 +8560,14 @@ export namespace Schemas {
       count: number;
       error_count: number;
       name: string;
+      /** Median wall-clock span duration, in nanoseconds. */
       p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
       p95_duration_nano: number;
+      /** 99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per group. */
+      p999_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
       service_name: string;
       total_duration_nano: number;
     }
@@ -25355,8 +25361,14 @@ export namespace Schemas {
       count: number;
       error_count: number;
       name: string;
+      /** Median wall-clock span duration, in nanoseconds. */
       p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
       p95_duration_nano: number;
+      /** 99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per edge. */
+      p999_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
       parent_name: string;
       parent_service: string;
       service_name: string;
