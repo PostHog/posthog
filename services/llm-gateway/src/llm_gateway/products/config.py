@@ -156,7 +156,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "conversations": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-5", "claude-sonnet-4-6"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6"}),
         allow_api_keys=True,
         billable=False,
     ),
