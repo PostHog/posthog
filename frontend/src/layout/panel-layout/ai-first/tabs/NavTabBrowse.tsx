@@ -42,7 +42,7 @@ import { ActivityTab } from '~/types'
 
 import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
-import { inlineEditToolsLogic } from './inlineEditToolsLogic'
+import { editToolsLogic } from './editToolsLogic'
 import { navRecentsLogic } from './navRecentsLogic'
 
 const panelTriggerItems: {
@@ -163,8 +163,8 @@ export function NavTabBrowse(): JSX.Element {
     } = useValues(panelLayoutLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
-    const { isEditMode, checkedTools } = useValues(inlineEditToolsLogic)
-    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(inlineEditToolsLogic)
+    const { isEditMode, checkedTools } = useValues(editToolsLogic)
+    const { enterEditMode, saveAndExitEditMode, toggleTool } = useActions(editToolsLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
