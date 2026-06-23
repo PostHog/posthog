@@ -23993,6 +23993,8 @@ export namespace Schemas {
       readonly snapshots: readonly HeatmapSnapshotMetadata[];
       /** Soft-delete flag; deleted heatmaps are hidden from the list. */
       deleted?: boolean;
+      /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -38720,6 +38722,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     export interface PatchedScheduledChange {
@@ -45451,6 +45455,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     /**

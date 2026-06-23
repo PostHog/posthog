@@ -268,6 +268,7 @@ export const savedCreateBodyWidthsItemMax = 3000
 export const savedCreateBodyWidthsMax = 16
 
 export const savedCreateBodyTypeDefault = `screenshot`
+export const savedCreateBodyBlockConsentModalsDefault = false
 
 export const SavedCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(savedCreateBodyNameMax).nullish().describe('Human-readable label for the saved heatmap.'),
@@ -293,6 +294,12 @@ export const SavedCreateBody = /* @__PURE__ */ zod.object({
         .default(savedCreateBodyTypeDefault)
         .describe(
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording"
+        ),
+    block_consent_modals: zod
+        .boolean()
+        .default(savedCreateBodyBlockConsentModalsDefault)
+        .describe(
+            "When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
         ),
 })
 
@@ -362,6 +369,12 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.\n\n* `screenshot` - Screenshot\n* `iframe` - Iframe\n* `recording` - Recording"
         ),
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
+    block_consent_modals: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps."
+        ),
 })
 
 /**
