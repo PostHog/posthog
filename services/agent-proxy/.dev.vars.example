@@ -10,11 +10,11 @@
 # Redis
 # ---------------------------------------------------------------------------
 
-# Redis connection URL. Required in production (NODE_ENV=production).
+# Task-run stream Redis connection URL. Required in production (NODE_ENV=production).
 # In non-production NODE_ENV the service falls back to a local Redis instance
 # when this is unset.
 # nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-REDIS_URL=redis://localhost:6379
+TASKS_REDIS_URL=redis://localhost:6379
 
 # ---------------------------------------------------------------------------
 # JWT / Auth
