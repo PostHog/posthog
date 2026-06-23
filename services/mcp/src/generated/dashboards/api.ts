@@ -1639,13 +1639,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod
-                            .enum(['activity_events_list'])
-                            .describe('* `activity_events_list` - activity_events_list')
-                            .enum(['activity_events_list'])
-                            .describe(
-                                'Widget type of the tile being updated (the config discriminator). Immutable.\n\n* `activity_events_list` - activity_events_list'
-                            ),
+                        widget_type: zod.enum(['activity_events_list']),
                         config: zod
                             .object({
                                 dateRange: zod
@@ -1749,13 +1743,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod
-                            .enum(['error_tracking_list'])
-                            .describe('* `error_tracking_list` - error_tracking_list')
-                            .enum(['error_tracking_list'])
-                            .describe(
-                                'Widget type of the tile being updated (the config discriminator). Immutable.\n\n* `error_tracking_list` - error_tracking_list'
-                            ),
+                        widget_type: zod.enum(['error_tracking_list']),
                         config: zod
                             .object({
                                 dateRange: zod
@@ -1883,13 +1871,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod
-                            .enum(['session_replay_list'])
-                            .describe('* `session_replay_list` - session_replay_list')
-                            .enum(['session_replay_list'])
-                            .describe(
-                                'Widget type of the tile being updated (the config discriminator). Immutable.\n\n* `session_replay_list` - session_replay_list'
-                            ),
+                        widget_type: zod.enum(['session_replay_list']),
                         config: zod
                             .object({
                                 dateRange: zod
@@ -2016,13 +1998,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod
-                            .enum(['experiments_list'])
-                            .describe('* `experiments_list` - experiments_list')
-                            .enum(['experiments_list'])
-                            .describe(
-                                'Widget type of the tile being updated (the config discriminator). Immutable.\n\n* `experiments_list` - experiments_list'
-                            ),
+                        widget_type: zod.enum(['experiments_list']),
                         config: zod
                             .object({
                                 limit: zod
@@ -2068,13 +2044,7 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             .string()
                             .optional()
                             .describe('New markdown description for the widget. Omit to leave unchanged.'),
-                        widget_type: zod
-                            .enum(['experiment_results'])
-                            .describe('* `experiment_results` - experiment_results')
-                            .enum(['experiment_results'])
-                            .describe(
-                                'Widget type of the tile being updated (the config discriminator). Immutable.\n\n* `experiment_results` - experiment_results'
-                            ),
+                        widget_type: zod.enum(['experiment_results']),
                         config: zod
                             .object({
                                 experimentId: zod

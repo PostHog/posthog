@@ -1162,9 +1162,7 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
             patcher.stop()
         super().tearDown()
 
-    def _batch_update(
-        self, dashboard_id: int, widgets: list[dict[str, Any]], team_id: int | None = None
-    ) -> Any:
+    def _batch_update(self, dashboard_id: int, widgets: list[dict[str, Any]], team_id: int | None = None) -> Any:
         team_id = team_id or self.team.id
         return self.client.patch(
             f"/api/projects/{team_id}/dashboards/{dashboard_id}/widgets/batch_update/",

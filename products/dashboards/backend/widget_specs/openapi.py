@@ -174,10 +174,7 @@ def _build_update_request_serializers() -> dict[str, type[serializers.Serializer
             f"{prefix}UpdateRequestOpenApiSerializer",
             (_UpdateDashboardWidgetTileFieldsOpenApiSerializer,),
             {
-                "widget_type": serializers.ChoiceField(
-                    choices=[widget_type],
-                    help_text="Widget type of the tile being updated (the config discriminator). Immutable.",
-                ),
+                "widget_type": serializers.ChoiceField(choices=[widget_type]),
                 "config": pydantic_config_field(
                     spec.config_model,
                     required=False,
