@@ -164,8 +164,9 @@ class TestJotformSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is JotformResumeConfig
 
+    @mock.patch("posthog.temporal.data_imports.sources.jotform.source._is_host_safe", return_value=(True, None))
     @mock.patch("posthog.temporal.data_imports.sources.jotform.source.jotform_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_jotform_source):
+    def test_source_for_pipeline_plumbs_arguments(self, mock_jotform_source, mock_host_safe):
         inputs = mock.MagicMock()
         inputs.schema_name = "submissions"
         inputs.should_use_incremental_field = True
@@ -197,6 +198,21 @@ class TestJotformSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_jotform_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @mock.patch("posthog.temporal.data_imports.sources.jotform.source._is_host_safe")
+    @mock.patch("posthog.temporal.data_imports.sources.jotform.source.jotform_source")
+    def test_source_for_pipeline_rejects_unsafe_enterprise_host(self, mock_jotform_source, mock_host_safe):
+        # DNS can be repointed at an internal host after setup, so the host is re-checked before each
+        # sync — not just at validation.
+        mock_host_safe.return_value = (False, "Hosts with internal IP addresses are not allowed")
+        config = JotformSourceConfig(api_key="key", region="us", enterprise_domain="https://10.0.0.1/")
+        inputs = mock.MagicMock()
+
+        with pytest.raises(ValueError, match="Hosts with internal IP addresses are not allowed"):
+            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+
+        mock_jotform_source.assert_not_called()
+        mock_host_safe.assert_called_once_with("10.0.0.1", inputs.team_id)
 
     def test_canonical_descriptions_cover_every_endpoint(self):
         descriptions = self.source.get_canonical_descriptions()

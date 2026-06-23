@@ -132,16 +132,26 @@ Supported tables:
 
         return schemas
 
+    def _check_enterprise_host_safe(self, enterprise_domain: Optional[str], team_id: int) -> tuple[bool, str | None]:
+        # `enterprise_domain` is user-supplied and the stored API key is sent to whatever it resolves
+        # to, so reject internal/private hosts. Run at validation *and* before each sync, since DNS
+        # can be repointed at an internal host after setup (Smokescreen re-resolves per hop too).
+        host = normalize_enterprise_host(enterprise_domain)
+        if host is None:
+            return True, None
+        is_safe, host_error = _is_host_safe(host, team_id)
+        if not is_safe:
+            return False, host_error or "Enterprise domain is not allowed"
+        return True, None
+
     def validate_credentials(
         self, config: JotformSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         enterprise_domain = config.enterprise_domain
 
-        host = normalize_enterprise_host(enterprise_domain)
-        if host is not None:
-            is_safe, host_error = _is_host_safe(host, team_id)
-            if not is_safe:
-                return False, host_error or "Enterprise domain is not allowed"
+        is_safe, host_error = self._check_enterprise_host_safe(enterprise_domain, team_id)
+        if not is_safe:
+            return False, host_error
 
         if validate_jotform_credentials(config.api_key, config.region, enterprise_domain):
             return True, None
@@ -157,6 +167,10 @@ Supported tables:
         resumable_source_manager: ResumableSourceManager[JotformResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        is_safe, host_error = self._check_enterprise_host_safe(config.enterprise_domain, inputs.team_id)
+        if not is_safe:
+            raise ValueError(host_error or "Jotform Enterprise domain is not allowed")
+
         return jotform_source(
             api_key=config.api_key,
             region=config.region,

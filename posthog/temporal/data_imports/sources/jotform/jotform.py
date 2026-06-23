@@ -128,7 +128,12 @@ def _build_list_params(
     reraise=True,
 )
 def _fetch_page(url: str, params: dict[str, Any], headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
-    response = make_tracked_session().get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    # `enterprise_domain` is user-supplied, so pin redirects off (defense-in-depth on top of the
+    # Smokescreen egress proxy, which is the load-bearing SSRF control) to keep the API-key-bearing
+    # request on the validated host, and value-redact the key carried in the `APIKEY` header.
+    api_key = headers.get("APIKEY")
+    session = make_tracked_session(redact_values=(api_key,) if api_key else (), allow_redirects=False)
+    response = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # Jotform enforces daily call quotas rather than per-second rate limits; an exhausted quota or a
     # transient server error is worth retrying. Auth failures (401/403) are not — they surface to
@@ -146,7 +151,8 @@ def _fetch_page(url: str, params: dict[str, Any], headers: dict[str, str], logge
 def validate_credentials(api_key: str, region: Optional[str], enterprise_domain: Optional[str] = None) -> bool:
     """Confirm the API key is valid for the target host. ``/user`` is the cheapest authenticated probe."""
     try:
-        response = make_tracked_session().get(
+        # Same SSRF posture as `_fetch_page`: no redirects off the validated host, redact the key.
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
             f"{resolve_base_url(region, enterprise_domain)}/user",
             headers=_headers(api_key),
             timeout=10,

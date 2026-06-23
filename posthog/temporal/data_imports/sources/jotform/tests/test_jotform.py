@@ -185,6 +185,14 @@ class TestValidateCredentials:
         validate_credentials("key-123", "us")
         assert mock_session.return_value.get.call_args.kwargs["headers"]["APIKEY"] == "key-123"
 
+    @mock.patch("posthog.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    def test_pins_redirects_off_and_redacts_key(self, mock_session):
+        mock_session.return_value.get.return_value = _response("", 200)
+        validate_credentials("key-123", "us", "forms.acme.com")
+        # User-controlled host: no redirects off the validated host, and the key is value-redacted.
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert mock_session.call_args.kwargs["redact_values"] == ("key-123",)
+
 
 class TestGetFormIds:
     @mock.patch("posthog.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
@@ -204,6 +212,15 @@ class TestGetFormIds:
     def test_skips_items_without_id_and_stringifies(self, mock_session):
         mock_session.return_value.get.return_value = _response([{"id": 42}, {"title": "no id"}])
         assert get_form_ids(US_BASE, {}, mock.MagicMock()) == ["42"]
+
+    @mock.patch("posthog.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
+    def test_pins_redirects_off_and_redacts_key(self, mock_session):
+        mock_session.return_value.get.return_value = _response([{"id": "1"}])
+        get_form_ids(US_BASE, {"APIKEY": "secret-key"}, mock.MagicMock())
+        # Page fetches against a potentially user-controlled host must not follow redirects, and the
+        # key carried in the APIKEY header is value-redacted from logs.
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
 
 
 class TestGetRowsListEndpoints:
