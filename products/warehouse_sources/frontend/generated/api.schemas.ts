@@ -1656,7 +1656,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Jobber: 'Jobber',
     Knock: 'Knock',
     Leexi: 'Leexi',
-    RB2B: 'RB2B',
+    Rb2b: 'RB2B',
 } as const
 
 /**
