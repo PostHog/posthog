@@ -1,4 +1,4 @@
-import { POSTHOG_EXEC_TOOL_RE } from './posthogExecDisplay'
+import { parseExecCall, parseExecCommand, POSTHOG_EXEC_TOOL_RE } from './posthogExecDisplay'
 
 export interface ResolvedToolKey {
     resolvedKey: string
@@ -51,34 +51,32 @@ export function resolveToolKey(
         (claudeToolName ? POSTHOG_EXEC_TOOL_RE.test(claudeToolName) : false)
 
     if (isPostHogExecTool && typeof input.command === 'string') {
-        const verbMatch = input.command.match(/^\s*(tools|search|info|schema|call)(?:\s+([\s\S]*))?\s*$/)
-        if (!verbMatch) {
+        const { verb, rest } = parseExecCommand(input.command)
+        if (!verb) {
             return { resolvedKey: '__posthog_exec_unknown__' }
         }
-
-        const verb = verbMatch[1] as 'tools' | 'search' | 'info' | 'schema' | 'call'
-        const rest = (verbMatch[2] ?? '').trim()
 
         if (verb !== 'call') {
             return { resolvedKey: `__posthog_exec_${verb}__` }
         }
 
-        const callMatch = rest.match(/^(?:--json\s+)?([a-zA-Z0-9_-]+)\s*([\s\S]*)$/)
-        if (!callMatch) {
+        // Resolve the inner sub-tool the same way the backend does (flags in any order). When it
+        // can't be resolved, fall back to the unknown sentinel so the permission gate fails closed
+        // instead of treating an unparsed `call` as a non-destructive tool.
+        const { subTool, args } = parseExecCall(rest)
+        if (!subTool) {
             return { resolvedKey: '__posthog_exec_unknown__' }
         }
 
-        const innerToolName = callMatch[1]
-        const jsonBody = (callMatch[2] ?? '').trim()
         let innerInput: Record<string, unknown> = {}
-        if (jsonBody) {
+        if (args) {
             try {
-                innerInput = JSON.parse(jsonBody)
+                innerInput = JSON.parse(args)
             } catch {
                 // Leave malformed payloads renderable as generic tool calls.
             }
         }
-        return { resolvedKey: innerToolName, innerToolName, innerInput }
+        return { resolvedKey: subTool, innerToolName: subTool, innerInput }
     }
 
     return { resolvedKey: toolName || claudeToolName || '' }

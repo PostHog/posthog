@@ -32,6 +32,26 @@ describe('sandboxToolResolver', () => {
             )
         })
 
+        it.each([
+            ['call --confirm feature-flag-delete {"key":"x"}'],
+            ['call --json --confirm feature-flag-delete {"key":"x"}'],
+            ['call --confirm --json feature-flag-delete {"key":"x"}'],
+        ])('strips --json/--confirm flags in any order before the inner tool name (%s)', (command) => {
+            const resolved = resolveToolKey('posthog', 'exec', { command })
+            expect(resolved.resolvedKey).toEqual('feature-flag-delete')
+            expect(resolved.innerToolName).toEqual('feature-flag-delete')
+            expect(resolved.innerInput).toEqual({ key: 'x' })
+        })
+
+        it.each([['call'], ['call --json'], ['call --confirm --json']])(
+            'falls back to unknown sentinel for a call with no resolvable sub-tool (%s)',
+            (command) => {
+                const resolved = resolveToolKey('posthog', 'exec', { command })
+                expect(resolved.resolvedKey).toEqual('__posthog_exec_unknown__')
+                expect(resolved.innerToolName).toBeUndefined()
+            }
+        )
+
         it('returns the wire name for non-exec MCP tools that carry one', () => {
             expect(resolveToolKey('user-mcp', 'do_thing', {}).resolvedKey).toEqual('do_thing')
         })

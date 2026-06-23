@@ -83,6 +83,31 @@ describe('sandboxToolPolicy', () => {
             ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'auto_allow'],
             ['exec update', makeRecord({ input: { command: 'call insight-update {"id":"abc"}' } }), 'prompt'],
             ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"new-nav"}' } }), 'prompt'],
+            // A destructive sub-tool hidden behind --confirm/--json (in any order) must still prompt —
+            // the inner tool name is resolved after the flags, not as the flag token.
+            [
+                'exec delete behind --confirm',
+                makeRecord({ input: { command: 'call --confirm feature-flag-delete {"key":"x"}' } }),
+                'prompt',
+            ],
+            [
+                'exec delete behind --confirm --json',
+                makeRecord({ input: { command: 'call --confirm --json feature-flag-delete {"key":"x"}' } }),
+                'prompt',
+            ],
+            [
+                'exec delete behind --json --confirm',
+                makeRecord({ input: { command: 'call --json --confirm feature-flag-delete {"key":"x"}' } }),
+                'prompt',
+            ],
+            // An exec call we can't resolve to a concrete sub-tool fails closed.
+            ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'prompt'],
+            // A permission frame carrying no canonical tool name isn't a positively-identified built-in.
+            [
+                'unidentified frame',
+                makeRecord({ toolName: '', rawServerName: 'claude', rawToolName: '', input: {} }),
+                'prompt',
+            ],
             [
                 'other mcp tool',
                 makeRecord({ toolName: 'mcp__other__foo', rawServerName: 'other', rawToolName: 'foo' }),

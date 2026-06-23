@@ -8,12 +8,78 @@
 /** Matches the PostHog single-exec MCP tool (`mcp__posthog__exec`, plus plugin/regional variants). */
 export const POSTHOG_EXEC_TOOL_RE = /^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$/
 
-const POSTHOG_VERB_RE = /^\s*(tools|search|info|schema|call)(?:\s+([\s\S]*))?\s*$/
-const POSTHOG_CALL_BODY_RE = /^(?:--json\s+)?([a-zA-Z0-9_-]+)\s*([\s\S]*)$/
-const POSTHOG_TOOL_NAME_RE = /^([a-zA-Z0-9_-]+)\s*([\s\S]*)$/
-
 export function isPostHogExecTool(toolName: string): boolean {
     return POSTHOG_EXEC_TOOL_RE.test(toolName)
+}
+
+/** The verbs the single-exec tool accepts. `call` runs a sub-tool; the rest are read-only. */
+export type PostHogExecVerb = 'tools' | 'search' | 'info' | 'schema' | 'call'
+const POSTHOG_EXEC_VERBS = new Set<PostHogExecVerb>(['tools', 'search', 'info', 'schema', 'call'])
+
+/**
+ * Splits the leading whitespace-delimited token off a command and returns it plus the trimmed
+ * remainder. Mirrors the backend exec `parseCommand` (`services/mcp/src/tools/exec.ts`)
+ * token-for-token — single-space split, trimmed remainder — so the client tokenizes a command
+ * exactly the way the server that runs it does. This is a security boundary: any divergence lets a
+ * crafted command resolve to a different (safer-looking) inner tool here than the backend executes.
+ */
+export function splitFirstToken(input: string): { head: string; rest: string } {
+    const trimmed = input.trim()
+    const idx = trimmed.indexOf(' ')
+    if (idx === -1) {
+        return { head: trimmed, rest: '' }
+    }
+    return { head: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
+}
+
+/**
+ * Parses an exec `command` into its verb and remainder. `verb` is null when the leading token isn't
+ * a recognized verb (the backend rejects such a command as `Unknown command`).
+ */
+export function parseExecCommand(command: string): { verb: PostHogExecVerb | null; rest: string } {
+    const { head, rest } = splitFirstToken(command)
+    return POSTHOG_EXEC_VERBS.has(head as PostHogExecVerb)
+        ? { verb: head as PostHogExecVerb, rest }
+        : { verb: null, rest }
+}
+
+/**
+ * Parses the body of a `call` command (everything after the `call` verb) into its inner sub-tool,
+ * its remaining args, and the boolean flags. Strips leading `--json` / `--confirm` flags in any
+ * order, mirroring the backend `parseCallFlags`, then takes the next token as the sub-tool.
+ * `subTool` is null when no sub-tool remains, or when the next token still looks like a flag — a real
+ * sub-tool name never starts with `-`. The permission gate keys destructive-tool detection off
+ * `subTool`, so this MUST match the server's flag grammar: what the server strips, we strip; what it
+ * can't resolve, we fail closed on.
+ */
+export function parseExecCall(callBody: string): {
+    subTool: string | null
+    args: string
+    forceJson: boolean
+    confirmed: boolean
+} {
+    let rest = callBody.trim()
+    let forceJson = false
+    let confirmed = false
+    while (rest) {
+        const { head, rest: next } = splitFirstToken(rest)
+        if (head === '--json') {
+            forceJson = true
+            rest = next
+            continue
+        }
+        if (head === '--confirm') {
+            confirmed = true
+            rest = next
+            continue
+        }
+        break
+    }
+    const { head: subTool, rest: args } = splitFirstToken(rest)
+    if (!subTool || subTool.startsWith('-')) {
+        return { subTool: null, args, forceJson, confirmed }
+    }
+    return { subTool, args, forceJson, confirmed }
 }
 
 export interface PostHogExecDisplay {
@@ -49,13 +115,10 @@ export function getPostHogExecDisplay(toolInput: unknown): PostHogExecDisplay | 
         return null
     }
 
-    const verbMatch = obj.command.match(POSTHOG_VERB_RE)
-    if (!verbMatch) {
+    const { verb, rest } = parseExecCommand(obj.command)
+    if (!verb) {
         return null
     }
-
-    const verb = verbMatch[1] as 'tools' | 'search' | 'info' | 'schema' | 'call'
-    const rest = (verbMatch[2] ?? '').trim()
     const explicitInput = readExplicitInput(obj.input)
 
     switch (verb) {
@@ -71,12 +134,10 @@ export function getPostHogExecDisplay(toolInput: unknown): PostHogExecDisplay | 
                 ? { label: `Read ${rest}`, input: undefined }
                 : { label: 'Read tool', input: undefined }
         case 'schema': {
-            const match = rest.match(POSTHOG_TOOL_NAME_RE)
-            if (!match) {
+            const { head: subTool, rest: fieldPath } = splitFirstToken(rest)
+            if (!subTool) {
                 return { label: 'Inspect schema', input: undefined }
             }
-            const subTool = match[1]
-            const fieldPath = (match[2] ?? '').trim()
             const path = explicitInput ?? (fieldPath.length > 0 ? fieldPath : undefined)
             return {
                 label: path ? `Inspect ${subTool}.${path}` : `Inspect ${subTool} fields`,
@@ -84,12 +145,10 @@ export function getPostHogExecDisplay(toolInput: unknown): PostHogExecDisplay | 
             }
         }
         case 'call': {
-            const match = rest.match(POSTHOG_CALL_BODY_RE)
-            if (!match) {
+            const { subTool, args } = parseExecCall(rest)
+            if (!subTool) {
                 return null
             }
-            const subTool = match[1]
-            const args = (match[2] ?? '').trim()
             return {
                 label: subTool,
                 input: explicitInput ?? (args.length > 0 ? args : undefined),
