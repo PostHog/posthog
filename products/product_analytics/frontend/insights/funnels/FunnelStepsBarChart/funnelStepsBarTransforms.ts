@@ -16,6 +16,10 @@ export interface FunnelStepsBarSeriesMeta {
 interface BuildOptions {
     getColor: (series: FunnelStepWithConversionMetrics) => string
     getLabel: (series: FunnelStepWithConversionMetrics) => string
+    /** Flat color for the first step's track. Step 1 has no drop-off, so in compare mode its
+     *  rescaled bar exposes a backdrop that isn't a real drop-off — render it neutral, not
+     *  series-colored. */
+    neutralTrackColor: string
 }
 
 export interface FunnelStepsBarData {
@@ -64,6 +68,9 @@ export function buildFunnelStepsBarData(
             data: variants.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT),
             color: representative ? options.getColor(representative) : undefined,
             meta: { breakdownIndex },
+            // Only the first step's track is a non-drop-off backdrop; later steps keep the
+            // series-colored drop-off track.
+            bars: [{ trackColor: options.neutralTrackColor }],
         })
     }
 

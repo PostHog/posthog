@@ -54,6 +54,7 @@ const breakdownSteps: FunnelStepWithConversionMetrics[] = [
 const options = {
     getColor: () => '#1d4aff',
     getLabel: (variant: FunnelStepWithConversionMetrics) => String(variant.breakdown_value ?? variant.name),
+    neutralTrackColor: '#cccccc',
 }
 
 describe('buildFunnelStepsBarData', () => {
@@ -72,6 +73,15 @@ describe('buildFunnelStepsBarData', () => {
         expect(series).toHaveLength(2)
         expect(series[0].data).toEqual([100, 60])
         expect(series[1].data).toEqual([100, 30])
+    })
+
+    it('renders only the first step track as a neutral no-data backdrop', () => {
+        const { series } = buildFunnelStepsBarData(breakdownSteps, options)
+
+        for (const s of series) {
+            expect(s.bars?.[0]?.trackColor).toBe('#cccccc')
+            expect(s.bars?.[1]?.trackColor).toBeUndefined()
+        }
     })
 
     it('tags each series with its breakdown index for click/tooltip mapping', () => {

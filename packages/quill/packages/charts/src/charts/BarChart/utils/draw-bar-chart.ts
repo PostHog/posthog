@@ -11,6 +11,7 @@ import {
     drawBars,
     drawBarTracks,
     drawGrid,
+    drawSolidBarTracks,
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
@@ -158,7 +159,16 @@ export function drawBarChartStatic(
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
         for (const { series: s, bars } of seriesBars) {
             const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
-            drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
+            // A per-bar `trackColor` renders a flat neutral backdrop (e.g. a funnel's no-data
+            // first-step track) instead of the series-colored tinted+hatched drop-off track.
+            const hatchedTracks = tracks.filter((t) => s.bars?.[t.dataIndex]?.trackColor == null)
+            drawBarTracks(baseDrawCtx, s, hatchedTracks, barCornerRadius)
+            for (const track of tracks) {
+                const neutralColor = s.bars?.[track.dataIndex]?.trackColor
+                if (neutralColor != null) {
+                    drawSolidBarTracks(ctx, [track], neutralColor, barCornerRadius)
+                }
+            }
         }
     }
 

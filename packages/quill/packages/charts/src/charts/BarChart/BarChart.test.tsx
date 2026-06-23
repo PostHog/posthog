@@ -621,6 +621,32 @@ describe('BarChart', () => {
         )
     })
 
+    describe('neutral track (bars[].trackColor)', () => {
+        it('grouped: renders a neutral first-bar track and still tooltips on hover', async () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, 20, 30], bars: [{ trackColor: '#cccccc' }] },
+                { key: 'b', label: 'B', data: [5, 15, 25], bars: [{ trackColor: '#cccccc' }] },
+            ]
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'grouped', bars: { track: true } }}
+                />
+            )
+            const step = dimensions.plotWidth / LABELS.length
+            // Over the first band's track (above the short bar): the neutral track is inert (drawn
+            // flat, no hover highlight), but the band still surfaces its tooltip.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + step * 0.3,
+                clientY: dimensions.plotTop + 2,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.element.textContent).toContain('Mon')
+        })
+    })
+
     describe('children & error boundary', () => {
         it('renders custom overlay children', () => {
             const { chart } = renderHogChart(
