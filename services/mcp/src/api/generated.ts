@@ -7918,6 +7918,30 @@ export namespace Schemas {
       results: AgentFleetLiveSessionSummary[];
     }
 
+    export interface AgentIdentityConnect {
+      authorize_url: string;
+    }
+
+    export interface AgentIdentityConnection {
+      provider: string;
+      /** active | revoked */
+      state: string;
+      scopes: string[];
+      /** @nullable */
+      subject: string | null;
+      /** @nullable */
+      access_expires_at: string | null;
+      created_at: string;
+      updated_at: string;
+      /** @nullable */
+      revoked_at: string | null;
+    }
+
+    export interface AgentIdentityConnectionList {
+      count: number;
+      results: AgentIdentityConnection[];
+    }
+
     export interface AgentMemoryFile {
       /** Full markdown body. */
       content: string;

@@ -132,15 +132,33 @@ export class Oauth2AuthProvider implements IdentityProvider {
             code_verifier: state.codeVerifier,
         })
         const subject = await this.deriveSubject(token.access_token)
-        await this.deps.credentials.put({
-            teamId: state.teamId,
-            applicationId: state.applicationId,
-            agentUserId: state.agentUserId,
-            provider: this.id,
-            credential: this.toStored(token),
-            scopes: token.scope ? token.scope.split(' ') : state.scopes,
-            subject,
-        })
+        const scopes = token.scope ? token.scope.split(' ') : state.scopes
+        if (this.binding === 'agent') {
+            // Agent-scoped (owner-initiated) link: store the one shared credential
+            // app-scoped — the link-state carries no principal (agent_user_id NULL).
+            await this.deps.credentials.putAgentScoped({
+                teamId: state.teamId,
+                applicationId: state.applicationId,
+                provider: this.id,
+                credential: this.toStored(token),
+                scopes,
+                subject,
+            })
+        } else {
+            if (!state.agentUserId) {
+                // A principal-bound link must carry the asker it belongs to.
+                throw new Error('oauth_link_missing_principal')
+            }
+            await this.deps.credentials.put({
+                teamId: state.teamId,
+                applicationId: state.applicationId,
+                agentUserId: state.agentUserId,
+                provider: this.id,
+                credential: this.toStored(token),
+                scopes,
+                subject,
+            })
+        }
         return { agentUserId: state.agentUserId, provider: this.id }
     }
 

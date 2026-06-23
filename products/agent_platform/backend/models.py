@@ -393,10 +393,14 @@ class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
     can't be replayed or retargeted at a different principal. `used_at` enforces
     single use; `expires_at` bounds the window (≤10m). `code_verifier` is the
     PKCE verifier, server-side only.
+
+    `agent_user_id` is NULL for an agent-scoped (`binding: 'agent'`) link — the
+    owner-initiated round-trip that establishes the shared credential. There's no
+    asking principal; `complete()` stores the result app-scoped.
     """
 
     application_id = models.UUIDField()
-    agent_user_id = models.UUIDField()
+    agent_user_id = models.UUIDField(null=True, blank=True)
     provider = models.TextField()
     scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
     # Stored plaintext, unlike the Fernet-encrypted agent_identity_credential.

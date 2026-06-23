@@ -36,7 +36,8 @@ export interface IdentityCompleteInput {
 }
 
 export interface IdentityCompleteResult {
-    agentUserId: string
+    /** Null when the completed link was agent-scoped (`binding: 'agent'`). */
+    agentUserId: string | null
     provider: string
 }
 

@@ -70,6 +70,12 @@ from posthog.models.user import User
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.agent_identity_connect import (
+    AgentConnectError,
+    list_connections as list_agent_connections,
+    mint_authorize_url as mint_agent_authorize_url,
+    revoke_connection as revoke_agent_connection,
+)
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
@@ -528,6 +534,8 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "destroy",
         "approvals_decide",
         "users_connection_delete",
+        "identity_connect",
+        "identity_disconnect",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
         # tools and incurring inference cost. That's a write-class capability,
@@ -542,6 +550,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_retrieve",
         "session_logs",
         "users_list",
+        "identities_list",
         "stats",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
@@ -1097,6 +1106,128 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
+
+    # ── Agent-level (shared) identity connections ───────────────────────────
+    #
+    # A `binding: 'agent'` identity provider has ONE credential shared by every
+    # asker, connected once by an owner (vs the per-end-user `users_*` surface
+    # above). All three are owner/team-admin only and operate directly on the
+    # Django-owned agent_identity_* models (no janitor round-trip); the OAuth
+    # token exchange still happens node-side in the ingress `/link` callback.
+
+    @extend_schema(
+        operation_id="agent_applications_identities_list",
+        description=(
+            "List the agent's agent-level identity connections — one shared "
+            "credential per `binding: 'agent'` provider, used by every asker. "
+            "Metadata only; no credential material. Owner/team-admin only."
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentIdentityConnectionList",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentIdentityConnection",
+                            fields={
+                                "provider": drf_serializers.CharField(),
+                                "state": drf_serializers.CharField(help_text="active | revoked"),
+                                "scopes": drf_serializers.ListField(child=drf_serializers.CharField()),
+                                "subject": drf_serializers.CharField(allow_null=True),
+                                "access_expires_at": drf_serializers.DateTimeField(allow_null=True),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "updated_at": drf_serializers.DateTimeField(),
+                                "revoked_at": drf_serializers.DateTimeField(allow_null=True),
+                            },
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="identities")
+    def identities_list(self, request: Request, **kwargs) -> Response:
+        """Agent-level (shared) identity connections for this agent."""
+        self._require_team_admin()
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        results = list_agent_connections(application)
+        return Response({"count": len(results), "results": results})
+
+    @extend_schema(
+        operation_id="agent_applications_identity_connect",
+        description=(
+            "Mint an authorize URL to connect an agent-level (`binding: 'agent'`) "
+            "identity provider. The owner opens the URL and authorizes once; the "
+            "resulting OAuth credential is shared by EVERY asker of the agent. "
+            "Relay the `authorize_url` as a link. Owner/team-admin only."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id from spec.identity_providers (must be binding: 'agent').",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentIdentityConnect",
+                fields={"authorize_url": drf_serializers.CharField()},
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path=r"identities/(?P<provider>[^/.]+)/connect")
+    def identity_connect(self, request: Request, provider: str = "", **kwargs) -> Response:
+        """Mint the owner authorize URL for an agent-level identity provider."""
+        self._require_team_admin()
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            authorize_url = mint_agent_authorize_url(application, provider)
+        except AgentConnectError as e:
+            raise ValidationError(str(e))
+        return Response({"authorize_url": authorize_url})
+
+    @extend_schema(
+        operation_id="agent_applications_identity_disconnect",
+        description=(
+            "Revoke the agent-level credential for a provider (kept for audit). "
+            "Every asker loses access until it's reconnected. Owner/team-admin only."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id (binding: 'agent').",
+            ),
+        ],
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentIdentityDisconnect",
+                fields={
+                    "provider": drf_serializers.CharField(),
+                    "revoked": drf_serializers.BooleanField(),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["delete"], url_path=r"identities/(?P<provider>[^/.]+)")
+    def identity_disconnect(self, request: Request, provider: str = "", **kwargs) -> Response:
+        """Revoke the agent-level credential for a provider."""
+        self._require_team_admin()
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        revoked = revoke_agent_connection(application, provider)
+        return Response({"provider": provider, "revoked": revoked})
 
     @extend_schema(
         operation_id="agent_applications_sessions_retrieve",

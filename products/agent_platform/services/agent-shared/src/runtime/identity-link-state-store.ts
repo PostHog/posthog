@@ -16,7 +16,9 @@ export interface LinkState {
     id: string
     teamId: number
     applicationId: string
-    agentUserId: string
+    /** Null for an agent-scoped (`binding: 'agent'`) link — owner-initiated, no
+     *  asking principal; `complete()` stores the credential app-scoped. */
+    agentUserId: string | null
     provider: string
     scopes: string[]
     codeVerifier: string
@@ -26,7 +28,8 @@ export interface LinkState {
 export interface CreateLinkStateInput {
     teamId: number
     applicationId: string
-    agentUserId: string
+    /** Null for an agent-scoped (`binding: 'agent'`) link. */
+    agentUserId: string | null
     provider: string
     scopes: string[]
     codeVerifier: string
@@ -57,7 +60,7 @@ interface StateRow {
     id: string
     team_id: string | number
     application_id: string
-    agent_user_id: string
+    agent_user_id: string | null
     provider: string
     scopes: string[] | null
     code_verifier: string

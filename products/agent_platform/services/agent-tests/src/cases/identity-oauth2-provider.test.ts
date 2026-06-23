@@ -6,7 +6,7 @@
  * yet; that's the M5 e2e.
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -184,6 +184,91 @@ maybeDescribe('Oauth2AuthProvider × dogs IdP (real PG + real HTTP)', () => {
             expect(afterToken).not.toBe(beforeToken) // rotated
             const api = await fetch(dog.apiUrl, { headers: { Authorization: `Bearer ${afterToken}` } })
             expect(api.status).toBe(200)
+        } finally {
+            await dog.close()
+        }
+    })
+
+    // Mint an agent-scoped link-state row exactly as the owner-initiated Django
+    // connect flow does (agent_user_id NULL), then drive the dog `/authorize`
+    // with the matching PKCE challenge so the manually-minted state yields a
+    // usable code. Returns the state id + code to feed `complete()`.
+    const mintAgentScopedLink = async (
+        links: PgIdentityLinkStateStore,
+        applicationId: string
+    ): Promise<{ stateId: string; code: string }> => {
+        const verifier = randomBytes(32).toString('base64url')
+        const challenge = createHash('sha256').update(verifier).digest('base64url')
+        const stateId = await links.create({
+            teamId: 1,
+            applicationId,
+            agentUserId: null, // agent-scoped: no asking principal
+            provider: 'dogs',
+            scopes: ['read:dog'],
+            codeVerifier: verifier,
+            redirectUri: REDIRECT,
+        })
+        const authorizeUrl = new URL(dog.authorizeUrl)
+        authorizeUrl.searchParams.set('redirect_uri', REDIRECT)
+        authorizeUrl.searchParams.set('scope', 'read:dog')
+        authorizeUrl.searchParams.set('state', stateId)
+        authorizeUrl.searchParams.set('code_challenge', challenge)
+        authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+        const { code, state } = await visitAuthorize(authorizeUrl.toString())
+        expect(state).toBe(stateId)
+        return { stateId, code }
+    }
+
+    it('completing an agent-bound link stores the shared credential via putAgentScoped', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const links = new PgIdentityLinkStateStore(pool)
+            const credentials = new PgIdentityCredentialStore(pool, { encryptionSaltKeys: KEY })
+            const applicationId = randomUUID()
+
+            const { stateId, code } = await mintAgentScopedLink(links, applicationId)
+
+            const provider = buildProvider({ binding: 'agent' })
+            const done = await provider.complete({ stateId, query: { code } })
+            // Agent-scoped completion carries no principal.
+            expect(done).toEqual({ agentUserId: null, provider: 'dogs' })
+
+            // The credential landed on the agent-scoped (application, provider)
+            // row — agent_user_id NULL — and is resolvable + works against the API.
+            const stored = await credentials.getAgentScoped(applicationId, 'dogs')
+            expect(stored?.agentUserId).toBeNull()
+            expect(stored?.credential.access_token).toBeTruthy()
+
+            const api = await fetch(dog.apiUrl, {
+                headers: { Authorization: `Bearer ${stored?.credential.access_token}` },
+            })
+            expect(api.status).toBe(200)
+        } finally {
+            await dog.close()
+        }
+    })
+
+    it('completing a principal-bound link with a null-principal state throws oauth_link_missing_principal', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const links = new PgIdentityLinkStateStore(pool)
+            const applicationId = randomUUID()
+
+            // A null-principal (agent-scoped) link-state, but completed by a
+            // PRINCIPAL-bound provider — the binding mismatch must be caught:
+            // a per-asker credential can't be stored without an asker.
+            const { stateId, code } = await mintAgentScopedLink(links, applicationId)
+
+            const provider = buildProvider() // default binding: 'principal'
+            await expect(provider.complete({ stateId, query: { code } })).rejects.toThrow(
+                'oauth_link_missing_principal'
+            )
         } finally {
             await dog.close()
         }

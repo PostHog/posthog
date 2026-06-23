@@ -117,6 +117,36 @@ sequenceDiagram
     end
 ```
 
+### Agent-level binding (`binding: 'agent'`)
+
+`binding: 'principal'` (default) links **per asker** — each user authorizes
+their own account, and resolution keys off the asking `agent_user`. `binding:
+'agent'` instead establishes **one credential shared by the whole agent**: every
+asker's tool/MCP call runs through the same connected account. It's a deliberate
+confused-deputy, so the spec must set `acknowledge_shared_credential: true`.
+
+The shared credential is **stored app-scoped** — `agent_identity_credential`
+with `agent_user_id IS NULL`, unique per `(application_id, provider)` — and read
+via `getAgentScoped`. None of the per-asker gates apply at resolve time (there's
+no asking identity, the shared-session confused-deputy risk is moot, and the
+edge seed is the asker's bearer, not the agent's).
+
+Connecting is an **owner action**, not a per-asker one, so the runtime never
+relays an authorize link to an end user for an agent-bound provider — an
+unconnected one resolves to `unavailable: agent_credential_not_connected`.
+A team admin connects once via the Django authoring API (owner-gated):
+
+- `POST  …/agent_applications/<id>/identities/<provider>/connect` → mints the
+  authorize URL (writes an `agent_identity_link_state` row with `agent_user_id
+NULL`). Relay it as a link; the owner authorizes; the ingress
+  `/link/<provider>/callback` runs `complete()` → `putAgentScoped`.
+- `GET    …/identities` → list the agent's shared connections (metadata only).
+- `DELETE …/identities/<provider>` → revoke (kept for audit).
+
+For a static token instead of OAuth, the bring-your-own-token path
+(`spec.mcps[].headers`/`secrets` over `encrypted_env`) is already agent-level —
+no connect dance needed.
+
 ## The tool taxonomy
 
 The runner assembles one `AgentTool[]` for the model from four sources, in
@@ -156,7 +186,7 @@ instead of the tool failing.
 ### What a tool receives — `ToolContext`
 
 Threaded through to every tool: `teamId · applicationId · sessionId`,
-`secret(name)` (decrypted `encrypted_env`), `integrations` (team OAuth tokens),
+`secret(name)` (decrypted `encrypted_env`),
 `credentials.resolve(target)` (the per-session broker), `identity.resolve(provider)`
 (linked-identity gate), `resolvedIdentities` (pre-resolved for gated tools),
 `memoryStore` / `tabularStore`, and `http` (the proxy-bound `HttpClient` — the
@@ -214,9 +244,10 @@ flowchart LR
 
 - **(A) Consuming** — `spec.mcps[]` servers are opened at session start (in
   parallel, partial-failure tolerated), their tools listed and exposed to the
-  loop as `<mcpId>__<remoteTool>`. Auth per server is an `integration` (team
-  OAuth bearer, host-validated), a `provider` (per-asker linked identity), or
-  `secrets[]` substituted into the URL/headers.
+  loop as `<mcpId>__<remoteTool>`. Auth per server is a `provider` (a
+  `spec.identity_providers[]` link — per-asker, or one shared agent-level
+  credential), or `secrets[]`/`headers` substituted into the URL/headers
+  (bring-your-own-token).
 - **(B) Exposing** — ingress also serves the agent itself as an MCP server with
   a single `ask` tool, so an MCP client can talk to a deployed agent.
   Separately, the **Django authoring REST API** is generated into MCP tools

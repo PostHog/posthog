@@ -31,6 +31,8 @@ import type {
     AgentFleetLiveSessionsParams,
     AgentFleetLiveSessionsResponseApi,
     AgentFleetStatsParams,
+    AgentIdentityConnectApi,
+    AgentIdentityConnectionListApi,
     AgentMemoryDeleteFileParams,
     AgentMemoryFileApi,
     AgentMemoryGetFileParams,
@@ -1655,6 +1657,62 @@ export const agentApplicationsApprovalsDecide = async (
             body: JSON.stringify(decideApprovalRequestApi),
         }
     )
+}
+
+export const getAgentApplicationsIdentitiesListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/identities/`
+}
+
+/**
+ * List the agent's agent-level identity connections — one shared credential per `binding: 'agent'` provider, used by every asker. Metadata only; no credential material. Owner/team-admin only.
+ */
+export const agentApplicationsIdentitiesList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentIdentityConnectionListApi> => {
+    return apiMutator<AgentIdentityConnectionListApi>(getAgentApplicationsIdentitiesListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsIdentityDisconnectUrl = (projectId: string, id: string, provider: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/identities/${provider}/`
+}
+
+/**
+ * Revoke the agent-level credential for a provider (kept for audit). Every asker loses access until it's reconnected. Owner/team-admin only.
+ */
+export const agentApplicationsIdentityDisconnect = async (
+    projectId: string,
+    id: string,
+    provider: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsIdentityDisconnectUrl(projectId, id, provider), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsIdentityConnectUrl = (projectId: string, id: string, provider: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/identities/${provider}/connect/`
+}
+
+/**
+ * Mint an authorize URL to connect an agent-level (`binding: 'agent'`) identity provider. The owner opens the URL and authorizes once; the resulting OAuth credential is shared by EVERY asker of the agent. Relay the `authorize_url` as a link. Owner/team-admin only.
+ */
+export const agentApplicationsIdentityConnect = async (
+    projectId: string,
+    id: string,
+    provider: string,
+    options?: RequestInit
+): Promise<AgentIdentityConnectApi> => {
+    return apiMutator<AgentIdentityConnectApi>(getAgentApplicationsIdentityConnectUrl(projectId, id, provider), {
+        ...options,
+        method: 'POST',
+    })
 }
 
 export const getAgentApplicationsPreviewProxyGetUrl = (

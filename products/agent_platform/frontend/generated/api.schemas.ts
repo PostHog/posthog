@@ -1368,6 +1368,30 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
+export interface AgentIdentityConnectionApi {
+    provider: string
+    /** active | revoked */
+    state: string
+    scopes: string[]
+    /** @nullable */
+    subject: string | null
+    /** @nullable */
+    access_expires_at: string | null
+    created_at: string
+    updated_at: string
+    /** @nullable */
+    revoked_at: string | null
+}
+
+export interface AgentIdentityConnectionListApi {
+    count: number
+    results: AgentIdentityConnectionApi[]
+}
+
+export interface AgentIdentityConnectApi {
+    authorize_url: string
+}
+
 /**
  * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
  * non-live revision. The meaningful shape depends on the `rest` path segment:

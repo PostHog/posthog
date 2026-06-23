@@ -81,4 +81,25 @@ maybeDescribe('PgIdentityLinkStateStore (real PG)', () => {
         const id = await create(-1000) // already expired
         expect(await store.consume(id)).toBeNull()
     })
+
+    it('round-trips a null agentUserId (agent-scoped link)', async () => {
+        if (!reachable) {
+            return
+        }
+        // The owner-initiated `binding: 'agent'` connect mints a link-state with
+        // no asking principal; consume must hand back `agentUserId === null`.
+        const id = await store.create({
+            teamId: 1,
+            applicationId: randomUUID(),
+            agentUserId: null,
+            provider: 'dogs',
+            scopes: ['read:dog'],
+            codeVerifier: 'verifier-agent',
+            redirectUri: 'https://x/cb',
+        })
+        const row = await store.consume(id)
+        expect(row?.agentUserId).toBeNull()
+        expect(row?.provider).toBe('dogs')
+        expect(row?.codeVerifier).toBe('verifier-agent')
+    })
 })
