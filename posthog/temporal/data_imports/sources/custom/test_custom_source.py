@@ -848,12 +848,13 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         # The message `source_for_pipeline` raises when a schema points to a resource
         # the manifest no longer defines must be recognized by the source's classifier,
         # so `_handle_import_error` stops the job instead of capturing + retrying it.
+        # Pin the specific substring on both ends — the raised message and the dict key —
+        # so the guard breaks if either the wording or the key drifts.
         with self.assertRaises(ValueError) as ctx:
             _fanout_chain(_minimal_manifest(), "nonexistent")
-        error_msg = str(ctx.exception)
 
-        non_retryable = CustomSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable)
+        assert "not found in config" in str(ctx.exception)
+        assert "not found in config" in CustomSource().get_non_retryable_errors()
 
 
 def _fanout_manifest() -> dict:
