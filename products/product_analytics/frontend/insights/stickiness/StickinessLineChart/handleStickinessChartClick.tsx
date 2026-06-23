@@ -1,4 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -56,7 +57,8 @@ export function handleStickinessChartClick(seriesKey: string, dataIndex: number,
     const label = dataset.label ?? ''
     const title = (
         <>
-            <PropertyKeyInfo value={label} disablePopover /> Stickiness on {deps.interval || 'day'} {day}
+            <PropertyKeyInfo value={label} disablePopover type={TaxonomicFilterGroupType.Events} /> stickiness on{' '}
+            {deps.interval || 'day'} {day}
         </>
     )
 
