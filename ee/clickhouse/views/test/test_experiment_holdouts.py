@@ -1,9 +1,14 @@
 from rest_framework import status
 
-from products.experiments.backend.models.experiment import Experiment
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestExperimentHoldoutCRUD(APILicensedTest):
@@ -214,3 +219,98 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
             {"filters": []},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestExperimentHoldoutAccessControl(APILicensedTest):
+    """Holdouts are a first-class access-control resource that inherits experiment access.
+
+    A user must have resource-level (project-wide) experiment access to manage holdouts; an
+    object-level grant on a single experiment must not admit them, since holdouts are shared
+    project config and have no per-object grants of their own.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        # Owned by a different user — creators always get highest access, which would mask
+        # the access-control behavior under test.
+        self.other_user = User.objects.create_and_join(self.organization, "holdout-owner@posthog.com", None)
+        self.holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Held-out users",
+            created_by=self.other_user,
+            filters=[{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
+        )
+        self.feature_flag = FeatureFlag.objects.create(team=self.team, key="exp-flag", created_by=self.other_user)
+        self.experiment = Experiment.objects.create(
+            team=self.team, name="Exp", feature_flag=self.feature_flag, created_by=self.other_user
+        )
+
+    def _set_experiment_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.update_or_create(
+            team=self.team,
+            resource="experiment",
+            resource_id=None,
+            organization_member=None,
+            role=None,
+            defaults={"access_level": access_level},
+        )
+
+    def _grant_experiment_object_access(self, access_level: str) -> None:
+        AccessControl.objects.update_or_create(
+            team=self.team,
+            resource="experiment",
+            resource_id=str(self.experiment.id),
+            organization_member=self.organization_membership,
+            role=None,
+            defaults={"access_level": access_level},
+        )
+
+    def test_single_experiment_object_grant_does_not_admit_to_holdouts(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._set_experiment_resource_level("none")
+        self._grant_experiment_object_access("editor")
+
+        # Sanity: the object grant does let them see that one experiment...
+        exp_list = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(exp_list.status_code, status.HTTP_200_OK)
+
+        # ...but it must not leak holdouts.
+        list_res = self.client.get(f"/api/projects/{self.team.id}/experiment_holdouts/")
+        self.assertEqual(list_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        retrieve_res = self.client.get(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/")
+        self.assertEqual(retrieve_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        update_res = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/",
+            {"name": "renamed"},
+            format="json",
+        )
+        self.assertEqual(update_res.status_code, status.HTTP_403_FORBIDDEN)
+
+        delete_res = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/")
+        self.assertEqual(delete_res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_resource_level_experiment_access_grants_holdout_crud(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self._set_experiment_resource_level("editor")
+
+        list_res = self.client.get(f"/api/projects/{self.team.id}/experiment_holdouts/")
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+
+        retrieve_res = self.client.get(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/")
+        self.assertEqual(retrieve_res.status_code, status.HTTP_200_OK)
+
+        update_res = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/",
+            {"name": "renamed"},
+            format="json",
+        )
+        self.assertEqual(update_res.status_code, status.HTTP_200_OK)

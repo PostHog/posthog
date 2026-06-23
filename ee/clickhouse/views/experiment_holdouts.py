@@ -10,12 +10,17 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 
-class ExperimentHoldoutSerializer(serializers.ModelSerializer):
+
+class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A holdout group — a stable slice of users excluded from experiment exposure."""
+
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -28,12 +33,14 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
             "created_by",
             "created_at",
             "updated_at",
+            "user_access_level",
         ]
 
     def _get_filters_with_holdout_id(self, id: int, filters: list) -> list:
@@ -102,8 +109,8 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
-class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "experiment_holdout"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()
     serializer_class = ExperimentHoldoutSerializer
     ordering = "-created_at"
