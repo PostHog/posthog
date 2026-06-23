@@ -1840,18 +1840,26 @@ _COMMENT_IMAGE_WIDTH = 320
 _MAX_COMMENT_IMAGES = 8
 
 
-def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
-    """Presigned URL for embedding a snapshot image in a PR comment.
+def _comment_image_urls(repo: Repo, artifact: Artifact | None) -> tuple[str, str] | None:
+    """Presigned (thumbnail, full-resolution) URLs for a snapshot image in a PR comment.
 
-    Prefers the thumbnail to keep the comment lightweight. Returns None when the
-    artifact is missing or object storage is disabled — the caller renders an
-    empty cell in that case.
+    The thumbnail keeps the rendered comment lightweight; the full-resolution URL is
+    what the thumbnail links to, so a reviewer can click through to the original at full
+    resolution. Falls back to the full-resolution image for both when no thumbnail
+    exists. Returns None when the artifact is missing or object storage is disabled — the
+    caller renders an empty cell in that case.
     """
     if artifact is None:
         return None
-    display = artifact.thumbnail or artifact
     storage = ArtifactStorage(str(repo.id))
-    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    full_url = storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    if not full_url:
+        return None
+    thumbnail = artifact.thumbnail
+    if thumbnail is None:
+        return full_url, full_url
+    thumb_url = storage.get_presigned_download_url(thumbnail.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    return (thumb_url or full_url), full_url
 
 
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -1886,13 +1894,20 @@ def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str
     return f"[{_snapshot_name_cell(snapshot.identifier)}]({_snapshot_url(run, repo, snapshot)}){suffix}"
 
 
-def _image_cell(url: str | None, alt: str) -> str:
-    """Render an image (or an empty placeholder) for a before/after table cell."""
-    if not url:
+def _image_cell(urls: tuple[str, str] | None, alt: str) -> str:
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    Shows a width-constrained thumbnail linked to the full-resolution image so the table
+    stays compact but a reviewer can click through to the original at full resolution.
+    """
+    if not urls:
         return "_(none)_"
-    # Escape both attributes — a URL containing a quote would otherwise break out of src.
-    src = html.escape(url, quote=True)
-    return f'<img src="{src}" width="{_COMMENT_IMAGE_WIDTH}" alt="{html.escape(alt, quote=True)}">'
+    thumb_url, full_url = urls
+    # Escape every attribute — a URL containing a quote would otherwise break out of src/href.
+    src = html.escape(thumb_url, quote=True)
+    href = html.escape(full_url, quote=True)
+    img = f'<img src="{src}" width="{_COMMENT_IMAGE_WIDTH}" alt="{html.escape(alt, quote=True)}">'
+    return f'<a href="{href}">{img}</a>'
 
 
 _IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
@@ -1950,10 +1965,10 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
 
     def cell(artifact: Artifact | None, alt: str) -> str:
         nonlocal any_image
-        url = _comment_image_url(repo, artifact)
-        if url:
+        urls = _comment_image_urls(repo, artifact)
+        if urls:
             any_image = True
-        return _image_cell(url, alt)
+        return _image_cell(urls, alt)
 
     def row(s: RunSnapshot, before: Artifact | None) -> str:
         suffix = " _(removed)_" if s.result == SnapshotResult.REMOVED else ""
