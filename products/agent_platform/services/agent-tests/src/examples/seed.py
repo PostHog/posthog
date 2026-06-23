@@ -85,6 +85,10 @@ METADATA: dict[str, dict[str, str]] = {
         "name": "Agent Builder",
         "description": "Meta-agent for the platform.",
     },
+    "kitchen-sink": {
+        "name": "PostHog Agent Example - kitchen sink",
+        "description": "The everything agent — wires nearly every platform feature (all 5 trigger types, the full native tool surface, both approval authorities, two MCPs, both identity-provider kinds, host-bound secrets, resume) into one deployable bundle, plus a wide, slightly delightful skill set.",
+    },
 }
 
 # Trigger config fields the Django write-schema accepts today. It intentionally
@@ -319,7 +323,10 @@ def required_secret_keys(spec: dict) -> list[str]:
     plus per-trigger required keys. Order-preserving + de-duped."""
     keys: list[str] = []
     for s in spec.get("secrets", []) or []:
-        key = s.get("key") if isinstance(s, dict) else s
+        # SecretRefSchema object form is `{name, allowed_hosts}` (host-bound),
+        # not `{key}` — read `name` so host-bound secrets aren't silently
+        # skipped (they'd then trip the validate `missing_secret` gate).
+        key = s.get("name") if isinstance(s, dict) else s
         if isinstance(key, str) and key not in keys:
             keys.append(key)
     for t in spec.get("triggers", []) or []:

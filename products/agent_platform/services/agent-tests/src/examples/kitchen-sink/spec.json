@@ -1,0 +1,295 @@
+{
+    "model": "anthropic/claude-sonnet-4-6",
+    "reasoning": "high",
+    "triggers": [
+        {
+            "type": "chat",
+            "config": { "allow_restart": true },
+            "auth": {
+                "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
+            }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "auto_resume_threads": true,
+                "allow_direct_messages": true,
+                "allow_workspace_participants": false,
+                "ack_reaction": "eyes",
+                "trusted_workspaces": ["T0XXXXXXX"]
+            }
+        },
+        {
+            "type": "cron",
+            "config": {
+                "name": "daily-delight",
+                "schedule": "0 9 * * 1-5",
+                "timezone": "America/Los_Angeles",
+                "prompt": "Build today's delight for {fired_at:date}. Load the `on-this-day` skill, fetch one genuinely interesting thing that happened on this calendar day in history, record it in the `delights` table (dedupe on the date), and post the short Slack version to the configured channel. If today's delight is already recorded, just re-post it rather than fetching a new one.",
+                "external_key": "daily-delight:{fired_at:date}",
+                "catch_up": "most_recent",
+                "max_catch_up_age_seconds": 7200
+            }
+        },
+        {
+            "type": "webhook",
+            "config": { "path": "/webhook" },
+            "auth": {
+                "modes": [
+                    {
+                        "type": "shared_secret",
+                        "header": "X-Webhook-Secret",
+                        "secret_ref": "WEBHOOK_SECRET"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "mcp",
+            "config": { "allow_restart": true },
+            "auth": {
+                "modes": [{ "type": "posthog", "audience": "organization" }, { "type": "posthog_internal" }]
+            }
+        }
+    ],
+    "tools": [
+        { "kind": "native", "id": "@posthog/memory-search" },
+        { "kind": "native", "id": "@posthog/memory-read" },
+        { "kind": "native", "id": "@posthog/memory-list" },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-write",
+            "requires_approval": true,
+            "approval_policy": { "type": "agent", "allow_edit": true, "ttl_ms": 604800000 }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-update",
+            "requires_approval": true,
+            "approval_policy": { "type": "agent", "allow_edit": true, "ttl_ms": 604800000 }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-delete",
+            "requires_approval": true,
+            "approval_policy": { "type": "principal", "ttl_ms": 86400000 }
+        },
+        { "kind": "native", "id": "@posthog/table-query" },
+        { "kind": "native", "id": "@posthog/table-count" },
+        { "kind": "native", "id": "@posthog/table-membership" },
+        { "kind": "native", "id": "@posthog/table-append" },
+        {
+            "kind": "native",
+            "id": "@posthog/table-delete",
+            "requires_approval": true,
+            "approval_policy": { "type": "principal", "ttl_ms": 86400000 }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/table-truncate",
+            "requires_approval": true,
+            "approval_policy": { "type": "agent", "allow_edit": false, "ttl_ms": 604800000 }
+        },
+        { "kind": "native", "id": "@posthog/query" },
+        { "kind": "native", "id": "@posthog/list-projects" },
+        {
+            "kind": "native",
+            "id": "@posthog/http-request",
+            "requires_approval": true,
+            "approval_policy": { "type": "principal", "allow_edit": true, "ttl_ms": 86400000 }
+        },
+        { "kind": "native", "id": "@posthog/identity-connect" },
+        { "kind": "native", "id": "@posthog/identity-fetch" },
+        { "kind": "native", "id": "@posthog/slack-post-message" },
+        { "kind": "native", "id": "@posthog/slack-update-message" },
+        { "kind": "native", "id": "@posthog/slack-read-thread" },
+        { "kind": "native", "id": "@posthog/slack-read-channel" },
+        { "kind": "native", "id": "@posthog/slack-react" },
+        {
+            "kind": "client",
+            "id": "get_context",
+            "description": "Returns the user's current view in the host app — page, agent, session id, URL, follow-mode state, client identification, and current project (`project_id` + `project_name`/`org`). Call when you need the project to act in for a `@posthog/*` tool, to resolve deictic references like 'this dashboard', or after the user navigates. Free — no side effects. Returns `unhandled_client_tool` outside PostHog Code; degrade to asking the user.",
+            "args_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+        },
+        {
+            "kind": "client",
+            "id": "toast",
+            "description": "Surface a short status notification in the host UI. Use sparingly — for long-running work the user should know about, or for state changes outside their current view. Don't toast for things that fit naturally in chat. Returns `unhandled_client_tool` outside PostHog Code; degrade silently.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "level": { "enum": ["info", "warn", "error"] },
+                    "message": { "type": "string" }
+                },
+                "required": ["message"]
+            }
+        },
+        {
+            "kind": "client",
+            "id": "set_secret",
+            "interactive": true,
+            "description": "Punch out to the user to set one of THIS agent's secrets (e.g. EXAMPLE_API_TOKEN). INTERACTIVE: this call returns a synthetic `{queued:true, interactive:true, call_id}` envelope immediately — that is NOT the user's answer. Acknowledge briefly and end your turn; the session parks while the user fills the inline form. On a later turn you get a wake message `{call_id, ok, result|error}` with the real outcome (`user_cancelled` if they cancel). The value never reaches your tool-call history — `purpose` is the only string you see. On non-PostHog-Code clients this returns `unhandled_client_tool`; fall back to pointing the user at /connections.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "secret": {
+                        "type": "string",
+                        "description": "Env variable name to set, e.g. EXAMPLE_API_TOKEN. Should match a name in spec.secrets[]."
+                    },
+                    "mode": {
+                        "enum": ["set", "rotate"],
+                        "description": "Whether the key is being created (`set`) or replaced (`rotate`). Default `set`."
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "One-line explanation shown above the input so the user knows why you need it. Don't mention the value itself."
+                    }
+                },
+                "required": ["secret"]
+            }
+        }
+    ],
+    "mcps": [
+        {
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "auth": { "provider": "posthog" },
+            "tools": [
+                "docs-search",
+                "insights-get-all",
+                "insight-query",
+                "dashboards-get-all",
+                "dashboard-get",
+                "feature-flag-get-all",
+                "experiment-get-all",
+                "error-tracking-list-issues",
+                "execute-sql",
+                "get-llm-total-costs-for-project",
+                "projects-get",
+                "switch-project",
+                {
+                    "name": "feature-flag-create",
+                    "requires_approval": true,
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                },
+                {
+                    "name": "feature-flag-update",
+                    "requires_approval": true,
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                }
+            ]
+        },
+        {
+            "id": "github",
+            "url": "https://api.githubcopilot.com/mcp/",
+            "auth": { "provider": "github" }
+        }
+    ],
+    "skills": [
+        {
+            "id": "using-memory-and-tables",
+            "path": "skills/using-memory-and-tables/SKILL.md",
+            "description": "The two persistence systems — freeform `memory-*` files (prose, the agent's notebook) vs structured `table-*` rows (typed records you query/count/aggregate). When to reach for which, the dedupe/idempotency discipline, and why writes are approval-gated while reads aren't. Load before ANY memory-write / table-append, or when deciding where a new fact belongs."
+        },
+        {
+            "id": "working-with-approvals",
+            "path": "skills/working-with-approvals/SKILL.md",
+            "description": "How to behave around approval-gated tools — the synthetic queued envelope, the two authorities (principal = whoever drove the session; agent = a team admin), what to TELL the user while a call is parked, and how to react when an approval lands as a follow-up message. Load the moment you call a gated tool or the user asks why something is 'pending'."
+        },
+        {
+            "id": "slack-presence",
+            "path": "skills/slack-presence/SKILL.md",
+            "description": "Conventions for being a good citizen in Slack — TL;DR-first replies, threading vs new top-level posts, mrkdwn quirks, when to react with an emoji vs reply, and editing a 'working…' message in place. Load before any slack-post-message / slack-react, and when a Slack thread resumes."
+        },
+        {
+            "id": "querying-product-data",
+            "path": "skills/querying-product-data/SKILL.md",
+            "description": "Answering questions from PostHog product data via `@posthog/query` (HogQL) and the curated PostHog MCP tools — picking the right surface, common rollups (events, persons, costs), and how this runs AS the linked user (so unlinked → a connect link, not an error). Load whenever the user asks about their analytics, events, flags, or LLM spend."
+        },
+        {
+            "id": "reaching-the-internet",
+            "path": "skills/reaching-the-internet/SKILL.md",
+            "description": "Talking to the outside world — `@posthog/http-request` is the single egress tool (authenticated, approval-gated, host-bound secrets like ${EXAMPLE_API_TOKEN}). Why egress is gated, how the allowed_hosts binding stops a leaked token going to the wrong host, and what the gate means for unattended (cron/webhook) work. Load before any http-request."
+        },
+        {
+            "id": "acting-as-you",
+            "path": "skills/acting-as-you/SKILL.md",
+            "description": "How the agent acts on a service AS the user — the identity system. The two provider kinds (managed `posthog` vs bring-your-own `oauth2` like GitHub), the resolve outcomes (ok / link_required / unavailable), and how to hand the user a connect link via `@posthog/identity-connect` instead of failing. Load when a tool or MCP needs auth, the user mentions connecting/linking/OAuth, or a call comes back link_required."
+        },
+        {
+            "id": "on-this-day",
+            "path": "skills/on-this-day/SKILL.md",
+            "description": "The daily-delight ritual the cron fires (and anyone can ask for) — fetch one genuinely interesting thing that happened on today's calendar date, write it to the `delights` table, and post a short, charming Slack note. The output recipe + the 'don't be boring' bar. Load when the daily-delight cron fires or someone asks for today's delight / 'this day in history'."
+        },
+        {
+            "id": "rubber-duck",
+            "path": "skills/rubber-duck/SKILL.md",
+            "description": "Be a rubber-duck debugging companion — help someone untangle a bug or a stuck decision by asking the right Socratic questions in the right order, NOT by leaping to the answer. The question ladder, when to finally offer a hypothesis, and how to know the duck has done its job. Load when someone says they're stuck, debugging, or 'let me think out loud'."
+        },
+        {
+            "id": "standup-bard",
+            "path": "skills/standup-bard/SKILL.md",
+            "description": "Turn a dull standup update (yesterday / today / blockers) into a tiny, delightful poem — a haiku, a limerick, or a couplet — without losing the actual information. The forms, how to keep it faithful, and when to dial the whimsy down. Load when someone asks to 'make my standup fun', for a haiku/poem about their work, or pastes a status update."
+        },
+        {
+            "id": "the-decider",
+            "path": "skills/the-decider/SKILL.md",
+            "description": "Help someone make a low-stakes decision they're dithering over — a structured-but-playful method (surface the real criteria, weight them, then a weighted 'coin flip' that reveals what they were secretly hoping for). When to be rigorous vs just flip the coin. Load when someone can't choose between options, asks you to 'just decide', or wants a tiebreaker."
+        },
+        {
+            "id": "explain-like-im-five",
+            "path": "skills/explain-like-im-five/SKILL.md",
+            "description": "Explain anything at the right altitude using the Feynman technique — plain words, one vivid analogy, then a ladder back up to the precise version so the user can stop at the depth they want. How to pick the analogy and where it breaks. Load when someone asks you to ELI5, 'explain simply', or says they don't follow a concept."
+        }
+    ],
+    "secrets": [
+        "SLACK_SIGNING_SECRET",
+        { "name": "SLACK_BOT_TOKEN", "allowed_hosts": ["slack.com"] },
+        "WEBHOOK_SECRET",
+        { "name": "EXAMPLE_API_TOKEN", "allowed_hosts": ["api.example.com"] },
+        "GITHUB_OAUTH_CLIENT_SECRET"
+    ],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": [
+                "openid",
+                "profile",
+                "email",
+                "user:read",
+                "query:read",
+                "insight:read",
+                "dashboard:read",
+                "feature_flag:read",
+                "feature_flag:write",
+                "experiment:read",
+                "error_tracking:read"
+            ]
+        },
+        {
+            "kind": "oauth2",
+            "id": "github",
+            "authorize_url": "https://github.com/login/oauth/authorize",
+            "token_url": "https://github.com/login/oauth/access_token",
+            "client_id": "Iv1.0000000000000000",
+            "client_secret_ref": "GITHUB_OAUTH_CLIENT_SECRET",
+            "scopes": ["read:user", "repo", "read:org"],
+            "userinfo_url": "https://api.github.com/user"
+        }
+    ],
+    "integrations": [],
+    "limits": {
+        "max_turns": 40,
+        "max_tool_calls": 120,
+        "max_wall_seconds": 900,
+        "max_memory_mb": 1024,
+        "max_cpu_cores": 0.5
+    },
+    "framework_prompt": { "omit": [] },
+    "resume": {
+        "enabled": true,
+        "max_completed_age_ms": 604800000
+    },
+    "entrypoint": "agent.md"
+}

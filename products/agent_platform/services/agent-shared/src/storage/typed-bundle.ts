@@ -22,6 +22,7 @@
 
 import { z } from 'zod'
 
+import { SecretRefSchema } from '../spec/spec'
 import { BundleEntry, BundleStore } from './bundle'
 
 // ─── Canonical S3 paths ──────────────────────────────────────────────
@@ -88,7 +89,12 @@ export const TypedSpecSchema = z
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),
         integrations: z.array(z.string()).optional(),
-        secrets: z.array(z.string()).optional(),
+        // Mirrors the canonical `SecretRefSchema`: a bare string names a
+        // resolvable-but-non-egressable secret; the `{name, allowed_hosts}`
+        // form pins it to hosts so `@posthog/http-request` may send it. Was
+        // string-only here, which silently rejected host-bound secrets that
+        // `AgentSpecSchema` (and the Django write-schema) already accept.
+        secrets: z.array(SecretRefSchema).optional(),
         limits: z.unknown().optional(),
         auth: z.unknown().optional(),
         entrypoint: z.string().optional(),
