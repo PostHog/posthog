@@ -6,12 +6,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import type { IdentityMatchingLinkApi } from './generated/api.schemas'
-import { extractEmail, normalizedScore } from './identityMatchingUtils'
-
-function personFromDistinctId(distinctId: string): React.ComponentProps<typeof PersonDisplay>['person'] {
-    const email = extractEmail(distinctId)
-    return email ? { properties: { email }, distinct_id: distinctId } : { distinct_id: distinctId }
-}
+import { normalizedScore, personFromDistinctId } from './identityMatchingUtils'
 
 interface TimelineStep {
     label: string

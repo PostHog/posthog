@@ -8,6 +8,15 @@ export function extractEmail(identifier: string): string | null {
     return EMAIL_REGEX.test(identifier) ? identifier : null
 }
 
+/** Build a PersonPropType-shaped object from a distinct ID, attaching email when it looks like one. */
+export function personFromDistinctId(distinctId: string): {
+    properties?: Record<string, unknown>
+    distinct_id: string
+} {
+    const email = extractEmail(distinctId)
+    return email ? { properties: { email }, distinct_id: distinctId } : { distinct_id: distinctId }
+}
+
 export type Tier = 'high' | 'medium' | 'low'
 
 export type SignalCategory = 'network' | 'device' | 'behavior' | 'attribution'
@@ -156,7 +165,7 @@ export function extractSignals(link: IdentityMatchingLinkApi): Signal[] {
                 return link.avg_path_jaccard > 0
             case `${link.days_overlap} day${link.days_overlap === 1 ? '' : 's'} of overlap`:
                 return link.days_overlap > 0
-            case 'New paid touch':
+            case 'New paid touch recovered':
                 return link.orphan_paid_touch && !link.anchor_paid_touch
             case 'Paid continuity':
                 return link.orphan_paid_touch && link.anchor_paid_touch

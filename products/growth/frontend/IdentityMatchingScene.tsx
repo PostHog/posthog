@@ -40,9 +40,9 @@ import {
     CATEGORY_ORDER,
     type SignalCategory,
     computeTierStats,
-    extractEmail,
     extractSignals,
     normalizedScore,
+    personFromDistinctId,
 } from './identityMatchingUtils'
 import { PaidAttributionTimeline } from './PaidAttributionTimeline'
 import { RunsHistory } from './RunsHistory'
@@ -65,11 +65,6 @@ const CATEGORY_TAG_TYPE: Record<SignalCategory, 'default' | 'highlight' | 'compl
     device: 'highlight',
     behavior: 'default',
     attribution: 'completion',
-}
-
-function personFromDistinctId(distinctId: string): React.ComponentProps<typeof PersonDisplay>['person'] {
-    const email = extractEmail(distinctId)
-    return email ? { properties: { email }, distinct_id: distinctId } : { distinct_id: distinctId }
 }
 
 function buildLinksCsv(links: IdentityMatchingLinkApi[]): string {
@@ -119,7 +114,10 @@ function buildLinksCsv(links: IdentityMatchingLinkApi[]): string {
             l.computed_at,
         ]
             .map((v) => {
-                const s = String(v)
+                let s = String(v)
+                if (/^\s*[=+\-@]/.test(s)) {
+                    s = `'${s}`
+                }
                 return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s
             })
             .join(',')
@@ -127,11 +125,17 @@ function buildLinksCsv(links: IdentityMatchingLinkApi[]): string {
     return [headers.join(','), ...rows].join('\n')
 }
 
-function exportLinks(links: IdentityMatchingLinkApi[]): void {
+function exportLinks(links: IdentityMatchingLinkApi[], totalCount: number): void {
     const csv = buildLinksCsv(links)
     const blob = new Blob([csv], { type: 'text/csv' })
     downloadBlob(blob, `identity_matching_links_${dayjs().format('YYYY-MM-DD')}.csv`)
-    lemonToast.success(`Exported ${links.length} links`)
+    if (totalCount > links.length) {
+        lemonToast.warning(
+            `Exported ${links.length} of ${totalCount} links (current page only). Navigate to other pages to export remaining links.`
+        )
+    } else {
+        lemonToast.success(`Exported ${links.length} links`)
+    }
 }
 
 function createCohortFromLinks(links: IdentityMatchingLinkApi[], modelPreference: ModelPreference): void {
@@ -378,7 +382,7 @@ export function IdentityMatchingScene(): JSX.Element {
                                 type="secondary"
                                 icon={<IconDownload />}
                                 disabled={links.length === 0}
-                                onClick={() => exportLinks(links)}
+                                onClick={() => exportLinks(links, linksCount)}
                             >
                                 Export CSV
                             </LemonButton>

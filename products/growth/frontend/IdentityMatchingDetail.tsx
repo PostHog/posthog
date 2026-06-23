@@ -15,6 +15,7 @@ import {
     extractEmail,
     extractSignals,
     normalizedScore,
+    personFromDistinctId,
 } from './identityMatchingUtils'
 
 const CATEGORY_ICON: Record<SignalCategory, JSX.Element> = {
@@ -28,11 +29,6 @@ const STRENGTH_LABELS: Record<number, string> = {
     1: 'Weak signal',
     2: 'Moderate signal',
     3: 'Strong signal',
-}
-
-function personFromDistinctId(distinctId: string): React.ComponentProps<typeof PersonDisplay>['person'] {
-    const email = extractEmail(distinctId)
-    return email ? { properties: { email }, distinct_id: distinctId } : { distinct_id: distinctId }
 }
 
 function matchSummary(link: IdentityMatchingLinkApi, confidence: number): string {

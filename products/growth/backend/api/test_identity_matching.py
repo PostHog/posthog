@@ -211,3 +211,13 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert [run["job_id"] for run in results] == [RUN_A, RUN_B]
         run_a_models = {model["model_version"]: model["link_count"] for model in results[0]["models"]}
         assert run_a_models == {"rules_v1": 2, "logreg_v1": 1}
+        run_a = results[0]
+        assert run_a["total_links"] == 3
+        assert run_a["unique_orphans"] == 2
+        assert run_a["paid_touches"] == 0
+        assert run_a["first_link_at"] is not None
+        assert run_a["last_link_at"] is not None
+        run_a_rules = {m["model_version"]: m for m in run_a["models"]}["rules_v1"]
+        assert run_a_rules["high_confidence"] == 1
+        assert run_a_rules["medium_confidence"] == 1
+        assert run_a_rules["low_confidence"] == 0

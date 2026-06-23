@@ -334,8 +334,8 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             f"""
             SELECT
                 job_id,
-                max(computed_at) AS computed_at,
-                min(computed_at) AS first_link_at,
+                max(computed_at) AS latest_computed_at,
+                min(computed_at) AS earliest_computed_at,
                 model_version,
                 count() AS link_count,
                 countIf(tier = 'high') AS high_count,
@@ -345,7 +345,7 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             FROM s3({self._all_runs_links_read_args()})
             WHERE team_id = %(team_id)s
             GROUP BY job_id, model_version
-            ORDER BY computed_at DESC
+            ORDER BY latest_computed_at DESC
             """,
             {"team_id": self.team.pk},
             settings=_S3_READ_SETTINGS,
@@ -369,23 +369,23 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         runs: dict[str, dict[str, Any]] = {}
         for row in links_rows:
-            job_id, computed_at, first_link_at, model_version, link_count, high, medium, low, unique_orphans = row
+            job_id, latest_at, earliest_at, model_version, link_count, high, medium, low, unique_orphans = row
             run = runs.setdefault(
                 str(job_id),
                 {
                     "job_id": job_id,
-                    "computed_at": computed_at,
-                    "first_link_at": first_link_at,
-                    "last_link_at": computed_at,
+                    "computed_at": latest_at,
+                    "first_link_at": earliest_at,
+                    "last_link_at": latest_at,
                     "models": [],
                     "total_links": 0,
                     "unique_orphans": 0,
                     "paid_touches": paid_touches_by_run.get(str(job_id), 0),
                 },
             )
-            run["computed_at"] = max(run["computed_at"], computed_at)
-            run["last_link_at"] = max(run["last_link_at"], computed_at)
-            run["first_link_at"] = min(run["first_link_at"], first_link_at)
+            run["computed_at"] = max(run["computed_at"], latest_at)
+            run["last_link_at"] = max(run["last_link_at"], latest_at)
+            run["first_link_at"] = min(run["first_link_at"], earliest_at)
             run["models"].append(
                 {
                     "model_version": model_version,
