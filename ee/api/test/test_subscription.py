@@ -465,6 +465,38 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong to your team" in response.json()["detail"]
 
+    def test_can_create_slack_subscription_with_delivery_config(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+        subscription = Subscription.objects.get(id=response.json()["id"])
+        assert subscription.delivery_config == {"post_all_insights_in_main_message": True}
+
+    def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
+        response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for Slack subscriptions" in response.json()["detail"]
+
+    def test_can_patch_delivery_config_on_slack_subscription(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+
     def test_cannot_create_slack_subscription_with_non_slack_integration(self):
         integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
 

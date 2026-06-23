@@ -712,6 +712,65 @@ class TestSlackSummaryNotice(APIBaseTest):
         assert all("AI summary skipped" not in text for text in texts)
 
 
+class TestSlackPostAllInMainMessage(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=self.insight.id,
+                export_format="image/png",
+                content_location=f"s3://bucket/test-{i}.png",
+            )
+            for i in range(3)
+        ]
+
+    def _subscription(self, post_all_in_main: bool) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+            delivery_config={"post_all_insights_in_main_message": post_all_in_main},
+        )
+
+    def _image_blocks(self, message: Any) -> list[dict]:
+        return [block for block in message.blocks if block.get("type") == "image"]
+
+    def _block_texts(self, message: Any) -> list[str]:
+        return [block.get("text", {}).get("text", "") for block in message.blocks]
+
+    def test_post_all_in_main_puts_every_image_in_main_message_and_nothing_in_thread(self) -> None:
+        message = _prepare_slack_message(
+            self._subscription(post_all_in_main=True), self.assets, total_asset_count=len(self.assets)
+        )
+        assert len(self._image_blocks(message)) == len(self.assets)
+        assert message.thread_messages == []
+        assert all("See 🧵 for more Insights" not in text for text in self._block_texts(message))
+
+    def test_default_threaded_keeps_only_first_image_in_main(self) -> None:
+        message = _prepare_slack_message(
+            self._subscription(post_all_in_main=False), self.assets, total_asset_count=len(self.assets)
+        )
+        assert len(self._image_blocks(message)) == 1
+        assert len(message.thread_messages) == len(self.assets) - 1
+
+    def test_post_all_in_main_keeps_overflow_note_in_main_message(self) -> None:
+        # total_asset_count exceeds the delivered assets, so an overflow note is appended.
+        message = _prepare_slack_message(
+            self._subscription(post_all_in_main=True), self.assets, total_asset_count=len(self.assets) + 2
+        )
+        assert any("Showing 3 of 5 Insights" in text for text in self._block_texts(message))
+        assert message.thread_messages == []
+
+    def test_post_all_in_main_with_no_assets_builds_message_without_image_blocks(self) -> None:
+        # Empty asset list must not raise and must not produce stray thread replies.
+        message = _prepare_slack_message(self._subscription(post_all_in_main=True), [], total_asset_count=0)
+        assert self._image_blocks(message) == []
+        assert message.thread_messages == []
+
+
 class TestSlackExploreHint(APIBaseTest):
     def setUp(self) -> None:
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
