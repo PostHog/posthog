@@ -130,7 +130,13 @@ def _fetch_page(
         logger.error(f"Elastic Email API error: status={response.status_code}, body={body}, url={url}")
         response.raise_for_status()
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        # A 200 with a non-JSON body (e.g. an HTML error page from a CDN/proxy) raises JSONDecodeError,
+        # which isn't a retryable type by default. Treat it as transient so the page is retried.
+        raise ElasticEmailRetryableError(f"Non-JSON Elastic Email response: url={url}") from exc
+
     # Every v4 list endpoint returns a bare JSON array. Guard against an unexpected object payload.
     if not isinstance(data, list):
         raise ElasticEmailRetryableError(f"Unexpected Elastic Email response shape (expected list): url={url}")
@@ -145,7 +151,9 @@ def validate_credentials(
     url = _build_url(path, params)
     try:
         response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-    except Exception:
+    except requests.RequestException:
+        # A transport failure (DNS, connection, timeout) isn't a credential verdict, but at source-create
+        # time we can only report valid/invalid — treat an unreachable API as "can't validate" → invalid.
         return False
     if response.ok:
         return True

@@ -5,7 +5,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.elasticemail import source as source_module
@@ -28,6 +33,7 @@ class TestSourceConfig:
         assert config.fields is not None
         assert len(config.fields) == 1
         api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert api_key_field.required is True

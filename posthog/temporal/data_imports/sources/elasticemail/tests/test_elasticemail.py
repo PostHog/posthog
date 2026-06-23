@@ -173,6 +173,12 @@ class TestFetchPage:
         with pytest.raises(ElasticEmailRetryableError):
             self._fetch(session, self._url, {}, MagicMock())
 
+    def test_non_json_body_raises_retryable(self) -> None:
+        # A 200 with an HTML/proxy body must not propagate a raw JSONDecodeError past the retry layer.
+        session = _FakeSession(_make_response(200, text="<html>gateway timeout</html>"))
+        with pytest.raises(ElasticEmailRetryableError):
+            self._fetch(session, self._url, {}, MagicMock())
+
 
 class TestValidateCredentials:
     @parameterized.expand(
