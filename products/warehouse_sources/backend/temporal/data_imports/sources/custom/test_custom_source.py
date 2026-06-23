@@ -19,11 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
+    PREVIEW_MAX_ROWS,
+    PROBE_ERROR_SNIPPET_BYTES,
     PROBE_MAX_RESOURCES,
     CustomSource,
     FanoutChain,
     ManifestValidationError,
     _fanout_chain,
+    _PreviewSession,
     _read_capped_text,
     _validate_resource_graph,
     manifest_request_hosts,
@@ -911,6 +914,33 @@ def _fake_resource(name: str) -> MagicMock:
     return resource
 
 
+class _PageResource:
+    """Iterable stand-in for an engine Resource: yields preset pages (list[dict])."""
+
+    def __init__(self, name: str, pages: list[list[dict[str, Any]]]) -> None:
+        self.name = name
+        self._pages = pages
+
+    def __iter__(self) -> Any:
+        return iter(self._pages)
+
+
+class _CountingResource:
+    """Engine Resource that yields one-row pages lazily and records how many rows
+    it produced, so a test can prove preview abandons the generator at the cap
+    instead of draining it."""
+
+    def __init__(self, name: str, total_rows: int) -> None:
+        self.name = name
+        self.total_rows = total_rows
+        self.produced = 0
+
+    def __iter__(self) -> Any:
+        for index in range(self.total_rows):
+            self.produced = index + 1
+            yield [{"id": index}]
+
+
 def _break_unknown_parent(m: dict) -> None:
     m["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
 
@@ -1522,3 +1552,148 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
+
+
+def _apikey_manifest() -> dict:
+    """A minimal manifest whose auth is an api_key in a query param, so the
+    injected secret is registered for value-based redaction."""
+    manifest = _minimal_manifest()
+    manifest["client"]["auth"] = {"type": "api_key", "name": "key", "location": "query"}
+    return manifest
+
+
+class TestCustomSourcePreviewResource(SimpleTestCase):
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_returns_rows_and_inferred_columns(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("users", [[{"id": 1, "name": "a", "active": True}, {"id": 2, "name": "b", "active": None}]])
+        ]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.error is None
+        assert result.row_count == 2
+        assert result.rows[0]["id"] == 1
+        assert {column["name"]: column["type"] for column in result.columns} == {
+            "id": "integer",
+            "name": "string",
+            "active": "boolean",
+        }
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_column_type_uses_first_non_null_value(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"score": None}, {"score": 7}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert {column["name"]: column["type"] for column in result.columns} == {"score": "integer"}
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_row_cap_stops_generator_early(self, mock_resources):
+        resource = _CountingResource("users", total_rows=100)
+        mock_resources.return_value = [resource]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=5)
+
+        assert result.row_count == 5
+        assert resource.produced == 5
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_max_rows_clamped_to_hard_cap(self, mock_resources):
+        resource = _CountingResource("users", total_rows=PREVIEW_MAX_ROWS + 50)
+        mock_resources.return_value = [resource]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=PREVIEW_MAX_ROWS + 50)
+
+        assert result.row_count == PREVIEW_MAX_ROWS
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[]])]
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        source.preview_resource(config, team_id=999, resource_name="users")
+
+        engine_manifest = mock_resources.call_args.args[0]
+        endpoint = engine_manifest["resources"][0]["endpoint"]
+        assert endpoint["paginator"] == {"type": "single_page"}
+        assert "incremental" not in endpoint
+        assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        return_value=(False, "blocked: internal host"),
+    )
+    def test_rejects_unsafe_host(self, _mock):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    def test_unknown_resource_raises_value_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ValueError):
+            source.preview_resource(config, team_id=999, resource_name="does_not_exist")
+
+    def test_invalid_json_raises_manifest_validation_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json="{not json}")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_child_runs_ancestors_full_scan(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("forms", [[{"id": 1}]]),
+            _PageResource("responses", [[{"token": "t1"}]]),
+        ]
+        manifest = _fanout_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        engine_resources = mock_resources.call_args.args[0]["resources"]
+        assert [resource["name"] for resource in engine_resources] == ["forms", "responses"]
+        for resource in engine_resources:
+            assert "incremental" not in resource["endpoint"]
+            assert resource["endpoint"]["paginator"] == {"type": "single_page"}
+        assert result.rows == [{"token": "t1"}]
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_live_fetch_error_is_returned_and_secret_redacted(self, mock_resources):
+        class _Boom:
+            name = "users"
+
+            def __iter__(self) -> Any:
+                raise RuntimeError("connect failed for https://api.example.com/users?key=supersecret")
+
+        mock_resources.return_value = [_Boom()]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_apikey_manifest()), auth_api_key="supersecret")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.rows == []
+        assert result.row_count == 0
+        assert result.error is not None
+        assert "supersecret" not in result.error
+        assert "***" in result.error
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_credential_never_appears_in_result(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"id": 1}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="topsecret-token")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert "topsecret-token" not in json.dumps(result._asdict())

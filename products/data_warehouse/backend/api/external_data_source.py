@@ -132,6 +132,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
+    PREVIEW_DEFAULT_ROWS,
+    PREVIEW_MAX_ROWS,
+    CustomSource,
     manifest_request_hosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
@@ -1277,6 +1280,58 @@ class DatabaseSchemaRequestSerializer(serializers.Serializer):
     )
 
 
+class SourcePreviewRequestSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.",
+    )
+    payload = serializers.DictField(
+        required=False,
+        help_text=(
+            "Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig "
+            "describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth "
+            "type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay "
+            "in these auth_* keys, never inline in the manifest."
+        ),
+    )
+    resource_name = serializers.CharField(
+        help_text="Which manifest resource (table) to read a sample from — one of the resource names in manifest_json.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=PREVIEW_DEFAULT_ROWS,
+        min_value=1,
+        max_value=PREVIEW_MAX_ROWS,
+        help_text=f"Maximum sample rows to return (1–{PREVIEW_MAX_ROWS}). Defaults to {PREVIEW_DEFAULT_ROWS}.",
+    )
+
+
+class SourcePreviewColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Column name as it appears in the previewed rows.")
+    type = serializers.CharField(
+        help_text="JSON type inferred from the first non-null value: string, integer, number, boolean, object, array, or null."
+    )
+
+
+class SourcePreviewResponseSerializer(serializers.Serializer):
+    rows = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Up to `limit` sample rows, after data_selector extraction — the raw records the sync would ingest.",
+    )
+    row_count = serializers.IntegerField(help_text="Number of sample rows returned (≤ limit).")
+    columns = SourcePreviewColumnSerializer(
+        many=True,
+        help_text="Columns observed across the sample rows, each with an inferred JSON type.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Set when the live read failed (e.g. the host was unreachable or returned an auth error); rows is then "
+            "empty. Manifest, validation, and SSRF problems return HTTP 400 instead of populating this field."
+        ),
+    )
+
+
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -1329,6 +1384,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "webhook_info",
         "connections",
         "cdc_status",
+        "preview_resource",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
@@ -2453,6 +2509,61 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
         return response
+
+    @extend_schema(request=SourcePreviewRequestSerializer, responses={200: SourcePreviewResponseSerializer})
+    @action(methods=["POST"], detail=False)
+    def preview_resource(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read a bounded sample of rows for one resource of a Custom REST source.
+
+        Lets a manifest author verify `data_selector`, `primary_key`, and the incremental
+        `cursor_path` against live data before creating the source. Only `source_type: "Custom"`
+        is supported — other source types return 400. The read is bounded (single page per
+        resource, capped row count, short timeouts, no redirects). Manifest, validation, and SSRF
+        problems return 400; a live fetch failure returns 200 with `error` set and empty `rows`.
+        """
+        serializer = SourcePreviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_type = serializer.validated_data["source_type"]
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        if not isinstance(source, CustomSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Preview is not supported for source type '{source_type}'."},
+            )
+
+        payload = dict(serializer.validated_data.get("payload") or {})
+        is_valid, errors = source.validate_config(payload)
+        if not is_valid:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid source config: {', '.join(errors)}"},
+            )
+        source_config = source.parse_config(payload)
+
+        try:
+            # preview_resource runs its own SSRF host check and bounded live read, so no
+            # separate validate_credentials probe — the read is the credential check.
+            result = source.preview_resource(
+                cast(Any, source_config),
+                self.team_id,
+                serializer.validated_data["resource_name"],
+                serializer.validated_data["limit"],
+            )
+        except ValueError as e:
+            # ManifestValidationError (a ValueError) for manifest/graph/URL issues, or a plain
+            # ValueError for an unknown resource_name / dependency cycle — all caller mistakes.
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "rows": result.rows,
+                "row_count": result.row_count,
+                "columns": result.columns,
+                "error": result.error,
+            },
+        )
 
     def _auto_register_webhook(
         self,
