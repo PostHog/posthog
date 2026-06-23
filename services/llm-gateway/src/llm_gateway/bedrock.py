@@ -168,6 +168,37 @@ def get_bedrock_session() -> Boto3Session:
     return boto3.Session()
 
 
+def _is_unsigned_thinking_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "thinking" and not block.get("signature")
+
+
+def _sanitize_bedrock_count_tokens_messages(messages: Any) -> Any:
+    if not isinstance(messages, list):
+        return messages
+
+    sanitized_messages: list[Any] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            sanitized_messages.append(message)
+            continue
+
+        content = message.get("content")
+        if not isinstance(content, list):
+            sanitized_messages.append(message)
+            continue
+
+        sanitized_content = [block for block in content if not _is_unsigned_thinking_block(block)]
+        if not sanitized_content:
+            continue
+
+        if len(sanitized_content) == len(content):
+            sanitized_messages.append(message)
+        else:
+            sanitized_messages.append({**message, "content": sanitized_content})
+
+    return sanitized_messages
+
+
 async def count_tokens_with_bedrock(
     request_data: dict[str, Any],
     model: str,
@@ -185,7 +216,7 @@ async def count_tokens_with_bedrock(
         body = {
             "anthropic_version": BEDROCK_ANTHROPIC_VERSION,
             "max_tokens": request_data.get("max_tokens", DEFAULT_BEDROCK_MAX_TOKENS),
-            "messages": request_data.get("messages"),
+            "messages": _sanitize_bedrock_count_tokens_messages(request_data.get("messages")),
         }
 
         response = bedrock_runtime_client.count_tokens(
@@ -246,6 +277,7 @@ async def count_tokens_with_bedrock_mantle(
     """
     mantle_model = _strip_regional_inference_prefix(model)
     body: dict[str, Any] = {"model": mantle_model, "messages": request_data.get("messages")}
+    body["messages"] = _sanitize_bedrock_count_tokens_messages(body["messages"])
     for key in ("system", "tools", "tool_choice"):
         if key in request_data:
             body[key] = request_data[key]

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -616,6 +617,46 @@ class TestBedrockCountTokensViaProvider:
         assert mock_to_thread.called
         assert callable(mock_to_thread.call_args.args[0])
 
+    @pytest.mark.asyncio
+    @patch("llm_gateway.bedrock.get_bedrock_runtime_client")
+    async def test_count_tokens_strips_unsigned_thinking_blocks(self, mock_get_client: MagicMock) -> None:
+        from llm_gateway.bedrock import count_tokens_with_bedrock
+
+        mock_client = MagicMock()
+        mock_client.count_tokens.return_value = {"inputTokens": 42}
+        mock_get_client.return_value = mock_client
+
+        unsigned_thinking = {"type": "thinking", "thinking": "cannot be replayed", "index": 0}
+        signed_thinking = {"type": "thinking", "thinking": "can be replayed", "signature": "sig", "index": 0}
+        request_data: dict[str, Any] = {
+            "max_tokens": 2048,
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": [unsigned_thinking, {"type": "text", "text": "Answer"}]},
+                {"role": "assistant", "content": [unsigned_thinking]},
+                {"role": "assistant", "content": [signed_thinking, {"type": "text", "text": "Signed answer"}]},
+            ],
+        }
+
+        result = await count_tokens_with_bedrock(
+            request_data,
+            "us.anthropic.claude-sonnet-4-6",
+            "us-east-1",
+            123.0,
+        )
+
+        assert result == 42
+        call_kwargs = mock_client.count_tokens.call_args.kwargs
+        assert call_kwargs["modelId"] == "anthropic.claude-sonnet-4-6"
+
+        body = json.loads(call_kwargs["input"]["invokeModel"]["body"])
+        assert body["messages"] == [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "Answer"}]},
+            {"role": "assistant", "content": [signed_thinking, {"type": "text", "text": "Signed answer"}]},
+        ]
+        assert request_data["messages"][1]["content"][0] == unsigned_thinking
+
 
 class TestModelMapping:
     @pytest.mark.parametrize(
@@ -728,7 +769,10 @@ class TestBedrockMantleCountTokens:
         mock_async_client_cls.return_value.__aenter__.return_value = mock_client
 
         request_data = {
-            "messages": [{"role": "user", "content": "Hello"}],
+            "messages": [
+                {"role": "assistant", "content": [{"type": "thinking", "thinking": "bad"}]},
+                {"role": "user", "content": "Hello"},
+            ],
             "system": "Be brief.",
             "tools": [{"name": "x", "description": "", "input_schema": {"type": "object"}}],
         }
@@ -756,11 +800,9 @@ class TestBedrockMantleCountTokens:
         signed_url = mock_sign.call_args.args[0]
         assert signed_url == "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens"
         # The signed payload carries the native Anthropic shape with the prefix-stripped model id.
-        import json
-
         signed_body = json.loads(mock_sign.call_args.args[1])
         assert signed_body["model"] == "anthropic.claude-opus-4-8"
-        assert signed_body["messages"] == request_data["messages"]
+        assert signed_body["messages"] == [{"role": "user", "content": "Hello"}]
         assert signed_body["system"] == request_data["system"]
         assert signed_body["tools"] == request_data["tools"]
         # The same signed payload bytes are what gets POSTed.
