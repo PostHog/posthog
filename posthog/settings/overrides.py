@@ -36,11 +36,3 @@ if runner:
         print("Running in test mode. Setting DEBUG and TEST environment variables.")  # noqa: T201
         os.environ["DEBUG"] = "1"
         os.environ["TEST"] = "1"
-        # Keep the app OpenTelemetry SDK off in tests. Anything that boots the real
-        # ASGI/WSGI app (e.g. posthog/test/test_asgi_lifespan.py) runs initialize_otel(),
-        # which otherwise arms a process-wide span exporter to the SDK default
-        # localhost:4317. CI runs no collector there, so the flush at pytest shutdown
-        # retries with exponential backoff and adds minutes to whichever shard imported
-        # the app. setdefault, so a dev with a running collector can still opt back in
-        # via OTEL_SDK_DISABLED=false.
-        os.environ.setdefault("OTEL_SDK_DISABLED", "true")
