@@ -1006,9 +1006,10 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
         if provided_secret:
             provided_secret = provided_secret.strip()
 
-        # Primary + still-trusted fallbacks, with the dev default dropped outside dev/test. A
-        # misconfigured production deploy (no usable secret) is caught at startup by
-        # check_internal_api_secret; the empty-set guard below is a defensive backstop.
+        # Primary secret plus any still-trusted fallbacks (zero-downtime rotation), dropping empties.
+        # This is the runtime guard: a deploy with no usable secret is rejected here (fail closed)
+        # rather than at startup — most Django/Temporal processes never get the secret injected and
+        # never serve these endpoints, so a startup check would wrongly crash them.
         accepted_secrets = usable_internal_api_secrets()
 
         if not accepted_secrets:
