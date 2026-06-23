@@ -37,7 +37,7 @@ from posthog.hogql.direct_connection import (
 from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -171,8 +171,8 @@ class HogQLQueryExecutor:
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
                     )
-                self.select_query = replace_filters(
-                    self.select_query, self.filters, self.team, database=self.context.database
+                self.select_query = replace_filters_core(
+                    self.select_query, self.filters, self.context.data, database=self.context.database
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
