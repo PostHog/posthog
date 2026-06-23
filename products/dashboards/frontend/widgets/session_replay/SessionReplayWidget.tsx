@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
+import api from 'lib/api'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { toParams } from 'lib/utils/url'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
 import {
@@ -31,26 +34,57 @@ type SessionReplayWidgetResult = {
     limit?: number
     totalCount?: number
     totalCountCapped?: boolean
+    /**
+     * Filters the backend used to build this list (saved filter resolved server-side), so the player
+     * can highlight the matching events. Absent when nothing can match. The client adds session_ids.
+     */
+    matchingEventsQuery?: RecordingsQuery
 }
 
 function SessionReplayWidgetRecordingRow({
     recording,
     order,
+    matchingEventsQuery,
 }: {
     recording: SessionRecordingType
     order: RecordingsQuery['order']
+    /** Base query (filters minus session id) used to fetch the events to highlight, or null when nothing can match. */
+    matchingEventsQuery: RecordingsQuery | null
 }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(sessionRecordingEventUsageLogic)
+    const [isOpening, setIsOpening] = useState(false)
+
+    const openRecording = async (): Promise<void> => {
+        if (isOpening) {
+            return
+        }
+        reportRecordingOpenedFromRecentRecordingList()
+
+        // No event/property filters means there's nothing to highlight — open straight away.
+        if (!matchingEventsQuery) {
+            openSessionPlayer({ id: recording.id })
+            return
+        }
+
+        setIsOpening(true)
+        try {
+            const query: RecordingsQuery = { ...matchingEventsQuery, session_ids: [recording.id] }
+            const response = await api.recordings.getMatchingEvents(toParams(query))
+            openSessionPlayer({
+                id: recording.id,
+                matching_events: [{ session_id: recording.id, events: response.results }],
+            })
+        } catch {
+            // Highlighting matching events is best-effort; fall back to opening without it.
+            openSessionPlayer({ id: recording.id })
+        } finally {
+            setIsOpening(false)
+        }
+    }
 
     return (
-        <div
-            className="border-b"
-            onClick={() => {
-                openSessionPlayer({ id: recording.id })
-                reportRecordingOpenedFromRecentRecordingList()
-            }}
-        >
+        <div className="border-b" onClick={() => void openRecording()}>
             <SessionRecordingPreview recording={recording} order={order} />
         </div>
     )
@@ -61,6 +95,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     const recordings = payload?.results ?? []
     const parsedConfig = parseSessionReplayWidgetConfig(config)
     const order = parsedConfig.orderBy as RecordingsQuery['order']
+    const matchingEventsQuery = payload?.matchingEventsQuery ?? null
 
     if (loading) {
         return (
@@ -96,7 +131,12 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
             <WidgetCardContent>
                 <div className="flex flex-col">
                     {recordings.map((recording) => (
-                        <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
+                        <SessionReplayWidgetRecordingRow
+                            key={recording.id}
+                            recording={recording}
+                            order={order}
+                            matchingEventsQuery={matchingEventsQuery}
+                        />
                     ))}
                 </div>
             </WidgetCardContent>

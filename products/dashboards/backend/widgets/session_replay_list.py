@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQuery
+from posthog.schema import PropertyFilterType, RecordingOrder, RecordingOrderDirection, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
@@ -86,6 +86,23 @@ def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidget
     return filter_from_params_to_query(params)
 
 
+def _build_matching_events_query(query: RecordingsQuery) -> dict[str, Any] | None:
+    # The player highlights the events that matched the same filters the list was built from. We ship
+    # the query the backend just resolved (saved-filter playlist included), so the client never has to
+    # reconstruct it; it only adds the session id per row. The matching_events endpoint requires at
+    # least one event/action/event-property filter, so omit the query when there's nothing to match.
+    has_event_properties = any(
+        getattr(prop, "type", None) == PropertyFilterType.EVENT for prop in (query.properties or [])
+    )
+    if not query.events and not query.actions and not has_event_properties:
+        return None
+
+    payload = query.model_dump(mode="json", exclude_none=True)
+    # The client sets session_ids per recording when opening the player.
+    payload.pop("session_ids", None)
+    return payload
+
+
 def _run_recordings_query(team: Team, query: RecordingsQuery, user: User | None) -> dict[str, Any]:
     with tags_context(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk):
         return run_recordings_list_query(
@@ -117,10 +134,16 @@ def run_session_replay_list_widget(
             has_more=bool(data.get("has_next")),
         )
 
-    return run_list_widget(
+    result = run_list_widget(
         limit=typed_config["limit"],
         count_cap=MAX_WIDGET_RESULT_LIMIT,
         include_total_count=include_total_count,
         fetch_page=fetch_page,
         log_key="session_replay_widget_total_count_failed",
     )
+
+    matching_events_query = _build_matching_events_query(query)
+    if matching_events_query is not None:
+        result["matchingEventsQuery"] = matching_events_query
+
+    return result

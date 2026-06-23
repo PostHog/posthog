@@ -585,6 +585,62 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.properties[0].value == ["Chrome"]
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_attaches_matching_events_query_for_widget_filters(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "dateRange": {"date_from": "-7d"}, "widgetFilters": self._widget_browser_filter("Chrome")},
+            user=self.user,
+        )
+
+        matching_events_query = result["matchingEventsQuery"]
+        assert matching_events_query["kind"] == "RecordingsQuery"
+        # session_ids are supplied per recording by the client, not baked into the shipped query.
+        assert "session_ids" not in matching_events_query
+        assert matching_events_query["properties"][0]["type"] == "event"
+        assert matching_events_query["properties"][0]["key"] == "$browser"
+        assert matching_events_query["properties"][0]["value"] == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_attaches_matching_events_query_for_saved_filter_with_events(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        saved_filter = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Pageview filter",
+            type="filters",
+            filters={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+        )
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "savedFilterId": saved_filter.short_id},
+            user=self.user,
+        )
+
+        matching_events_query = result["matchingEventsQuery"]
+        assert matching_events_query["events"][0]["id"] == "$pageview"
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_omits_matching_events_query_without_event_filters(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "dateRange": {"date_from": "-7d"}},
+            user=self.user,
+        )
+
+        # Nothing to highlight without an event/action/event-property filter, so the query is omitted.
+        assert "matchingEventsQuery" not in result
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_does_not_persist_legacy_filter_conversion(
         self, mock_list_recordings: MagicMock
     ) -> None:
