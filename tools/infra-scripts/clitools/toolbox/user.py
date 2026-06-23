@@ -18,7 +18,8 @@ WRITE_ACCESS_GROUPS = frozenset({"eks-developers", "eks-admins"})
 # Slack channel users ping to elevate their permissions, and the runbook that
 # explains how. Kept as constants so they're easy to adjust in one place.
 ELEVATE_PERMISSIONS_CHANNEL = "<#C09ULM0E6SW>"
-TOOLBOX_ACCESS_RUNBOOK_URL = "https://posthog.com/handbook/engineering/toolbox-access"  # TODO: confirm exact runbook URL
+# TODO: confirm exact runbook URL
+TOOLBOX_ACCESS_RUNBOOK_URL = "https://posthog.com/handbook/engineering/toolbox-access"
 
 
 def _get_user_info(*, context: str | None = None) -> dict:
