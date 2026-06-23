@@ -8,9 +8,11 @@ from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_person,
     flush_persons_and_events,
     get_indexes_from_explain,
     materialized,
+    snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
 
@@ -464,6 +466,11 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         )
         return pretty_print_in_tests(query, self.team.pk)
 
+    def _execute(self, select: str, modifiers: HogQLQueryModifiers | None = None) -> tuple[list, str]:
+        response = execute_hogql_query(select, team=self.team, modifiers=modifiers)
+        assert response.results is not None
+        return response.results, response.clickhouse or ""
+
     @parameterized.expand(
         [
             ("bare_properties", "select JSONExtractString(properties, '$browser') from events"),
@@ -476,37 +483,47 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "mat_$browser" in printed, f"Expected mat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
-    def test_jsonextractstring_rewritten_to_person_on_events_mat_column(self):
+    @snapshot_clickhouse_queries
+    def test_person_on_events_property_rewritten_to_mat_column(self):
         # In person-on-events mode person.properties physically lives on the events table's person_properties
-        # column, so the rewrite should target that materialized column (mat_pp_) instead of the raw JSON blob.
+        # column, so the rewrite should read that materialized column (mat_pp_) and return the same value.
+        _create_event(team=self.team, distinct_id="u1", event="pageview", person_properties={"$browser": "Chrome"})
+        flush_persons_and_events()
         with materialized("events", "$browser", table_column="person_properties"):
-            printed = self._print_select(
+            results, sql = self._execute(
                 "select JSONExtractString(person.properties, '$browser') from events",
                 HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
             )
-            assert "mat_pp_$browser" in printed, f"Expected mat_pp_$browser in output, got: {printed}"
-            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+        assert results == [("Chrome",)], results
+        assert "mat_pp_$browser" in sql, sql
+        assert "JSONExtractString" not in sql, sql
 
-    def test_jsonextractstring_rewritten_to_mat_column_on_persons_table(self):
+    @snapshot_clickhouse_queries
+    def test_persons_table_property_rewritten_to_mat_column(self):
         # The persons table is "raw_persons" in HogQL but "person" in ClickHouse, and its materialized column is
         # pmat_. The rewrite must key off the ClickHouse name to find it (regression guard for the table-name fix).
+        _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
         with materialized("person", "$browser"):
-            printed = self._print_select("select JSONExtractString(properties, '$browser') from raw_persons")
-            assert "pmat_$browser" in printed, f"Expected pmat_$browser in output, got: {printed}"
-            assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
+            results, sql = self._execute("select JSONExtractString(properties, '$browser') from raw_persons")
+        assert results == [("Chrome",)], results
+        assert "pmat_$browser" in sql, sql
+        assert "JSONExtractString" not in sql, sql
 
-    def test_jsonextractstring_rewritten_on_lazy_persons_table(self):
+    @snapshot_clickhouse_queries
+    def test_lazy_persons_table_property_rewritten_to_mat_column(self):
         # Normalizing the call into a property-access read before lazy-table resolution lets it flow through the
         # argMax subquery the same way `properties.$browser` chain access does, so the materialized column is read
-        # inside the subquery rather than the raw JSON blob. The two forms produce the same subquery (only the outer
-        # column alias differs), so the literal call now optimizes identically to chain access.
+        # inside the subquery rather than the raw JSON blob.
+        _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
         with materialized("person", "$browser"):
-            literal = self._print_select("select JSONExtractString(properties, '$browser') from persons")
+            results, sql = self._execute("select JSONExtractString(properties, '$browser') from persons")
             chain = self._print_select("select properties.$browser from persons")
-            assert "pmat_$browser" in literal, f"Expected pmat_$browser in output, got: {literal}"
-            assert "JSONExtractString" not in literal, f"Expected no JSONExtractString, got: {literal}"
-            # Strip the outer SELECT column alias, which is all that differs (auto-derived vs `$browser`).
-            assert literal.split(" FROM ", 1)[1] == chain.split(" FROM ", 1)[1]
+        assert results == [("Chrome",)], results
+        assert "pmat_$browser" in sql, sql
+        assert "JSONExtractString" not in sql, sql
+        # The literal form and chain access produce the same subquery (only the outer column alias differs).
+        literal_shape = self._print_select("select JSONExtractString(properties, '$browser') from persons")
+        assert literal_shape.split(" FROM ", 1)[1] == chain.split(" FROM ", 1)[1]
 
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
         with materialized("events", "$browser"), materialized("events", "$os"):
@@ -610,6 +627,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         values = {row[0]: row[1] for row in response.results}
         return values, response.clickhouse or ""
 
+    @snapshot_clickhouse_queries
     def test_rewrite_value_semantics_no_mat_column(self):
         self._seed_edge_case_events()
         values, sql = self._run_and_collect()
@@ -619,6 +637,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         # Only JSONExtractRaw returns the literal string 'null' for JSON null.
         assert values == {"set": "Chrome", "empty": "", "null_str": "null", "json_null": "", "unset": ""}
 
+    @snapshot_clickhouse_queries
     def test_rewrite_value_semantics_non_nullable_mat_column(self):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=False):
@@ -630,6 +649,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "nullIf(nullIf(events.`mat_$browser`" in sql, sql
         assert values == {"set": "Chrome", "empty": None, "null_str": None, "json_null": None, "unset": None}
 
+    @snapshot_clickhouse_queries
     def test_rewrite_value_semantics_nullable_mat_column(self):
         self._seed_edge_case_events()
         with materialized("events", "$browser", is_nullable=True):
