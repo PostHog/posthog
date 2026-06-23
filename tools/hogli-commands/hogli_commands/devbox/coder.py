@@ -1475,6 +1475,12 @@ def open_web_ide(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 CLAUDE_CODE_OAUTH_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+# Full-scope /login credential (the JSON from ~/.claude/.credentials.json).
+# Preferred over CLAUDE_CODE_OAUTH_ENV: it enables Claude Code Remote Control and
+# still authenticates headless coder task runs, whereas the setup-token is
+# inference-only and disables Remote Control. The posthog-linux / posthog-agent
+# templates seed it into ~/.claude/.credentials.json on start.
+CLAUDE_CREDENTIALS_ENV = "CLAUDE_CREDENTIALS_JSON"
 
 
 def list_user_secrets() -> list[dict[str, Any]] | None:
@@ -1505,6 +1511,11 @@ def get_user_secret(name: str) -> dict[str, Any] | None:
 def has_claude_oauth_secret() -> bool:
     """Return whether a Coder user secret named ``CLAUDE_CODE_OAUTH_TOKEN`` exists."""
     return get_user_secret(CLAUDE_CODE_OAUTH_ENV) is not None
+
+
+def has_claude_credentials_secret() -> bool:
+    """Return whether a Coder user secret named ``CLAUDE_CREDENTIALS_JSON`` exists."""
+    return get_user_secret(CLAUDE_CREDENTIALS_ENV) is not None
 
 
 def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
