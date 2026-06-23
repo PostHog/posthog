@@ -536,7 +536,7 @@ class CampaynSourceConfig(config.Config):
 
 @config.config
 class CannySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
