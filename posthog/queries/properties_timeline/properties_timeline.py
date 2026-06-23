@@ -124,7 +124,7 @@ class PropertiesTimeline:
         self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
-            # Search for `offset_time_series_date_by_interval` in the `TrendsActors` class for context on this handling
+            # A single-point range is widened by one interval so the window actually spans some events.
             filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
