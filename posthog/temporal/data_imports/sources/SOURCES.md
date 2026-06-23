@@ -640,6 +640,7 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- superwall
 - surveymonkey
 - surveysparrow
 - survicate
