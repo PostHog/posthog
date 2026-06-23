@@ -32,11 +32,13 @@ function isStaffOnlyTabKey(tab: InboxTabKey): boolean {
 function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element {
     const logic = reportListLogic({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
     useMountedLogic(logic)
-    const { count } = useValues(logic)
-    if (count === null) {
+    const { count, countLoading } = useValues(logic)
+    // Skeleton only while the request is genuinely in flight; on failure `count` stays null,
+    // so fall back to the number (0) rather than a permanent skeleton.
+    if (count === null && countLoading) {
         return <LemonSkeleton className="h-3 w-3 rounded" />
     }
-    return <span className="text-xs text-muted tabular-nums">{count}</span>
+    return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
 }
 
 /** Synthetic key for the onboarding "Welcome" tab – presentational only, never routed to. */
@@ -61,7 +63,7 @@ export function InboxTabBar({
     showConfigTab?: boolean
     onboarding?: boolean
 }): JSX.Element {
-    const { activeTab, isStaff, runsCount, runsResponse } = useValues(inboxSceneLogic)
+    const { activeTab, isStaff, runsCount, runsResponse, runsResponseLoading } = useValues(inboxSceneLogic)
 
     const visibleTabKeys = INBOX_TAB_KEYS.filter(
         (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
@@ -74,7 +76,7 @@ export function InboxTabBar({
                 <span>{INBOX_TAB_LABEL[key]}</span>
                 {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
                 {key === 'runs' &&
-                    (runsResponse === null ? (
+                    (runsResponse === null && runsResponseLoading ? (
                         <LemonSkeleton className="h-3 w-3 rounded" />
                     ) : (
                         <span className="text-xs text-muted tabular-nums">{runsCount}</span>
