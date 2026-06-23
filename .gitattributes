@@ -25,7 +25,7 @@ posthog/schema.py linguist-generated
 posthog/temporal/data_imports/sources/generated_configs.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
-nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts linguist-generated
+nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
 
 posthog/hogql/grammar/HogQLLexer.py linguist-generated
 posthog/hogql/grammar/HogQLParser.py linguist-generated

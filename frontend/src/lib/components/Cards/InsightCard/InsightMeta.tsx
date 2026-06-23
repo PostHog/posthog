@@ -2,12 +2,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -298,20 +299,11 @@ export function InsightMeta({
     // dashboards, matching the "⋯" menu (which is already gated there).
     const refreshControl =
         refresh && showEditingControls && !tileRefreshing ? (
-            <LemonButton
-                className="CardMeta__refresh"
-                icon={<IconRefresh />}
-                size="small"
-                onClick={() => refresh()}
+            <CardMetaRefreshButton
+                onRefresh={() => refresh()}
+                lastRefresh={insight.last_refresh}
                 disabledReason={refreshDisabledReason}
-                tooltip={
-                    refreshDisabledReason
-                        ? undefined
-                        : insight.last_refresh
-                          ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
-                          : 'Refresh data'
-                }
-                data-attr="insight-card-refresh"
+                dataAttr="insight-card-refresh"
             />
         ) : null
 

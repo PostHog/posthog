@@ -36,7 +36,6 @@ function previewCtxWithSpy(): { ctx: ToolContext; store: TabularStore } {
         teamId: 42,
         applicationId: 'app-test',
         sessionId: 'sess-preview',
-        integrations: {},
         secret: () => undefined,
         secretAllowedHosts: () => undefined,
         log: () => undefined,

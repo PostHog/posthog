@@ -1486,10 +1486,22 @@ def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
     non-empty PARTITION BY bucket — so registration discovers them by globbing the
     run's output rather than predicting names. The glob is run-scoped, so it never
     returns a prior run's objects.
+
+    A zero-event team-day is normal in a historical backfill: ClickHouse writes no
+    Parquet for an empty partition, so the glob matches nothing. duckgres returns
+    that empty glob as a command-complete with no result set (rather than an empty
+    row set), which psycopg surfaces as "the last operation didn't produce a result"
+    when the rows are fetched — catch that and treat it as "no files".
     """
     with conn.cursor() as cur:
         cur.execute("SELECT file FROM glob(%s) ORDER BY file", (s3_glob,))
-        return [row[0] for row in cur.fetchall()]
+        try:
+            rows = cur.fetchall()
+        except psycopg.ProgrammingError as exc:
+            if "didn't produce a result" in str(exc):
+                return []
+            raise
+        return [row[0] for row in rows]
 
 
 def register_files_with_duckling(
@@ -1642,7 +1654,7 @@ def export_persons_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
-    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
+    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL
@@ -1743,7 +1755,7 @@ def export_persons_full_to_duckling_s3(
         '{s3_url}',
         'Parquet'
     )
-    PARTITION BY toString(cityHash64(pd.distinct_id) % {fanout})
+    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
     SELECT
         {PERSONS_COLUMNS}
     FROM person AS p FINAL

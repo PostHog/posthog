@@ -109,6 +109,7 @@ jobs:
                         - 'posthog/hogql_queries/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
+                        - 'posthog/session/**'
                         - 'posthog/schema.py'
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
                         - 'posthog/utils.py'

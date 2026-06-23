@@ -35,6 +35,7 @@ import {
     ExperimentsUnarchiveCreateParams,
 } from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -737,7 +738,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             feature_flag_key: true,
             excluded_variants: true,
             secondary_metrics: true,
-            saved_metrics_ids: true,
             filters: true,
             deleted: true,
             type: true,
@@ -753,6 +753,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
         running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
             "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
         ),
+        saved_metrics_ids: SavedMetricsAttachSchema.optional(),
     })
 
 const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHogUrl<Schemas.Experiment>> =>
@@ -776,6 +777,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
+            }
+            if (params.saved_metrics_ids !== undefined) {
+                body['saved_metrics_ids'] = params.saved_metrics_ids
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
@@ -824,6 +828,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
+                'saved_metrics',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
