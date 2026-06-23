@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "current_action_id": {
-            "description": "Start from this action ID instead of the trigger.",
+            "description": "Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.",
             "type": "string"
         },
         "globals": {

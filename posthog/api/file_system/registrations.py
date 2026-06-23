@@ -19,8 +19,7 @@ from posthog.models.activity_logging.model_activity import is_impersonated_sessi
 from posthog.models.user import User
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
-from products.tasks.backend.models import Task as _Task
-from products.tasks.backend.visibility import task_visibility_q
+from products.tasks.backend.facade import api as tasks_facade
 
 
 def _first_non_blank(*values: str | None) -> str | None:
@@ -292,7 +291,7 @@ def _ensure_task_visible_to_user(task: Any, user: Any | None) -> None:
     # signal-pipeline tasks and legacy unowned tasks). Without this, anyone with file system
     # write access could delete or restore another user's filed task via the generic flow.
     user_id = getattr(user, "id", None)
-    if not _Task.objects.filter(task_visibility_q(user_id), pk=task.id).exists():
+    if not tasks_facade.is_task_visible_to_user(task.id, user_id):
         raise PermissionDenied("You do not have permission to modify this task.")
 
 

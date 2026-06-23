@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -34,6 +35,7 @@ class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CONVEX,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="Convex",
             releaseStatus="beta",
             caption="""Enter your Convex deployment URL and deploy key to sync your Convex tables into PostHog.
@@ -109,7 +111,10 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             "401 Client Error": "Authentication failed. Check your Convex deploy key.",
             "403 Client Error": "Access denied. Check your Convex deploy key.",
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
-            "InvalidWindowError": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
+            # Match a stable substring of the raised message, not the `InvalidWindowError` class name:
+            # the non-retryable check compares against `str(exception)`, which contains the message
+            # but not the class name. The table name in the message is volatile, so it's excluded.
+            "is older than Convex's ~30 day retention window": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
         }
 
     def validate_credentials(

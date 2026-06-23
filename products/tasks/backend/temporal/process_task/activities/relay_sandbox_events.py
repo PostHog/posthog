@@ -13,12 +13,15 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.models import TaskRun as TaskRunModel
+from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.models import (
+    Task as TaskModel,
+    TaskRun as TaskRunModel,
+)
 from products.tasks.backend.redis import run_uses_dedicated_stream
-from products.tasks.backend.services.agent_command import validate_sandbox_url
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -61,6 +64,14 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
     task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+
+    # Match the freshness window to the workflow's inactivity timeout for this run
+    # so the heartbeat suppression below never resets a timer it shouldn't.
+    origin_product = task_run.task.origin_product
+    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
+    inactivity_timeout_seconds = resolve_inactivity_timeout(
+        is_user_origin=is_user_origin, state=task_run.state
+    ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)
     redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
@@ -106,6 +117,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
             task_run=task_run,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -182,6 +194,7 @@ async def _background_heartbeat(
     last_event_time: list[float] | None = None,
     last_workflow_signal: list[float] | None = None,
     agent_active: list[bool] | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -200,7 +213,7 @@ async def _background_heartbeat(
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
+                and (now - last_event_time[0]) < inactivity_timeout_seconds
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
@@ -225,6 +238,7 @@ async def _relay_loop(
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
     task_run: TaskRunModel | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -245,12 +259,22 @@ async def _relay_loop(
     # The background heartbeat reads this to decide whether the agent is active.
     last_event_time: list[float] = [0.0]  # list used as mutable container
     last_workflow_signal: list[float] = [0.0]  # shared with background heartbeat
-    agent_active: list[bool] = [True]  # agent is working; False after end_turn
+    # Whether the agent is mid-turn. Starts False (idle until a generating
+    # session_update) and resets to False on reconnect so a dropped end_of_turn
+    # can't leave it stuck True and emit phantom heartbeats.
+    agent_active: list[bool] = [False]
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
-        _background_heartbeat(stop_heartbeat, workflow_handle, last_event_time, last_workflow_signal, agent_active)
+        _background_heartbeat(
+            stop_heartbeat,
+            workflow_handle,
+            last_event_time,
+            last_workflow_signal,
+            agent_active,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+        )
     )
 
     try:
@@ -305,7 +329,7 @@ async def _relay_loop(
                                     # does sync Redis (cache.add) and a potential network call to
                                     # the feature-flag service.
                                     asyncio.create_task(asyncio.to_thread(_safe_dispatch_awaiting_input, task_run))
-                            elif not agent_active[0] and _is_session_update(event_data):
+                            elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
 
                             now = time.monotonic()
@@ -333,6 +357,8 @@ async def _relay_loop(
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
+                # May have missed an end_of_turn on the dropped stream — assume idle until re-confirmed.
+                agent_active[0] = False
                 logger.warning(
                     "relay_sandbox_events_read_timeout",
                     run_id=run_id,
@@ -353,6 +379,7 @@ async def _relay_loop(
                     return
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
@@ -364,6 +391,7 @@ async def _relay_loop(
 
             except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
+                agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
                 logger.warning(
                     "relay_sandbox_events_connection_error",
                     run_id=run_id,
@@ -386,11 +414,37 @@ async def _relay_loop(
 
 
 def _is_session_update(event_data: dict) -> bool:
-    """Check if an event is a session/update notification (active agent processing)."""
+    """Check if an event is a session/update notification."""
     if event_data.get("type") != "notification":
         return False
     notification = event_data.get("notification", {})
     return notification.get("method") == "session/update"
+
+
+# session/update sub-types that mean the agent is actively generating. Allowlist
+# (not denylist) so an unknown/missing sub-type — a future ACP lifecycle event,
+# or a malformed payload — fails safe to "not active" rather than re-latching
+# agent_active and reviving the idle heartbeat storm.
+_GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
+    {
+        "agent_message",
+        "agent_message_chunk",
+        "agent_thought_chunk",
+        "tool_call",
+        "tool_call_update",
+        "plan",
+        "user_message",
+        "user_message_chunk",
+    }
+)
+
+
+def _is_active_agent_update(event_data: dict) -> bool:
+    """True only for session/update events where the agent is actively generating."""
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
 
 
 def _is_keepalive_event(event_data: dict) -> bool:
@@ -402,8 +456,8 @@ _is_end_of_turn = is_turn_complete
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
-    from products.tasks.backend.services.agentsh import build_audit_query_command
-    from products.tasks.backend.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.agentsh import build_audit_query_command
+    from products.tasks.backend.logic.services.sandbox import Sandbox
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:

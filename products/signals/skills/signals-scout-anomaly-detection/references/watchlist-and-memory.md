@@ -15,16 +15,17 @@ rewrites the entry in place (the idempotent refresh — use it to update a basel
 
 ### Key vocabulary
 
-| Key prefix                                           | Holds                                                                      |
-| ---------------------------------------------------- | -------------------------------------------------------------------------- |
-| `watchlist:anomaly_detection:insight:<short_id>`     | A curated insight to watch (the ledger row — see schema below).            |
-| `watchlist:anomaly_detection:dashboard:<id>`         | A curated whole dashboard to sweep (when its tiles are collectively key).  |
-| `baseline:anomaly_detection:insight:<short_id>`      | The learned normal: median + MAD per seasonal bucket, so scoring is cheap. |
-| `dedupe:anomaly_detection:insight:<short_id>:<date>` | An anomaly already surfaced, with the re-escalation condition.             |
-| `noise:anomaly_detection:<topic>`                    | A pattern to ignore (a chronically erratic insight, a seasonal quirk).     |
-| `addressed:anomaly_detection:<topic>`                | Team-confirmed expected (a launch/backfill) or fix shipped — skip.         |
-| `allowlist:anomaly_detection:insight:<short_id>`     | An insight to never surface (deprecated, sandbox, test).                   |
-| `not-in-use:anomaly_detection:team{team_id}`         | Close-out memo: team isn't actively using saved analytics right now.       |
+| Key prefix                                           | Holds                                                                             |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `watchlist:anomaly_detection:insight:<short_id>`     | A curated insight to watch (the ledger row — see schema below).                   |
+| `watchlist:anomaly_detection:dashboard:<id>`         | A curated whole dashboard to sweep (when its tiles are collectively key).         |
+| `watchlist:anomaly_detection:importance-refresh`     | Memo: when the watchlist's importance ranking was last reconciled + what changed. |
+| `baseline:anomaly_detection:insight:<short_id>`      | The learned normal: median + MAD per seasonal bucket, so scoring is cheap.        |
+| `dedupe:anomaly_detection:insight:<short_id>:<date>` | An anomaly already surfaced, with the re-escalation condition.                    |
+| `noise:anomaly_detection:<topic>`                    | A pattern to ignore (a chronically erratic insight, a seasonal quirk).            |
+| `addressed:anomaly_detection:<topic>`                | Team-confirmed expected (a launch/backfill) or fix shipped — skip.                |
+| `allowlist:anomaly_detection:insight:<short_id>`     | An insight to never surface (deprecated, sandbox, test).                          |
+| `not-in-use:anomaly_detection:team{team_id}`         | Close-out memo: team isn't actively using saved analytics right now.              |
 
 ### Watchlist entry schema
 
@@ -72,6 +73,27 @@ Each run, budget deliberately:
     dashboards are high-value by association.
   - Cross-check against the watchlist you already have; only add genuinely new items, at most
     ~2–3 per run, each with a first baseline + cadence.
+
+**Refresh importance every few days — the watchlist is not "done" once it's big.** Discovery
+isn't only adding new items; a watchlist's _membership and priorities_ go stale as the team's
+focus moves. Every ~3 days, treat the importance ranking itself as the thing to re-check:
+
+- Re-pull `insights-trending-retrieve` (`days=7`) and `recent_dashboards`, and reconcile them
+  against the watchlist you already have — not just to add, but to **re-rank and prune**: bump
+  the `priority` of items climbing the view counts, and **demote or retire** items whose
+  dashboard is no longer accessed or whose view count has collapsed (drop them, or mark
+  `priority: low` and stretch their cadence). A dashboard created last week that's now the
+  most-opened one belongs on the list; one nobody has opened in a month should not keep burning
+  the budget.
+- A large watchlist is **not** a reason to skip this. "The watchlist is already mature" is the
+  trap: it freezes coverage on whatever was important when you bootstrapped. The refresh is
+  cheap — two reads plus a diff — and it is what keeps "important" meaning _currently_
+  important.
+- Make it actually happen: keep one `watchlist:anomaly_detection:importance-refresh` memo with a
+  `last_refreshed` timestamp and a one-line note of what changed. If it's missing or more than ~3
+  days old, do the refresh this run before exploiting, then reuse the key to update it in place.
+  Like the weekly baseline re-derivation above, this stops the watchlist going stale — but run it
+  more often, because the team's attention shifts faster than a metric's own distribution does.
 
 **Round-robin, don't re-scan everything.** The watchlist + `next_due` timestamps are what let
 successive runs cover different items instead of all repeating the same top insights every

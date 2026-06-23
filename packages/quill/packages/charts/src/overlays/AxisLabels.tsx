@@ -1,16 +1,12 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { GUTTER_GAP } from '../core/hooks/useChartMargins'
-import { autoFormatterFor } from '../core/scales'
-import { AXIS_LABEL_FONT, getTextMeasureCtx, measureLabelWidth, truncateToWidth } from '../utils/text-measure'
+import { TICK_GAP } from '../core/y-axis-gutters'
+import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
-    /** The *unresolved* user y-tick formatter (config). When set, every stacked axis uses it; when
-     *  unset, each axis auto-formats against its own ticks. Only consulted for the multi-axis path. */
-    userYTickFormatter?: (value: number) => string
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
@@ -28,6 +24,12 @@ interface AxisLabelsProps {
 // the category gap on them culls ticks that have plenty of room.
 const CATEGORY_LABEL_PADDING = 20
 const VALUE_TICK_LABEL_PADDING = 8
+
+// Minimum center-to-center spacing (px) between stacked y-axis tick labels. A 12px font renders a
+// box ~14px tall, so anything closer than this overlaps. Used to thin a crowded value axis — most
+// notably a log scale, whose `.ticks()` emits sub-decade values (…8, 9, 20, 30…) that pack far
+// tighter than a linear axis's `.nice()`-bounded ticks ever do.
+const Y_TICK_LABEL_MIN_GAP = 16
 
 interface XLabelCandidate {
     index: number
@@ -125,23 +127,60 @@ export function computeVisibleValueTicks(
     return dropOverlappingLabels(candidates, VALUE_TICK_LABEL_PADDING)
 }
 
+// Roundness rank for a value, lowest = most preferred to keep as a label: a power of ten beats a
+// 5×10ⁿ, which beats a 2×10ⁿ, which beats everything else. Drives which labels survive when a log
+// axis is too crowded to show them all — yielding the classic 1-2-5 decade labelling.
+function tickRoundness(value: number): number {
+    if (value === 0) {
+        return 0
+    }
+    const abs = Math.abs(value)
+    const mantissa = abs / Math.pow(10, Math.floor(Math.log10(abs)))
+    const rounded = Math.round(mantissa)
+    if (rounded === 1 || rounded === 10) {
+        return 0
+    }
+    if (rounded === 5) {
+        return 1
+    }
+    if (rounded === 2) {
+        return 2
+    }
+    return 3
+}
+
+/** Thin value-axis ticks whose stacked labels would overlap vertically, keeping the roundest values
+ *  (powers of ten, then 5s, then 2s) so a crowded axis — chiefly a log scale — reads as clean 1-2-5
+ *  decade labels instead of an unreadable smear. Linear axes are `.nice()`-bounded to comfortably
+ *  spaced ticks, so every one clears the gap and all are kept unchanged. Returns ticks in ascending
+ *  value order, matching the input. */
+export function computeVisibleYTicks(
+    ticks: number[],
+    valueToCoord: (value: number) => number,
+    minGap = Y_TICK_LABEL_MIN_GAP
+): number[] {
+    const candidates = ticks.map((tick) => ({ tick, y: valueToCoord(tick) })).filter(({ y }) => isFinite(y))
+    if (candidates.length <= 1) {
+        return candidates.map((c) => c.tick)
+    }
+
+    // Offer the roundest ticks first; ties broken by position so the greedy fills the axis evenly.
+    const ordered = [...candidates].sort((a, b) => tickRoundness(a.tick) - tickRoundness(b.tick) || a.y - b.y)
+    const kept: { tick: number; y: number }[] = []
+    for (const candidate of ordered) {
+        if (kept.every((k) => Math.abs(k.y - candidate.y) >= minGap)) {
+            kept.push(candidate)
+        }
+    }
+
+    return kept.sort((a, b) => a.tick - b.tick).map((c) => c.tick)
+}
+
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     fontSize: 12,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
-}
-
-const TICK_GAP = 8
-
-/** One stacked value-axis gutter: its ticks, scale, side, and outward pixel offset from the plot edge. */
-interface Gutter {
-    key: string
-    side: 'left' | 'right'
-    offset: number
-    ticks: number[]
-    scale: (v: number) => number
-    formatter: (v: number) => string
 }
 
 interface ChartBox {
@@ -229,7 +268,6 @@ function XTickLabel({
 export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
-    userYTickFormatter,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
@@ -237,49 +275,8 @@ export const AxisLabels = React.memo(function AxisLabels({
     labelToCoord,
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChartLayout()
+    const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
-
-    // Vertical value-axis gutters, stacked outward per side. With per-axis scales (`scales.yAxes`,
-    // i.e. `showMultipleYAxes`) we render one gutter per axis — each labelled with its own ticks and
-    // offset by the cumulative width of the inner gutters. Without, a single left gutter from the
-    // shared scale (`scales.y` / `scales.yTicks`). Each axis auto-formats against its own ticks
-    // unless the caller supplied an explicit formatter, in which case every axis shares it.
-    const yGutters = useMemo(() => {
-        if (hideYAxis || orientation === 'horizontal') {
-            return []
-        }
-        if (!scales.yAxes) {
-            return [
-                {
-                    key: 'y-left',
-                    side: 'left' as const,
-                    offset: 0,
-                    ticks: yTicks,
-                    scale: scales.y,
-                    formatter: yTickFormatter ?? autoFormatterFor(yTicks),
-                },
-            ] satisfies Gutter[]
-        }
-        const widthOf = (ticks: number[], formatter: (v: number) => string): number =>
-            ticks.reduce((widest, t) => Math.max(widest, measureLabelWidth(formatter(t))), 0)
-        let leftCum = 0
-        let rightCum = 0
-        const gutters: Gutter[] = []
-        Object.entries(scales.yAxes).forEach(([axisId, axis]) => {
-            const ticks = axis.ticks()
-            const formatter = userYTickFormatter ?? autoFormatterFor(ticks)
-            const offset = axis.position === 'left' ? leftCum : rightCum
-            gutters.push({ key: `y-${axisId}`, side: axis.position, offset, ticks, scale: axis.scale, formatter })
-            const width = widthOf(ticks, formatter) + GUTTER_GAP
-            if (axis.position === 'left') {
-                leftCum += width
-            } else {
-                rightCum += width
-            }
-        })
-        return gutters
-    }, [hideYAxis, orientation, scales.yAxes, scales.y, yTicks, yTickFormatter, userYTickFormatter])
 
     const visibleXLabels = useMemo(
         () =>
@@ -344,7 +341,7 @@ export const AxisLabels = React.memo(function AxisLabels({
     return (
         <>
             {yGutters.flatMap((gutter) =>
-                gutter.ticks.map((tick: number) => {
+                computeVisibleYTicks(gutter.ticks, gutter.scale).map((tick: number) => {
                     const y = gutter.scale(tick)
                     if (!isFinite(y)) {
                         return null

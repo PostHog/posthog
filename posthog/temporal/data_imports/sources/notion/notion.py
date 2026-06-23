@@ -48,6 +48,19 @@ class NotionRetryableError(Exception):
         self.retry_after = retry_after
 
 
+class NotionNotFoundError(Exception):
+    """Notion returned 404 for a resource: the page/block was deleted or is no longer shared with
+    the integration. In the per-page fan-out streams (blocks/comments) a single page going missing
+    is recoverable — skip it and keep syncing the rest rather than crashing the whole sync."""
+
+
+class NotionBadRequestError(Exception):
+    """Notion returned 400 for a per-page resource. Some blocks advertise has_children but cannot be
+    expanded via the API (e.g. blocks backed by synced/external content), so Notion rejects the
+    children request. Like a 404, this is recoverable in the fan-out streams (blocks/comments): skip
+    the offending block/page and keep syncing rather than crashing the whole sync."""
+
+
 @dataclasses.dataclass
 class NotionResumeConfig:
     next_cursor: str
@@ -122,6 +135,20 @@ def _request(
 
     if response.status_code >= 500:
         raise NotionRetryableError(f"Notion API error (retryable): status={response.status_code}, url={url}")
+
+    # A 404 on a per-page resource (a page's comments or block children) means that page was deleted
+    # or unshared between enumeration and fetch. The fan-out streams catch this and skip the page;
+    # on the collection endpoints (search/users) it is unexpected and propagates as a sync failure.
+    if response.status_code == 404:
+        raise NotionNotFoundError(f"Notion resource not found: url={url}")
+
+    # A 400 on a per-page resource (block children) means Notion rejects expanding that specific
+    # block even though it advertised has_children. The fan-out streams skip it; on the collection
+    # endpoints (search/users) a 400 is a genuine bad request and propagates as a sync failure.
+    if response.status_code == 400:
+        # Carry Notion's error body so callers can log its `code`/`message` (e.g. `validation_error`),
+        # which distinguishes the known has_children quirk from an unexpected 400.
+        raise NotionBadRequestError(f"Notion rejected request: url={url}, body={response.text}")
 
     if not response.ok:
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
@@ -252,7 +279,23 @@ def _iter_block_children(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+        try:
+            data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+        except NotionNotFoundError:
+            logger.warning(
+                "Notion: skipping missing or unshared block while fetching children",
+                page_id=page_id,
+                block_id=block_id,
+            )
+            return
+        except NotionBadRequestError as e:
+            logger.warning(
+                "Notion: skipping block whose children Notion rejected",
+                page_id=page_id,
+                block_id=block_id,
+                error=str(e),
+            )
+            return
         for block in data.get("results", []):
             block["_page_id"] = page_id
             yield block
@@ -297,7 +340,21 @@ def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) ->
             if cursor:
                 params["start_cursor"] = cursor
 
-            data = _request(session, "GET", "/v1/comments", logger, params=params)
+            try:
+                data = _request(session, "GET", "/v1/comments", logger, params=params)
+            except NotionNotFoundError:
+                logger.warning(
+                    "Notion: skipping comments for missing or unshared page",
+                    page_id=page_id,
+                )
+                break
+            except NotionBadRequestError as e:
+                logger.warning(
+                    "Notion: skipping comments Notion rejected for page",
+                    page_id=page_id,
+                    error=str(e),
+                )
+                break
             for comment in data.get("results", []):
                 comment["_page_id"] = page_id
                 batcher.batch(comment)

@@ -40,6 +40,14 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
     )
+    created_at = serializers.CharField(
+        help_text=(
+            "ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` "
+            "filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking "
+            "past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and "
+            "its bridge row aren't skipped."
+        ),
+    )
     started_at = serializers.CharField(help_text="ISO-8601 timestamp the TaskRun was created.")
     completed_at = serializers.CharField(
         allow_null=True,
@@ -164,6 +172,35 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LinkedSignalReportSerializer(serializers.Serializer):
+    """Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+    for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+    the full report itself."""
+
+    id = serializers.UUIDField(help_text="UUID of the linked `SignalReport`.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="LLM-generated report title, or null if the report hasn't been summarised yet.",
+    )
+    status = serializers.CharField(help_text="Current report status (e.g. `potential`, `ready`, `resolved`).")
+
+
+class ScoutEmissionReportLinkSerializer(serializers.Serializer):
+    """One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+
+    Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+    grouped into a report yet, was de-duplicated away, or its signal was deleted."""
+
+    finding_id = serializers.CharField(help_text="Stable id the finding was emitted under.")
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store.",
+    )
+    report = LinkedSignalReportSerializer(
+        allow_null=True,
+        help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
@@ -175,7 +212,7 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
-            "cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run "
+            "cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run "
             "from the prior page)."
         ),
     )
@@ -282,7 +319,8 @@ class RememberRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Run that authored this memory; persisted as `created_by_run_id` for lineage. "
-            "Must reference a run on this same project — cross-project run UUIDs are rejected."
+            "Best-effort — a `run_id` that isn't a run on this project is dropped (lineage left "
+            "null), not rejected, so the memory write is never lost."
         ),
     )
 
@@ -976,6 +1014,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "on the team or carries no description."
         ),
     )
+    scout_origin = serializers.SerializerMethodField(
+        help_text=(
+            "Where this scout came from: `canonical` for a scout PostHog ships and maintains "
+            "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
+            "on this project. Use it to badge built-in vs custom scouts instead of a hardcoded "
+            "name list. Defaults to `custom` if the skill is not currently present on the team."
+        ),
+    )
     enabled = serializers.BooleanField(
         required=False,
         help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
@@ -998,10 +1044,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
-        # Resolved by the view into `skill_descriptions` (skill_name -> description) so the
+        # Resolved by the view into `skill_info` (skill_name -> _ScoutSkillInfo) so the
         # list endpoint stays a single LLMSkill query rather than one lookup per config row.
-        descriptions = self.context.get("skill_descriptions") or {}
-        return descriptions.get(obj.skill_name, "")
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.description if info else ""
+
+    @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
+    def get_scout_origin(self, obj: SignalScoutConfig) -> str:
+        # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
+        # the skill row is absent — a config with no skill row isn't a canonical scout.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.origin if info else "custom"
 
     class Meta:
         model = SignalScoutConfig
@@ -1009,6 +1062,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "scout_origin",
             "enabled",
             "emit",
             "run_interval_minutes",
@@ -1047,7 +1101,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         required=False,
         min_value=10,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+        help_text="Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:
@@ -1056,3 +1110,45 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+# --- Team metadata ---------------------------------------------------------
+
+
+class ScoutLimitsSerializer(serializers.Serializer):
+    """A team's enforced scout run caps and current usage.
+
+    These are the values the coordinator actually applies at dispatch (resolved per-team override →
+    fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+    user thinks they configured.
+    """
+
+    max_runs_per_tick = serializers.IntegerField(
+        help_text="Most scout runs the team can start in a single 30-minute coordinator tick."
+    )
+    max_runs_per_day = serializers.IntegerField(
+        allow_null=True,
+        help_text="Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+    )
+    runs_today = serializers.IntegerField(
+        help_text="Scout runs the team has started in the trailing 24 hours.",
+    )
+    runs_remaining_today = serializers.IntegerField(
+        allow_null=True,
+        help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+
+
+class ScoutMetadataSerializer(serializers.Serializer):
+    """Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+    the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+    change without a deploy to either app."""
+
+    enrolled = serializers.BooleanField(
+        help_text="Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist)."
+    )
+    banner_message = serializers.CharField(
+        allow_null=True,
+        help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+    )
+    limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")

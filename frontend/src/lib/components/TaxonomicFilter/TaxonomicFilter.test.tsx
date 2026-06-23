@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
@@ -860,8 +861,8 @@ describe('TaxonomicFilter', () => {
         // verify that promotion moves it to position 0.
         useMocks({
             get: {
-                '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
                     const allProps = [
                         { ...mockEventPropertyDefinition, id: 'url-other', name: '$initial_referring_url' },
                         { ...mockEventPropertyDefinition, id: 'url-other-2', name: 'signup_url' },
@@ -1176,6 +1177,110 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    it('reopens on the selected category when no Suggested-filters surface is present (control)', async () => {
+        // Guards the activeTab fallback: hosts without a Suggested filters ("All") surface
+        // (control variant, or any picker that doesn't inject it) must still reopen on the
+        // selected item's own category rather than an absent All tab.
+        renderFilter({
+            groupType: TaxonomicFilterGroupType.Events,
+            value: '$pageview',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+        })
+
+        await waitFor(() => expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument())
+        expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
+    })
+
+    // Spec for the insight series picker in the pill variant: searching a term that matches
+    // pageview URLs should make ONE "url contains <query>" shortcut the first row of the
+    // aggregated Suggested filters ("All") tab — ahead of raw URL/event rows. Fails today
+    // because the series (PageviewEvents) group isn't collapsed and the shortcut never leads.
+    describe('series picker: pageview url-contains shortcut leads (pill variant)', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/environments/:team/events/values': [
+                        { name: 'https://app.posthog.com/replay' },
+                        { name: 'https://app.posthog.com/replay/home' },
+                    ],
+                },
+            })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it('reopens on the Data warehouse tab (its own picker), not All, for a data-warehouse selection', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.DataWarehouse,
+                value: 'some_table',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.DataWarehouse,
+                ],
+            })
+
+            // Data warehouse is a config flow (table/column picker) — it should reopen on
+            // its own tab so the user can reconfigure, not drop them on the All surface.
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Data warehouse|Events/))
+            expect(trigger).toHaveTextContent('Data warehouse')
+            expect(trigger).not.toHaveTextContent('All')
+        })
+
+        it('opens focused on the All tab, not Events, when an event is already selected', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                value: '$pageview',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+            })
+
+            // In the pill variant the active category shows in the dropdown trigger; reopening
+            // on an existing event selection should read "All", not "Events".
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            // Wait for the dropdown trigger to paint its active-category label before asserting.
+            await waitFor(() => expect(trigger.textContent || '').toMatch(/All|Events|Suggestions/))
+            expect(trigger).toHaveTextContent('All')
+            expect(trigger).not.toHaveTextContent('Events')
+        })
+
+        it('makes the "url contains <query>" shortcut the first Suggested-filters row', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+                collapseUrlsToContainsRow: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'replay')
+
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            // The leading aggregated row should be the single contains shortcut, not a raw URL.
+            expect(firstRow.textContent || '').toMatch(/contains.*replay|replay.*contains/i)
+            expect(firstRow.textContent || '').not.toContain('https://app.posthog.com/replay')
+        })
+    })
+
     describe('category dropdown A/B test', () => {
         let unmountFeatureFlagLogic: (() => void) | null = null
 
@@ -1324,8 +1429,8 @@ describe('TaxonomicFilter', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                    '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                        const search = req.url.searchParams.get('search') ?? ''
+                    '/api/projects/:team/property_definitions': ({ request }: MockResolverInfo) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
                         const fixture = promotedFixtures[search]
                         const names = fixture ? [...fixture.decoys, fixture.name] : []
                         return [
@@ -1598,9 +1703,9 @@ describe('TaxonomicFilter', () => {
             // to the DOM in CI. Production latency exceeds this comfortably.
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': async (req) => {
+                    '/api/projects/:team/event_definitions': async (info) => {
                         await new Promise((resolve) => setTimeout(resolve, 100))
-                        return mockGetEventDefinitions(req)
+                        return mockGetEventDefinitions(info)
                     },
                     '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                     '/api/projects/:team/actions': { results: [mockActionDefinition] },

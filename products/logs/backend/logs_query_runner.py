@@ -42,6 +42,12 @@ LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
 )
 
 
+def ilike_pattern(search: str | None) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = (search or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _trace_id_normalise_to_base64(value: str) -> str:
     """Accept either hex or base64 encoded trace_id/span_id values.
 
@@ -197,10 +203,20 @@ class LogsFilterBuilder:
     Standalone — no QueryRunner dependency.
     """
 
-    def __init__(self, query: LogsQuery, team: "Team", query_date_range: QueryDateRange):
+    def __init__(
+        self,
+        query: LogsQuery,
+        team: "Team",
+        query_date_range: QueryDateRange,
+        exclude_facet_field: str | None = None,
+    ):
         self.query = query
         self.team = team
         self.query_date_range = query_date_range
+        # When set (e.g. "severity_text" or "service_name"), that facet's own filter is omitted
+        # from the WHERE clause so facet counts reflect every *other* active filter — the standard
+        # faceted-search behaviour where selecting a value doesn't zero out its siblings.
+        self.exclude_facet_field = exclude_facet_field
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
@@ -274,7 +290,7 @@ class LogsFilterBuilder:
             )
         )
 
-        if self.query.serviceNames:
+        if self.query.serviceNames and self.exclude_facet_field != "service_name":
             exprs.append(
                 parse_expr(
                     "service_name IN {serviceNames}",
@@ -301,7 +317,8 @@ class LogsFilterBuilder:
             if self.log_filters:
                 for log_filter in self.log_filters:
                     if log_filter.key == "severity_level":
-                        exprs.append(_severity_level_to_expr(log_filter))
+                        if self.exclude_facet_field != "severity_text":
+                            exprs.append(_severity_level_to_expr(log_filter))
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -322,7 +339,7 @@ class LogsFilterBuilder:
             exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
             exprs.append(property_to_expr(search_filter, team=self.team))
 
-        if self.query.severityLevels:
+        if self.query.severityLevels and self.exclude_facet_field != "severity_text":
             exprs.append(
                 parse_expr(
                     "severity_text IN {severityLevels}",

@@ -7,7 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.ai_observability.evaluation_clustering.constants import AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE
+from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE,
+    AI_OBSERVABILITY_EVALUATION_RENDERING,
+)
 from posthog.temporal.ai_observability.evaluation_clustering.models import SamplerActivityInputs
 from posthog.temporal.ai_observability.evaluation_clustering.sampling import (
     _compose_evaluation_text,
@@ -134,14 +137,15 @@ class TestSampleAndEmbedForJobActivity:
         assert result.team_id == mock_team.id
         assert result.job_id == "job-abc"
 
-        # Every call used the eval document type and the low-cardinality job rendering
-        expected_rendering = "eval_job-abc"
+        # Every call used the eval document type, the fixed low-cardinality rendering enum,
+        # and carried the job id in metadata (not in rendering) for Stage B to scope on.
         calls = mock_embedder.embed_document.call_args_list
         assert len(calls) == 3
         for call in calls:
             kwargs = call.kwargs
             assert kwargs["document_type"] == AI_OBSERVABILITY_EVALUATION_DOCUMENT_TYPE
-            assert kwargs["rendering"] == expected_rendering
+            assert kwargs["rendering"] == AI_OBSERVABILITY_EVALUATION_RENDERING
+            assert kwargs["metadata"] == {"job_id": "job-abc"}
             assert "Evaluation:" in kwargs["content"]
 
         # Third row's N/A verdict is surfaced in the composed text

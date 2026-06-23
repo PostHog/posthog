@@ -643,152 +643,11 @@ class TestOauthIntegrationModel(BaseTest):
     def test_stripe_authorize_url_uses_live_client_id_by_default(self):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
             STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
             STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
         ):
             url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
             assert "client_id=ca_live_clientid" in url
-            assert "client_id=ca_sandbox_clientid" not in url
-
-    def test_stripe_authorize_url_uses_sandbox_client_id_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
-        ):
-            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
-            assert "client_id=ca_sandbox_clientid" in url
-            assert "client_id=ca_live_clientid" not in url
-
-    def test_stripe_oauth_config_uses_sandbox_secret_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            live_cfg = OauthIntegration.oauth_config_for_kind("stripe")
-            sandbox_cfg = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=True)
-            assert live_cfg.client_secret == "sk_live_secret"
-            assert sandbox_cfg.client_secret == "sk_test_sandbox_secret"
-
-    def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    def test_stripe_authorize_url_raises_when_sandbox_secret_missing(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_falls_back_to_sandbox_on_does_not_belong_error(self, mock_post):
-        # First call (live secret) returns 400 with the marker error - second call should
-        # retry with sandbox config and succeed.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {
-            "error": "invalid_grant",
-            "error_description": "Authorization code provided does not belong to you",
-        }
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_123",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert mock_post.call_count == 2
-        first_call_secret = mock_post.call_args_list[0].kwargs["auth"].username
-        second_call_secret = mock_post.call_args_list[1].kwargs["auth"].username
-        assert first_call_secret == "sk_live_secret"
-        assert second_call_secret == "sk_test_sandbox_secret"
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_sandbox_secret_unset(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_only_sandbox_secret_set(self, mock_post):
-        # If the sandbox secret is set but the sandbox client_id is not, the retry guard
-        # must fail closed - oauth_config_for_kind would otherwise raise NotImplementedError
-        # and mask the original Stripe error.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -813,7 +672,7 @@ class TestOauthIntegrationModel(BaseTest):
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
     @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_false_for_live_install(self, mock_post):
+    def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
             "access_token": "FAKE_ACCESS",
@@ -834,57 +693,7 @@ class TestOauthIntegrationModel(BaseTest):
                 {"code": "ac_live_code"},
             )
 
-        assert integration.config.get("is_sandbox") is False
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_true_after_sandbox_fallback(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_1",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            integration = OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert integration.config.get("is_sandbox") is True
-
-    @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_refresh_access_token_uses_sandbox_secret_when_flag_set(self, mock_post, mock_reload):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
-
-        integration = self.create_integration(kind="stripe", config={"expires_in": 1000, "is_sandbox": True})
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration(integration).refresh_access_token()
-
-        assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
+        assert "is_sandbox" not in integration.config
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -1077,6 +886,124 @@ class TestGitHubIntegrationModel(BaseTest):
             return mock_response
 
         return _client_request
+
+    def test_get_diff_compares_branch_tips(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+            assert result == {
+                "success": True,
+                "diff": "diff --git a b",
+                "truncated": False,
+            }
+            mock_get.assert_called_once()
+            assert "/compare/master...feature/foo" in mock_get.call_args.args[0]
+
+    def test_get_diff_pins_to_shas_when_given(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog",
+                target_branch="feature/foo",
+                base_branch="master",
+                target_sha="abc123f",
+                base_sha="def456a",
+            )
+            assert result["success"] is True
+            assert "/compare/def456a...abc123f" in mock_get.call_args.args[0]
+
+    def test_get_diff_maps_upstream_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result == {"success": False, "error": "Not Found", "status_code": 404}
+
+    def test_get_diff_handles_request_exception(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is False
+        assert result["status_code"] == 502
+
+    def test_get_diff_truncates_oversized_diff(self):
+        from posthog.models.integration import _MAX_DIFF_CHARS
+
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        oversized = "x" * (_MAX_DIFF_CHARS + 100)
+        mock_response = MagicMock(status_code=200, text=oversized)
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is True
+        assert result["truncated"] is True
+        assert len(result["diff"]) < len(oversized)
+        assert result["diff"].startswith("x" * 100)
+        assert "truncated" in result["diff"]
+
+    @parameterized.expand(
+        [
+            ("repo_traversal", {"repository": "../../other/repo"}),
+            ("repo_extra_path", {"repository": "owner/repo/contents/x"}),
+            ("target_branch_traversal", {"target_branch": "../../../etc"}),
+            ("target_branch_query", {"target_branch": "main?ref=x"}),
+            ("base_branch_traversal", {"base_branch": "..%2f"}),
+            ("target_sha_not_hex", {"target_sha": "main?ref=x"}),
+            ("base_sha_not_hex", {"base_sha": "../../x"}),
+        ]
+    )
+    def test_get_diff_rejects_unsafe_values(self, _name, overrides):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
+        kwargs.update(overrides)
+        with patch.object(github, "_github_api_get") as mock_get:
+            result = github.get_diff(**kwargs)
+        assert result["success"] is False
+        assert result["status_code"] == 400
+        mock_get.assert_not_called()
+
+    def test_get_diff_allows_nested_branch_names(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog", target_branch="feature/nested/branch", base_branch="release/v1.2"
+            )
+        assert result["success"] is True
+        mock_get.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("traversal", "../../other/repo"),
+            ("extra_path_segment", "owner/repo/contents/secret"),
+            ("query_injection", "owner/repo?ref=x"),
+            ("fragment", "owner/repo#"),
+            ("bare_name", "repo"),
+        ]
+    )
+    def test_first_for_team_repository_rejects_unsafe_path_without_probing(self, _name, repository):
+        # The access check interpolates `repository` into an authenticated GET /repos/{repository};
+        # an unsafe path must be rejected before any request fires, so it can't probe other endpoints.
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository") as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        assert result is None
+        mock_access.assert_not_called()
+
+    def test_first_for_team_repository_allows_owner_repo(self):
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", return_value=True) as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        mock_access.assert_called_once_with("PostHog/posthog")
 
     @parameterized.expand(
         [

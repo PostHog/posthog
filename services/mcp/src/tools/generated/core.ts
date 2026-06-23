@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DesktopFileSystemCanvasPartialUpdateBody,
+    DesktopFileSystemCanvasPartialUpdateParams,
     DesktopFileSystemCreateBody,
     DesktopFileSystemInstructionsPartialUpdateBody,
     DesktopFileSystemInstructionsPartialUpdateParams,
@@ -17,8 +19,49 @@ import {
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { omitResponseFields } from '@/tools/tool-utils'
+import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
+            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
+        ),
+        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
+            .unwrap()
+            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
+        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
+            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
+        ),
+    })
+
+const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
+    typeof DesktopFileSystemCanvasPartialUpdateSchema,
+    Schemas.FileSystem
+> => ({
+    name: 'desktop-file-system-canvas-partial-update',
+    schema: DesktopFileSystemCanvasPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.code !== undefined) {
+            body['code'] = params.code
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
+            body,
+        })
+        return result
+    },
+})
 
 const DesktopFileSystemCreateSchema = DesktopFileSystemCreateBody.extend({
     path: DesktopFileSystemCreateBody.shape['path'].describe(
@@ -425,11 +468,41 @@ const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
             method: 'GET',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
         })
-        const filtered = omitResponseFields(result, [
-            'is_impersonated',
-            'is_impersonated_until',
-            'is_impersonated_read_only',
-            'sensitive_session_expires_at',
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'distinct_id',
+            'email',
+            'pending_email',
+            'is_email_verified',
+            'first_name',
+            'last_name',
+            'date_joined',
+            'is_staff',
+            'has_password',
+            'is_2fa_enabled',
+            'has_social_auth',
+            'has_sso_enforcement',
+            'passkeys_enabled_for_2fa',
+            'allow_impersonation',
+            'notification_settings',
+            'anonymize_data',
+            'toolbar_mode',
+            'events_column_config',
+            'theme_mode',
+            'hedgehog_config',
+            'allow_sidebar_suggestions',
+            'shortcut_position',
+            'role_at_organization',
+            'hide_mcp_hints',
+            'scene_personalisation',
+            'pending_invites',
+            'organization.id',
+            'organization.name',
+            'team.id',
+            'team.name',
+            'organizations.*.id',
+            'organizations.*.name',
         ]) as typeof result
         return filtered
     },
@@ -514,6 +587,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'desktop-file-system-create': desktopFileSystemCreate,
     'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
     'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,

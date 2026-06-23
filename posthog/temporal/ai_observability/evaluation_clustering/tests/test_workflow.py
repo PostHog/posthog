@@ -125,9 +125,9 @@ class TestSamplerWorkflowWindowMath:
             window_end   = workflow.now() - SAMPLER_WINDOW_OFFSET_MINUTES
             window_start = window_end     - SAMPLER_WINDOW_MINUTES
 
-        Asserts the start↔end span against the window constant so the wiring is
-        verified independent of wall-clock time (the offset math is pinned by
-        TestWindowMathFormula).
+        Asserts the derived window spans exactly SAMPLER_WINDOW_MINUTES; the absolute offset
+        from workflow.now() is pinned separately by TestWindowMathFormula. (Independent of
+        wall-clock because it only checks the span between the two derived bounds.)
         """
         inputs = SamplerWorkflowInputs(team_id=7, job_id="j-derived", job_name="derived window")
 

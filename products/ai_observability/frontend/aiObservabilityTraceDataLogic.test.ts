@@ -10,6 +10,7 @@ import {
     reportTraceNormalizationFailures,
     resolveTraceEventById,
     restoreTree,
+    traceHasRootContent,
 } from './aiObservabilityTraceDataLogic'
 
 describe('aiObservabilityTraceDataLogic: restoreTree', () => {
@@ -212,162 +213,84 @@ describe('aiObservabilityTraceDataLogic: restoreTree', () => {
 })
 
 describe('getInitialFocusEventId', () => {
-    it('returns $ai_trace event id when present', () => {
-        const events: LLMTraceEvent[] = [
-            {
-                id: 'span-1',
-                event: '$ai_span',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'trace-event-1',
-                event: '$ai_trace',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-        ]
-
-        const tree: TraceTreeNode[] = [{ event: events[0] }]
-
-        expect(getInitialFocusEventId(events, tree, null)).toBe('trace-event-1')
+    const makeTrace = (overrides: Partial<LLMTrace> = {}): LLMTrace => ({
+        id: 'trace-1',
+        createdAt: '2024-01-01T00:00:00Z',
+        distinctId: 'user-1',
+        events: [],
+        ...overrides,
     })
 
-    it('returns first $ai_generation event id when no $ai_trace event exists', () => {
-        const events: LLMTraceEvent[] = [
-            {
-                id: 'span-1',
-                event: '$ai_span',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'generation-1',
-                event: '$ai_generation',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-        ]
-
-        const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
-
-        expect(getInitialFocusEventId(events, tree, null)).toBe('generation-1')
+    const node = (id: string, event: LLMTraceEvent['event']): TraceTreeNode => ({
+        event: { id, event, properties: {}, createdAt: '2024-01-01T00:00:00Z' },
     })
 
-    it('returns first tree event id when no $ai_trace or $ai_generation events exist', () => {
-        const events: LLMTraceEvent[] = [
-            {
-                id: 'span-1',
-                event: '$ai_span',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'span-2',
-                event: '$ai_span',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-        ]
+    it('focuses the trace root (null) when the trace has its own content', () => {
+        // The $ai_trace event is folded into the trace by the runner, surfacing as inputState.
+        const trace = makeTrace({ inputState: { messages: [] } })
+        const tree = [node('span-1', '$ai_span'), node('generation-1', '$ai_generation')]
 
-        const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
-
-        expect(getInitialFocusEventId(events, tree, null)).toBe('span-1')
+        expect(getInitialFocusEventId(trace, tree, null)).toBeNull()
     })
 
-    it('returns null when no events exist', () => {
-        expect(getInitialFocusEventId([], [], null)).toBeNull()
+    it('focuses the trace root even when only outputState is present', () => {
+        const trace = makeTrace({ outputState: { result: 'ok' } })
+
+        expect(getInitialFocusEventId(trace, [node('generation-1', '$ai_generation')], null)).toBeNull()
     })
 
-    it('prioritizes $ai_trace over $ai_generation and tree order', () => {
-        const generationEvent: LLMTraceEvent = {
-            id: 'generation-1',
-            event: '$ai_generation',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
+    it('stays at the trace root for a real trace whose only children are spans (reported bug)', () => {
+        // 5a3f404d: real $ai_trace (folded into inputState), spans, zero generations.
+        // Previously fell through to the first span; must now stay at the trace root.
+        const trace = makeTrace({ inputState: { messages: [] } })
+        const tree = [node('title_generator', '$ai_span'), node('slash_command_handler', '$ai_span')]
 
-        const traceEvent: LLMTraceEvent = {
-            id: 'trace-event-1',
-            event: '$ai_trace',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-
-        const events: LLMTraceEvent[] = [generationEvent, traceEvent]
-
-        // Tree has generation first, but $ai_trace should still be selected
-        const tree: TraceTreeNode[] = [{ event: generationEvent }]
-
-        expect(getInitialFocusEventId(events, tree, null)).toBe('trace-event-1')
+        expect(getInitialFocusEventId(trace, tree, null)).toBeNull()
     })
 
-    it('skips $ai_generation events not in filtered tree', () => {
-        const spanEvent: LLMTraceEvent = {
-            id: 'span-1',
-            event: '$ai_span',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
+    it('returns first $ai_generation event id for a pseudo-trace without root content', () => {
+        const trace = makeTrace()
+        const tree = [node('span-1', '$ai_span'), node('generation-1', '$ai_generation')]
 
-        const generationEvent: LLMTraceEvent = {
-            id: 'generation-1',
-            event: '$ai_generation',
-            properties: {},
-            createdAt: '2024-01-01T00:00:00Z',
-        }
-
-        const events: LLMTraceEvent[] = [spanEvent, generationEvent]
-
-        // Tree only has span (e.g., generation was filtered out by search)
-        const tree: TraceTreeNode[] = [{ event: spanEvent }]
-
-        // Should return first tree event since generation is not in tree
-        expect(getInitialFocusEventId(events, tree, null)).toBe('span-1')
+        expect(getInitialFocusEventId(trace, tree, null)).toBe('generation-1')
     })
 
-    it('returns null when initialTab is summary on pseudo-trace to stay at trace level', () => {
-        const events: LLMTraceEvent[] = [
-            {
-                id: 'span-1',
-                event: '$ai_span',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'generation-1',
-                event: '$ai_generation',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-        ]
+    it('returns first tree event id when no root content and no $ai_generation exists', () => {
+        const trace = makeTrace()
+        const tree = [node('span-1', '$ai_span'), node('span-2', '$ai_span')]
 
-        const tree: TraceTreeNode[] = [{ event: events[0] }, { event: events[1] }]
-
-        // When tab=summary is specified, should return null to stay at trace level
-        expect(getInitialFocusEventId(events, tree, 'summary')).toBeNull()
+        expect(getInitialFocusEventId(trace, tree, null)).toBe('span-1')
     })
 
-    it('returns $ai_trace event id even when initialTab is summary', () => {
-        const events: LLMTraceEvent[] = [
-            {
-                id: 'trace-event-1',
-                event: '$ai_trace',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-            {
-                id: 'generation-1',
-                event: '$ai_generation',
-                properties: {},
-                createdAt: '2024-01-01T00:00:00Z',
-            },
-        ]
+    it('returns null when the trace is missing and the tree is empty', () => {
+        expect(getInitialFocusEventId(undefined, [], null)).toBeNull()
+    })
 
-        const tree: TraceTreeNode[] = [{ event: events[1] }]
+    it('returns null when initialTab is summary on a pseudo-trace to stay at trace level', () => {
+        const trace = makeTrace()
+        const tree = [node('span-1', '$ai_span'), node('generation-1', '$ai_generation')]
 
-        // When $ai_trace exists, it should be returned regardless of initialTab
-        expect(getInitialFocusEventId(events, tree, 'summary')).toBe('trace-event-1')
+        expect(getInitialFocusEventId(trace, tree, 'summary')).toBeNull()
+    })
+})
+
+describe('traceHasRootContent', () => {
+    const makeTrace = (overrides: Partial<LLMTrace> = {}): LLMTrace => ({
+        id: 'trace-1',
+        createdAt: '2024-01-01T00:00:00Z',
+        distinctId: 'user-1',
+        events: [],
+        ...overrides,
+    })
+
+    it('is true when inputState or outputState is populated', () => {
+        expect(traceHasRootContent(makeTrace({ inputState: { messages: [] } }))).toBe(true)
+        expect(traceHasRootContent(makeTrace({ outputState: { result: 'ok' } }))).toBe(true)
+    })
+
+    it('is false for a pseudo-trace with no folded-in $ai_trace content', () => {
+        expect(traceHasRootContent(makeTrace())).toBe(false)
+        expect(traceHasRootContent(undefined)).toBe(false)
     })
 })
 

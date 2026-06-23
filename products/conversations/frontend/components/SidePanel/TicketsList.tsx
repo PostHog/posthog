@@ -6,7 +6,7 @@ import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { stripMarkdown } from 'lib/utils/stripMarkdown'
+import { stripMarkdown } from 'lib/utils/markdown'
 
 import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
