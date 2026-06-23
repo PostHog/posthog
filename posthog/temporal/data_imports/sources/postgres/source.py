@@ -405,6 +405,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # The source server itself ran out of memory (PostgreSQL SQLSTATE 53200, psycopg's
+            # `OutOfMemory`) — "out of memory ... Failed on request of size N in memory context ...".
+            # We've seen it fire even on the tiny schema-discovery queries in `_get_table` (a few KB
+            # in server-side contexts like "MessageContext" / "get_actual_variable_range workspace"),
+            # which means the server is memory-starved regardless of our workload — an undersized
+            # instance, work_mem set too high, or too many concurrent connections. Retrying re-reads
+            # into the same wall, so it's non-retryable like the disk-full siblings above (same class
+            # 53 "insufficient resources"). The lowercase message matches both the raw activity-level
+            # str(e) and the Temporal-wrapped "OutOfMemory: ..." workflow-level form. The volatile
+            # request size and memory-context name are excluded from the match.
+            "out of memory": (
+                "Your database server ran out of memory while PostHog was reading from it "
+                '(PostgreSQL reported "out of memory"). This usually means the server is undersized, '
+                "work_mem is set too high, or too many connections are competing for memory. Reduce "
+                "memory pressure on your database (for example lower work_mem, reduce concurrent "
+                "connections, or increase the instance's memory), then re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely

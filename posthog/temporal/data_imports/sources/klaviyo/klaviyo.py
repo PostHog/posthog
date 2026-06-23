@@ -184,7 +184,8 @@ def _fetch_page(
 
 def _iter_list_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[str]:
     """Page through /lists and yield each list's id, following the cursor links."""
-    url = _build_url(f"{KLAVIYO_BASE_URL}/lists", {"page[size]": 100})
+    # Klaviyo caps the /lists endpoint at a page size of 10 (larger values 400).
+    url = _build_url(f"{KLAVIYO_BASE_URL}/lists", {"page[size]": 10})
     while True:
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
@@ -224,8 +225,9 @@ def _get_list_profile_rows(
         logger.debug(f"Klaviyo: resuming list_profiles from list_id={resume.list_id}, url={resume_url}")
 
     for index, list_id in enumerate(remaining):
+        # The relationships endpoint caps page size at 100 (larger values 400).
         url = resume_url or _build_url(
-            f"{KLAVIYO_BASE_URL}/lists/{list_id}/relationships/profiles", {"page[size]": 1000}
+            f"{KLAVIYO_BASE_URL}/lists/{list_id}/relationships/profiles", {"page[size]": 100}
         )
         resume_url = None  # only the resumed-into list uses the saved URL; the rest start fresh
 

@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, cast
@@ -460,6 +461,57 @@ class SignalReport(UUIDModel):
             product=product,
             type=type,
         )
+
+    @classmethod
+    def associated_task_runs_for_reports(
+        cls,
+        *,
+        report_ids: list[str],
+        team_id: int | None = None,
+        product: str | None = None,
+        type: str | None = None,
+    ) -> dict[str, list[TaskRunArtefact]]:
+        """`associated_task_runs` batched over many reports — two queries total (one for the
+        `task_run` artefacts, one for the legacy `SignalReportTask` gate rows) grouped by report in
+        memory, rather than the 2N a per-report loop issues. Use this when resolving associations for
+        a page of reports (e.g. the inbox list); per-report `associated_task_runs` is the N+1 trap.
+
+        Returns `{report_id: runs}` with each report's runs identical to what `associated_task_runs`
+        would return (oldest-first, de-duplicated by task). Reports with no associated runs are
+        omitted, so callers can treat a missing key as "no runs".
+        """
+        if not report_ids:
+            return {}
+
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        )
+        report_tasks = SignalReportTask.objects.filter(report_id__in=report_ids)
+        if team_id is not None:
+            artefacts = artefacts.filter(team_id=team_id)
+            report_tasks = report_tasks.filter(team_id=team_id)
+
+        artefact_rows_by_report: dict[str, list[tuple[datetime, str]]] = defaultdict(list)
+        for report_id, created_at, content in artefacts.values_list("report_id", "created_at", "content"):
+            artefact_rows_by_report[str(report_id)].append((created_at, content))
+
+        task_rows_by_report: dict[str, list[tuple[datetime, str | None, Any]]] = defaultdict(list)
+        for report_id, created_at, relationship, task_id in report_tasks.values_list(
+            "report_id", "created_at", "relationship", "task_id"
+        ):
+            task_rows_by_report[str(report_id)].append((created_at, relationship, task_id))
+
+        result: dict[str, list[TaskRunArtefact]] = {}
+        for report_id in {str(rid) for rid in report_ids}:
+            runs = cls._merge_task_runs(
+                artefact_rows_by_report.get(report_id, []),
+                task_rows_by_report.get(report_id, []),
+                product=product,
+                type=type,
+            )
+            if runs:
+                result[report_id] = runs
+        return result
 
     @staticmethod
     def associated_task_runs_filter(report_ref: Any) -> "models.Q":

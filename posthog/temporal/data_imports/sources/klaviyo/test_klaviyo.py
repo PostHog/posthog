@@ -248,15 +248,15 @@ class TestListProfilesFanOut:
 
     def test_fans_out_over_every_list_into_membership_rows(self, monkeypatch: Any) -> None:
         pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=100": {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}, {"id": "L2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P1"}, {"type": "profile", "id": "P2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P3"}],
                 "links": {"next": None},
             },
@@ -271,11 +271,11 @@ class TestListProfilesFanOut:
     def test_follows_membership_pagination(self, monkeypatch: Any) -> None:
         next_url = "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[cursor]=abc"
         pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=100": {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P1"}],
                 "links": {"next": next_url},
             },
@@ -292,11 +292,11 @@ class TestListProfilesFanOut:
 
     def test_resume_from_deleted_list_restarts_from_first(self, monkeypatch: Any) -> None:
         pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=100": {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P1"}],
                 "links": {"next": None},
             },
@@ -308,16 +308,16 @@ class TestListProfilesFanOut:
     def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
         not_found = requests.HTTPError(response=_response_with_status(404))
         pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=100": {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/GONE/relationships/profiles?page[size]=1000": not_found,
-            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=1000": {
+            "https://a.klaviyo.com/api/lists/GONE/relationships/profiles?page[size]=100": not_found,
+            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=100": {
                 "data": [{"type": "profile", "id": "P2"}],
                 "links": {"next": None},
             },
@@ -331,11 +331,11 @@ class TestListProfilesFanOut:
     def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
         server_error = requests.HTTPError(response=_response_with_status(500))
         pages = {
-            "https://a.klaviyo.com/api/lists?page[size]=100": {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
                 "data": [{"id": "L1"}],
                 "links": {"next": None},
             },
-            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": server_error,
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=100": server_error,
         }
         with pytest.raises(requests.HTTPError):
             self._collect(_FakeResumableManager(), monkeypatch, pages)

@@ -160,6 +160,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=False,
     ),
+    "warehouse_semantic_enrichment": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
     "posthog_ai": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
         allowed_models=None,  # any model
