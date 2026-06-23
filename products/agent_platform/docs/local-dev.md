@@ -269,10 +269,17 @@ pnpm --filter @posthog/agent-tests test                 # full suite (faux)
 pnpm --filter @posthog/agent-tests test cases/chat      # one case file
 ```
 
-Requires `agent_runtime_queue_test` to exist locally (`bin/migrate
---scope=agent_runtime` creates `agent_runtime_queue`; the test DB is a
-sibling). The harness drops + reapplies schema per test, so DB state
-is never shared between tests.
+Requires the `agent_runtime_queue_test` DB to exist locally **with the schema
+applied**. Schema is Django-owned (the single source of truth —
+`products/agent_platform/backend/migrations/`), so create + migrate it with:
+
+```bash
+bin/migrate-agent-test-db        # drop + recreate + migrate agent_platform
+```
+
+Run that once, and again after pulling a new agent*platform migration. The test
+harness's `reset()` then only truncates the `agent*\*` tables between cases, so DB
+state is never shared between tests (and there's no hand-maintained SQL to drift).
 
 ### Vital-feature coverage rule
 

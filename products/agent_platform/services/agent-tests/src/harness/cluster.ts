@@ -3,7 +3,7 @@
  *
  * Real everywhere except model invocation:
  *   - Postgres (agent_runtime_queue_test) — PgSessionQueue + PgRevisionStore.
- *     Schema is dropped + recreated per test.
+ *     Schema is Django-owned (migrated before the suite); reset() truncates per test.
  *   - SeaweedFS / S3 — `S3BundleStore` + `S3MemoryStore` against the
  *     `AGENT_MEMORY_TEST_S3_*` bucket, per-cluster random prefix. No fs/in-memory
  *     bundle store — every test exercises the real multipart write + signed-URL
