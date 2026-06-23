@@ -70,6 +70,7 @@ export function Group(): JSX.Element {
         groupEventsQuery,
         groupEventsQueryIsDirty,
         backTo,
+        backNavigation,
     } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
     const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
@@ -113,13 +114,12 @@ export function Group(): JSX.Element {
             <LemonTabs
                 sceneInset
                 activeKey={activeTab}
-                onChange={(tab) => {
-                    const { backUrl, backName } = router.values.searchParams
+                onChange={(tab) =>
                     router.actions.push(
                         urls.group(String(groupTypeIndex), groupKey, true, tab),
-                        backUrl ? { backUrl, backName } : undefined
+                        backNavigation ? { backUrl: backNavigation.url, backName: backNavigation.name } : undefined
                     )
-                }}
+                }
                 tabs={[
                     ...(showProfile
                         ? [

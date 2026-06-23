@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { toParams } from 'lib/utils/url'
+import { getRelativeNextPath, toParams } from 'lib/utils/url'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -51,6 +51,22 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 export type GroupLogicProps = {
     groupTypeIndex: number
     groupKey: string
+}
+
+export interface GroupBackNavigation {
+    url: string
+    name: string
+}
+
+// `backUrl` comes from an untrusted search param; only honor it as an internal relative path so a
+// crafted link can't turn the back button into an open redirect. `getRelativeNextPath` also sanitizes.
+export function resolveBackNavigation(searchParams: Record<string, any>): GroupBackNavigation | null {
+    const url = getRelativeNextPath(searchParams.backUrl, window.location)
+    if (!url) {
+        return null
+    }
+    const name = searchParams.backName
+    return { url, name: typeof name === 'string' && name ? name : 'Back' }
 }
 
 export const groupLogic = kea<groupLogicType>([
@@ -279,13 +295,15 @@ export const groupLogic = kea<groupLogicType>([
             (s) => [s.effectiveMRR, s.effectiveLifetimeValue],
             (mrr, ltv): boolean => mrr.value !== null || ltv.value !== null,
         ],
+        backNavigation: [
+            () => [router.selectors.searchParams],
+            (searchParams): GroupBackNavigation | null => resolveBackNavigation(searchParams),
+        ],
         backTo: [
-            (s, p) => [s.aggregationLabel, p.groupTypeIndex, router.selectors.searchParams],
-            (aggregationLabel, groupTypeIndex, searchParams): Breadcrumb => {
-                const backUrl = searchParams.backUrl as string | undefined
-                const backName = searchParams.backName as string | undefined
-                if (backUrl) {
-                    return { key: 'group-back', name: backName || 'Back', path: backUrl }
+            (s, p) => [s.aggregationLabel, p.groupTypeIndex, s.backNavigation],
+            (aggregationLabel, groupTypeIndex, backNavigation): Breadcrumb => {
+                if (backNavigation) {
+                    return { key: 'group-back', name: backNavigation.name, path: backNavigation.url }
                 }
                 return {
                     key: 'groups',
