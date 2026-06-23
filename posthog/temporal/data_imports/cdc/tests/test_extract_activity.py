@@ -333,6 +333,56 @@ class TestFlushDeferredRuns:
         assert mock_producer.flush.call_count == 3
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    def test_deferred_flush_uses_stored_resource_name_and_replays_partition_config(self, MockProducer):
+        """The deferred flush must target the same Delta the batch went to (its stored `resource_name`)
+        and replay the snapshot's partition config — same correctness requirements as the streaming
+        path. Otherwise snapshot→streaming changes land unpartitioned in the wrong table and drop.
+        """
+        mock_producer = MagicMock()
+        MockProducer.return_value = mock_producer
+
+        source = _make_source()
+        # Folder pinned bare while `name` is qualified, plus partitioning — exercises both fixes.
+        schema = _make_schema(
+            "public.users",
+            cdc_mode="streaming",
+            source=source,
+            s3_folder_name="users",
+            partitioning_enabled=True,
+            partitioning_keys=["id"],
+            partition_mode="numerical",
+            partition_size=1_000_000,
+        )
+        schema.sync_type_config["cdc_deferred_runs"] = [
+            {
+                "job_id": "job-1",
+                "run_uuid": "run-1",
+                "resource_name": "users",
+                "data_folder": "s3://bucket/data/",
+                "schema_path": "s3://bucket/schema.json",
+                "total_batches": 1,
+                "total_rows": 10,
+                "batch_results": [
+                    {
+                        "s3_path": "s3://bucket/data/part-0000.parquet",
+                        "row_count": 10,
+                        "byte_size": 1024,
+                        "batch_index": 0,
+                        "timestamp_ns": 123456789,
+                    }
+                ],
+            }
+        ]
+
+        _make_extract_activity(source)._flush_deferred_runs(schema)
+
+        kwargs = MockProducer.call_args.kwargs
+        assert kwargs["resource_name"] == "users"
+        assert kwargs["partition_keys"] == ["id"]
+        assert kwargs["partition_mode"] == "numerical"
+        assert kwargs["partition_size"] == 1_000_000
+
 
 class TestBuildEventNameMap:
     @pytest.mark.parametrize(

@@ -420,18 +420,13 @@ class CDCExtractActivity:
         return folder_name
 
     def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
-        """Replay the snapshot's partitioning config so the loader partitions CDC rows identically.
+        """Replay the snapshot's persisted partitioning config so the loader partitions CDC rows identically.
 
-        The initial snapshot partitions large tables on `_ph_partition_key` and persists the exact
-        config via `set_partitioning_enabled`. The CDC batch notification must re-send it, otherwise
-        the loader's `_apply_partitioning` finds no partition keys and skips — leaving the CDC source
-        unpartitioned while the target Delta is partitioned. The `incremental_merge` then prunes every
-        target file (its `_ph_partition_key` predicate never matches) and silently drops all changes
-        (`num_source_rows=0`), freezing the table at its snapshot. Re-sending the stored config (same
-        keys/mode/format/count/size) reproduces matching partition values so the merge lands.
-
-        Safe when unpartitioned: with `partitioning_enabled` false we send nothing, and even if we did,
-        the loader skips partitioning a target Delta that isn't partitioned.
+        Without it the loader's `_apply_partitioning` finds no keys and skips, leaving the CDC source
+        unpartitioned against a partitioned target Delta. The `incremental_merge` then prunes every
+        target file and silently drops all changes (`num_source_rows=0`), freezing the table at its
+        snapshot. Re-sending the stored config reproduces matching `_ph_partition_key` values so the
+        merge lands. No-op when unpartitioned (and the loader won't partition an unpartitioned target).
         """
         if not schema.partitioning_enabled:
             return {}
@@ -475,10 +470,9 @@ class CDCExtractActivity:
             # The consolidated table is shared with the initial snapshot, so it must use the
             # canonical folder storage name. The `_cdc` companion is CDC-only and self-consistent
             # with its snapshot seed (`_seed_cdc_companion_from_snapshot`), which keys off `name`.
-            consolidated_name = self._consolidated_resource_name(schema)
-
             batch_writes: list[tuple[pa.Table, str, str]] = []
             if cdc_table_mode == "consolidated":
+                consolidated_name = self._consolidated_resource_name(schema)
                 batch_writes.append(
                     (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
                 )
@@ -487,6 +481,7 @@ class CDCExtractActivity:
                     (build_scd2_table(enriched_table, key_columns), f"{schema.name}_cdc", "scd2_append")
                 )
             elif cdc_table_mode == "both":
+                consolidated_name = self._consolidated_resource_name(schema)
                 batch_writes.append(
                     (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
                 )
