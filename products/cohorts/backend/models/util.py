@@ -297,8 +297,11 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
 
     Cohort population only needs person IDs, so we remove recordings data
     (which can use complex UDFs like aggregate_funnel_array that may not
-    be available or are needlessly expensive) and search terms (the cohort
-    should include all matching persons, not just those matching a search).
+    be available or are needlessly expensive).
+
+    Insight-derived actor queries may include ad-hoc modal search terms that
+    should not narrow the saved cohort; direct Persons list queries use
+    search as the primary filter and must keep it.
     """
     query_dict = copy.deepcopy(query_dict)
 
@@ -308,13 +311,12 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
         if not query_dict["select"]:
             query_dict["select"] = ["actor"]
 
-        # Intentionally strip search: the cohort should capture all persons matching
-        # the query, not just those matching an ad-hoc search in the persons modal.
-        query_dict.pop("search", None)
-
-        source = query_dict.get("source", {})
-        if isinstance(source, dict) and source.get("includeRecordings"):
-            source["includeRecordings"] = False
+        source = query_dict.get("source")
+        if source:
+            # Modal search while inspecting insight actors is UI-only.
+            query_dict.pop("search", None)
+            if isinstance(source, dict) and source.get("includeRecordings"):
+                source["includeRecordings"] = False
 
     return query_dict
 
