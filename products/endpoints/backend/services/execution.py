@@ -386,9 +386,7 @@ class EndpointExecutionService(PydanticModelMixin):
         return True
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        """Whether to dispatch a non-blocking DuckLake shadow of this execution. The flag is
-        scoped to orgs with a duckgres server, so the request path stays free of a DB lookup;
-        the worker re-checks the server before querying. ClickHouse always serves the response."""
+        # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
@@ -420,11 +418,8 @@ class EndpointExecutionService(PydanticModelMixin):
         clickhouse_cached: bool,
         clickhouse_row_count: int | None,
     ) -> None:
-        """Fire-and-forget: re-run this endpoint against DuckLake in a worker and emit a
-        ClickHouse-vs-DuckLake timing comparison event. Never affects the user response."""
-        # Only inline executions are a fair comparison: ClickHouse runs the raw query, like the
-        # shadow does. Materialized executions read a precomputed CH table with no DuckLake
-        # equivalent yet, so comparing them would be meaningless.
+        """Fire-and-forget DuckLake shadow for timing comparison; never affects the response."""
+        # Inline only: materialized reads a precomputed CH table with no DuckLake equivalent.
         if execution_type != "inline":
             return
         if not self._should_shadow_ducklake(endpoint, version):
@@ -531,8 +526,7 @@ class EndpointExecutionService(PydanticModelMixin):
                     limit=limit,
                     offset=offset,
                 )
-            # Query-execution wall-clock only (excludes request validation/serialization),
-            # so it compares fairly against the DuckLake shadow's query timing.
+            # Query-only wall-clock, to compare fairly with the DuckLake shadow.
             _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:

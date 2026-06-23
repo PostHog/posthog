@@ -21,8 +21,7 @@ SHADOW_EVENT = "ducklake_endpoint_exec_shadow"
 def build_ducklake_hogql_query(
     endpoint: Endpoint, version: EndpointVersion, team: Team, data: EndpointRunRequest
 ) -> HogQLQuery:
-    """Build the HogQL query an endpoint would run against DuckLake, applying the same
-    inline-variable overrides as the live DuckLake serving path."""
+    """Build the HogQL an endpoint would run against DuckLake, with inline-variable overrides."""
     strategy = strategy_for(endpoint, version, team)
     query = version.query.copy()
     plan = strategy.build_inline_plan(query, data)
@@ -46,14 +45,8 @@ def run_ducklake_shadow_comparison(
     clickhouse_ms: float,
     clickhouse_row_count: int | None,
 ) -> None:
-    """Re-run an endpoint's HogQL against DuckLake and emit a comparison event.
-
-    Runs in a Celery worker off the request path — it must never raise into the caller.
-    The ClickHouse timing is measured by the request; here we measure only the DuckLake
-    query so both numbers are query-execution wall-clock (see the timing note in the
-    dispatching service). `clickhouse_cached` lets analysis drop CH cache hits, which
-    never executed a query and would skew the comparison.
-    """
+    """Re-run an endpoint's HogQL against DuckLake and emit a comparison event. Runs in a
+    Celery worker off the request path; must never raise into the caller."""
     try:
         team = Team.objects.get(pk=team_id)
         endpoint = Endpoint.objects.get(pk=endpoint_id, team_id=team_id)
@@ -88,7 +81,6 @@ def run_ducklake_shadow_comparison(
             team=team,
         )
         ducklake_ms = (time.monotonic() - _start) * 1000
-        # connect_ms isolates the control-plane queue/activation; query_ms is the query alone.
         ducklake_connect_ms = result.connect_ms
         ducklake_query_ms = result.query_ms
         ducklake_row_count = len(result.results)

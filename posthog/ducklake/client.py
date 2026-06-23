@@ -23,8 +23,7 @@ class DuckLakeQueryResult:
     results: list[list[Any]]
     sql: str
     hogql: str | None = None
-    # Split timings: connect_ms covers establishing the connection, which is where the
-    # control plane queues/activates a cold tenant; query_ms is the query execution alone.
+    # connect_ms includes control-plane activation of a cold tenant; query_ms is the query alone.
     connect_ms: float | None = None
     query_ms: float | None = None
 
