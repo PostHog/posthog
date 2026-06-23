@@ -246,6 +246,7 @@ class TestBillingManager(BaseTest):
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "signals_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
