@@ -28,6 +28,8 @@ from pathlib import PurePath
 from typing import Any, Literal
 
 import click
+from hogli import telemetry
+from hogli.hooks import telemetry_property_hooks
 from hogli.manifest import REPO_ROOT
 
 from hogli_commands.test_runner import _get_changed_files
@@ -178,6 +180,28 @@ _ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "sk
 _COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
 
 
+def _emit_telemetry(summary: dict[str, Any]) -> None:
+    """Emit a ``ci_preflight_run`` event so we can measure failures intercepted
+    locally vs. what would otherwise reach CI — the signal that says whether this
+    is worth keeping. Folds in the standard dev-context properties (agent,
+    environment, repo sha) so the event is self-contained for analysis.
+
+    Rides on hogli's telemetry opt-out: ``track()`` no-ops when telemetry is
+    inactive, so this already respects ``POSTHOG_TELEMETRY_OPT_OUT`` /
+    ``DO_NOT_TRACK`` / ``hogli telemetry:off`` / CI auto-off. No new consent surface.
+    """
+    props: dict[str, Any] = {k: summary[k] for k in ("changed_files", "triggered", "failures", "mode")}
+    props["results"] = {r["check"]: r["status"] for r in summary["results"]}
+    # Registries are read directly by design (see hogli.hooks). Merge the same
+    # dev-context props the command lifecycle attaches to command_completed.
+    for hook in telemetry_property_hooks:
+        try:
+            props.update(hook("ci:preflight"))
+        except Exception:
+            pass
+    telemetry.track("ci_preflight_run", props)
+
+
 @click.command(
     name="ci:preflight",
     help="Catch the deterministic CI failures reachable from your diff before you push.",
@@ -226,6 +250,8 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             f"  summary {json.dumps({k: summary[k] for k in ('changed_files', 'triggered', 'failures', 'mode')})}"
         )
         click.echo()
+
+    _emit_telemetry(summary)
 
     # Advisory by default — only --strict turns findings into a non-zero exit so a
     # push or CI gate can act on them. SystemExit so the telemetry wrapper records it.
