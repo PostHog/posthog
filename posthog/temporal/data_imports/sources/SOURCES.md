@@ -190,6 +190,7 @@ the row lists both.
 | vitally           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow           | HTTP                        | requests                                                        | ✅                          |
 | woocommerce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workable          | HTTP                        | requests                                                        | ✅                          |
 | workos            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike             | HTTP                        | requests                                                        | ✅                          |
 | zendesk           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -686,7 +687,6 @@ doesn't conflict with concurrent PRs.
 - when_i_work
 - wikipedia_pageviews
 - wordpress
-- workable
 - workday
 - workflowmax
 - workramp

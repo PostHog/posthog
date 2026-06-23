@@ -3297,7 +3297,8 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WorkableSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_token: str
 
 
 @config.config
