@@ -262,7 +262,7 @@ export interface WorkflowHealthItemApi {
      */
     p95_seconds: number | null
     /**
-     * When the most recent run with conclusion 'failure' started, or null.
+     * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
      * @nullable
      */
     last_failure_at: string | null
@@ -303,6 +303,10 @@ export type EngineeringAnalyticsPullRequestsParams = {
 
 export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string
@@ -310,10 +314,6 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string
-    /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
-     */
-    branch?: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

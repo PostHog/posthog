@@ -49945,6 +49945,8 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' that day. */
       successes: number;
+      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      failures: number;
     }
 
     export interface WorkflowHealthItem {
@@ -49972,7 +49974,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent run with conclusion 'failure' started, or null.
+         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
          * @nullable
          */
       last_failure_at: string | null;
@@ -57846,6 +57848,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
