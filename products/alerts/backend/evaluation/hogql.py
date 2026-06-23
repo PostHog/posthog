@@ -244,10 +244,16 @@ def extract_hogql_detector_series(
     # points each check. The trends path bounds the same way via its date-range fetch.
     values = values[-min_samples:]
 
+    # Label the evaluated (current) row by its label column — same as the threshold path — so an
+    # anomaly breach names e.g. "Burn rate 24h" rather than the bare value-column name. The current
+    # row is the original latest row (head for first_row, tail otherwise), regardless of the slice.
+    label_index = _resolve_label_column_index(config.label_column, column_names, value_index, rows)
+    anchor_row = rows[0] if from_head else rows[-1]
+    label_cell = _label_cell(anchor_row, label_index)
+    series_label = label_cell if label_cell is not None else _value_column_label(column_names, value_index)
+
     points = [SeriesPoint(date=None, value=v) for v in values]
-    single = ComparableSeries(
-        label=_value_column_label(column_names, value_index), points=points, current_index=len(points) - 1
-    )
+    single = ComparableSeries(label=series_label, points=points, current_index=len(points) - 1)
     return ExtractionResult(series=[single], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
 

@@ -95,12 +95,25 @@ def test_any_row_not_supported():
         _extract([*STABLE_HISTORY, 100.0], rows_config={"evaluation": "any_row"})
 
 
-def test_picks_numeric_column_and_labels_by_its_name():
-    rows = [["2026-06-01", v] for v in [*STABLE_HISTORY, 100.0]]
-    result = _extract(rows, columns=["day", "value"])
+def test_labels_evaluated_row_by_first_non_evaluated_column():
+    # Multi-column result, no explicit label_column: the evaluated (latest) row is labeled by the
+    # first non-evaluated column — same as the threshold path, so a breach names the metric not "value".
+    rows = [[f"m{i}", v] for i, v in enumerate([*STABLE_HISTORY, 100.0])]
+    result = _extract(rows, columns=["metric", "value"])
+    assert result.series[0].label == f"m{len(STABLE_HISTORY)}"  # the latest row's metric
+    assert evaluate_with_detector(result, ZSCORE).value == 100.0
+
+
+def test_labels_evaluated_row_by_explicit_label_column():
+    rows = [[f"r{i}", "ignored", v] for i, v in enumerate([*STABLE_HISTORY, 100.0])]
+    result = _extract(rows, columns=["id", "note", "value"], rows_config={"label_column": "id"})
+    assert result.series[0].label == f"r{len(STABLE_HISTORY)}"
+
+
+def test_single_column_labels_by_value_column_name():
+    # No distinct label column → fall back to the value-column name (no "row N").
+    result = _extract([[v] for v in [*STABLE_HISTORY, 100.0]], columns=["value"])
     assert result.series[0].label == "value"
-    evaluation = evaluate_with_detector(result, ZSCORE)
-    assert evaluation.value == 100.0
 
 
 def test_extract_hogql_detector_series_is_alert_less():
