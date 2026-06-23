@@ -2944,7 +2944,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuspageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
