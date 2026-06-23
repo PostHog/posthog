@@ -74,7 +74,7 @@ describe('StickinessBarChart', () => {
         })
     })
 
-    it('tooltip: percent value + "stickiness on {interval} {day}" title (not a calendar date)', async () => {
+    it('tooltip: percent value + "Stickiness on {Interval} {day}" title (not a calendar date)', async () => {
         renderInsight({ query: stickinessBar() })
 
         const tooltip = await chart.hoverTooltip(2)
@@ -101,7 +101,7 @@ describe('StickinessBarChart', () => {
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
-    it('click → persons modal: opens with a "stickiness on {interval} {day}" title', async () => {
+    it('click → persons modal: opens with a "Stickiness on {Interval} {day}" title', async () => {
         renderInsight({ query: stickinessBar() })
 
         await chart.clickAtIndex(2)

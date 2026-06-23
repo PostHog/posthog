@@ -74,7 +74,7 @@ describe('handleStickinessChartClick', () => {
         expect(call.orderBy).toBeUndefined()
     })
 
-    it('renders a "stickiness on {interval} {day}" title with the series label', () => {
+    it('renders a "Stickiness on {Interval} {day}" title with the series label', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult({ label: '$pageview' })
         const deps = makeDeps({ openPersonsModal, interval: 'day', indexedResults: [trendResult] })

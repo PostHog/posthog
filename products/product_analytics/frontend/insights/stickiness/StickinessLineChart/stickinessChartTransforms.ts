@@ -77,8 +77,7 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
  * duplicate the interval prefix when paired with a stickiness-style axis, so we
  * synthesize them from the bucket count. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
 export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
-    const unit = interval ?? 'day'
-    const prefix = `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`
+    const prefix = capitalizeFirstLetter(interval ?? 'day')
     return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
 }
 

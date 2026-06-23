@@ -60,7 +60,7 @@ describe('StickinessLineChart', () => {
             expect(tooltip.row('Pageview')).toMatch(/%/)
         })
 
-        it('uses "stickiness on {interval} {day}" as the tooltip title (not a calendar date)', async () => {
+        it('uses "Stickiness on {Interval} {day}" as the tooltip title (not a calendar date)', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -87,7 +87,7 @@ describe('StickinessLineChart', () => {
     })
 
     describe('click → persons modal', () => {
-        it('opens the modal with a "stickiness on {interval} {day}" title', async () => {
+        it('opens the modal with a "Stickiness on {Interval} {day}" title', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             await chart.clickAtIndex(2)
