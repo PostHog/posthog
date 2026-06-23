@@ -581,25 +581,53 @@ def enforce_detail_object_permissions(monkeypatch, request):
        ``PrimaryKeyRelatedField(queryset=Model.objects.all())`` or a plain
        ``IntegerField`` named ``*_id``) that points to another tenant.
 
+    3. Secondary-object access gating: any access-controlled object (one with
+       a ``model_to_resource`` in ``ACCESS_CONTROL_RESOURCES``) that is loaded
+       by a primary key the user supplied in the request (body or query) MUST
+       have been access-gated by one of the enforcement mechanisms before
+       the request returns 2xx — an explicit ``check_access_level_for_object``
+       call, emerging from a queryset passed through
+       ``filter_queryset_by_access_level``, or consulted via the legacy
+       ``UserPermissions.dashboard()/.insight()`` privilege subsystem. Catches the
+       duplicate/copy-from pattern where a same-team resource the caller is
+       explicitly denied is read via a raw ``Model.objects.get(id=...)``
+       (e.g. CVE-class IDOR in dashboard ``use_dashboard`` duplication).
+
+       Not applied when: the requester is not a real user (service auth /
+       sharing token), or the loaded object was created by the requester
+       (the creator always has access).
+
     Opt out per-test with @pytest.mark.skip_access_control_permission_check.
     """
     if "skip_access_control_permission_check" in request.keywords:
         return
 
     from django.core.exceptions import FieldDoesNotExist
-    from django.db.models import ForeignKey, Model
+    from django.db.models import ForeignKey, Model, QuerySet
 
     from rest_framework import serializers as drf_serializers
     from rest_framework.views import APIView
 
     from posthog.api.routing import TeamAndOrgViewSetMixin
-    from posthog.permissions import AccessControlPermission
+    from posthog.permissions import AccessControlPermission, is_service_auth
+    from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl, model_to_resource
+    from posthog.user_permissions import UserPermissions
+
+    access_controlled_resources = set(ACCESS_CONTROL_RESOURCES)
 
     from ee.api.rbac.access_control import AccessControlViewSetMixin
 
     original_dispatch = APIView.dispatch
     original_has_object_permission = AccessControlPermission.has_object_permission
     original_save = drf_serializers.BaseSerializer.save
+    original_check_access = UserAccessControl.check_access_level_for_object
+    original_filter_qs = UserAccessControl.filter_queryset_by_access_level
+    original_user_perm_dashboard = UserPermissions.dashboard
+    original_user_perm_insight = UserPermissions.insight
+    original_clone = QuerySet._clone
+    original_fetch_all = QuerySet._fetch_all
+    _orig_from_db_func = Model.from_db.__func__
+    _GATED_ATTR = "_idor_access_gated"
 
     # Counter so nested dispatches (request inside request via test client) still leave the check enabled
     dispatch_depth = [0]
@@ -609,6 +637,151 @@ def enforce_detail_object_permissions(monkeypatch, request):
     # (DRF's dispatch catches Exception from the view handler and converts to 500,
     # so we cannot reliably raise from inside the handler.)
     pending_violations: list[AssertionError] = []
+
+    # --- Third guard: secondary access-controlled object loaded by user-provided id ---
+    # Per top-level request: ids the user supplied in the request body, the set of
+    # (resource, pk) that were access-gated, and the set loaded by a user-supplied id.
+    candidate_ids: set[str] = set()
+    checked_objects: set[tuple[str, str]] = set()
+    loaded_from_input: set[tuple[str, str]] = set()
+    # (resource, pk) -> any human label seen while loading, for the error message
+    loaded_labels: dict[tuple[str, str], str] = {}
+    # (resource, pk) -> created_by_id of the loaded instance, to suppress creator-owned loads
+    loaded_created_by: dict[tuple[str, str], Any] = {}
+
+    def _key_is_reference_like(key: str) -> bool:
+        # Anti-collision (FP source 3): only treat a scalar as a candidate id when its key
+        # looks like an object reference, so a stray numeric value (limit/offset/count/year)
+        # that happens to equal an access-controlled pk is not matched. List elements and
+        # UUID values are always accepted (the dominant "list of ids" / uuid-pk patterns).
+        k = key.lower()
+        return (
+            k in ("id", "pk")
+            or k.endswith(("_id", "_ids", "_item", "_items"))
+            or k.startswith(("use_", "source_", "from_"))
+        )
+
+    def _is_uuid_like(s: str) -> bool:
+        return len(s) >= 32 and "-" in s
+
+    def _collect_ids(value: Any, out: set[str], key_is_ref: bool, depth: int = 0) -> None:
+        if depth > 6:
+            return
+        if isinstance(value, dict):
+            for k, v in value.items():
+                _collect_ids(v, out, _key_is_reference_like(str(k)), depth + 1)
+        elif isinstance(value, (list, tuple, set)):
+            # A list of scalars is the canonical "list of ids" shape -> accept its elements.
+            for v in value:
+                _collect_ids(v, out, True, depth + 1)
+        elif isinstance(value, bool):
+            return
+        elif isinstance(value, int):
+            if key_is_ref:
+                out.add(str(value))
+        elif isinstance(value, str):
+            s = value.strip()
+            if not s:
+                return
+            if _is_uuid_like(s):
+                out.add(s)
+            elif s.isdigit() and key_is_ref:
+                out.add(s)
+
+    def _extract_candidate_ids(http_request) -> set[str]:
+        out: set[str] = set()
+        # query params (?use_dashboard=, ?dashboard_id=, etc.)
+        try:
+            for key in http_request.GET:
+                ref = _key_is_reference_like(key)
+                for v in http_request.GET.getlist(key):
+                    _collect_ids(v, out, ref)
+        except Exception:
+            pass
+        # JSON body only — reading .body on multipart would break DRF's stream parsing
+        try:
+            content_type = http_request.META.get("CONTENT_TYPE", "") or ""
+            if content_type.startswith("application/json") and http_request.body:
+                import json
+
+                _collect_ids(json.loads(http_request.body), out, False)
+        except Exception:
+            pass
+        return out
+
+    def tracked_check_access(self, obj, required_level, explicit=False):
+        result = original_check_access(self, obj, required_level, explicit=explicit)
+        try:
+            resource = model_to_resource(obj)
+            pk = getattr(obj, "pk", None)
+            if resource and pk is not None:
+                checked_objects.add((resource, str(pk)))
+        except Exception:
+            pass
+        return result
+
+    def _record_gated(obj) -> None:
+        try:
+            resource = model_to_resource(obj)
+            pk = getattr(obj, "pk", None)
+            if resource in access_controlled_resources and pk is not None:
+                checked_objects.add((resource, str(pk)))
+        except Exception:
+            pass
+
+    def tracked_user_perm_dashboard(self, dashboard):
+        # Legacy enforcement (mechanism #3): code gates dashboard writes via
+        # user_permissions.dashboard(obj).effective_privilege_level. Constructing the
+        # wrapper for an object means its access was consulted — treat it as gated.
+        _record_gated(dashboard)
+        return original_user_perm_dashboard(self, dashboard)
+
+    def tracked_user_perm_insight(self, insight):
+        _record_gated(insight)
+        return original_user_perm_insight(self, insight)
+
+    def tracked_filter_qs(self, queryset, include_all_if_admin=False):
+        result = original_filter_qs(self, queryset, include_all_if_admin=include_all_if_admin)
+        # Objects emerging from an access-filtered queryset were gated in SQL: denied rows
+        # were excluded, so a row that loads has, by construction, passed the access check.
+        try:
+            object.__setattr__(result, _GATED_ATTR, True)
+        except Exception:
+            pass
+        return result
+
+    def tracked_clone(self):
+        clone = original_clone(self)
+        if getattr(self, _GATED_ATTR, False):
+            try:
+                object.__setattr__(clone, _GATED_ATTR, True)
+            except Exception:
+                pass
+        return clone
+
+    def tracked_fetch_all(self):
+        original_fetch_all(self)
+        if dispatch_depth[0] > 0 and getattr(self, _GATED_ATTR, False):
+            for obj in self._result_cache or []:
+                if isinstance(obj, Model):
+                    _record_gated(obj)
+
+    def tracked_from_db(cls, db, field_names, values):
+        instance = _orig_from_db_func(cls, db, field_names, values)
+        if dispatch_depth[0] > 0 and candidate_ids:
+            try:
+                pk = getattr(instance, "pk", None)
+                if pk is not None and str(pk) in candidate_ids:
+                    resource = model_to_resource(instance)
+                    if resource in access_controlled_resources:
+                        key = (resource, str(pk))
+                        loaded_from_input.add(key)
+                        loaded_labels.setdefault(key, instance.__class__.__name__)
+                        # Read from __dict__ to avoid triggering a query on a deferred field.
+                        loaded_created_by.setdefault(key, instance.__dict__.get("created_by_id"))
+            except Exception:
+                pass
+        return instance
 
     def tracked_has_object_permission(self, req, view, obj):
         view._access_control_hop_called = True
@@ -686,6 +859,12 @@ def enforce_detail_object_permissions(monkeypatch, request):
         is_top_level = dispatch_depth[0] == 0
         if is_top_level:
             pending_violations.clear()
+            checked_objects.clear()
+            loaded_from_input.clear()
+            loaded_labels.clear()
+            loaded_created_by.clear()
+            candidate_ids.clear()
+            candidate_ids.update(_extract_candidate_ids(http_request))
         dispatch_depth[0] += 1
         try:
             response = original_dispatch(self, http_request, *args, **kwargs)
@@ -696,6 +875,42 @@ def enforce_detail_object_permissions(monkeypatch, request):
             err = pending_violations[0]
             pending_violations.clear()
             raise err
+
+        if is_top_level:
+            drf_req = getattr(self, "request", None)
+            authed = bool(getattr(getattr(drf_req, "user", None), "is_authenticated", False))
+            # Service auth (TST/PSAK) and sharing tokens are gated by scope/membership and
+            # short-circuit has_object_permission without calling check_access_level_for_object
+            # (FP source 2) — the per-object guard does not apply to them.
+            authenticator = getattr(drf_req, "successful_authenticator", None)
+            non_user_auth = (drf_req is not None and is_service_auth(drf_req)) or "Sharing" in type(
+                authenticator
+            ).__name__
+            if authed and not non_user_auth and 200 <= response.status_code < 300:
+                unchecked = loaded_from_input - checked_objects
+                # The creator always has access to their own object, so a raw load of an
+                # object the requesting user created is not an access bypass (FP source 1).
+                user_id = getattr(getattr(drf_req, "user", None), "id", None)
+                if user_id is not None:
+                    unchecked = {key for key in unchecked if loaded_created_by.get(key) != user_id}
+                if unchecked:
+                    resource, pk = sorted(unchecked)[0]
+                    label = loaded_labels.get((resource, pk), resource)
+                    raise AssertionError(
+                        f"Secondary-object IDOR detected: {label}#{pk} (resource '{resource}') "
+                        f"was loaded by a user-supplied id during "
+                        f"{self.__class__.__name__}.{getattr(self, 'action', '?')} but it was never "
+                        f"access-gated (no check_access_level_for_object call and not from an "
+                        f"access-filtered queryset).\n"
+                        f"\n"
+                        f"An access-controlled object referenced by id in the request was read without an\n"
+                        f"object-level access check. To fix:\n"
+                        f"  - Call user_access_control.check_access_level_for_object(obj, 'viewer') before using it, or\n"
+                        f"  - Load it through a queryset filtered by filter_queryset_by_access_level.\n"
+                        f"\n"
+                        f"To bypass this check (after review):\n"
+                        f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+                    )
 
         if not isinstance(self, AccessControlViewSetMixin):
             return response
@@ -737,6 +952,13 @@ def enforce_detail_object_permissions(monkeypatch, request):
     monkeypatch.setattr(AccessControlPermission, "has_object_permission", tracked_has_object_permission)
     monkeypatch.setattr(APIView, "dispatch", patched_dispatch)
     monkeypatch.setattr(drf_serializers.BaseSerializer, "save", tracked_save)
+    monkeypatch.setattr(UserAccessControl, "check_access_level_for_object", tracked_check_access)
+    monkeypatch.setattr(UserAccessControl, "filter_queryset_by_access_level", tracked_filter_qs)
+    monkeypatch.setattr(UserPermissions, "dashboard", tracked_user_perm_dashboard)
+    monkeypatch.setattr(UserPermissions, "insight", tracked_user_perm_insight)
+    monkeypatch.setattr(QuerySet, "_clone", tracked_clone)
+    monkeypatch.setattr(QuerySet, "_fetch_all", tracked_fetch_all)
+    monkeypatch.setattr(Model, "from_db", classmethod(tracked_from_db))
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
