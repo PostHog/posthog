@@ -30846,6 +30846,61 @@
             },
             "type": "object"
         },
+        "PulseScanConfig": {
+            "additionalProperties": false,
+            "description": "Per-run tuning knobs for one Pulse scan. Defaults mirror the production constants and are resolved per-run (staff override → team subscription → these defaults); nothing is persisted. Every field is optional so its `@default` flows into the generated pydantic — a resolved config is always fully populated at runtime.",
+            "properties": {
+                "baseline_weeks": {
+                    "$ref": "#/definitions/integer",
+                    "default": 4
+                },
+                "dashboard_tile_limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 10
+                },
+                "max_candidates": {
+                    "$ref": "#/definitions/integer",
+                    "default": 200
+                },
+                "max_findings": {
+                    "$ref": "#/definitions/integer",
+                    "default": 5
+                },
+                "min_baseline_value": {
+                    "default": 5,
+                    "type": "number"
+                },
+                "min_change_pct": {
+                    "default": 0.25,
+                    "type": "number"
+                },
+                "min_viewers_for_recent_insight": {
+                    "$ref": "#/definitions/integer",
+                    "default": 3
+                },
+                "recent_days": {
+                    "$ref": "#/definitions/integer",
+                    "default": 30
+                },
+                "recent_insight_limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100
+                },
+                "robust_z_threshold": {
+                    "default": 3.5,
+                    "type": "number"
+                },
+                "saved_insight_limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 15
+                },
+                "top_event_limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 25
+                }
+            },
+            "type": "object"
+        },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
             "type": "string"
