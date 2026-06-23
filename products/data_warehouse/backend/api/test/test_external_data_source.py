@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -60,6 +61,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
@@ -507,9 +509,6 @@ class TestExternalDataSource(APIBaseTest):
         # `_is_webhook_only_schema` reaches the external source (e.g. Google Ads token refresh + field
         # query). It must run before the per-schema transaction opens — running it inside update()'s
         # transaction held the DB connection idle-in-transaction long enough for the server to close it.
-        from django.db import connection
-
-        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
 
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
