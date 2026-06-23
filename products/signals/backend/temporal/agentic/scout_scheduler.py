@@ -10,9 +10,12 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy
 
+from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.signals.backend.temporal import metrics
 
@@ -41,6 +44,11 @@ class RunSignalsScoutOutput:
     skill_name: str
     skill_version: int
     skip_reason: str | None = None
+
+
+def _is_team_over_signals_quota(team_id: int) -> bool:
+    api_token = Team.objects.only("api_token").get(pk=team_id).api_token
+    return is_team_signals_quota_limited(api_token)
 
 
 def _to_output(result: RunResult) -> RunSignalsScoutOutput:
@@ -72,6 +80,24 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
+    # Skip the run when the team is over its Signals credits quota, before any LLM work.
+    if await database_sync_to_async(_is_team_over_signals_quota, thread_sensitive=False)(input.team_id):
+        logger.info(
+            "signals_scout: skipping run, team over signals_credits quota",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+        )
+        metrics.increment_scout_run("quota_limited")
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="quota_limited",
+        )
+
     # Deferred to break the runner <-> temporal import cycle (see the TYPE_CHECKING note
     # above): importing the runner at module load leaves RunResult undefined when runner
     # is the import entry point. Imported here at call time, after both modules are loaded.
