@@ -18712,9 +18712,14 @@ export namespace Schemas {
       sessions?: number;
     }
 
-    export interface ErrorTrackingIssueAssignment {
+    export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
-      readonly type: string;
+      type: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRead {
+      id: number;
+      name: string;
     }
 
     export interface ErrorTrackingTopFrame {
@@ -18930,46 +18935,6 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
-    /**
-     * @nullable
-     */
-    export type ErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    /**
-     * * `archived` - Archived
-     * * `active` - Active
-     * * `resolved` - Resolved
-     * * `pending_release` - Pending release
-     * * `suppressed` - Suppressed
-     */
-    export type ErrorTrackingIssueFullStatusEnum = typeof ErrorTrackingIssueFullStatusEnum[keyof typeof ErrorTrackingIssueFullStatusEnum];
-
-
-    export const ErrorTrackingIssueFullStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-    } as const;
-
-    export interface ErrorTrackingIssueFull {
-      readonly id: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      first_seen: string;
-      assignee: ErrorTrackingIssueAssignment;
-      external_issues: ErrorTrackingExternalReferenceResult[];
-      /** @nullable */
-      readonly cohort: ErrorTrackingIssueFullCohort;
-    }
-
     export interface ErrorTrackingIssueListItem {
       /** Error tracking issue ID. */
       id: string;
@@ -19054,6 +19019,23 @@ export namespace Schemas {
       volumeResolution?: number;
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
+    }
+
+    /**
+     * Read-only serializer for issue contract types returned by the facade.
+     */
+    export interface ErrorTrackingIssueRead {
+      id: string;
+      status: string;
+      /** @nullable */
+      name: string | null;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
+      external_issues: ErrorTrackingExternalReferenceResult[];
+      cohort: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface ErrorTrackingIssueSplitFingerprint {
@@ -19253,51 +19235,31 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Recommendation payload, shape depends on type.
-     */
-    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
-
-    /**
-     * * `ready` - Ready
-     * * `computing` - Computing
-     */
-    export type ErrorTrackingRecommendationStatusEnum = typeof ErrorTrackingRecommendationStatusEnum[keyof typeof ErrorTrackingRecommendationStatusEnum];
-
-
-    export const ErrorTrackingRecommendationStatusEnum = {
-      Ready: 'ready',
-      Computing: 'computing',
-    } as const;
-
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
-      readonly id: string;
+      id: string;
       /** Recommendation type identifier (e.g. 'alerts'). */
-      readonly type: string;
+      type: string;
       /** Recommendation payload, shape depends on type. */
-      readonly meta: ErrorTrackingRecommendationMeta;
+      meta: unknown;
       /** Whether the recommendation's recommended action has been satisfied. */
-      readonly completed: boolean;
-      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-       *
-       * * `ready` - Ready
-       * * `computing` - Computing */
-      readonly status: ErrorTrackingRecommendationStatusEnum;
+      completed: boolean;
+      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+      status: string;
       /**
          * Timestamp meta was last successfully computed.
          * @nullable
          */
-      readonly computed_at: string | null;
+      computed_at: string | null;
       /**
          * Timestamp the user dismissed this recommendation, if any.
          * @nullable
          */
-      readonly dismissed_at: string | null;
+      dismissed_at: string | null;
       /** Timestamp the recommendation row was first created. */
-      readonly created_at: string;
+      created_at: string;
       /** Timestamp the recommendation row was last updated. */
-      readonly updated_at: string;
+      updated_at: string;
     }
 
     /**
@@ -19548,38 +19510,17 @@ export namespace Schemas {
       sampling_rate?: number;
     }
 
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null;
-
     export interface ErrorTrackingSymbolSet {
-      /** Unique symbol set ID. */
-      readonly id: string;
-      /** Reference used to match stack frames to this symbol set. */
-      readonly ref: string;
-      /** Project/team ID that owns this symbol set. */
-      readonly team_id: number;
-      /** When this symbol set row was created. */
-      readonly created_at: string;
-      /**
-         * When this symbol set was last used to resolve a stack frame.
-         * @nullable
-         */
-      readonly last_used: string | null;
-      /**
-         * Reason symbol lookup failed, if the source map is missing or invalid.
-         * @nullable
-         */
-      readonly failure_reason: string | null;
-      /** Whether this symbol set has an uploaded source map file available to download. */
-      readonly has_uploaded_file: boolean;
-      /**
-         * Release associated with this symbol set, if any.
-         * @nullable
-         */
-      readonly release: ErrorTrackingSymbolSetRelease;
+      id: string;
+      ref: string;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      last_used: string | null;
+      /** @nullable */
+      failure_reason: string | null;
+      has_uploaded_file: boolean;
+      release: ErrorTrackingRelease | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkDelete {
@@ -29780,13 +29721,13 @@ export namespace Schemas {
       results: ErrorTrackingFingerprint[];
     }
 
-    export interface PaginatedErrorTrackingIssueFullList {
+    export interface PaginatedErrorTrackingIssueReadList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: ErrorTrackingIssueFull[];
+      results: ErrorTrackingIssueRead[];
     }
 
     export interface PaginatedErrorTrackingRecommendationList {
@@ -35238,25 +35179,20 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Read-only serializer for issue contract types returned by the facade.
      */
-    export type PatchedErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    export interface PatchedErrorTrackingIssueFull {
-      readonly id?: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
+    export interface PatchedErrorTrackingIssueRead {
+      id?: string;
+      status?: string;
       /** @nullable */
       name?: string | null;
       /** @nullable */
       description?: string | null;
-      first_seen?: string;
-      assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
-      readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+      first_seen?: string | null;
+      assignee?: ErrorTrackingIssueAssigneeRead | null;
+      external_issues?: ErrorTrackingExternalReferenceResult[];
+      cohort?: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
