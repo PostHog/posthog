@@ -67,6 +67,8 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "openrouter": "OpenRouter",
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
+    "together_ai": "Together AI",
+    "deepseek": "DeepSeek",
 }
 
 
