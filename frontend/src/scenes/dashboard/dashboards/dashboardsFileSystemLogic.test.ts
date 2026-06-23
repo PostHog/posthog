@@ -67,15 +67,6 @@ describe('dashboardsFileSystemLogic', () => {
         expect(logic.values.folderTree.map((node) => node.path)).toEqual(['Ideas'])
     })
 
-    it('toggles folder collapse state independently', async () => {
-        await expectLogic(logic, () => logic.actions.toggleFolder('Marketing')).toMatchValues({
-            collapsedFolders: { Marketing: true },
-        })
-        await expectLogic(logic, () => logic.actions.toggleFolder('Marketing')).toMatchValues({
-            collapsedFolders: { Marketing: false },
-        })
-    })
-
     it('navigates folders', async () => {
         await expectLogic(logic, () => logic.actions.navigateToFolder('Marketing')).toMatchValues({
             currentFolder: 'Marketing',

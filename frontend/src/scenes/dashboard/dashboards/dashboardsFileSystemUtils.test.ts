@@ -1,7 +1,7 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-import { buildEntryByRef, buildFolderTree, subtreeDashboards } from './dashboardsFileSystemUtils'
+import { buildEntryByRef, buildFolderTree, folderChildren, subtreeDashboards } from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
 const entry = (ref: string, path: string): FileSystemEntry =>
@@ -49,6 +49,15 @@ describe('dashboardsFileSystemUtils', () => {
         const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C')]
         expect(subtreeDashboards(dashboards, byRef, 'Marketing')).toEqual([dash(1, 'A'), dash(2, 'B')])
         expect(subtreeDashboards(dashboards, byRef, '').map((d) => d.id)).toEqual([1, 2, 3])
+    })
+
+    it('folderChildren returns the immediate child folders of a path (root = top level)', () => {
+        const tree = buildFolderTree([], {}, ['Marketing/Q1', 'Marketing/Q2', 'Product'])
+        expect(folderChildren(tree, '').map((node) => node.path)).toEqual(['Marketing', 'Product'])
+        expect(folderChildren(tree, 'Marketing').map((node) => node.path)).toEqual(['Marketing/Q1', 'Marketing/Q2'])
+        // A leaf folder has no children; an unknown path returns [].
+        expect(folderChildren(tree, 'Product')).toEqual([])
+        expect(folderChildren(tree, 'Nope')).toEqual([])
     })
 
     it('subtreeDashboards treats dashboards with no folder entry as Unfiled', () => {

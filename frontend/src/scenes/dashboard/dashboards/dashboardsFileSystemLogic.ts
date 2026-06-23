@@ -11,7 +11,13 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
-import { buildEntryByRef, buildFolderTree, FolderTreeNode, subtreeDashboards } from './dashboardsFileSystemUtils'
+import {
+    buildEntryByRef,
+    buildFolderTree,
+    folderChildren,
+    FolderTreeNode,
+    subtreeDashboards,
+} from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
@@ -29,9 +35,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         actions: [projectTreeDataLogic, ['createSavedItem']],
     })),
     actions({
-        // Tree arm: select a folder ('' = the dashboards root) and toggle its expand state in the panel.
+        // Tree arm: select a folder ('' = the dashboards root). Expansion is owned by the LemonTree panel.
         navigateToFolder: (folder: string) => ({ folder }),
-        toggleFolder: (folder: string) => ({ folder }),
         // Create a folder inside the current folder (the UI prompts for the name).
         createFolder: (name: string) => ({ name }),
     }),
@@ -71,12 +76,6 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         ],
     }),
     reducers({
-        collapsedFolders: [
-            {} as Record<string, boolean>,
-            {
-                toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
-            },
-        ],
         currentFolder: [
             '',
             {
@@ -101,6 +100,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboards, s.entryByRef, s.currentFolder],
             (dashboards, entryByRef, currentFolder): DashboardBasicType[] =>
                 subtreeDashboards(dashboards, entryByRef, currentFolder),
+        ],
+        // Immediate child folders of the selected folder, shown above the content table so the structure
+        // stays visible (and drillable) when a parent folder's recursive subtree is being displayed.
+        currentSubfolders: [
+            (s) => [s.folderTree, s.currentFolder],
+            (folderTree, currentFolder): FolderTreeNode[] => folderChildren(folderTree, currentFolder),
         ],
     }),
     listeners(({ values, actions }) => ({

@@ -15,7 +15,7 @@ jest.mock('./DashboardsTable', () => ({
         </div>
     ),
 }))
-// Stub LemonTree: render each folder's name (recursively) as a button that fires onFolderClick.
+// Stub LemonTree: render each node's name (recursively) as a button that fires onFolderClick.
 jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
     const renderNodes = (items: any[], onFolderClick: any): any =>
         items.map((item: any) => (
@@ -29,14 +29,12 @@ jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
 
 describe('DashboardsTree', () => {
     const navigateToFolder = jest.fn()
-    const toggleFolder = jest.fn()
 
     afterEach(cleanup)
 
     beforeEach(() => {
         navigateToFolder.mockClear()
-        toggleFolder.mockClear()
-        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, toggleFolder, createFolder: jest.fn() })
+        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, createFolder: jest.fn() })
     })
 
     function mockValues(overrides: Record<string, any>): void {
@@ -44,13 +42,13 @@ describe('DashboardsTree', () => {
             folderTree: [],
             currentFolder: '',
             currentSubtreeDashboards: [],
-            collapsedFolders: {},
+            currentSubfolders: [],
             dashboardsLoading: false,
             ...overrides,
         })
     }
 
-    it('renders the folder tree (nested) and the scoped dashboards table', () => {
+    it('renders All dashboards as the root with folders nested under it, and the scoped table', () => {
         mockValues({
             folderTree: [
                 {
@@ -62,6 +60,7 @@ describe('DashboardsTree', () => {
             currentSubtreeDashboards: [{ id: 1, name: 'Revenue' }],
         })
         render(<DashboardsTree />)
+        // "All dashboards" is the tree root; folders nest under it.
         expect(screen.getByText('All dashboards')).toBeInTheDocument()
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
@@ -75,10 +74,24 @@ describe('DashboardsTree', () => {
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
     })
 
-    it('navigates to the root via the All dashboards button', () => {
+    it('navigates to the root when the All dashboards node is clicked', () => {
         mockValues({ folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }] })
         render(<DashboardsTree />)
         fireEvent.click(screen.getByText('All dashboards'))
         expect(navigateToFolder).toHaveBeenCalledWith('')
+    })
+
+    it('renders clickable subfolder chips in the content view and drills in on click', () => {
+        mockValues({
+            currentFolder: 'Marketing',
+            currentSubfolders: [
+                { path: 'Marketing/Q1', label: 'Q1', children: [] },
+                { path: 'Marketing/Q2', label: 'Q2', children: [] },
+            ],
+        })
+        render(<DashboardsTree />)
+        expect(screen.getByText('Q2')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Q1'))
+        expect(navigateToFolder).toHaveBeenCalledWith('Marketing/Q1')
     })
 })

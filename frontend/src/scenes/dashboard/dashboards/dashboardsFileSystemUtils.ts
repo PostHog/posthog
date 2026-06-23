@@ -69,6 +69,28 @@ export function buildFolderTree(
     return roots
 }
 
+// Immediate child folders of `currentFolder` in the folder tree (root '' → the top-level folders). The
+// tree arm shows these above the content table so the folder structure stays visible when a parent folder
+// is selected. Returns [] if the path isn't in the tree.
+export function folderChildren(tree: FolderTreeNode[], currentFolder: string): FolderTreeNode[] {
+    if (!currentFolder) {
+        return tree
+    }
+    const segments = splitPath(currentFolder)
+    let level = tree
+    for (let depth = 1; depth <= segments.length; depth++) {
+        const node = level.find((candidate) => candidate.path === joinPath(segments.slice(0, depth)))
+        if (!node) {
+            return []
+        }
+        if (depth === segments.length) {
+            return node.children
+        }
+        level = node.children
+    }
+    return []
+}
+
 // Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
 // arm feeds these to the dashboards table, scoped to the selected folder's subtree.
 export function subtreeDashboards(
