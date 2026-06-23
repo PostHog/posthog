@@ -17,7 +17,7 @@ const PAGINATION_LIMIT = 200
 
 function meAsMember(user: UserType): OrganizationMemberType {
     return {
-        id: user.uuid,
+        id: '',
         user: {
             uuid: user.uuid,
             distinct_id: user.distinct_id,

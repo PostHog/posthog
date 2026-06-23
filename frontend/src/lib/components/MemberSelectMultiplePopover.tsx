@@ -76,7 +76,7 @@ export function MemberSelectMultiplePopover({
                             <MemberSelectRow
                                 key={member.user.uuid}
                                 member={member}
-                                isYou={member === me}
+                                isYou={member.user.uuid === me?.user.uuid}
                                 onClick={() => toggleMember(member.user.id)}
                                 checked={value.includes(member.user.id)}
                             />

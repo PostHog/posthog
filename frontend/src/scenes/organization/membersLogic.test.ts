@@ -77,5 +77,19 @@ describe('membersLogic', () => {
                     .map((member) => member.user.uuid)
             ).toEqual([MOCK_USER_UUID])
         })
+
+        it('drops the current user and returns the searched members while searching', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadAllMembers()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearch('Rose')
+            }).toDispatchActions(['loadSearchedMembersSuccess'])
+
+            const result = logic.values.selectableMembers().map((member) => member.user.uuid)
+            expect(result).not.toContain(MOCK_USER_UUID)
+            expect(result).toContain(MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid)
+        })
     })
 })

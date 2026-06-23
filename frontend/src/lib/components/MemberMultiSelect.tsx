@@ -110,7 +110,7 @@ export function MemberMultiSelect({
                             <MemberSelectRow
                                 key={member.user.uuid}
                                 member={member}
-                                isYou={member === me}
+                                isYou={member.user.uuid === me?.user.uuid}
                                 onClick={() => handleMemberToggle(member.user.id)}
                                 checked={value?.includes(member.user.id) || false}
                             />

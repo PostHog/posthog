@@ -88,7 +88,7 @@ export function MemberSelect({
                             <MemberSelectRow
                                 key={member.user.uuid}
                                 member={member}
-                                isYou={member === me}
+                                isYou={member.user.uuid === me?.user.uuid}
                                 onClick={() => _onChange(member.user)}
                             />
                         ))}
