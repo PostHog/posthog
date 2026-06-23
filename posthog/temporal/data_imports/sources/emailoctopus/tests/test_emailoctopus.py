@@ -104,6 +104,16 @@ class TestValidateCredentials:
         with patch.object(emailoctopus, "make_tracked_session", return_value=session):
             assert validate_credentials("eo_key") is False
 
+    def test_tracked_session_redacts_api_key(self) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(emailoctopus, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("eo_secret")
+        # The key must be passed as a redaction value so it can't leak into tracked HTTP logs.
+        make_session.assert_called_once_with(redact_values=("eo_secret",))
+
 
 class _FakeResumableManager:
     def __init__(self, state: EmailOctopusResumeConfig | None = None) -> None:
