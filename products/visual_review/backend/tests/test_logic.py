@@ -2995,5 +2995,6 @@ class TestApprovalComment:
         artifact = self._mk_artifact(repo, "full_h", with_thumbnail="thumb_h")
         url = logic._comment_image_url(repo, artifact)
 
+        assert url is not None
         assert "full_h" in url
         assert "thumb_h" not in url
