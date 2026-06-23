@@ -101,7 +101,7 @@ describe('StickinessBarChart', () => {
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
-    it('click → persons modal: opens with a "Stickiness on {interval} {day}" title', async () => {
+    it('click → persons modal: opens with a "stickiness on {interval} {day}" title', async () => {
         renderInsight({ query: stickinessBar() })
 
         await chart.clickAtIndex(2)
@@ -112,8 +112,9 @@ describe('StickinessBarChart', () => {
             },
             { timeout: 5000 }
         )
-        expect(personsModal.title()).toMatch(/Stickiness on day 3/)
-        expect(personsModal.title()).toMatch(/Pageview/i)
+        expect(personsModal.title()).toMatch(/stickiness on day 3/)
+        // Case-sensitive: the core event must be humanized ("Pageview"), not the raw "$pageview".
+        expect(personsModal.title()).toMatch(/Pageview/)
     })
 
     it('click → context.onDataPointClick fires with the integer day instead of opening the modal', async () => {

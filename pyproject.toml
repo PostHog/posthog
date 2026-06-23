@@ -477,6 +477,7 @@ exclude = [
     "bin/**",
     "manage.py",
     "posthog/hogql/grammar/**",
+    "posthog/personhog_client/proto/generated/**",
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
