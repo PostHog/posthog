@@ -3665,9 +3665,10 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
-        # The variant wraps a UNION ALL in a JoinExpr; SAMPLE on that wrapper never reaches the inner
-        # events scans, so it must be pushed into each FROM events arm where ClickHouse can apply it.
+    def test_dwh_variant_events_only_is_single_scan_with_sampling(self):
+        # Events-only: both arms read `events`, so the variant must NOT build a two-pass UNION (which
+        # would scan events twice). It collapses to a single events scan with SAMPLE applied directly to
+        # the FROM — identical to the legacy path.
         query = RetentionQuery(
             dateRange={"date_to": _date(10, hour=6)},
             samplingFactor=0.5,
@@ -3679,24 +3680,69 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
 
         assert base_query.select_from is not None
-        union = base_query.select_from.table
-        assert isinstance(union, ast.SelectSetQuery)
-        self.assertIsNone(base_query.select_from.sample)
+        table = base_query.select_from.table
+        assert isinstance(table, ast.Field)
+        self.assertEqual(table.chain, ["events"])
+        # SAMPLE lives on the single events FROM, not pushed into UNION arms.
+        sample = base_query.select_from.sample
+        assert isinstance(sample, ast.SampleExpr)
+        self.assertEqual(sample.sample_value.left.value, 0.5)
 
-        event_arms = [
-            arm
-            for arm in union.select_queries()
-            if isinstance(arm, ast.SelectQuery)
-            and arm.select_from is not None
-            and isinstance(arm.select_from.table, ast.Field)
-            and arm.select_from.table.chain == ["events"]
-        ]
-        self.assertEqual(len(event_arms), 2)
-        for arm in event_arms:
-            assert arm.select_from is not None
-            sample = arm.select_from.sample
-            assert isinstance(sample, ast.SampleExpr)
-            self.assertEqual(sample.sample_value.left.value, 0.5)
+    def test_dwh_variant_events_only_single_scan_sql(self):
+        # The generated SQL for an events-only variant query reads `events` once and has no UNION ALL.
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
+        self.assertNotIn("UNION ALL", sql)
+        # retention_events is the alias of the two-pass UNION wrapper; absent in the single-scan shape.
+        self.assertNotIn("retention_events", sql)
+        self.assertEqual(sql.count("FROM events"), 1)
+
+    def test_dwh_variant_multi_source_uses_union(self):
+        # A genuine multi-source series (start reads a warehouse table, return reads events) keeps the
+        # two-pass UNION — the arms read different sources. Pure AST construction; no warehouse table needed.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "period": "Day",
+                "targetEntity": {
+                    "type": "data_warehouse",
+                    "table_name": "some_dwh_table",
+                    "timestamp_field": "created_at",
+                    "aggregation_target_field": "user_id",
+                },
+                "returningEntity": {"id": "$pageview", "type": "events"},
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        # Flag on to prove the same-source guard never collapses a genuine DWH series.
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
+
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.SelectSetQuery)
 
     def _create_sampling_parity_fixtures(self):
         for i in range(20):
@@ -3708,9 +3754,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
     def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
-        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
-        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
-        # union sample the same rows, so parity must hold at every factor.
+        # run_query asserts the legacy and DWH-variant paths return identical results. For an events-only
+        # series the variant collapses to the same single-scan query as legacy, so SAMPLE applies to the
+        # one events FROM identically and parity must hold at every factor.
         self._create_sampling_parity_fixtures()
 
         result = self.run_query(
@@ -3724,9 +3770,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
 
     @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
     def test_sampling_parity_first_time(self, _name: str, sampling_factor: float):
-        # First-time retention anchors on minIf over the sampled stream; the variant computes it in a
-        # separate union arm from the legacy single scan, so this exercises a different aggregation than
-        # the recurring case. run_query asserts the two paths stay identical under sampling.
+        # First-time retention anchors on minIf over the sampled stream; for an events-only series the
+        # variant collapses to the same single-scan query as legacy, so this exercises that gating under
+        # sampling. run_query asserts the two paths stay identical at every factor.
         self._create_sampling_parity_fixtures()
 
         result = self.run_query(
@@ -3906,8 +3952,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         self.assertNotIn("control", {c.get("breakdown_value") for c in result})
 
     def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
-        # Cohort breakdown composes as a UNION ALL of per-cohort base queries, each
-        # itself a UNION ALL inside the variant. Both paths must agree on that shape.
+        # Cohort breakdown composes as a UNION ALL of per-cohort base queries. For an events-only series
+        # each per-cohort base query is a single scan on both paths (the variant no longer wraps a nested
+        # UNION ALL), so legacy and variant must agree on the resulting shape.
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
         cohort1 = Cohort.objects.create(

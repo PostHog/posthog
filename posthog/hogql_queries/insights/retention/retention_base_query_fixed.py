@@ -47,11 +47,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        has_data_warehouse_series = (
-            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
-        )
-
-        if has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
+        if self._has_data_warehouse_series() or retention_fixed_interval_base_query_use_dwh_variant(self.team):
             return self.build_base_query_dwh(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
@@ -61,6 +57,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             start_interval_index_filter=start_interval_index_filter,
             selected_breakdown_value=selected_breakdown_value,
         )
+
+    def _has_data_warehouse_series(self) -> bool:
+        return self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
 
     def apply_sampling(self, base_query: ast.SelectQuery) -> None:
         select_from = base_query.select_from
@@ -152,6 +151,15 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        if not self._has_data_warehouse_series():
+            # Events-only: both arms read the same `events` source, so the two-pass UNION scans events
+            # twice for no benefit. Collapse to the single-scan shape (AST identical to the legacy path)
+            # — one events read. The two-pass UNION below is reserved for genuine multi-source series.
+            return self._build_single_scan_base_query(
+                start_interval_index_filter=start_interval_index_filter,
+                selected_breakdown_value=selected_breakdown_value,
+            )
+
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
@@ -486,6 +494,19 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
     # Original version of the fixed interval query.
     def build_base_query_legacy(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
+        return self._build_single_scan_base_query(
+            start_interval_index_filter=start_interval_index_filter,
+            selected_breakdown_value=selected_breakdown_value,
+        )
+
+    # Single subquery that reads `events` once, computing both the start and return interval-timestamp
+    # arrays as inline conditional aggregates. Used by build_base_query_legacy and — for events-only
+    # series — by build_base_query_dwh, where the two-pass UNION would otherwise scan events twice.
+    def _build_single_scan_base_query(
         self,
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
