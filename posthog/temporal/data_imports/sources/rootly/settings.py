@@ -77,17 +77,15 @@ ROOTLY_ENDPOINTS: dict[str, RootlyEndpointConfig] = {
     "teams": RootlyEndpointConfig(name="teams", path="/teams"),
     "services": RootlyEndpointConfig(name="services", path="/services"),
     "functionalities": RootlyEndpointConfig(name="functionalities", path="/functionalities"),
-    "environments": RootlyEndpointConfig(name="environments", path="/environments"),
-    "severities": RootlyEndpointConfig(name="severities", path="/severities"),
-    "incident_types": RootlyEndpointConfig(name="incident_types", path="/incident_types"),
     "schedules": RootlyEndpointConfig(name="schedules", path="/schedules"),
     "escalation_policies": RootlyEndpointConfig(name="escalation_policies", path="/escalation_policies"),
     "workflows": RootlyEndpointConfig(name="workflows", path="/workflows"),
-    "causes": RootlyEndpointConfig(name="causes", path="/causes"),
+    # Small enumeration resources whose timestamp columns we haven't confirmed against the live API.
+    # Partitioning a handful of rows buys nothing, so don't risk partitioning on an absent field.
+    "environments": RootlyEndpointConfig(name="environments", path="/environments", partition_key=None),
+    "severities": RootlyEndpointConfig(name="severities", path="/severities", partition_key=None),
+    "incident_types": RootlyEndpointConfig(name="incident_types", path="/incident_types", partition_key=None),
+    "causes": RootlyEndpointConfig(name="causes", path="/causes", partition_key=None),
 }
 
 ENDPOINTS = tuple(ROOTLY_ENDPOINTS.keys())
-
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in ROOTLY_ENDPOINTS.items()
-}

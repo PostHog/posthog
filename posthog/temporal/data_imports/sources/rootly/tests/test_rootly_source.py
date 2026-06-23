@@ -149,6 +149,32 @@ class TestRootlyResumableAndPipeline:
         assert response.partition_keys == ["created_at"]
         assert response.partition_mode == "datetime"
 
+    @parameterized.expand(
+        [
+            # Endpoints partition on the stable created_at field...
+            ("incidents", ["created_at"], "datetime"),
+            ("users", ["created_at"], "datetime"),
+            # ...except small enumeration resources whose timestamp columns aren't confirmed —
+            # partitioning on an absent field would fail the sync, so they don't partition.
+            ("environments", None, None),
+            ("severities", None, None),
+            ("incident_types", None, None),
+            ("causes", None, None),
+        ]
+    )
+    def test_partitioning_per_endpoint(
+        self, endpoint: str, expected_keys: list[str] | None, expected_mode: str | None
+    ) -> None:
+        inputs = MagicMock()
+        inputs.schema_name = endpoint
+        inputs.should_use_incremental_field = False
+        inputs.incremental_field = None
+        response = RootlySource().source_for_pipeline(
+            MagicMock(api_key="rootly_test"), resumable_source_manager=MagicMock(), inputs=inputs
+        )
+        assert response.partition_keys == expected_keys
+        assert response.partition_mode == expected_mode
+
 
 class TestRootlyCanonicalDescriptions:
     def test_descriptions_keyed_by_endpoint_name(self) -> None:
