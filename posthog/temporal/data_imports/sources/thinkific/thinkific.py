@@ -104,13 +104,13 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[ThinkificResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = THINKIFIC_ENDPOINTS[endpoint]
     headers = _get_headers(api_key, subdomain)
     # One session reused across every page so urllib3 keeps the connection alive instead of
-    # re-handshaking per request.
-    session = make_tracked_session()
+    # re-handshaking per request. `redact_values` masks the API key wherever it lands (the
+    # X-Auth-API-Key header isn't on the name-based scrub denylist) in logs and sample capture.
+    session = make_tracked_session(redact_values=(api_key,))
 
     base_params = _build_base_params(
         config.page_size,
@@ -157,7 +157,6 @@ def thinkific_source(
     resumable_source_manager: ResumableSourceManager[ThinkificResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = THINKIFIC_ENDPOINTS[endpoint]
 
@@ -171,7 +170,6 @@ def thinkific_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -191,7 +189,8 @@ def validate_credentials(api_key: str, subdomain: str, endpoint_path: str = "/co
     status_code is None when the request never completed."""
     url = f"{THINKIFIC_BASE_URL}{endpoint_path}?{urlencode({'page': 1, 'limit': 1})}"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, subdomain), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key, subdomain), timeout=10)
         return response.status_code == 200, response.status_code
     except Exception:
         return False, None
