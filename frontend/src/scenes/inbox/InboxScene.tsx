@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBug } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -176,15 +176,11 @@ export function InboxScene(): JSX.Element {
                 />
 
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {onboardingMode === 'loading' ? (
-                        // Neutral loader until we know self-driving's state – never the inbox skeleton,
-                        // so a not-set-up user isn't jolted from skeleton to the takeover.
-                        <div className="flex flex-1 items-center justify-center">
-                            <Spinner className="text-2xl text-secondary" />
-                        </div>
-                    ) : onboardingMode === 'takeover' ? (
+                    {onboardingMode === 'takeover' ? (
                         <InboxOnboardingTakeover />
                     ) : (
+                        // 'none' (incl. the still-loading verdict) and 'banner' both render the inbox,
+                        // which shows its own list skeleton while loading.
                         <>
                             {onboardingMode === 'banner' && <InboxOnboardingBanner />}
                             <InboxListView />

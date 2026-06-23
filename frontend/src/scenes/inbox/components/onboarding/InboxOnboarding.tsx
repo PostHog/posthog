@@ -127,16 +127,17 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
  */
 function ScrollFade({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
     const scrollRef = useRef<HTMLDivElement>(null)
-    const [fadeTop, setFadeTop] = useState(false)
-    const [fadeBottom, setFadeBottom] = useState(false)
+    const [fade, setFade] = useState({ top: false, bottom: false })
 
     const measure = useCallback((): void => {
         const el = scrollRef.current
         if (!el) {
             return
         }
-        setFadeTop(el.scrollTop > 1)
-        setFadeBottom(Math.ceil(el.scrollTop + el.clientHeight) < el.scrollHeight - 1)
+        setFade({
+            top: el.scrollTop > 1,
+            bottom: Math.ceil(el.scrollTop + el.clientHeight) < el.scrollHeight - 1,
+        })
     }, [])
 
     useEffect(() => {
@@ -144,21 +145,22 @@ function ScrollFade({ children, className }: { children: React.ReactNode; classN
         if (!el) {
             return
         }
-        // ResizeObserver fires once on observe, covering the initial measure (content may overflow
-        // before the user scrolls), then again whenever the viewport resizes.
+        // Observe the container (viewport resizes) *and* its content child (late-rendering cards grow
+        // it past the fixed-height container without the container itself resizing) so the initial
+        // bottom fade shows before any scroll.
         const observer = new ResizeObserver(measure)
         observer.observe(el)
+        if (el.firstElementChild) {
+            observer.observe(el.firstElementChild)
+        }
         return () => observer.disconnect()
     }, [measure])
 
-    const mask =
-        fadeTop && fadeBottom
-            ? '[mask-image:linear-gradient(to_bottom,transparent,black_24px,black_calc(100%-24px),transparent)]'
-            : fadeTop
-              ? '[mask-image:linear-gradient(to_bottom,transparent,black_24px)]'
-              : fadeBottom
-                ? '[mask-image:linear-gradient(to_bottom,black_calc(100%-24px),transparent)]'
-                : ''
+    // Independent top/bottom stops joined in one gradient; the off-edge stop (black_0%/black_100%)
+    // is a no-op, so this matches a hard edge when that side isn't faded.
+    const topStop = fade.top ? 'transparent,black_24px' : 'black_0%'
+    const bottomStop = fade.bottom ? 'black_calc(100%-24px),transparent' : 'black_100%'
+    const mask = fade.top || fade.bottom ? `[mask-image:linear-gradient(to_bottom,${topStop},${bottomStop})]` : ''
 
     return (
         <div ref={scrollRef} onScroll={measure} className={cn('overflow-auto', mask, className)}>

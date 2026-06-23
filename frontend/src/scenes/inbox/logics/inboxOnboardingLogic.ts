@@ -6,7 +6,7 @@ import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 /** How the self-driving onboarding presents itself over the inbox. */
-export type InboxOnboardingMode = 'loading' | 'takeover' | 'banner' | 'none'
+export type InboxOnboardingMode = 'takeover' | 'banner' | 'none'
 
 export interface OnboardingModeInputs {
     /** Both source + scout config loaders have settled, so the set-up verdict is trustworthy. */
@@ -24,10 +24,10 @@ export interface OnboardingModeInputs {
 /**
  * Pure decision for how (if at all) the onboarding shows.
  *
- * The `'loading'` state matters for UX: until we know whether self-driving is set up, the scene
- * shows a neutral loader rather than the inbox skeleton – otherwise a not-set-up user sees the
- * skeleton for a moment and then gets yanked to the takeover (a jarring jolt). Set-up users skip
- * the loader as soon as the config check resolves, without waiting on the report counts.
+ * `'none'` is the default: render the normal inbox, which shows its own list skeleton while loading.
+ * We only switch to a takeover/banner once we're *confident* self-driving isn't set up – so we stay
+ * on `'none'` (the familiar skeleton) until both the config check and, if needed, the report counts
+ * have settled. This avoids flashing the takeover/banner before we know the verdict.
  */
 export function computeOnboardingMode({
     isSetupLoaded,
@@ -36,16 +36,18 @@ export function computeOnboardingMode({
     hasExistingWork,
     bannerDismissed,
 }: OnboardingModeInputs): InboxOnboardingMode {
+    // Until the config check resolves we don't know the verdict – stay on the normal inbox skeleton.
     if (!isSetupLoaded) {
-        return 'loading'
+        return 'none'
     }
     // Set-up users go straight to their inbox – no need to wait on the report counts.
     if (isSelfDrivingSetUp) {
         return 'none'
     }
     // Not set up: the report counts decide takeover (empty inbox) vs. banner (work already exists).
+    // Keep the inbox skeleton until they settle, rather than guessing.
     if (!areCountsResolved) {
-        return 'loading'
+        return 'none'
     }
     if (hasExistingWork) {
         return bannerDismissed ? 'none' : 'banner'

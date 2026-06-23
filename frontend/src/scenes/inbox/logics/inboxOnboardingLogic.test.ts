@@ -10,13 +10,13 @@ describe('computeOnboardingMode', () => {
     }
 
     it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingMode]>([
-        // Until the config check resolves, show the neutral loader – never the inbox skeleton (which
-        // would then jolt to the takeover for a not-set-up user).
-        ['config still loading', { isSetupLoaded: false }, 'loading'],
+        // Until the config check resolves, stay on the normal inbox (its own skeleton) – never guess
+        // the takeover, which would jolt for a set-up user.
+        ['config still loading', { isSetupLoaded: false }, 'none'],
         // Config not loaded wins even if the set-up flag is incidentally true – we don't trust it yet.
-        ['config still loading, set-up flag ignored', { isSetupLoaded: false, isSelfDrivingSetUp: true }, 'loading'],
-        // Not set up, counts still loading → keep the loader until we can choose takeover vs banner.
-        ['not set up, counts still loading', { areCountsResolved: false }, 'loading'],
+        ['config still loading, set-up flag ignored', { isSetupLoaded: false, isSelfDrivingSetUp: true }, 'none'],
+        // Not set up, counts still loading → keep the inbox until we can choose takeover vs banner.
+        ['not set up, counts still loading', { areCountsResolved: false }, 'none'],
         // Set up (a source or scout is watching) → no onboarding at all, and no wait on counts.
         ['set up, empty inbox', { isSelfDrivingSetUp: true }, 'none'],
         ['set up, with work', { isSelfDrivingSetUp: true, hasExistingWork: true }, 'none'],

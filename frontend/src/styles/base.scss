@@ -2090,6 +2090,9 @@
         #fba000 83%,
         #0143cb 100%
     );
+
+    // Deliberately gentle so the scroll reads as a slow shimmer, not a strobe.
+    --rainbow-scroll-duration: 6s;
 }
 
 .rainbow-text,
@@ -2101,12 +2104,12 @@
 }
 
 .rainbow-text.rainbow-text-animating {
-    animation: rainbow-scroll 6s linear infinite;
+    animation: rainbow-scroll var(--rainbow-scroll-duration) linear infinite;
 }
 
 .rainbow-text-fading.rainbow-text-animating {
     animation:
-        rainbow-scroll 6s linear infinite,
+        rainbow-scroll var(--rainbow-scroll-duration) linear infinite,
         rainbow-fade-in 300ms ease-out;
 }
 
