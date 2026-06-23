@@ -345,6 +345,27 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"TLS ALPN rejection error should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "SSHTunnel auth is not valid",
+            # Temporal-wrapped form carrying the exception class name.
+            "Exception: SSHTunnel auth is not valid",
+        ],
+    )
+    def test_invalid_ssh_tunnel_auth_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "SSHTunnel auth is not valid" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
+
+    def test_invalid_ssh_tunnel_auth_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "SSHTunnel auth is not valid"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid SSH tunnel auth error should surface an actionable message"
+        assert "SSH authentication details" in friendly[0]
+
     def test_tls_no_application_protocol_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = (
