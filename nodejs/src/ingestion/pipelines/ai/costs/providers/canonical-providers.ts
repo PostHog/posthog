@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-19 20:28:25 UTC
+// Generated at: 2026-06-23 21:04:45 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,7 +7,6 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
-    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -16,7 +15,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
-    | 'amazon-bedrock-us-west-2'
     | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
@@ -75,7 +73,6 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'inflection'
     | 'io-net-fp8'
-    | 'io-net-int4'
     | 'ionstream-fp8'
     | 'liquid'
     | 'mancer-fp8'
@@ -131,6 +128,7 @@ export type CanonicalProvider =
     | 'stealth-int8'
     | 'stepfun-fp8'
     | 'streamlake'
+    | 'streamlake-fp8'
     | 'switchpoint'
     | 'together'
     | 'together-fp4'
@@ -151,5 +149,6 @@ export type CanonicalProvider =
     | 'wandb-fp8'
     | 'xai'
     | 'xiaomi-fp8'
+    | 'z-ai'
     | 'z-ai-fp4'
     | 'z-ai-fp8'

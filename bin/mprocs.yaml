@@ -489,6 +489,14 @@ procs:
             LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
             LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
 
+    agent-proxy:
+        shell: 'bin/wait-for-docker --only redis7 && pnpm --filter @posthog/agent-proxy dev'
+        capability: agent_proxy
+        ready_pattern: 'server:started'
+        groups:
+            layer: Product services
+            tech: Node
+
     mcp:
         sandbox: true
         shell: 'bin/start-mcp-server'
