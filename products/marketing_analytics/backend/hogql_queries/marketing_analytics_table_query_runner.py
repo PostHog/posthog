@@ -107,27 +107,6 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
-    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
-        """Extract and filter select columns based on self.query.select"""
-        if self.query.select:
-            # Create a mapping of column names to their AST expressions
-            column_mapping: dict[str, ast.Expr] = {}
-            for col in query.select:
-                if isinstance(col, ast.Alias):
-                    column_mapping[col.alias] = col
-                else:
-                    column_mapping[str(col)] = col
-
-            # Filter to only include requested columns
-            filtered_select: list[ast.Expr] = []
-            for requested_col in self.query.select:
-                if requested_col in column_mapping:
-                    filtered_select.append(column_mapping[requested_col])
-            return filtered_select
-        else:
-            # If no specific columns requested, use all columns
-            return query.select if query.select else []
-
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]

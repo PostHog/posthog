@@ -359,6 +359,53 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(warnings) == 1
         assert "Bad DW Goal" in warnings[0]
 
+    def test_duplicate_named_goals_deduped(self):
+        """Goals sharing a name collapse to the first with a warning, to avoid alias collisions"""
+        first = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="goal_a",
+            conversion_goal_name="Signups",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        second = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="signup",
+            conversion_goal_id="goal_b",
+            conversion_goal_name="Signups",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        runner = self._create_query_runner()
+        valid_goals, warnings = runner._filter_invalid_conversion_goals([first, second])
+
+        assert len(valid_goals) == 1
+        assert valid_goals[0].conversion_goal_id == "goal_a"
+        assert len(warnings) == 1
+        assert "duplicate name" in warnings[0]
+        assert "Signups" in warnings[0]
+
+    def test_get_filtered_select_columns_dedupes_repeated_request(self):
+        """A column requested twice is emitted once, avoiding 'Cannot redefine an alias'"""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            select=["Signups", "Signups", "Cost"],
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+        source = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="Signups", expr=ast.Constant(value=1)),
+                ast.Alias(alias="Cost", expr=ast.Constant(value=2)),
+            ]
+        )
+
+        filtered = runner._get_filtered_select_columns(source)
+
+        assert [col.alias for col in filtered] == ["Signups", "Cost"]
+
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL, "Channel"),
