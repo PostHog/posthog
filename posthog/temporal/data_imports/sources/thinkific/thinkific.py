@@ -82,7 +82,10 @@ def _build_base_params(
 def _fetch_page(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=60)
+    # allow_redirects=False so a server-side 3xx can never forward the X-Auth-API-Key/Subdomain
+    # credential headers to another host. Pagination already targets the fixed THINKIFIC_BASE_URL
+    # (by page number, never a response-supplied URL), so legitimate responses are always 2xx.
+    response = session.get(url, headers=headers, timeout=60, allow_redirects=False)
 
     # 429 carries a RateLimit-Reset epoch header; tenacity's exponential backoff is a safe fallback
     # without parsing it. Transient 5xx are likewise retried.
@@ -190,7 +193,7 @@ def validate_credentials(api_key: str, subdomain: str, endpoint_path: str = "/co
     url = f"{THINKIFIC_BASE_URL}{endpoint_path}?{urlencode({'page': 1, 'limit': 1})}"
     try:
         session = make_tracked_session(redact_values=(api_key,))
-        response = session.get(url, headers=_get_headers(api_key, subdomain), timeout=10)
+        response = session.get(url, headers=_get_headers(api_key, subdomain), timeout=10, allow_redirects=False)
         return response.status_code == 200, response.status_code
     except Exception:
         return False, None
