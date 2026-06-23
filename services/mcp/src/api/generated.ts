@@ -29235,10 +29235,6 @@ export namespace Schemas {
       active: boolean;
       /** Release condition filters of the representative feature flag */
       filters: unknown;
-      /** Creation timestamp of the representative feature flag */
-      created_at: string;
-      /** User who created the representative feature flag */
-      created_by: UserBasic | null;
     }
 
     export interface OrganizationFeatureFlagKeysResponse {

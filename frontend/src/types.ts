@@ -4267,10 +4267,11 @@ export interface OrganizationFeatureFlagRow {
     team_id: number
     key: string
     name: string
+    // active + filters power the instant first paint of the current team's cell and are free
+    // (already on the row). created_by/created_at are omitted: the grid never renders them, and
+    // serializing created_by would force a per-row join.
     active: boolean
     filters: FeatureFlagFilters
-    created_at: string
-    created_by: UserBasicType | null
 }
 
 export interface OrganizationFeatureFlagKeysResponse {

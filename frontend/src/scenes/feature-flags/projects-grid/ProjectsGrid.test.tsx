@@ -21,8 +21,6 @@ function buildRow(overrides: Partial<OrganizationFeatureFlagRow> = {}): Organiza
         name: 'Flag',
         active: true,
         filters: { groups: [] },
-        created_at: '2024-01-01T00:00:00Z',
-        created_by: null,
         ...overrides,
     }
 }
@@ -112,8 +110,6 @@ describe('ProjectsGrid', () => {
                             name: 'Cross Project Flag',
                             active: true,
                             filters: { groups: [] },
-                            created_at: '2024-01-01T00:00:00Z',
-                            created_by: null,
                         },
                     ],
                 },

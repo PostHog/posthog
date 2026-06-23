@@ -38,10 +38,11 @@ export function cellStateFor(
             sibling: {
                 flag_id: flag.id,
                 team_id: teamId,
-                created_by: flag.created_by ?? null,
                 filters: flag.filters,
-                created_at: flag.created_at ?? '',
                 active: flag.active,
+                // Not rendered by ProjectsGridCell; the row doesn't carry them to avoid a per-row join.
+                created_by: null,
+                created_at: '',
             },
         }
     }

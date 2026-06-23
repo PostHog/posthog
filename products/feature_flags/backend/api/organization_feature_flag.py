@@ -74,8 +74,6 @@ class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
     name = serializers.CharField(allow_blank=True, help_text="Human-readable name of the representative feature flag")
     active = serializers.BooleanField(help_text="Whether the representative feature flag is enabled")
     filters = serializers.JSONField(help_text="Release condition filters of the representative feature flag")
-    created_at = serializers.DateTimeField(help_text="Creation timestamp of the representative feature flag")
-    created_by = UserBasicSerializer(allow_null=True, help_text="User who created the representative feature flag")
 
 
 class OrganizationFeatureFlagKeysResponseSerializer(serializers.Serializer):
@@ -213,7 +211,6 @@ class OrganizationFeatureFlagView(
         representatives = (
             flags_qs.filter(key__in=page_keys)
             .annotate(_rank=Case(*rank_whens, output_field=IntegerField()))
-            .select_related("created_by")
             .order_by("key", "_rank")
             .distinct("key")
         )
