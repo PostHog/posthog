@@ -37,6 +37,11 @@ if TYPE_CHECKING:
 LOGGER = get_logger(__name__)
 MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
 
+# Alias for the full ``properties`` JSON column in the fallback query. It doubles as the format
+# discriminator for the row consumer: its presence in a row selects the fallback path. Producer and
+# consumer must use this same constant so they move together.
+FULL_PROPERTIES_KEY = "properties"
+
 
 def build_person_properties_select_fields(
     person_properties: list[str],
@@ -498,11 +503,10 @@ async def backfill_precalculated_person_properties_activity(
 
             logger.info(f"Optimized query: fetching {len(person_properties)} specific properties via HogQL")
         else:
-            # The ``"properties"`` key here is also the format discriminator for the row consumer
-            # below: when it is present the query emits a full ``properties`` column, so the consumer
-            # takes the fallback path (`"properties" in row`) instead of reconstructing the dict from
-            # per-property ``prop_N`` columns. Keep this alias name in sync with that check.
-            select_fields["properties"] = ["properties"]
+            # Emitting the full ``properties`` column also flags this row as fallback-format: the
+            # consumer below keys on ``FULL_PROPERTIES_KEY`` to take the fallback path instead of
+            # reconstructing the dict from per-property ``prop_N`` columns.
+            select_fields[FULL_PROPERTIES_KEY] = [FULL_PROPERTIES_KEY]
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(
                     f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
@@ -516,6 +520,10 @@ async def backfill_precalculated_person_properties_activity(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
+        # These predicates are set as a direct ``WHERE`` on the argMax aggregation below, so they
+        # apply *before* dedup. They must stay id-only (``id`` is the GROUP BY key, so filtering on it
+        # yields the same rows pre- and post-dedup). Adding a non-id predicate here (e.g. a
+        # ``properties.x`` filter) would match raw pre-dedup rows and quietly select the wrong persons.
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -541,11 +549,10 @@ async def backfill_precalculated_person_properties_activity(
         # ``persons`` lazy table. ``argmax_select`` is the exact helper the ``persons`` table uses
         # internally, so the semantics are identical: ``team_id`` scoping (added by the printer),
         # latest-version-per-id dedup, ``is_deleted = 0`` filtering, and the
-        # ``argMax(created_at) < now() + 1 day`` clamp that drops future-dated persons. The win is in
-        # how the ID-range filter is applied: querying ``persons`` rewrites our ``id BETWEEN start AND
-        # end`` predicate into ``id IN (SELECT id FROM person WHERE id BETWEEN start AND end)``, which
-        # scans the range twice (build the IN set, then re-read for the GROUP BY). Setting the range as
-        # a direct ``WHERE`` on the argMax aggregation reads the ``(team_id, id)`` primary key once.
+        # ``argMax(created_at) < now() + 1 day`` clamp that drops future-dated persons. The win: going
+        # straight to ``raw_persons`` avoids the ``persons`` lazy table rewriting our ID-range filter
+        # into an ``id IN (subquery)`` that scans the range twice; the direct ``WHERE`` reads the
+        # ``(team_id, id)`` primary key once.
         # Output column for the person UUID is ``id`` (argmax_select aliases the group field by name).
         persons_query_ast = argmax_select(
             table_name="raw_persons",
@@ -603,7 +610,7 @@ async def backfill_precalculated_person_properties_activity(
                     last_person_id = person_id  # Track the last person ID for next cursor
 
                     # Handle both optimized (individual property columns) and fallback (full properties JSON) formats
-                    if person_properties and "properties" not in row:
+                    if person_properties and FULL_PROPERTIES_KEY not in row:
                         # Optimized format: reconstruct properties dict from individual columns using alias mapping
                         reconstructed_properties = {}
                         for alias, original_prop_name in property_alias_mapping.items():
@@ -618,7 +625,7 @@ async def backfill_precalculated_person_properties_activity(
                         parsed_properties = parse_person_properties(reconstructed_properties, person_id)
                     else:
                         # Fallback format: use full properties JSON
-                        parsed_properties = parse_person_properties(row.get("properties"), person_id)
+                        parsed_properties = parse_person_properties(row.get(FULL_PROPERTIES_KEY), person_id)
 
                     # Evaluate all filters in a single VM call
                     person_filter_start = time.monotonic()

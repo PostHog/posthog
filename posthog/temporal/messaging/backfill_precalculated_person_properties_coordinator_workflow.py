@@ -84,13 +84,10 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     # lazy table. We only need ID range *boundaries* here, not deduplicated / is_deleted-filtered
     # rows -- the child workflow re-queries each range against ``raw_persons`` via ``argmax_select``
     # with full argMax dedup and is_deleted filtering, so a deleted/duplicate ID slipping into a
-    # boundary just yields no child rows. The ``persons`` table, by contrast, would rewrite our
-    # ``id > cursor`` filter into
-    # ``id IN (SELECT id FROM person WHERE id > cursor)`` with no inner LIMIT, forcing a full
-    # ``GROUP BY id ... HAVING argMax(is_deleted)`` over the entire ID tail on every page before the
-    # outer LIMIT applies -- O(pages x tail). ``SELECT DISTINCT id FROM person WHERE id > cursor
-    # ORDER BY id ASC LIMIT N`` reads the ``(team_id, id)`` primary key in order and stops after N
-    # distinct IDs.
+    # boundary just yields no child rows. Going through the ``persons`` lazy table would instead
+    # rewrite our ``id > cursor`` cursor filter into an unbounded ``id IN (subquery)`` with a full
+    # per-page dedup over the entire ID tail -- O(pages x tail). The direct ``SELECT DISTINCT id ...
+    # ORDER BY id LIMIT N`` reads the ``(team_id, id)`` primary key in order and stops after N IDs.
     ranges_query_ast = ast.SelectQuery(
         select=[ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))],
         distinct=True,

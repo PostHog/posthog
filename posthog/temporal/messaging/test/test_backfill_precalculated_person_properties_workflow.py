@@ -347,6 +347,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert "node" in captured_ast, "compile_hogql_for_streaming was never called"
         node = captured_ast["node"]
         assert isinstance(node, ast.SelectQuery)
+        # The child queries raw_persons directly (via argmax_select), not the persons lazy table.
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.table, ast.Field)
+        assert node.select_from.table.chain == ["raw_persons"]
         property_aliases = [
             expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
         ]
