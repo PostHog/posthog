@@ -1018,7 +1018,7 @@ class EloquaSourceConfig(config.Config):
 
 @config.config
 class EmailOctopusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
