@@ -1,6 +1,6 @@
 from typing import Any
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -106,18 +106,17 @@ class TestShouldStopDesc:
 
 
 class TestValidateCredentials:
-    def test_status_mapping(self, monkeypatch: Any) -> None:
-        # parameterized.expand can't inject the monkeypatch fixture, so iterate the cases inline.
-        for status, expected_ok in [(200, True), (401, False), (403, False), (500, False)]:
-            response = requests.Response()
-            response.status_code = status
-            session = MagicMock()
-            session.get.return_value = response
-            monkeypatch.setattr(vercel, "make_tracked_session", lambda *a, _s=session, **k: _s)
-
+    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
+    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
+        response = requests.Response()
+        response.status_code = status
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
             ok, error = validate_credentials("token")
-            assert ok is expected_ok, f"status={status}"
-            assert (error is None) is expected_ok, f"status={status}"
+
+        assert ok is expected_ok, f"status={status}"
+        assert (error is None) is expected_ok, f"status={status}"
 
     def test_request_exception_is_handled(self, monkeypatch: Any) -> None:
         session = MagicMock()
