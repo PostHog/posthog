@@ -4146,12 +4146,17 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
