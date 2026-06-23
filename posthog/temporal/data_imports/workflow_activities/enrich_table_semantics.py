@@ -390,14 +390,20 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             business_context=business_context,
         )
     except Exception as e:
-        log.warning("warehouse_enrichment.llm_failed", exc_info=e)
+        capture_exception(e)
+        log.error("warehouse_enrichment.llm_failed", exc_info=True)
+        capture_enrichment_event(
+            team,
+            EVENT_ERROR,
+            {**event_props, "error": str(e), "stage": "llm_call"},
+        )
         capture_enrichment_event(
             team,
             EVENT_LLM_CALL,
             {
                 **event_props,
                 "success": False,
-                "error": str(e)[:300],
+                "error": str(e),
                 "columns_requested": len(columns_needing_description),
             },
         )
@@ -503,8 +509,9 @@ async def enrich_table_semantics_activity(inputs: EnrichTableSemanticsInputs) ->
                     properties={
                         "team_id": inputs.team_id,
                         "schema_id": str(inputs.schema_id),
-                        "error": str(e)[:300],
+                        "error": str(e),
                     },
+                    groups={"project": str(inputs.team_id)},
                 )
             except Exception as capture_error:
                 capture_exception(capture_error)
