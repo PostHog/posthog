@@ -139,3 +139,21 @@ class TestGetAsyncAnthropicGatewayClient:
         client = get_async_anthropic_gateway_client(product="signals")
 
         assert client.default_headers.get("x-posthog-property-team_id") is None
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_attaches_bedrock_fallback_header_when_opted_in(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_async_anthropic_gateway_client(product="signals", team_id=42, use_bedrock_fallback=True)
+
+        assert client.default_headers.get("x-posthog-use-bedrock-fallback") == "true"
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_no_bedrock_fallback_header_by_default(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_async_anthropic_gateway_client(product="signals", team_id=42)
+
+        assert client.default_headers.get("x-posthog-use-bedrock-fallback") is None
