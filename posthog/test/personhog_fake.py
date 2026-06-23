@@ -21,21 +21,25 @@ from django.db import connections, router
 from django.db.models.signals import m2m_changed, post_delete, post_save
 
 from posthog.personhog_client.fake_client import FakePersonHogClient
-from posthog.personhog_client.proto.generated.personhog.types.v1 import group_pb2, person_pb2
+from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, group_pb2, person_pb2
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from posthog.models.group.group import Group
     from posthog.models.group_type_mapping import GroupTypeMapping
     from posthog.models.person import Person, PersonDistinctId
+
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
 
 _active_fake: FakePersonHogClient | None = None
 
 
-def _datetime_to_ms(dt: object) -> int:
+def _datetime_to_ms(dt: datetime | None) -> int:
     if dt is None:
         return 0
-    return int(dt.timestamp() * 1000)  # type: ignore[union-attr]
+    return int(dt.timestamp() * 1000)
 
 
 def set_active_fake(fake: FakePersonHogClient | None) -> None:
@@ -43,7 +47,8 @@ def set_active_fake(fake: FakePersonHogClient | None) -> None:
     _active_fake = fake
 
 
-def get_active_fake() -> FakePersonHogClient | None:
+def get_active_fake() -> FakePersonHogClient:
+    assert _active_fake is not None, "get_active_fake() called outside activate_personhog_fake() context"
     return _active_fake
 
 
@@ -226,20 +231,20 @@ def _on_group_type_mapping_post_save(sender: type, instance: GroupTypeMapping, *
 # ── Cohort membership signal receivers ──────────────────────────────
 
 
-def _on_cohort_people_post_save(sender: type, instance: object, **kwargs: object) -> None:
+def _on_cohort_people_post_save(sender: type, instance: CohortPeople, **kwargs: object) -> None:
     if _active_fake is None:
         return
-    cohort_id = instance.cohort_id  # type: ignore[union-attr]
-    person_id = instance.person_id  # type: ignore[union-attr]
+    cohort_id = instance.cohort_id
+    person_id = instance.person_id
     if (cohort_id, person_id) not in _active_fake._cohort_members:
         _active_fake.add_cohort_membership(person_id=person_id, cohort_id=cohort_id, is_member=True)
 
 
-def _on_cohort_people_post_delete(sender: type, instance: object, **kwargs: object) -> None:
+def _on_cohort_people_post_delete(sender: type, instance: CohortPeople, **kwargs: object) -> None:
     if _active_fake is None:
         return
-    cohort_id = instance.cohort_id  # type: ignore[union-attr]
-    person_id = instance.person_id  # type: ignore[union-attr]
+    cohort_id = instance.cohort_id
+    person_id = instance.person_id
     _active_fake._cohort_members.pop((cohort_id, person_id), None)
     memberships = _active_fake._cohort_memberships.get(person_id)
     if memberships is not None:
@@ -247,7 +252,7 @@ def _on_cohort_people_post_delete(sender: type, instance: object, **kwargs: obje
 
 
 def _on_cohort_people_m2m_changed(
-    sender: type, instance: object, action: str, pk_set: set[int] | None, **kwargs: object
+    sender: type, instance: Cohort, action: str, pk_set: set[int] | None, **kwargs: object
 ) -> None:
     """Handle cohort.people.add() / .remove() which fires m2m_changed, not post_save."""
     if _active_fake is None or pk_set is None:
@@ -256,12 +261,12 @@ def _on_cohort_people_m2m_changed(
     from products.cohorts.backend.models.cohort import CohortPeople as _CP
 
     if action == "post_add":
-        cohort_id = instance.pk  # type: ignore[union-attr]
+        cohort_id = instance.pk
         for cp in _CP.objects.filter(cohort_id=cohort_id, person_id__in=pk_set):  # nosemgrep: no-direct-persons-db-orm
             if (cp.cohort_id, cp.person_id) not in _active_fake._cohort_members:
                 _active_fake.add_cohort_membership(person_id=cp.person_id, cohort_id=cp.cohort_id, is_member=True)
     elif action == "post_remove":
-        cohort_id = instance.pk  # type: ignore[union-attr]
+        cohort_id = instance.pk
         for person_id in pk_set:
             _active_fake._cohort_members.pop((cohort_id, person_id), None)
             memberships = _active_fake._cohort_memberships.get(person_id)
@@ -385,16 +390,16 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
 
     def insert_cohort_members(
         self,
-        request: person_pb2.InsertCohortMembersRequest | object,
+        request: cohort_pb2.InsertCohortMembersRequest,
         timeout: float | None = None,
-    ) -> person_pb2.InsertCohortMembersResponse | object:
-        response = super().insert_cohort_members(request, timeout)  # type: ignore[arg-type]
-        if response.inserted_count > 0:  # type: ignore[union-attr]
+    ) -> cohort_pb2.InsertCohortMembersResponse:
+        response = super().insert_cohort_members(request, timeout)
+        if response.inserted_count > 0:
             from products.cohorts.backend.models.cohort import CohortPeople
 
-            for pid in request.person_ids:  # type: ignore[union-attr]
+            for pid in request.person_ids:
                 CohortPeople.objects.get_or_create(
-                    cohort_id=request.cohort_id,  # type: ignore[union-attr]
+                    cohort_id=request.cohort_id,
                     person_id=pid,
                     defaults={"version": 0},
                 )
@@ -402,27 +407,27 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
 
     def delete_cohort_member(
         self,
-        request: object,
+        request: cohort_pb2.DeleteCohortMemberRequest,
         timeout: float | None = None,
-    ) -> object:
-        response = super().delete_cohort_member(request, timeout)  # type: ignore[arg-type]
-        if response.deleted:  # type: ignore[union-attr]
+    ) -> cohort_pb2.DeleteCohortMemberResponse:
+        response = super().delete_cohort_member(request, timeout)
+        if response.deleted:
             db = _persons_db_alias()
             with connections[db].cursor() as cursor:
                 cursor.execute(
                     "DELETE FROM posthog_cohortpeople WHERE cohort_id = %s AND person_id = %s",
-                    [request.cohort_id, request.person_id],  # type: ignore[union-attr]
+                    [request.cohort_id, request.person_id],
                 )
         return response
 
     def delete_cohort_members_bulk(
         self,
-        request: object,
+        request: cohort_pb2.DeleteCohortMembersBulkRequest,
         timeout: float | None = None,
-    ) -> object:
-        response = super().delete_cohort_members_bulk(request, timeout)  # type: ignore[arg-type]
-        if response.deleted_count > 0:  # type: ignore[union-attr]
-            cohort_ids = list(request.cohort_ids)  # type: ignore[union-attr]
+    ) -> cohort_pb2.DeleteCohortMembersBulkResponse:
+        response = super().delete_cohort_members_bulk(request, timeout)
+        if response.deleted_count > 0:
+            cohort_ids = list(request.cohort_ids)
             if cohort_ids:
                 placeholders = ", ".join(["%s"] * len(cohort_ids))
                 db = _persons_db_alias()
