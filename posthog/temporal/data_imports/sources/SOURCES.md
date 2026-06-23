@@ -139,6 +139,7 @@ the row lists both.
 | okta              | HTTP                        | requests                                                        | ✅                          |
 | notion            | HTTP                        | requests                                                        | ✅                          |
 | omnisend          | HTTP                        | requests                                                        | ✅                          |
+| orb               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ortto             | HTTP                        | requests                                                        | ✅                          |
 | outbrain          | HTTP                        | requests                                                        | ✅                          |
 | paddle            | HTTP                        | requests                                                        | ✅                          |
@@ -522,7 +523,6 @@ doesn't conflict with concurrent PRs.
 - oracle
 - oracle_ebs
 - oracle_fusion
-- orb
 - orbit
 - oura
 - outlook
