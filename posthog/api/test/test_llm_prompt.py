@@ -21,23 +21,19 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 class TestLLMPromptAPI(APIBaseTest):
     @parameterized.expand(
         [
-            ("prompt_management_enabled", True, False, status.HTTP_200_OK),
-            ("early_adopters_enabled", False, True, status.HTTP_200_OK),
-            ("both_enabled", True, True, status.HTTP_200_OK),
-            ("both_disabled", False, False, status.HTTP_403_FORBIDDEN),
+            ("early_adopters_enabled", True, status.HTTP_200_OK),
+            ("early_adopters_disabled", False, status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_prompt_api_permission_accepts_prompt_or_early_adopters_flag(
+    def test_prompt_api_permission_requires_early_adopters_flag(
         self,
         mock_feature_enabled,
         _name,
-        prompt_management_enabled,
         early_adopters_enabled,
         expected_status,
     ):
         def feature_flag_side_effect(flag, *_args, **_kwargs):
             return {
-                "prompt-management": prompt_management_enabled,
                 "llm-analytics-early-adopters": early_adopters_enabled,
             }.get(flag, False)
 

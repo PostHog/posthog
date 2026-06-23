@@ -64,7 +64,7 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_p
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-LLM_PROMPT_FEATURE_FLAGS = ("prompt-management", "llm-analytics-early-adopters")
+LLM_PROMPT_FEATURE_FLAGS = ("llm-analytics-early-adopters",)
 ALLOWED_LIST_ORDERINGS = {
     "name": "name",
     "-name": "-name",
