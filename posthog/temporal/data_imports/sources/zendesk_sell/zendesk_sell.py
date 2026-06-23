@@ -68,20 +68,19 @@ def _fetch_page(
         raise ZendeskSellRetryableError(f"Zendesk Sell API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Zendesk Sell API error: status={response.status_code}, body={response.text}, url={url}")
+        logger.error("Zendesk Sell API error", status=response.status_code, body=response.text, url=url)
         response.raise_for_status()
 
     return response.json()
 
 
 def _extract_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Unwrap each item's `data` object from the collection envelope."""
-    records: list[dict[str, Any]] = []
-    for item in payload.get("items", []):
-        data = item.get("data")
-        if isinstance(data, dict):
-            records.append(data)
-    return records
+    """Unwrap each item's `data` object from the collection envelope.
+
+    Every item in the Zendesk Sell envelope carries a `data` object — direct access fails fast on a
+    malformed response rather than silently dropping records.
+    """
+    return [item["data"] for item in payload.get("items", [])]
 
 
 def get_rows(
@@ -92,8 +91,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ZENDESK_SELL_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
+    # masks the bearer token in logged URLs and captured request samples.
+    session = make_tracked_session(redact_values=(access_token,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
@@ -148,7 +148,8 @@ def validate_credentials(access_token: str) -> bool:
     """Cheap probe that the access token is genuine: list a single contact."""
     url = f"{ZENDESK_SELL_BASE_URL}/v2/contacts?{urlencode({'per_page': 1})}"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=10)
+        session = make_tracked_session(redact_values=(access_token,))
+        response = session.get(url, headers=_get_headers(access_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False

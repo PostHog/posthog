@@ -70,15 +70,16 @@ class TestExtractRecords:
                 {"items": [{"data": {"id": 1, "name": "Acme"}, "meta": {"type": "contact"}}]},
                 [{"id": 1, "name": "Acme"}],
             ),
-            (
-                "skips_items_without_data",
-                {"items": [{"meta": {"type": "contact"}}, {"data": {"id": 2}}]},
-                [{"id": 2}],
-            ),
         ]
     )
     def test_extract_records(self, _name: str, payload: dict[str, Any], expected: list[dict[str, Any]]) -> None:
         assert _extract_records(payload) == expected
+
+    def test_item_without_data_fails_fast(self) -> None:
+        # Every envelope item carries `data`; a missing key means a malformed response, which should
+        # raise rather than silently drop the record.
+        with pytest.raises(KeyError):
+            _extract_records({"items": [{"meta": {"type": "contact"}}]})
 
 
 class TestBuildInitialUrl:
@@ -185,6 +186,37 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(zendesk_sell, "make_tracked_session", return_value=session):
             assert validate_credentials("token") is False
+
+
+class TestTokenRedaction:
+    """The bearer token must be registered for value-redaction in tracked transport so it can't leak
+    into logged URLs or captured request samples."""
+
+    def test_validate_credentials_redacts_token(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response_with(200)
+        with patch.object(zendesk_sell, "make_tracked_session", return_value=session) as make_session:
+            validate_credentials("secret-token")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
+    def test_get_rows_redacts_token(self, monkeypatch: Any) -> None:
+        session = MagicMock()
+        make_session = MagicMock(return_value=session)
+        monkeypatch.setattr(zendesk_sell, "make_tracked_session", make_session)
+        monkeypatch.setattr(
+            zendesk_sell,
+            "_fetch_page",
+            lambda *a, **k: _envelope([], next_page=None),
+        )
+        list(
+            get_rows(
+                access_token="secret-token",
+                endpoint="contacts",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
 
 
 class TestZendeskSellSource:
