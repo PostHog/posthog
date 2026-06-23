@@ -3773,20 +3773,21 @@ class TestGoogleSearchConsoleSitesEndpoint:
         response.status_code = status_code
         return requests.HTTPError(f"{status_code} Client Error", response=response)
 
-    @parameterized.expand([("forbidden", 403), ("unauthorized", 401)])
     @patch(_LIST_SITES_PATH)
     @patch(_SESSION_PATH)
-    def test_auth_error_returns_actionable_400(
-        self, _name, status_code, mock_session, mock_list_sites, client: HttpClient
-    ):
+    def test_auth_error_returns_actionable_400(self, mock_session, mock_list_sites, client: HttpClient):
+        # 401 and 403 both mean the connected account can't read Search Console — the endpoint should
+        # turn either into an actionable 400 rather than letting it surface as an unhandled 500.
         integration = self._create_gsc_integration()
-        mock_list_sites.side_effect = self._http_error(status_code)
-
         client.force_login(self.user)
-        response = client.get(self._url(integration.id))
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "reconnect your account" in str(response.json()).lower()
+        for status_code in (401, 403):
+            mock_list_sites.side_effect = self._http_error(status_code)
+
+            response = client.get(self._url(integration.id))
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "reconnect your account" in str(response.json()).lower()
 
     @patch(_LIST_SITES_PATH)
     @patch(_SESSION_PATH)
@@ -3803,9 +3804,12 @@ class TestGoogleSearchConsoleSitesEndpoint:
     @patch(_LIST_SITES_PATH)
     @patch(_SESSION_PATH)
     def test_non_auth_http_error_is_not_swallowed(self, mock_session, mock_list_sites, client: HttpClient):
+        # Only 401/403 are converted to a 400 — any other status keeps surfacing as a server error so
+        # a genuine bug isn't masked by the auth handling.
         integration = self._create_gsc_integration()
         mock_list_sites.side_effect = self._http_error(500)
 
         client.force_login(self.user)
-        with pytest.raises(requests.HTTPError):
-            client.get(self._url(integration.id))
+        response = client.get(self._url(integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
