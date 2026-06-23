@@ -570,6 +570,11 @@ export namespace Schemas {
       stages: AchievementStage[];
     }
 
+    /**
+     * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+     */
+    export type AchievementProgressUnlockedAt = {[key: string]: string};
+
     export interface AchievementProgress {
       /** Track this progress row belongs to. */
       track_key: string;
@@ -582,6 +587,8 @@ export namespace Schemas {
          * @nullable
          */
       last_computed_at: string | null;
+      /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+      unlocked_at: AchievementProgressUnlockedAt;
     }
 
     export interface PendingCelebration {
