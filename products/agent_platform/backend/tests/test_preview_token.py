@@ -421,41 +421,43 @@ class TestPreviewTokenScopeMapping(APIBaseTest):
         assert "preview_token_mint" in AgentApplicationViewSet.scope_object_write_actions
         assert "preview_token_mint" not in AgentApplicationViewSet.scope_object_read_actions
 
-    def test_get_preview_token_stays_a_declared_read_action(self) -> None:
-        # The `EventSource`-friendly GET sibling must stay read-scoped so SSE
-        # callers with only `agents:read` keep working.
-        assert "preview_token" in AgentApplicationViewSet.scope_object_read_actions
-        assert "preview_token" not in AgentApplicationViewSet.scope_object_write_actions
+    def test_get_preview_token_is_a_declared_write_action(self) -> None:
+        # The `EventSource`-friendly GET sibling returns the SAME usable token
+        # as the POST, so it must be write-scoped too — a read PAT minting a
+        # JWT via GET would reopen the scope hole. Pin it so a refactor can't
+        # silently move it back to read scope.
+        assert "preview_token" in AgentApplicationViewSet.scope_object_write_actions
+        assert "preview_token" not in AgentApplicationViewSet.scope_object_read_actions
 
     # ── runtime gate (PAT) ──────────────────────────────────────────────
 
-    def test_read_scope_pat_can_get_but_cannot_post_mint(self) -> None:
-        # The real safety property: an `agents:read` PAT must NOT be able to
-        # mint a preview JWT (which, attached as `x-agent-preview-token`,
-        # would let it hit ingress `run`/`send`/`cancel` directly). GET still
-        # works because the same response shape is what `EventSource` SSE
-        # callers consume.
+    def test_read_scope_pat_can_neither_get_nor_post_mint(self) -> None:
+        # The safety property: an `agents:read` PAT must NOT be able to mint a
+        # preview JWT by EITHER verb (the token, attached as
+        # `x-agent-preview-token`, would let it hit ingress
+        # `run`/`send`/`cancel` directly). Both GET and POST require write.
         app = self._app()
         rev = self._revision(app)
         raw = self._pat(scopes=["agents:read"])
         # Drop the session auth APIBaseTest set up so the PAT is the sole
         # credential the request carries; otherwise the session cookie
-        # promotes the request back to fully-scoped user auth and the test
-        # only proves the GET path.
+        # promotes the request back to fully-scoped user auth.
         self.client.logout()
         post_res = self.client.post(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
         assert post_res.status_code == 403, post_res.content
         get_res = self.client.get(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
-        assert get_res.status_code == 200, get_res.content
-        assert get_res.json()["token"], "GET with agents:read must still mint (back-compat for EventSource)"
+        assert get_res.status_code == 403, get_res.content
 
-    def test_write_scope_pat_can_post_mint(self) -> None:
-        # The positive case for the same gate: `agents:write` is what the
-        # canonical POST path is supposed to require, and it must succeed.
+    def test_write_scope_pat_can_mint_via_both_verbs(self) -> None:
+        # The positive case: `agents:write` is required for minting, and it
+        # must succeed via both the canonical POST and the EventSource GET.
         app = self._app("preview-scope-bot-write")
         rev = self._revision(app)
         raw = self._pat(scopes=["agents:write"])
         self.client.logout()
-        res = self.client.post(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
-        assert res.status_code == 200, res.content
-        assert res.json()["token"]
+        post_res = self.client.post(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert post_res.status_code == 200, post_res.content
+        assert post_res.json()["token"]
+        get_res = self.client.get(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert get_res.status_code == 200, get_res.content
+        assert get_res.json()["token"]

@@ -37,6 +37,7 @@ import {
     HttpFetcher,
     IdentityAuthRequiredError,
     IntegrationCredentials,
+    isPreviewSideEffect,
     MemoryStore,
     TabularStore,
     Sandbox,
@@ -277,7 +278,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     continue
                 }
                 seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote))
+                tools.push(makeMcpTool(exposedName, client, remote, deps))
             }
         }
     }
@@ -387,6 +388,16 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            // Preview-mode stopgap: custom tools run author-supplied code in the
+            // sandbox and can perform arbitrary external writes, with no
+            // read-vs-write signal to gate on. Suppress every custom-tool call in
+            // preview (fail-closed) before resolving identity or touching the
+            // sandbox. Same accepted trade as MCP — blinds read-only custom tools
+            // too until the dispatch boundary gains a real classification.
+            if (isPreviewSideEffect(buildToolContext(deps), id, args as Record<string, unknown>)) {
+                const skipped = { preview_skipped: true, tool: id }
+                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
+            }
             const gate = await gateIdentity(requiresIdentity ? { id: requiresIdentity, scopes: [] } : undefined, deps)
             if (!gate.proceed) {
                 return gate.result
@@ -467,7 +478,8 @@ function makeClientTool(
 function makeMcpTool(
     exposedName: string,
     client: OpenedMcp,
-    remote: RemoteMcpTool
+    remote: RemoteMcpTool,
+    deps: AgentToolDeps
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: exposedName,
@@ -475,7 +487,20 @@ function makeMcpTool(
         description: remote.description,
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            const callArgs = (args ?? {}) as Record<string, unknown>
+            // Preview-mode stopgap: remote MCP servers can perform arbitrary
+            // external side effects and aren't yet classified read-vs-write, so
+            // suppress every MCP call in preview (fail-closed) rather than let a
+            // write reach the real world. Returns a shape-valid synthetic
+            // envelope so the model's next turn keeps reasoning; logs
+            // `tool_preview_skipped`. This also blinds MCP *reads* in preview —
+            // an accepted, temporary trade until the dispatch boundary gates on
+            // a real read/write signal (tracked follow-up).
+            if (isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
+                const skipped = { preview_skipped: true, tool: exposedName }
+                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
+            }
+            const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
                 // shape as `resultText()` in the driver. Keeps the model's

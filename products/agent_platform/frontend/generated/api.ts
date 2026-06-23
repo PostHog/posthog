@@ -1764,15 +1764,14 @@ export const getAgentApplicationsPreviewTokenUrl = (
 }
 
 /**
- * Read-scoped GET sibling of `preview_token_mint`. Same body
- * and response shape — exists because `EventSource` can't set
- * headers, so SSE callers fetch the token via GET and then
- * attach `?preview_token=` to the ingress URL. Behind the same
- * URL (`url_path="preview-token"`) thanks to DRF's
- * `@<action>.mapping.get`; DRF resolves it to a distinct
- * `view.action` so the scope map can keep this in
- * `scope_object_read_actions` while the POST sibling above
- * lives in `scope_object_write_actions`.
+ * GET sibling of `preview_token_mint`. Same body and response
+ * shape — exists because `EventSource` can't set headers, so SSE
+ * callers fetch the token via GET and then attach `?preview_token=`
+ * to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+ * thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+ * distinct `view.action`, but it is in `scope_object_write_actions`
+ * alongside the POST sibling — both return a usable credential, so
+ * both require `agents:write`.
  */
 export const agentApplicationsPreviewToken = async (
     projectId: string,
@@ -1823,10 +1822,10 @@ export const getAgentApplicationsPreviewTokenMintUrl = (
  * token. This is the "self-describing" half of preview-mode —
  * every piece of info you need to hit ingress is in one response.
  *
- * POST is the canonical, write-scoped verb — minting credentials
- * for downstream `run`/`send`/`cancel` is a write-class
- * capability. A read-scoped GET sibling exists at the same URL
- * for `EventSource` callers and pre-split clients.
+ * POST is the canonical verb — minting credentials for downstream
+ * `run`/`send`/`cancel` is a write-class capability. A GET sibling
+ * exists at the same URL for `EventSource` callers (which can't set
+ * headers); it is also write-scoped, since it returns the same token.
  */
 export const agentApplicationsPreviewTokenMint = async (
     projectId: string,

@@ -540,16 +540,17 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # so it lives here even though it targets a non-live revision. The GET
         # `listen` counterpart (read-only SSE tail) stays in read actions.
         "preview_proxy",
-        # POST `preview_token` mints an ingress JWT a holder can use to call
-        # the public `run`/`send`/`cancel` endpoints directly. That's
-        # equivalent to `preview_proxy` (POST) in capability — anything an
-        # `agents:write` token couldn't do via the proxy, an `agents:read`
-        # token must not be able to do by minting a preview JWT and hitting
-        # ingress on its own. DRF uses the bound function name as
-        # `view.action`, so the POST variant lives in its own action method
-        # (`preview_token_mint`); the GET sibling (`preview_token`) stays in
-        # read actions for back-compat with EventSource callers.
+        # Minting a preview JWT is a write-class capability regardless of verb:
+        # the returned token lets a holder call `run`/`send`/`cancel` against a
+        # draft directly, equivalent to `preview_proxy`. BOTH verbs require
+        # `agents:write` — the POST (`preview_token_mint`) and the GET sibling
+        # (`preview_token`, kept only because EventSource can't set headers)
+        # return the identical usable token, so a read token must not be able to
+        # mint one via either path and hit ingress on its own. (The
+        # `preview_proxy*` actions differ: they use the JWT server-side and
+        # never hand it back, so the GET `preview_proxy_get` stays read-scoped.)
         "preview_token_mint",
+        "preview_token",
     ]
     scope_object_read_actions = [
         "list",
@@ -562,8 +563,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
         # the mutating POST sibling (`preview_proxy`) is a write action above.
+        # The proxy uses the preview JWT server-side and never returns it, so
+        # this read-scoped GET can't leak a usable credential (unlike
+        # `preview_token`, which is write-scoped above).
         "preview_proxy_get",
-        "preview_token",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -824,12 +827,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
 
     # The two verbs live on separate action methods so DRF resolves them to
-    # distinct `view.action` names — `preview_token` (GET, read-scoped) and
-    # `preview_token_mint` (POST, write-scoped). A shared body keeps the
-    # response shape lock-stepped while the scope split prevents an
-    # `agents:read` token from minting a JWT and calling ingress
-    # `run`/`send`/`cancel` directly. Mirrors the `preview_proxy` /
-    # `preview_proxy_get` split for the same reason.
+    # distinct `view.action` names — `preview_token` (GET) and
+    # `preview_token_mint` (POST). Both are write-scoped (see the scope lists):
+    # the returned JWT is a usable credential for `run`/`send`/`cancel`, so
+    # minting it requires `agents:write` no matter the verb. The GET sibling
+    # exists only because EventSource can't set headers — it is NOT a
+    # read-only-safe alternative. A shared body keeps the response shape
+    # lock-stepped across both.
 
     def _build_preview_token_response(self, request: Request) -> Response:
         application = self.get_object()
@@ -879,10 +883,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         token. This is the "self-describing" half of preview-mode —
         every piece of info you need to hit ingress is in one response.
 
-        POST is the canonical, write-scoped verb — minting credentials
-        for downstream `run`/`send`/`cancel` is a write-class
-        capability. A read-scoped GET sibling exists at the same URL
-        for `EventSource` callers and pre-split clients.
+        POST is the canonical verb — minting credentials for downstream
+        `run`/`send`/`cancel` is a write-class capability. A GET sibling
+        exists at the same URL for `EventSource` callers (which can't set
+        headers); it is also write-scoped, since it returns the same token.
         """
         return self._build_preview_token_response(request)
 
@@ -894,15 +898,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @preview_token_mint.mapping.get
     def preview_token(self, request: Request, **kwargs) -> Response:
-        """Read-scoped GET sibling of `preview_token_mint`. Same body
-        and response shape — exists because `EventSource` can't set
-        headers, so SSE callers fetch the token via GET and then
-        attach `?preview_token=` to the ingress URL. Behind the same
-        URL (`url_path="preview-token"`) thanks to DRF's
-        `@<action>.mapping.get`; DRF resolves it to a distinct
-        `view.action` so the scope map can keep this in
-        `scope_object_read_actions` while the POST sibling above
-        lives in `scope_object_write_actions`.
+        """GET sibling of `preview_token_mint`. Same body and response
+        shape — exists because `EventSource` can't set headers, so SSE
+        callers fetch the token via GET and then attach `?preview_token=`
+        to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+        thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+        distinct `view.action`, but it is in `scope_object_write_actions`
+        alongside the POST sibling — both return a usable credential, so
+        both require `agents:write`.
         """
         return self._build_preview_token_response(request)
 
