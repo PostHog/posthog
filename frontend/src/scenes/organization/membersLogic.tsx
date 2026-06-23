@@ -182,6 +182,14 @@ export const membersLogic = kea<membersLogicType>([
             (filteredMembers, user): OrganizationMemberType[] =>
                 user ? filteredMembers.filter((member) => member.user.uuid !== user.uuid) : filteredMembers,
         ],
+        selectableMembers: [
+            (s) => [s.me, s.otherMembers, s.search],
+            (me, otherMembers, search) =>
+                (membersToExclude: (string | number)[] = [], by: 'id' | 'uuid' = 'id'): OrganizationMemberType[] => {
+                    const members = me && !search.trim() ? [me, ...otherMembers] : otherMembers
+                    return members.filter((member) => !membersToExclude.includes(member.user[by]))
+                },
+        ],
         filteredMembers: [
             (s) => [s.meFirstMembers, s.searchedMembers, s.search],
             (members, searched, search): OrganizationMemberType[] => {

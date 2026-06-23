@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { MemberSelectRow } from './MemberSelectRow'
 
 export type MemberSelectMultiplePopoverProps = {
     /** Currently selected member user ids. */
@@ -30,12 +31,12 @@ export function MemberSelectMultiplePopover({
     label = 'Created by',
     borderless = false,
 }: MemberSelectMultiplePopoverProps): JSX.Element {
-    const { me, otherMembers, membersLoading, search } = useValues(membersLogic)
+    const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
 
     const hasSelection = value.length > 0
     const currentUserId = me?.user.id
-    const meToShow = me && !search.trim() ? me : null
+    const members = selectableMembers()
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === currentUserId
 
     const toggleMember = (userId: number): void => {
@@ -71,56 +72,18 @@ export function MemberSelectMultiplePopover({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {meToShow && (
-                            <li>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={meToShow.user} />}
-                                    onClick={() => toggleMember(meToShow.user.id)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={value.includes(meToShow.user.id)}
-                                                readOnly
-                                            />
-                                            <span>{fullName(meToShow.user)}</span>
-                                        </span>
-                                        <span className="text-secondary">(you)</span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        )}
-                        {otherMembers.map((member) => (
-                            <li key={member.user.uuid}>
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<ProfilePicture size="md" user={member.user} />}
-                                    onClick={() => toggleMember(member.user.id)}
-                                >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span className="flex items-center gap-2 max-w-full">
-                                            <input
-                                                type="checkbox"
-                                                className="cursor-pointer"
-                                                checked={value.includes(member.user.id)}
-                                                readOnly
-                                            />
-                                            <span>{fullName(member.user)}</span>
-                                        </span>
-                                    </span>
-                                </LemonButton>
-                            </li>
+                        {members.map((member) => (
+                            <MemberSelectRow
+                                key={member.user.uuid}
+                                member={member}
+                                isYou={member === me}
+                                onClick={() => toggleMember(member.user.id)}
+                                checked={value.includes(member.user.id)}
+                            />
                         ))}
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : !meToShow && otherMembers.length === 0 ? (
+                        ) : members.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

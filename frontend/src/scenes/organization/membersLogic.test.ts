@@ -54,4 +54,28 @@ describe('membersLogic', () => {
             ])
         })
     })
+
+    describe('selectableMembers', () => {
+        it('offers just the current user before the list loads', async () => {
+            await expectLogic(logic).toMatchValues({ members: null })
+
+            expect(logic.values.selectableMembers().map((member) => member.user.uuid)).toEqual([MOCK_USER_UUID])
+        })
+
+        it('puts the current user first and excludes the given members once loaded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadAllMembers()
+            }).toFinishAllListeners()
+
+            expect(logic.values.selectableMembers().map((member) => member.user.uuid)).toEqual([
+                MOCK_USER_UUID,
+                MOCK_SECOND_ORGANIZATION_MEMBER.user.uuid,
+            ])
+            expect(
+                logic.values
+                    .selectableMembers([MOCK_SECOND_ORGANIZATION_MEMBER.user.id], 'id')
+                    .map((member) => member.user.uuid)
+            ).toEqual([MOCK_USER_UUID])
+        })
+    })
 })
