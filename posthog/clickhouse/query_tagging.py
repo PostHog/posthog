@@ -416,7 +416,12 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
+    experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
