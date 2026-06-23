@@ -38,7 +38,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
@@ -1364,29 +1364,133 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             return None
         return hashes, operator
 
+    def _leaf_having_expr(self, prop: Property, all_hashes: list[str]) -> Optional[ast.Expr]:
+        """Build the HAVING predicate for one person-property leaf, over the single-scan rows.
+
+        The inner scan emits one row per (person, condition) with `latest_matches`, so in the
+        outer GROUP BY person_id a leaf is "did this person's latest row(s) for these hashes
+        match?":
+            - single hash / OR-merged → maxIf(latest_matches, condition IN hashes) = 1  (any matched)
+            - AND-merged             → countIf(latest_matches = 1 AND condition IN hashes) = N  (all matched)
+
+        Returns None for anything that isn't a non-negated person property with a conditionHash
+        (behavioral, dynamic-cohort, negated, …), so the caller falls through to the parent path.
+        """
+        if prop.type != "person" or prop.negation:
+            return None
+        condition_hash = getattr(prop, "conditionHash", None)
+        if not condition_hash:
+            return None
+
+        merged = getattr(prop, "_merged_condition_hashes", None)
+        hashes = self._deduplicate_hashes(merged) if merged else [condition_hash]
+        all_hashes.extend(hashes)
+        hashes_tuple = ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes])
+
+        # A single hash or an OR-merged leaf matches if ANY of its hashes is the person's latest 1.
+        if len(hashes) == 1 or getattr(prop, "_is_or_group", False):
+            return parse_expr("maxIf(latest_matches, condition IN {hashes}) = 1", {"hashes": hashes_tuple})
+        # An AND-merged leaf matches only if ALL of its hashes are the person's latest 1.
+        return parse_expr(
+            "countIf(latest_matches = 1 AND condition IN {hashes}) = {n}",
+            {"hashes": hashes_tuple, "n": ast.Constant(value=len(hashes))},
+        )
+
+    def _build_person_property_having(self, prop_group: PropertyGroup, all_hashes: list[str]) -> Optional[ast.Expr]:
+        """Recursively turn a nested AND/OR of person properties into one HAVING boolean expr.
+
+        Every leaf hash is appended to `all_hashes` so the caller can scope the scan's
+        `condition IN (...)` filter. Returns None if any leaf is unsupported, so the whole cohort
+        falls through to the parent's multi-subquery path.
+        """
+        operator = prop_group.type
+        if operator not in (PropertyOperatorType.AND, PropertyOperatorType.OR):
+            return None
+
+        child_exprs: list[ast.Expr] = []
+        for value in prop_group.values:
+            if isinstance(value, PropertyGroup):
+                child = self._build_person_property_having(value, all_hashes)
+            else:
+                child = self._leaf_having_expr(value, all_hashes)
+            if child is None:
+                return None
+            child_exprs.append(child)
+
+        if not child_exprs:
+            return None
+        if len(child_exprs) == 1:
+            return child_exprs[0]
+        return ast.And(exprs=child_exprs) if operator == PropertyOperatorType.AND else ast.Or(exprs=child_exprs)
+
+    def _build_boolean_tree_query(self, prop_group: PropertyGroup) -> Optional[ast.SelectQuery]:
+        """One scan for an arbitrarily nested AND/OR of person properties.
+
+        Generalises the flat single-scan: instead of INTERSECT/UNION DISTINCT-ing N person sets
+        (which materialises N intermediate sets and OOMs on large cohorts), it reads the table
+        once and evaluates the whole boolean expression per person in the HAVING.
+        """
+        all_hashes: list[str] = []
+        having = self._build_person_property_having(prop_group, all_hashes)
+        if having is None or not all_hashes:
+            return None
+
+        deduplicated = self._deduplicate_hashes(all_hashes)
+        query_str = """
+            SELECT
+                person_id as id
+            FROM
+            (
+                SELECT
+                    person_id,
+                    condition,
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
+                FROM precalculated_person_properties
+                WHERE
+                    team_id = {team_id}
+                    AND condition IN {condition_hashes}
+                GROUP BY person_id, condition
+            )
+            GROUP BY person_id
+            HAVING {having}
+        """
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                query_str,
+                {
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in deduplicated]),
+                    "having": having,
+                },
+            ),
+        )
+
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """Override to emit a single-scan query when all conditions are person properties.
 
-        For cohorts whose top-level group is a flat AND/OR of non-negated person properties
-        (all backed by precalculated_person_properties), the parent would produce N separate
-        subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full table and
-        the set operations materialise large intermediate results — a common source of OOMs
-        for large cohorts with many person-property conditions.
+        For cohorts backed entirely by precalculated_person_properties, the parent would produce
+        N separate subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full
+        table and the set operations materialise large intermediate person sets — a common source
+        of OOMs for large cohorts (seen at 37 GiB in production). We instead read the table once.
 
-        When the cohort qualifies, we instead do one scan and count matching conditions per
-        person. The peak group count is unchanged, but collapsing N full-table scans into one
-        with a tiny per-group argMax(Bool) state (rather than N materialized person-UUID sets)
-        is what avoids the OOM.
+        Two shapes qualify, tried in order:
+          1. Flat AND/OR of leaves → count matched conditions per person (HAVING countIf >= N).
+          2. Arbitrarily nested AND/OR of leaves → evaluate the boolean tree per person in the
+             HAVING (maxIf/countIf leaves combined with AND/OR).
 
-        Cohorts with mixed conditions (behavioral, dynamic-cohort, negation, deeply nested
-        groups, or nested boolean groups whose operator differs from the top level) fall through
-        to the parent's multi-subquery path unchanged.
+        Cohorts with any non-person leaf (behavioral, dynamic-cohort, static-cohort) or a negated
+        person property fall through to the parent's multi-subquery path unchanged.
         """
         if self.property_groups is not None:
             result = self._collect_person_property_hashes(self.property_groups)
             if result is not None:
                 hashes, operator = result
                 return self._build_count_match_query(hashes, operator)
+            tree_query = self._build_boolean_tree_query(self.property_groups)
+            if tree_query is not None:
+                return tree_query
         return super()._get_conditions()
 
     def _collect_person_property_hashes(
