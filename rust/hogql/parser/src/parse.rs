@@ -1480,6 +1480,11 @@ mod tests {
         assert_eq!(f("{a{{sd}"), "a{sd");
         assert_eq!(f("{a}sd}"), "a}sd");
 
+        // Odd / long quote runs — pins str::replace against cpp's sequential replace_all.
+        assert_eq!(f("''''''"), "''");
+        assert_eq!(f("'a'''b'"), "a''b");
+        assert_eq!(f("`a```b`"), "a``b");
+
         // Backslash-escaped quotes (the lenient form the strict in-parser decoder rejects).
         assert_eq!(f("`a\\`sd`"), "a`sd");
         assert_eq!(f("'a\\'sd'"), "a'sd");

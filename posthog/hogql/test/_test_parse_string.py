@@ -30,6 +30,12 @@ def parse_string_test_factory(backend: HogQLParserBackend):
             self.assertEqual(parse_string("{a{{sd}"), "a{sd")
             self.assertEqual(parse_string("{a}sd}"), "a}sd")
 
+        def test_quote_run_collapse(self):
+            # Odd/long quote runs pin sequential-replace semantics (rust str::replace vs cpp replace_all).
+            self.assertEqual(parse_string("''''''"), "''")
+            self.assertEqual(parse_string("'a'''b'"), "a''b")
+            self.assertEqual(parse_string("`a```b`"), "a``b")
+
         def test_escaped_quotes_slash(self):
             self.assertEqual(parse_string("`a\\`sd`"), "a`sd")
             self.assertEqual(parse_string("'a\\'sd'"), "a'sd")
