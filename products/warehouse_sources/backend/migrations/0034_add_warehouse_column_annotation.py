@@ -38,7 +38,7 @@ class Migration(migrations.Migration):
                     "description_source",
                     models.CharField(
                         choices=[
-                            ("native_comment", "Native comment"),
+                            ("canonical", "Canonical"),
                             ("ai_generated", "AI generated"),
                             ("user_edited", "User edited"),
                         ],

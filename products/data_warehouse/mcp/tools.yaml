@@ -379,8 +379,8 @@ tools:
         description: >
             List semantic descriptions of data warehouse tables and columns. Pass ?table_id=<uuid> to scope to one
             table. Each entry has the column_name (empty string = table-level description), the description, and its
-            source (native_comment from the source database, ai_generated, or user_edited). Use this to see what the
-            imported data means before writing SQL against it.
+            source (canonical from the source's API documentation, ai_generated, or user_edited). Use this to see what
+            the imported data means before writing SQL against it.
     warehouse-column-annotations-partial-update:
         operation: warehouse_column_annotations_partial_update
         enabled: true

@@ -1,0 +1,147 @@
+"""Canonical, documentation-sourced descriptions for Stripe endpoints and columns.
+
+Sourced from the official Stripe API reference (https://stripe.com/docs/api). Keyed by the resource
+names in `constants.py` / `settings.py` `ENDPOINTS`, which match the `ExternalDataSchema.name` of a
+synced Stripe table. Endpoints/columns absent here fall back to LLM enrichment. Extend as coverage
+grows — see the `implementing-warehouse-sources` skill.
+"""
+
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
+    PRICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    CHARGE_RESOURCE_NAME: {
+        "description": "A single attempt to move money into your Stripe account by charging a payment source.",
+        "docs_url": "https://stripe.com/docs/api/charges",
+        "columns": {
+            "id": "Unique identifier for the charge.",
+            "amount": "Amount intended to be collected by this charge, in the smallest currency unit (e.g. cents).",
+            "amount_captured": "Amount actually captured from the charge, in the smallest currency unit.",
+            "amount_refunded": "Amount refunded from the charge, in the smallest currency unit.",
+            "currency": "Three-letter ISO currency code of the charge, in lowercase.",
+            "customer": "ID of the customer this charge is for, if one exists.",
+            "created": "Time at which the charge was created, as a Unix timestamp.",
+            "paid": "Whether the charge has been fully paid.",
+            "refunded": "Whether the charge has been fully refunded.",
+            "status": "Status of the payment: succeeded, pending, or failed.",
+            "payment_intent": "ID of the PaymentIntent associated with this charge, if any.",
+            "payment_method": "ID of the payment method used in this charge.",
+            "description": "Arbitrary free-form description attached to the charge.",
+            "invoice": "ID of the invoice this charge is for, if one exists.",
+            "captured": "Whether the charge has been captured (uncaptured charges expire after a set number of days).",
+            "disputed": "Whether the charge has been disputed.",
+            "failure_code": "Error code explaining the reason for a failed charge, if applicable.",
+            "failure_message": "Human-readable message explaining the reason for a failed charge, if applicable.",
+            "receipt_email": "Email address to which the charge's receipt is sent.",
+        },
+    },
+    CUSTOMER_RESOURCE_NAME: {
+        "description": "A Stripe customer, allowing recurring charges and tracking of payments belonging to the same person.",
+        "docs_url": "https://stripe.com/docs/api/customers",
+        "columns": {
+            "id": "Unique identifier for the customer.",
+            "email": "Customer's email address.",
+            "name": "Customer's full name or business name.",
+            "created": "Time at which the customer was created, as a Unix timestamp.",
+            "currency": "Three-letter ISO code for the currency the customer can be charged in for recurring billing.",
+            "description": "Arbitrary free-form description attached to the customer.",
+            "balance": "Current balance, if any, that's stored on the customer (negative = credit).",
+            "delinquent": "Whether the latest charge for the customer's subscription has failed.",
+            "phone": "Customer's phone number.",
+            "default_source": "ID of the default payment source for the customer.",
+            "invoice_prefix": "Prefix for the customer used to generate unique invoice numbers.",
+            "tax_exempt": "The customer's tax exemption status: none, exempt, or reverse.",
+        },
+    },
+    INVOICE_RESOURCE_NAME: {
+        "description": "A statement of amounts owed by a customer, generated for subscriptions or one-off billing.",
+        "docs_url": "https://stripe.com/docs/api/invoices",
+        "columns": {
+            "id": "Unique identifier for the invoice.",
+            "customer": "ID of the customer this invoice belongs to.",
+            "subscription": "ID of the subscription this invoice was prepared for, if any.",
+            "status": "Status of the invoice: draft, open, paid, uncollectible, or void.",
+            "currency": "Three-letter ISO currency code of the invoice, in lowercase.",
+            "amount_due": "Final amount due at this time for this invoice, in the smallest currency unit.",
+            "amount_paid": "Amount that was paid on this invoice, in the smallest currency unit.",
+            "amount_remaining": "Amount remaining to be paid on this invoice, in the smallest currency unit.",
+            "total": "Total of all line items and discounts on the invoice, in the smallest currency unit.",
+            "subtotal": "Total before any discounts or taxes are applied, in the smallest currency unit.",
+            "created": "Time at which the invoice was created, as a Unix timestamp.",
+            "due_date": "Date on which payment for this invoice is due, as a Unix timestamp.",
+            "paid": "Whether the invoice has been paid.",
+            "number": "Unique, user-facing reference number assigned to the invoice.",
+            "period_start": "Start of the billing period covered by this invoice, as a Unix timestamp.",
+            "period_end": "End of the billing period covered by this invoice, as a Unix timestamp.",
+        },
+    },
+    SUBSCRIPTION_RESOURCE_NAME: {
+        "description": "A customer's recurring billing arrangement against one or more prices.",
+        "docs_url": "https://stripe.com/docs/api/subscriptions",
+        "columns": {
+            "id": "Unique identifier for the subscription.",
+            "customer": "ID of the customer who owns the subscription.",
+            "status": "Status of the subscription: trialing, active, past_due, canceled, unpaid, or incomplete.",
+            "created": "Time at which the subscription was created, as a Unix timestamp.",
+            "current_period_start": "Start of the current billing period, as a Unix timestamp.",
+            "current_period_end": "End of the current billing period — the next time the subscription bills, as a Unix timestamp.",
+            "start_date": "Date when the subscription was first created, as a Unix timestamp.",
+            "canceled_at": "Time at which the subscription was canceled, as a Unix timestamp, if applicable.",
+            "cancel_at_period_end": "Whether the subscription will be canceled at the end of the current period.",
+            "currency": "Three-letter ISO currency code the subscription bills in, in lowercase.",
+            "trial_start": "Start of the subscription's trial period, as a Unix timestamp, if any.",
+            "trial_end": "End of the subscription's trial period, as a Unix timestamp, if any.",
+        },
+    },
+    PRODUCT_RESOURCE_NAME: {
+        "description": "A good or service that you sell, which prices are attached to.",
+        "docs_url": "https://stripe.com/docs/api/products",
+        "columns": {
+            "id": "Unique identifier for the product.",
+            "name": "The product's name, shown to customers at checkout and on invoices.",
+            "description": "The product's description, shown to customers at checkout and on invoices.",
+            "active": "Whether the product is currently available for purchase.",
+            "created": "Time at which the product was created, as a Unix timestamp.",
+            "updated": "Time at which the product was last updated, as a Unix timestamp.",
+            "default_price": "ID of the default price this product is sold at, if set.",
+        },
+    },
+    PRICE_RESOURCE_NAME: {
+        "description": "How much and how often to charge for a product — its unit cost, currency, and billing interval.",
+        "docs_url": "https://stripe.com/docs/api/prices",
+        "columns": {
+            "id": "Unique identifier for the price.",
+            "product": "ID of the product this price is for.",
+            "currency": "Three-letter ISO currency code the price is set in, in lowercase.",
+            "unit_amount": "Amount charged per unit, in the smallest currency unit (e.g. cents).",
+            "active": "Whether the price can be used for new purchases.",
+            "type": "Whether the price is for a one_time purchase or a recurring subscription.",
+            "created": "Time at which the price was created, as a Unix timestamp.",
+            "nickname": "Brief internal description of the price, not shown to customers.",
+        },
+    },
+    BALANCE_TRANSACTION_RESOURCE_NAME: {
+        "description": "A change to your Stripe account balance — a charge, refund, payout, or fee.",
+        "docs_url": "https://stripe.com/docs/api/balance_transactions",
+        "columns": {
+            "id": "Unique identifier for the balance transaction.",
+            "amount": "Gross amount of the transaction, in the smallest currency unit.",
+            "net": "Net amount of the transaction after fees, in the smallest currency unit.",
+            "fee": "Fees (in the smallest currency unit) taken from this transaction.",
+            "currency": "Three-letter ISO currency code of the transaction, in lowercase.",
+            "type": "Transaction type (e.g. charge, refund, payout, adjustment, stripe_fee).",
+            "status": "Status of the transaction: available or pending.",
+            "created": "Time at which the transaction was created, as a Unix timestamp.",
+            "available_on": "Time at which the funds become available in the balance, as a Unix timestamp.",
+            "source": "ID of the Stripe object (charge, refund, payout, …) that caused this transaction.",
+        },
+    },
+}
