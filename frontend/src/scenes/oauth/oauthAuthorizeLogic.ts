@@ -672,8 +672,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     actions.setResourceScopesUsedFallback(false)
                     actions.setScopes(oauthMcpConsent.scopes)
                 } else if (oauthMcpConsent.scopes_fetch_failed && resourceParam) {
-                    actions.setResourceScopesUsedFallback(true)
-                    actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
+                    actions.loadResourceScopes(resourceParam)
                 } else if (resourceParam) {
                     actions.loadResourceScopes(resourceParam)
                 }
