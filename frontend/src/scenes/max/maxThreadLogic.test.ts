@@ -2146,6 +2146,68 @@ describe('maxThreadLogic', () => {
             ])
         })
 
+        // Regression test for #65566: after a stop + resend, the server can echo the human
+        // message back with a different trace_id than the provisional bubble we added. We must
+        // still replace the provisional bubble in place (matching on content) instead of
+        // appending the echo at the end, otherwise it lands below the assistant's streaming
+        // thinking block and the transcript reads out of order until reload.
+        it('replaces provisional human message by content when trace_id differs (stop + resend)', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            // Provisional human bubble added on ask: no server id yet, carries the client trace_id
+            logic.actions.addMessage({
+                type: AssistantMessageType.Human,
+                content: 'My original prompt with more detail',
+                status: 'completed',
+                trace_id: 'client-trace-new',
+            })
+
+            await expectLogic(logic, async () => {
+                // Assistant starts streaming a thinking block before the human echo arrives
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: '',
+                        meta: { thinking: [{ type: 'thinking', thinking: 'Let me think...' }] },
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+
+                // Server echoes the human message back, but with a reassigned trace_id
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-server-1',
+                        type: AssistantMessageType.Human,
+                        content: 'My original prompt with more detail',
+                        trace_id: 'server-trace-reassigned',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+            })
+
+            // The human echo must replace the provisional bubble in place (index 0), keeping the
+            // assistant thinking block below it — not append a duplicate human message at the end.
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-server-1',
+                    type: AssistantMessageType.Human,
+                    content: 'My original prompt with more detail',
+                    trace_id: 'server-trace-reassigned',
+                    status: 'completed',
+                },
+                {
+                    id: 'temp-0',
+                    type: AssistantMessageType.Assistant,
+                    content: '',
+                    meta: { thinking: [{ type: 'thinking', thinking: 'Let me think...' }] },
+                    status: 'loading',
+                },
+            ])
+        })
+
         it('replaces existing message when final ID matches already present ID', async () => {
             const { onEventImplementation } = await import('./maxThreadLogic')
 
