@@ -12,6 +12,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, cast
 
@@ -91,10 +92,9 @@ class Job:
     conclusion: str | None
     run_attempt: int
     html_url: str
-    # ISO timestamps from the API. A genuine re-run advances started_at; a carried-over job keeps the
-    # prior attempt's value byte-for-byte (run_attempt reports the latest attempt for every job either way).
+    # A genuine re-run advances started_at; a carried-over job keeps the prior attempt's value byte-for-byte
+    # (run_attempt reports the latest attempt for every job either way), so started_at is the re-run signal.
     started_at: str | None = None
-    completed_at: str | None = None
     steps: tuple[Step, ...] = ()
 
     def failed_step_names(self) -> tuple[str, ...]:
@@ -200,7 +200,6 @@ def job_from_object(raw: JsonObject, run_attempt: int) -> Job:
         run_attempt=as_int(raw.get("run_attempt")) or run_attempt,
         html_url=as_str(raw.get("html_url")) or "",
         started_at=as_str(raw.get("started_at")),
-        completed_at=as_str(raw.get("completed_at")),
         steps=tuple(
             Step(name=as_str(step.get("name")) or "", conclusion=as_str(step.get("conclusion")))
             for step in as_object_list(raw.get("steps"))
@@ -215,10 +214,11 @@ def fetch_jobs(repo: str, run_id: int, run_attempt: int, *, strict: bool = False
         try:
             raw = gh_json(repo, f"actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100&page={page}")
         except ExternalCommandError:
-            # The non-attempt endpoint returns the LATEST attempt. For rerun-outcome comparison the prior
-            # attempt must be exact, so strict callers get an empty result rather than a masquerading attempt.
+            # The non-attempt endpoint returns the LATEST attempt, so it can't stand in for an arbitrary
+            # prior attempt. Strict callers need exact rows, so fail closed (drop any partial pages) rather
+            # than return a truncated set or a masquerading attempt.
             if strict:
-                return tuple(jobs)
+                return ()
             raw = gh_json(repo, f"actions/runs/{run_id}/jobs?per_page=100&page={page}")
         page_jobs = as_object_list(raw.get("jobs"))
         jobs.extend(job_from_object(job, run_attempt) for job in page_jobs)
@@ -316,12 +316,25 @@ def rerun_outcome_label(conclusion: str | None) -> str:
     return "unknown"
 
 
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # Normalize a trailing `Z` for parsers that don't accept the military-zulu suffix.
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
 def job_was_reexecuted(prior_job: Job, current_job: Job) -> bool:
-    # A real re-run advances started_at; a carried-over job keeps the prior attempt's value. Missing
-    # timestamps can't prove re-execution, so treat them as not re-run rather than guess.
-    if not prior_job.started_at or not current_job.started_at:
+    # A real re-run advances started_at; a carried-over job keeps the prior attempt's value. Compare parsed
+    # instants, not raw strings, so a `+00:00` vs `Z` form can't misorder. Missing/unparseable timestamps
+    # can't prove re-execution, so treat them as not re-run rather than guess.
+    prior = parse_timestamp(prior_job.started_at)
+    current = parse_timestamp(current_job.started_at)
+    if prior is None or current is None:
         return False
-    return current_job.started_at > prior_job.started_at
+    return current > prior
 
 
 def rerun_outcome(prior_job: Job, current_job: Job | None) -> str:
@@ -353,18 +366,19 @@ def report_rerun_outcomes(repo: str, workflow_run: WorkflowRun) -> list[JsonObje
     if workflow_run.run_attempt <= 1:
         return []
     prior_attempt = workflow_run.run_attempt - 1
-    # Attempt-strict: the prior attempt's rows must be exact. The non-attempt fallback returns the latest
-    # attempt, which would alias as "prior" and collapse the started_at re-execution check below.
+    # Fetch the prior attempt strict: the non-attempt fallback returns the LATEST attempt, which would alias
+    # as "prior" and collapse the started_at re-execution check. The current attempt IS the latest, so it
+    # keeps the fallback (the non-attempt endpoint returns it correctly). Both sides dedupe ambiguous names.
     prior_observed = {
-        job.name: job
-        for job in fetch_jobs(repo, workflow_run.id, prior_attempt, strict=True)
+        name: job
+        for name, job in index_unique_jobs_by_name(
+            fetch_jobs(repo, workflow_run.id, prior_attempt, strict=True)
+        ).items()
         if job.conclusion in {"failure", "timed_out"} and classify_job(job).action == "observe"
     }
     if not prior_observed:
         return []
-    current_by_name = index_unique_jobs_by_name(
-        fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt, strict=True)
-    )
+    current_by_name = index_unique_jobs_by_name(fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt))
     events: list[JsonObject] = []
     for job_name in sorted(prior_observed):
         prior_job = prior_observed[job_name]

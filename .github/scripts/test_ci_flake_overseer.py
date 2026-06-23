@@ -28,7 +28,6 @@ def make_job(
     conclusion: str = "failure",
     failed_step: str = "Run Core tests",
     started_at: str = "2026-06-05T21:00:00Z",
-    completed_at: str = "2026-06-05T21:10:00Z",
 ) -> Job:
     return Job(
         id=123,
@@ -37,7 +36,6 @@ def make_job(
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/1/job/123",
         started_at=started_at,
-        completed_at=completed_at,
         steps=(Step(name=failed_step, conclusion="failure"),),
     )
 
@@ -225,6 +223,36 @@ def test_report_rerun_outcomes_unknown_when_job_absent(monkeypatch: pytest.Monke
 
     assert len(events) == 1
     assert events[0]["properties"]["outcome"] == "unknown"
+
+
+def test_report_rerun_outcomes_unknown_when_current_name_ambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        if attempt == 1:
+            return (make_job(job_name, conclusion="failure"),)
+        # Two current jobs share a name: ambiguous, so it can't be paired and must read as unknown.
+        return (
+            make_job(job_name, conclusion="success", started_at="2026-06-05T22:00:00Z"),
+            make_job(job_name, conclusion="failure", started_at="2026-06-05T22:00:00Z"),
+        )
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "unknown"
+
+
+def test_build_decision_events_pr_run_is_not_master() -> None:
+    decisions = (classify_job(make_job("Django tests - Temporal (1/1)")),)
+
+    events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
+
+    props = events[0]["properties"]
+    assert props["is_master"] is False
+    assert props["trigger_event"] == "pull_request"
 
 
 def test_report_rerun_outcomes_ignores_non_test_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
