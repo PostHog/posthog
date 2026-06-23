@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.teamwork.teamwork import (
     TeamworkResumeConfig,
     _auth_header,
     _build_params,
+    _fetch_page,
     _format_updated_after,
     base_url,
     get_rows,
@@ -107,6 +108,37 @@ class TestValidateCredentials:
         fake_session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(teamwork, "make_tracked_session", lambda *a, **k: fake_session):
             assert validate_credentials("mycompany.teamwork.com", "key") is False
+
+    def test_uses_no_redirect_session(self) -> None:
+        # The Basic auth header must never follow a redirect off the validated host.
+        captured: dict[str, Any] = {}
+
+        def fake_session_factory(*_a: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            fake_session = MagicMock()
+            fake_session.get.return_value = MagicMock(status_code=200)
+            return fake_session
+
+        with patch.object(teamwork, "make_tracked_session", fake_session_factory):
+            validate_credentials("mycompany.teamwork.com", "key")
+        assert captured["allow_redirects"] is False
+
+
+class TestFetchPage:
+    @staticmethod
+    def _fetch(status_code: int) -> dict:
+        response = MagicMock()
+        response.status_code = status_code
+        response.ok = 200 <= status_code < 300
+        session = MagicMock()
+        session.get.return_value = response
+        return _fetch_page(session, "https://mycompany.teamwork.com/x", {}, MagicMock())
+
+    @parameterized.expand([("moved", 301), ("found", 302), ("temporary", 307), ("permanent", 308)])
+    def test_redirect_is_rejected(self, _name: str, status_code: int) -> None:
+        # A 3xx means the host tried to bounce us elsewhere — refuse rather than forward credentials.
+        with pytest.raises(ValueError, match="redirect"):
+            self._fetch(status_code)
 
     def test_hits_me_endpoint(self) -> None:
         captured: dict[str, str] = {}

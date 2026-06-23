@@ -90,6 +90,14 @@ def _fetch_page(
 ) -> dict[str, Any]:
     response = session.get(url, headers=headers, timeout=60)
 
+    # The session never follows redirects (see `get_rows`), so a 3xx means the validated host tried to
+    # bounce us elsewhere. Refuse it rather than forwarding the Basic auth header off the host boundary.
+    if 300 <= response.status_code < 400:
+        raise ValueError(
+            f"Teamwork API returned an unexpected redirect (status={response.status_code}, url={url}); "
+            "refusing to forward credentials off the validated host."
+        )
+
     # 429s resume after ~60s on Teamwork; let the exponential backoff handle it. 5xx are transient.
     if response.status_code == 429 or response.status_code >= 500:
         raise TeamworkRetryableError(f"Teamwork API error (retryable): status={response.status_code}, url={url}")
@@ -105,7 +113,8 @@ def validate_credentials(host: str, api_key: str) -> bool:
     # /me.json is the cheapest authenticated probe — it only needs a valid key, no extra scopes.
     url = f"{base_url(host)}/me.json"
     try:
-        response = make_tracked_session().get(url, headers=_auth_header(api_key), timeout=10)
+        # `allow_redirects=False`: a redirect would forward the Basic auth header off the validated host.
+        response = make_tracked_session(allow_redirects=False).get(url, headers=_auth_header(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -122,7 +131,8 @@ def get_rows(
 ) -> Iterator[Any]:
     config = TEAMWORK_ENDPOINTS[endpoint]
     headers = _auth_header(api_key)
-    session = make_tracked_session()
+    # `allow_redirects=False`: a redirect would forward the Basic auth header off the validated host.
+    session = make_tracked_session(allow_redirects=False)
 
     is_incremental = should_use_incremental_field and config.incremental_field is not None
 
