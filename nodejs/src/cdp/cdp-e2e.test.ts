@@ -271,16 +271,18 @@ describe('CDP Consumer loop', () => {
             ])
         })
 
-        // Regression for the pre-refactor Kinesis template test
-        // (posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py). That test
-        // asserted the EXACT outgoing fetch shape — including the deterministic SigV4
-        // Authorization signature for a frozen time + fixed input fixture. When
-        // signing moved out of Hog into the executor, the Hog-level assertion lost
-        // the Authorization/X-Amz-Date/Host headers (they no longer exist at the Hog
-        // boundary). This test restores that coverage at the executor boundary: same
-        // frozen time, same input values, same expected outgoing request — including
-        // the literal `65b18913...` signature hex from the original Python test.
-        it('matches the pre-refactor outgoing request shape for the kinesis template fixture', async () => {
+        // Regression coverage for the production wire shape of an outgoing Kinesis
+        // PutRecord. The pre-refactor Python template test
+        // (posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py) asserted a
+        // similar shape but ran against the Python Hog VM, whose `jsonStringify`
+        // formats objects WITH spaces (`{"k": "v"}`). The Node Hog VM — what CDP
+        // actually runs in production — formats WITHOUT spaces (`{"k":"v"}`), so the
+        // Python test was locking in a body the Node runtime never produced. This
+        // e2e test uses the Node values (body + corresponding signature) so a
+        // regression in Hog body construction, executor wiring, credential lookup,
+        // or signer canonical-request handling will all flip the signature hex and
+        // fail this test.
+        it('matches the production outgoing request shape for the kinesis template fixture', async () => {
             const fixedTime = new Date('2024-04-16T12:34:51Z').getTime()
             const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(fixedTime)
 
@@ -370,14 +372,15 @@ describe('CDP Consumer loop', () => {
                 expect(kinesisCall).toBeDefined()
                 const [url, opts] = kinesisCall as [string, any]
 
-                // Verbatim from posthog/cdp/templates/aws_kinesis/test_template_aws_kinesis.py
-                // before the signing refactor. Any drift in the signer's canonical-request
-                // construction, header sorting, body hashing, or signing-key derivation
-                // will flip the signature hex away from `65b18913...` and fail this test.
+                // Body bytes the Node Hog VM emits for this input (no spaces between
+                // JSON tokens), and the SigV4 signature derived from THOSE bytes plus
+                // the frozen `20240416T123451Z` timestamp. The byte-compatibility of
+                // the signer itself (matching the canonical AWS docs algorithm) is
+                // separately locked in by the `aws-sigv4.test.ts` unit fixture.
                 expect(url).toBe('https://kinesis.aws_region.amazonaws.com')
                 expect(opts).toMatchObject({
                     method: 'POST',
-                    body: '{"StreamName": "aws_kinesis_stream_arn", "PartitionKey": "1", "Data": "eyJoZWxsbyI6ICJ3b3JsZCJ9"}',
+                    body: '{"StreamName":"aws_kinesis_stream_arn","PartitionKey":"1","Data":"eyJoZWxsbyI6IndvcmxkIn0="}',
                     headers: {
                         'Content-Type': 'application/x-amz-json-1.1',
                         'X-Amz-Target': 'Kinesis_20131202.PutRecord',
@@ -386,7 +389,7 @@ describe('CDP Consumer loop', () => {
                         Authorization:
                             'AWS4-HMAC-SHA256 Credential=aws_access_key_id/20240416/aws_region/kinesis/aws4_request, ' +
                             'SignedHeaders=content-type;host;x-amz-date;x-amz-target, ' +
-                            'Signature=65b18913b42d8a7a1d33c0711da192d5a2e99eb79fb08ab3e5eefb6488b903ff',
+                            'Signature=19caaa3f67e2214daf7c0318dd0fa92ccf94d94208aabf526b82f8990ed2607b',
                     },
                 })
             } finally {
