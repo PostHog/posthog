@@ -577,7 +577,7 @@ def capture_batch_internal(
     Automatic chunking:
         Batches larger than ``CAPTURE_INTERNAL_BATCH_CHUNK_SIZE`` (default 200 events) are
         automatically split into chunks and submitted concurrently using up to
-        ``CAPTURE_INTERNAL_MAX_WORKERS`` (default 16) threads.  Callers do NOT need to
+        ``CAPTURE_INTERNAL_MAX_WORKERS`` (default 8) threads.  Callers do NOT need to
         pre-chunk — the API handles this transparently.  Small batches (<=200 events)
         are submitted directly with zero threading overhead.
 
