@@ -4,6 +4,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// A notification emitted by error-tracking ingestion. Serialized as
@@ -25,6 +26,13 @@ pub struct IssueCreated {
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// The symbolicated exception event that triggered issue creation, carried
+    /// as raw JSON so `core` stays free of processing-only types. The producer
+    /// serializes its output exception properties here.
+    pub event: Value,
+    /// Timestamp of the originating exception event (distinct from the issue's
+    /// `created_at`).
+    pub event_timestamp: DateTime<Utc>,
 }
 
 #[cfg(test)]
@@ -39,11 +47,14 @@ mod tests {
             name: Some("TypeError".to_string()),
             description: None,
             created_at: DateTime::from_timestamp(0, 0).unwrap(),
+            event: serde_json::json!({"$exception_fingerprint": "abc"}),
+            event_timestamp: DateTime::from_timestamp(0, 0).unwrap(),
         });
 
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");
         assert_eq!(json["team_id"], 42);
+        assert_eq!(json["event"]["$exception_fingerprint"], "abc");
 
         let decoded: IngestionNotification = serde_json::from_value(json).unwrap();
         assert_eq!(decoded, notification);
