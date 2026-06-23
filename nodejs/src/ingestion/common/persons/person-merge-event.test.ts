@@ -1,5 +1,6 @@
-import { murmur2Partition } from '../../../kafka/murmur2'
-import { parseJSON } from '../../../utils/json-parse'
+import { murmur2Partition } from '~/kafka/murmur2'
+import { parseJSON } from '~/utils/json-parse'
+
 import { MERGE_EVENT_SCHEMA_VERSION, buildPersonMergeEventMessage } from './person-merge-event'
 
 describe('buildPersonMergeEventMessage', () => {
