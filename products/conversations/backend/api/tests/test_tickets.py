@@ -1669,8 +1669,10 @@ class TestComposeTicketAPI(APIBaseTest):
         assert ticket.anonymous_traits == {"email": "aleks@test.com", "name": "Aleks"}
 
         created_event = next(
-            c.kwargs for c in mock_capture.call_args_list if c.kwargs["event_name"] == "$conversation_ticket_created"
+            (c.kwargs for c in mock_capture.call_args_list if c.kwargs["event_name"] == "$conversation_ticket_created"),
+            None,
         )
+        assert created_event is not None, "$conversation_ticket_created was not captured"
         # Event person is the composing agent, customer fields describe the recipient
         assert created_event["distinct_id"] == self.user.distinct_id
         assert created_event["properties"]["customer_email"] == "aleks@test.com"

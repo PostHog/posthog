@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from posthog.models import Person
 
 
-class TicketManager(models.Manager):
-    def create_with_number(self, *, actor_distinct_id: str | None = None, **kwargs):
+class TicketManager(models.Manager["Ticket"]):
+    def create_with_number(self, **kwargs) -> "Ticket":
         """
         Create a ticket with an auto-incrementing ticket_number.
         Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
@@ -22,6 +22,8 @@ class TicketManager(models.Manager):
         the emit is deferred to commit or run synchronously.
         """
         from posthog.models import Team
+
+        actor_distinct_id = kwargs.pop("actor_distinct_id", None)
 
         team = kwargs.get("team")
         if not team:
