@@ -4,15 +4,10 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
 import { defaultConfig } from '../../config/config'
-import {
-    createCookielessRedisConnectionConfig,
-    createIngestionRedisConnectionConfig,
-    createPosthogRedisConnectionConfig,
-} from '../../config/redis-pools'
+import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '../../config/redis-pools'
 import { Hub, PluginsServerConfig } from '../../types'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
@@ -58,14 +53,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     })
     logger.info('👍', `Ingestion Redis ready`)
 
-    logger.info('🤔', `Connecting to cookieless Redis...`)
-    const cookielessRedisPool = createRedisPoolFromConfig({
-        connection: createCookielessRedisConnectionConfig(serverConfig),
-        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
-    })
-    logger.info('👍', `Cookieless Redis ready`)
-
     const teamManager = new TeamManager(postgres)
     logger.info('🤔', `Connecting to PostHog Redis...`)
     const posthogRedisPool = createRedisPoolFromConfig({
@@ -104,7 +91,6 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
 
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
-    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
@@ -116,14 +102,12 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
         postgres,
         redisPool,
         posthogRedisPool,
-        cookielessRedisPool,
         groupTypeManager,
         teamManager,
         groupRepository,
         personRepository,
         geoipService,
         encryptedFields,
-        cookielessManager,
         pubSub,
         integrationManager,
         quotaLimiting,
@@ -136,17 +120,9 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     logger.info('💤', 'Closing hub...')
     logger.info('💤', 'Closing kafka, redis, postgres...')
     await hub.pubSub.stop()
-    await Promise.allSettled([
-        hub.redisPool.drain(),
-        hub.posthogRedisPool.drain(),
-        hub.cookielessRedisPool.drain(),
-        hub.postgres?.end(),
-    ])
+    await Promise.allSettled([hub.redisPool.drain(), hub.posthogRedisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
     await hub.posthogRedisPool.clear()
-    await hub.cookielessRedisPool.clear()
-    logger.info('💤', 'Closing cookieless manager...')
-    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

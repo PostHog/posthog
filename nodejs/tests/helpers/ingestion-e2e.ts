@@ -332,6 +332,8 @@ export interface IngestionTestInfra {
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
     groupTypeManager: GroupTypeManager
+    /** Tears down every resource this infra owns (redis pools, postgres, pubsub, cookieless manager). */
+    close: () => Promise<void>
 }
 
 export interface TeamIngesterTestContext<T extends IngesterLike> {
@@ -353,7 +355,89 @@ export type BuildIngester<T extends IngesterLike> = (
 ) => T
 
 /**
- * Builds a `test` factory that spins up an isolated team + hub + consumer per
+ * Builds the ingestion test infrastructure (postgres, redis, repos, managers) directly from
+ * primitive constructors — no hub. Mirrors how the ingestion servers wire their deps. Returns
+ * the infra plus a `close` that tears down every resource it owns.
+ */
+export async function createIngestionTestInfra(
+    configOverrides: Partial<PluginsServerConfig> = {}
+): Promise<IngestionTestInfra> {
+    const serverConfig: PluginsServerConfig = {
+        ...defaultConfig,
+        ...configOverrides,
+    }
+
+    const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
+    const redisPool = createRedisPoolFromConfig({
+        connection: createIngestionRedisConnectionConfig(serverConfig),
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
+    const cookielessRedisPool = createRedisPoolFromConfig({
+        connection: createCookielessRedisConnectionConfig(serverConfig),
+        poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+        poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+    })
+
+    const teamManager = new TeamManager(postgres)
+    const pubSub = new PubSub(redisPool)
+    await pubSub.start()
+
+    const personhogClient = createPersonHogClient(serverConfig)
+    const clientLabel = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+
+    const postgresGroupRepository = new PostgresGroupRepository(postgres)
+    const postgresPersonRepository = new PostgresPersonRepository(postgres, {
+        calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+    })
+    const personRepository = buildPersonRepository(
+        personhogClient,
+        postgresPersonRepository,
+        serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
+        clientLabel
+    )
+    const groupRepository = buildGroupRepository(
+        personhogClient,
+        postgresGroupRepository,
+        serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+        serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
+        clientLabel
+    )
+    const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
+    const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
+    await geoipService.get()
+    const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
+    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+
+    const close = async (): Promise<void> => {
+        await pubSub.stop()
+        await Promise.allSettled([redisPool.drain(), cookielessRedisPool.drain(), postgres.end()])
+        await redisPool.clear()
+        await cookielessRedisPool.clear()
+        cookielessManager.shutdown()
+    }
+
+    return {
+        config: serverConfig,
+        postgres,
+        redisPool,
+        teamManager,
+        groupRepository,
+        personRepository,
+        cookielessManager,
+        pubSub,
+        geoipService,
+        encryptedFields,
+        integrationManager,
+        groupTypeManager,
+        close,
+    }
+}
+
+/**
+ * Builds a `test` factory that spins up an isolated team + infra + consumer per
  * test. The caller supplies the `buildIngester` function that constructs the
  * consumer under test — different pipelines have different deps.
  */
@@ -367,55 +451,12 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
         testFn: (ctx: TeamIngesterTestContext<T>) => Promise<void>
     ) => {
         test(name, async () => {
-            const serverConfig: PluginsServerConfig = {
-                ...defaultConfig,
+            const infra = await createIngestionTestInfra({
                 ...baseConfig,
                 ...config.pluginServerConfig,
-            }
-
-            const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
-            const redisPool = createRedisPoolFromConfig({
-                connection: createIngestionRedisConnectionConfig(serverConfig),
-                poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
             })
-            const cookielessRedisPool = createRedisPoolFromConfig({
-                connection: createCookielessRedisConnectionConfig(serverConfig),
-                poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
-            })
-
-            const teamManager = new TeamManager(postgres)
-            const pubSub = new PubSub(redisPool)
-            await pubSub.start()
-
-            const personhogClient = createPersonHogClient(serverConfig)
-            const clientLabel = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
-
-            const postgresGroupRepository = new PostgresGroupRepository(postgres)
-            const postgresPersonRepository = new PostgresPersonRepository(postgres, {
-                calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            })
-            const personRepository = buildPersonRepository(
-                personhogClient,
-                postgresPersonRepository,
-                serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-                serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-                clientLabel
-            )
-            const groupRepository = buildGroupRepository(
-                personhogClient,
-                postgresGroupRepository,
-                serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-                serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-                clientLabel
-            )
-            const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
-            const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
-            const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
-            await geoipService.get()
-            const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-            const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+            const { postgres, teamManager } = infra
+            const serverConfig = infra.config
 
             const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
 
@@ -450,21 +491,6 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const infra: IngestionTestInfra = {
-                config: serverConfig,
-                postgres,
-                redisPool,
-                teamManager,
-                groupRepository,
-                personRepository,
-                cookielessManager,
-                pubSub,
-                geoipService,
-                encryptedFields,
-                integrationManager,
-                groupTypeManager,
-            }
-
             const ingester = buildIngester(infra, kafkaProducer)
             // We don't actually use kafka so we skip instantiation for faster tests
             ;(ingester as unknown as { kafkaConsumer: unknown }).kafkaConsumer = {
@@ -479,11 +505,7 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
             } finally {
                 await ingester.stop()
                 await kafkaProducer.disconnect()
-                await pubSub.stop()
-                await Promise.allSettled([redisPool.drain(), cookielessRedisPool.drain(), postgres.end()])
-                await redisPool.clear()
-                await cookielessRedisPool.clear()
-                cookielessManager.shutdown()
+                await infra.close()
             }
         })
     }
