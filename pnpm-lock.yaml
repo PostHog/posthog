@@ -3798,7 +3798,7 @@ importers:
         version: 17.0.4
       posthog-js:
         specifier: '*'
-        version: 1.392.0
+        version: 1.393.0
       react:
         specifier: 18.3.1
         version: 18.3.1
