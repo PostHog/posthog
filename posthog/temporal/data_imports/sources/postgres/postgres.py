@@ -1831,6 +1831,12 @@ def _has_duplicate_primary_keys(
         return row is not None
     except psycopg.errors.QueryCanceled:
         raise
+    except psycopg.OperationalError:
+        # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
+        # connection with "too many connections") means the probe never ran — swallowing it as
+        # "no duplicate keys" would be a false negative. Propagate it so the activity's retry
+        # path handles it; these are transient and stay retryable.
+        raise
     except Exception as e:
         capture_exception(e)
         return False
