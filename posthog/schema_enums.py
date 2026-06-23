@@ -1946,6 +1946,13 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
@@ -3290,13 +3297,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):
