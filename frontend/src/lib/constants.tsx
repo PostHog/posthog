@@ -281,7 +281,6 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
-    DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-warehouse-sources
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_POSTGRES_XMIN: 'dwh-postgres-xmin', // owner: #team-warehouse-sources
