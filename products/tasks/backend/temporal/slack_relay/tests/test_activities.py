@@ -17,6 +17,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
+    _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
     _repair_link_trailing_markers,
     _split_markdown_for_slack,
@@ -69,6 +70,12 @@ class TestRelaySlackMessage(TestCase):
             task_run=cls.task_run,
             mentioning_slack_user_id="U123",
         )
+
+    def setUp(self):
+        self.task_run.artifacts = []
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
 
     @parameterized.expand(
         [
@@ -143,6 +150,61 @@ class TestRelaySlackMessage(TestCase):
 
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].startswith(expected_prefix)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_unconfirmed_attachment_claim_gets_notice(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-unconfirmed-attachment",
+                text=(
+                    "Done. I generated **user_activity_report.pdf** "
+                    "at /tmp/workspace/user_activity_report.pdf and it's attached for you."
+                ),
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "user_activity_report.pdf" in posted
+        assert "no file was attached to Slack for this run" in posted
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_confirmed_artifact_claim_does_not_get_notice(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        self.task_run.artifacts = [
+            {
+                "id": "artifact-1",
+                "name": "user_activity_report.pdf",
+                "type": "artifact",
+                "storage_path": "tasks/artifacts/report.pdf",
+            }
+        ]
+        self.task_run.save(update_fields=["artifacts", "updated_at"])
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-confirmed-attachment",
+                text="Done. user_activity_report.pdf is attached.",
+            )
+        )
+
+        mock_post.assert_called_once()
+        assert "no file was attached to Slack for this run" not in mock_post.call_args.args[0]
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -298,6 +360,26 @@ class TestWrapBareUrlsInEmphasis(unittest.TestCase):
     )
     def test_wrap(self, _name, text, expected):
         assert _wrap_bare_urls_in_emphasis(text) == expected
+
+
+class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
+    def test_appends_notice_for_local_file_delivery_claim_without_artifacts(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+
+        assert result.endswith("no file was attached to Slack for this run._")
+
+    def test_skips_notice_for_negated_claim(self):
+        text = "Generated /tmp/workspace/report.pdf, but it is not attached yet."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+
+        assert result == text
+
+    def test_skips_notice_for_non_slack_run(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="user_created")
+
+        assert result == text
 
 
 class TestSplitTextForSlack(TestCase):
