@@ -490,6 +490,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setWorkflowDateRange: () => {
                 actions.loadWorkflowHealth()
             },
+            setBranchFilter: ({ branch }) => {
+                // The search input's built-in clear (×) only fires onChange(''), never Enter/blur, so
+                // clearing it would otherwise leave the table scoped to the old branch. Apply on empty
+                // so the × resets to all-branches immediately.
+                if (branch.trim() === '') {
+                    actions.applyBranchFilter()
+                }
+            },
             applyBranchFilter: () => {
                 const next = values.branchInput.trim()
                 // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).

@@ -299,9 +299,9 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
 
-        // Clearing the box and applying drops the filter.
+        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
+        // immediately — no Enter/blur needed — and drops the filter.
         logic.actions.setBranchFilter('')
-        logic.actions.applyBranchFilter()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(logic.values.appliedBranch).toBe('')
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
