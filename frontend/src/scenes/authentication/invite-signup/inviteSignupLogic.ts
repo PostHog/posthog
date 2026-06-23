@@ -189,6 +189,26 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         return
                     }
 
+                    // A 5xx/no-response failure may still have created the account server-side
+                    // (the write commits but the response is lost). Probe the invite: if it's been
+                    // consumed, the account exists — route to login instead of surfacing a
+                    // misleading "could not complete signup" error.
+                    if ((error.status >= 500 || error.status === 0) && values.invite) {
+                        try {
+                            await api.get(`api/signup/${values.invite.id}/`)
+                        } catch (probeError) {
+                            const probe = probeError as Record<string, any>
+                            if (probe.code === 'account_exists') {
+                                location.href = probe.detail
+                                return
+                            }
+                            if (['invalid_invite', 'invalid_recipient', 'user_already_member'].includes(probe.code)) {
+                                location.href = '/login'
+                                return
+                            }
+                        }
+                    }
+
                     actions.resetChallenge()
                     posthog.captureException(e)
                     actions.setSignupManualErrors({
