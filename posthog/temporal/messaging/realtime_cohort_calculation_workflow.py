@@ -302,7 +302,16 @@ def build_final_query(current_members_sql: str) -> str:
             HAVING status = 'entered'
         ) previous_members ON current_matches.id = previous_members.person_id
         WHERE (previous_members.person_id IS NULL) OR (current_matches.id IS NULL)
-        SETTINGS join_use_nulls = 1
+        SETTINGS
+            join_use_nulls = 1,
+            -- Cohort membership GROUP BYs aggregate by person_id, which is not in any source
+            -- table's sort key, so they build full in-memory hash tables. For nested cohorts that
+            -- fall through to the INTERSECT/UNION DISTINCT path, several run at once and can OOM
+            -- (seen at 37 GiB on large teams). Spill to disk past 50% of the query memory limit
+            -- rather than failing — this is an offline job, so slower-but-completes is the right
+            -- trade-off. memory_efficient bounds the distributed merge step too.
+            max_bytes_ratio_before_external_group_by = 0.5,
+            distributed_aggregation_memory_efficient = 1
         FORMAT JSONEachRow
     """
 
