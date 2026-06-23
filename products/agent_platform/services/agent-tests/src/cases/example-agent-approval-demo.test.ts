@@ -13,7 +13,7 @@
  *     the conversation → model emits closing text.
  *
  * Drift in any of those steps lights up here first. The bundle's value
- * is also surfaced via the agent-console approvals UI; the screen-side
+ * is also surfaced via the approvals UI; the screen-side
  * regression net is Storybook.
  */
 
@@ -173,7 +173,7 @@ describe('example: agent-approval-demo bundle', () => {
         expect(queuedEnvelope!.approval_url).toMatch(/\/approvals\?request=/)
 
         // The approval row is queryable via janitor — same surface the Django
-        // proxy hits, same surface the agent-console talks to.
+        // proxy hits, same surface the console UI talks to.
         const queuedRows = await listApprovals(application.id, 'queued')
         expect(queuedRows).toHaveLength(1)
         expect(queuedRows[0].tool_name).toBe('@posthog/memory-write')

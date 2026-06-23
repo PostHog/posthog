@@ -107,7 +107,7 @@ describe('example: agent-builder bundle', () => {
         expect(scopes).toEqual(expect.arrayContaining(['user:read', 'agents:read', 'agents:write']))
     })
 
-    it('declares the client tools the agent-console implements', async () => {
+    it('declares the client tools the console UI implements', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const ids = parsed.tools

@@ -772,7 +772,7 @@ export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
  * Encrypted env — list / get / clear individual keys
  *
  * Writes (set / rotate) deliberately route through the `set_secret`
- * client tool in the agent-console dock — not through a native tool.
+ * client tool in the console UI — not through a native tool.
  * That keeps secret values out of the session tool-call history. See
  * `skills/secrets-and-integrations`.
  *

@@ -74,7 +74,7 @@ from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jw
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.spec_schema import missing_required_secrets
-from ..models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -570,10 +570,21 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team_id=self.team_id, created_by_id=self.request.user.id)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
-        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
-        instance.archived = True
-        instance.archived_at = timezone.now()
-        instance.save(update_fields=["archived", "archived_at", "updated_at"])
+        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history.
+
+        Also revoke every linked identity credential for the application: archive
+        is terminal (no unarchive), so a retired agent should hold no decryptable
+        bearers. Done in the same transaction via the ORM — Django owns this table,
+        so no janitor round-trip — and `state='active'` keeps it idempotent.
+        """
+        now = timezone.now()
+        with transaction.atomic(using=WRITER_DB):
+            instance.archived = True
+            instance.archived_at = now
+            instance.save(update_fields=["archived", "archived_at", "updated_at"])
+            AgentIdentityCredential.objects.using(WRITER_DB).filter(application_id=instance.id, state="active").update(
+                state="revoked", revoked_at=now, updated_at=now
+            )
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -1017,7 +1028,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                             ),
                                             "created_at": drf_serializers.DateTimeField(),
                                             "updated_at": drf_serializers.DateTimeField(),
-                                            "revoked_at": drf_serializers.DateTimeField(allow_null=True, required=False),
+                                            "revoked_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
                                         },
                                     )
                                 ),
@@ -1080,9 +1093,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if application is None:
             raise NotFound("Application not found")
         try:
-            payload = _janitor().delete_connection(
-                int(self.team_id), str(application.id), agent_user_id, provider
-            )
+            payload = _janitor().delete_connection(int(self.team_id), str(application.id), agent_user_id, provider)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
@@ -2779,7 +2790,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
     All three endpoints proxy the janitor (which owns the runtime DB). Used
-    by the agent-console "fleet" overview to render the cards on the agents
+    by the "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 

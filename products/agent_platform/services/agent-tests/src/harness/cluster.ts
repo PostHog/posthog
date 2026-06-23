@@ -295,11 +295,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const teamId = opts.teamId ?? 1
     const pool = await getPool()
 
-    // Single test DB holds both authoring (App, Revision — owned by Django
-    // in prod) and runtime tables (Session, User, SandboxInstance — owned
-    // by the worker). The production split happens at deploy time via two
-    // pool URLs. reset() drops the public schema and reapplies every
-    // migration from @posthog/agent-migrations — single source of truth.
+    // Single test DB holds both authoring (App, Revision) and runtime tables
+    // (Session, User, SandboxInstance) — all Django-owned (the agent_platform
+    // product DB). The production split happens at deploy time via two pool
+    // URLs. reset() resets the agent_* tables between cases (see test-reset.ts).
     await reset({ databaseUrl: TEST_DB_URL })
 
     // Real S3 bundle store against SeaweedFS, per-cluster prefix. Same impl

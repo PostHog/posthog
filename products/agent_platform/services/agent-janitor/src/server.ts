@@ -80,8 +80,8 @@ import { getNativeTool, hasNativeTool, listNativeTools } from '@posthog/agent-to
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
-import { mountUsersRoutes } from './api/users'
 import { buildTypedBundleRouter } from './api/typed-bundle'
+import { mountUsersRoutes } from './api/users'
 // compile-custom-tools.ts now exports `compileTypedTool` — wired by the
 // typed PUT /tools/:id handler, not by freeze. Freeze just validates +
 // seals; the compiled.js is already in the bundle by then.
@@ -431,7 +431,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     /* ─────────────────────────── fleet stats ─────────────────────────── */
     //
-    // Rollups that power the agent-console overview tiles. Kept on the
+    // Rollups that power the fleet overview tiles. Kept on the
     // janitor (rather than agent-ingress) because (a) Django already
     // proxies through here for read-only authoring data, (b) these are
     // not in the hot per-request path so SELECT-on-jsonb is fine.

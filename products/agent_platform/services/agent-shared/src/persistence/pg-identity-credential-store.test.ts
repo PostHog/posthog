@@ -9,25 +9,13 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { reset } from '@posthog/agent-shared/testing'
+import { isReachable, reset } from '@posthog/agent-shared/testing'
 
 import { PgIdentityCredentialStore, StoredCredential } from '../runtime/identity-credential-store'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 const KEY = '01234567890123456789012345678901' // 32-byte UTF-8, matches the harness
-
-async function isReachable(): Promise<boolean> {
-    const probe = new Pool({ connectionString: TEST_DB_URL, max: 1 })
-    try {
-        await probe.query('SELECT 1')
-        return true
-    } catch {
-        return false
-    } finally {
-        await probe.end().catch(() => undefined)
-    }
-}
 
 const cred = (over: Partial<StoredCredential> = {}): StoredCredential => ({
     access_token: 'at-1',
@@ -48,7 +36,7 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
     let store: PgIdentityCredentialStore
 
     beforeAll(async () => {
-        reachable = await isReachable()
+        reachable = await isReachable(TEST_DB_URL)
         if (!reachable) {
             // eslint-disable-next-line no-console
             console.warn(`[pg-identity-credential-store.test] ${TEST_DB_URL} unreachable — skipping`)
@@ -146,24 +134,5 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
         await store.remove(USER_A, 'dogs')
         const count = await pool.query('SELECT count(*) FROM agent_identity_credential')
         expect(Number(count.rows[0].count)).toBe(0)
-    })
-
-    it('revokeForApplication revokes only that app, returns the count', async () => {
-        if (!reachable) {
-            return
-        }
-        const appA = randomUUID()
-        const appB = randomUUID()
-        const U1 = randomUUID()
-        const U2 = randomUUID()
-        const U3 = randomUUID()
-        await put({ agentUserId: U1, applicationId: appA })
-        await put({ agentUserId: U2, applicationId: appA, provider: 'posthog' })
-        await put({ agentUserId: U3, applicationId: appB })
-
-        expect(await store.revokeForApplication(appA)).toBe(2)
-        expect(await store.get(U1, 'dogs')).toBeNull()
-        expect(await store.get(U2, 'posthog')).toBeNull()
-        expect((await store.get(U3, 'dogs'))?.credential.access_token).toBe('at-1')
     })
 })

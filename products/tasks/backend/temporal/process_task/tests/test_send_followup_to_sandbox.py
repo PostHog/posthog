@@ -44,6 +44,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task_run.id = "run-1"
     task_run.team_id = team_id
     task_run.task = task
+    task_run.task_id = "task-1"
     # Default to None so `(task_run.state or {}).get(...)` returns None cleanly.
     # MagicMock auto-attributes would otherwise return further MagicMock objects
     # and leak into kwargs passed to `get_sandbox_ph_mcp_configs`.
@@ -71,7 +72,7 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(task_run.task, scopes="read_only")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None
+            token="fresh-token", project_id=7, scopes="read_only", interaction_origin=None, task_id="task-1"
         )
         mock_user_configs.assert_called_once_with(token="fresh-token", team_id=7, user_id=42, interaction_origin=None)
         mock_send_refresh.assert_called_once()
@@ -207,7 +208,7 @@ class TestRefreshSandboxMcp:
 
         mock_oauth.assert_called_once_with(mock_oauth.call_args.args[0], scopes="full")
         mock_ph_configs.assert_called_once_with(
-            token="fresh-token", project_id=7, scopes="full", interaction_origin=None
+            token="fresh-token", project_id=7, scopes="full", interaction_origin=None, task_id="task-1"
         )
 
 

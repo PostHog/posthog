@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -225,6 +227,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -319,6 +322,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -481,6 +486,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery

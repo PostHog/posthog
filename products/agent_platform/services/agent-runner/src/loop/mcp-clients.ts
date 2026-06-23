@@ -49,6 +49,7 @@ import {
     HttpFetcher,
     type IdentityResolution,
     IntegrationCredentials,
+    isDev,
     McpRef,
     secretHostMatches,
 } from '@posthog/agent-shared'
@@ -438,12 +439,15 @@ async function resolveTarget(
             throw new Error(`mcp_identity_unavailable: ${ref.auth.provider} (${res.reason})`)
         }
         const parsed = new URL(url)
-        // Loopback is the local-dev affordance: the PostHog MCP runs on a
-        // different localhost port than the API the OAuth endpoints (and thus
-        // `allowedHosts`) derive from, and http is fine to a loopback host that
-        // can't be an exfiltration target. Non-loopback keeps the strict gate:
-        // https + the bearer's own host allowlist.
-        const loopback = isLoopbackHost(parsed.hostname)
+        // Loopback is a LOCAL-DEV-ONLY affordance (gated by isDev()): in dev the
+        // PostHog MCP runs on a different localhost port than the API the OAuth
+        // endpoints (and thus `allowedHosts`) derive from, and http to a dev
+        // loopback host isn't an exfiltration target. In prod the gate is off, so
+        // a loopback URL falls through to the strict check below (https + the
+        // bearer's own host allowlist) and fails closed — the agent author
+        // controls both the spec URL and the sandbox, so we never hand a user's
+        // bearer to 127.0.0.1 in prod.
+        const loopback = isLoopbackHost(parsed.hostname) && isDev()
         if (!loopback && parsed.protocol !== 'https:') {
             throw new Error(`mcp_identity_unsafe_scheme: ${ref.auth.provider} → ${parsed.protocol}`)
         }

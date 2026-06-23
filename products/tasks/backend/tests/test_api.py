@@ -967,6 +967,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_create_task_with_signal_report_same_team(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
@@ -976,18 +977,23 @@ class TestTaskAPI(BaseTaskAPITest):
                 "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
-                "signal_report_task_relationship": SignalReportTask.Relationship.IMPLEMENTATION.value,
+                # Legacy field old clients still send — accepted and ignored.
+                "signal_report_task_relationship": "implementation",
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
-        link = SignalReportTask.objects.get(
-            report=report,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        # A manual "start implementation" records the implementation task_run artefact (the
+        # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
+        # row that blocks the auto-start pipeline from double-starting.
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [data["id"]])
+        self.assertTrue(
+            SignalReportTask.objects.filter(
+                report=report, task_id=data["id"], relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            ).exists()
         )
-        self.assertEqual(str(link.task_id), data["id"])
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -1194,7 +1200,8 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("run_source_omitted", None, "full"),
             ("manual", {"run_source": "manual"}, "full"),
-            ("signal_report", {"run_source": "signal_report"}, "read_only"),
+            # signal_report implementation runs log their work as report artefacts (task:write tools).
+            ("signal_report", {"run_source": "signal_report"}, "full"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

@@ -9,6 +9,8 @@
     "main": "./src/host.js",
     "scripts": {
         "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
         "test": "node --test src/dispatch.test.js",
         "typescript:check": "node --check src/host.js && node --check src/dispatch.js && node --check src/dispatch.test.js"
     },

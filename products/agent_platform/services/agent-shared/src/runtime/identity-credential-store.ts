@@ -78,8 +78,6 @@ export interface IdentityCredentialStore {
     revoke(agentUserId: string, provider: string): Promise<void>
     /** Hard-delete the link. Idempotent. */
     remove(agentUserId: string, provider: string): Promise<void>
-    /** Revoke every active link for an application (archive cascade). Returns count. */
-    revokeForApplication(applicationId: string): Promise<number>
 }
 
 interface CredentialRow {
@@ -146,8 +144,13 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
 
     async getEstablishedSubject(agentUserId: string): Promise<string | null> {
         const r = await this.pool.query<{ subject: string }>(
+            // Today only `posthog` stamps a subject and (agent_user, provider) is
+            // unique, so there's effectively one row — but ORDER BY makes the pick
+            // deterministic (most-recently-linked) if a second identity-establishing
+            // provider is ever added, rather than relying on physical row order.
             `SELECT subject FROM agent_identity_credential
               WHERE agent_user_id = $1 AND state = 'active' AND subject IS NOT NULL
+              ORDER BY updated_at DESC
               LIMIT 1`,
             [agentUserId]
         )
@@ -184,15 +187,5 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
             agentUserId,
             provider,
         ])
-    }
-
-    async revokeForApplication(applicationId: string): Promise<number> {
-        const r = await this.pool.query(
-            `UPDATE agent_identity_credential
-                SET state = 'revoked', revoked_at = NOW(), updated_at = NOW()
-              WHERE application_id = $1 AND state = 'active'`,
-            [applicationId]
-        )
-        return r.rowCount ?? 0
     }
 }

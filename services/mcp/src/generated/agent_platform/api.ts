@@ -661,7 +661,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                 .min(1)
                                 .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault),
                             binding: zod
-                                .enum(['principal', 'agent'])
+                                .enum(['principal'])
                                 .default(
                                     agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault
                                 ),
@@ -674,7 +674,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('oauth2'),
                             id: zod.string().min(1),
                             binding: zod
-                                .enum(['principal', 'agent'])
+                                .enum(['principal'])
                                 .default(
                                     agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoBindingDefault
                                 ),
@@ -1369,7 +1369,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault
                                 ),
                             binding: zod
-                                .enum(['principal', 'agent'])
+                                .enum(['principal'])
                                 .default(
                                     agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault
                                 ),
@@ -1384,7 +1384,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             kind: zod.literal('oauth2'),
                             id: zod.string().min(1),
                             binding: zod
-                                .enum(['principal', 'agent'])
+                                .enum(['principal'])
                                 .default(
                                     agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoBindingDefault
                                 ),

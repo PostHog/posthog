@@ -53,15 +53,15 @@ sees it.
 
 Choose the right verb:
 
-| Verb                                                    | When                                                                                             | Reversibility                              |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| Verb                                                    | When                                                                                                     | Reversibility                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | `posthog__agent-applications-revisions-partial-update`  | Change `spec` fields (model, limits, triggers, tools[], identity_providers, mcps) — merges into the spec | Easy — the next update overwrites          |
-| `posthog__agent-applications-revisions-spec-update`     | Replace the whole `spec` at once (a large rewrite)                                               | Easy — overwrites the spec                 |
-| `posthog__agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)                                                         | Easy — re-write                            |
-| `posthog__agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)                                                        | Easy — re-write                            |
-| `posthog__agent-applications-revisions-skills-destroy`  | Delete one skill                                                                                 | **Hard** — content gone unless you have it |
-| `posthog__agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)                                                         | Easy — re-write                            |
-| `posthog__agent-applications-revisions-tools-destroy`   | Delete one custom tool                                                                           | **Hard** — content gone unless you have it |
+| `posthog__agent-applications-revisions-spec-update`     | Replace the whole `spec` at once (a large rewrite)                                                       | Easy — overwrites the spec                 |
+| `posthog__agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)                                                                 | Easy — re-write                            |
+| `posthog__agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)                                                                | Easy — re-write                            |
+| `posthog__agent-applications-revisions-skills-destroy`  | Delete one skill                                                                                         | **Hard** — content gone unless you have it |
+| `posthog__agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)                                                                 | Easy — re-write                            |
+| `posthog__agent-applications-revisions-tools-destroy`   | Delete one custom tool                                                                                   | **Hard** — content gone unless you have it |
 
 These are all `posthog__agent-applications-*` MCP tools — there's
 no bulk bundle-replace verb, which is deliberate: edit the one thing

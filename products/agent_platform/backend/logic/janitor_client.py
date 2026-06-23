@@ -197,7 +197,7 @@ class JanitorClient:
         return self._call("GET", f"/sessions/{session_id}", params=params)
 
     # ── fleet stats ────────────────────────────────────────────────────────
-    # Roll-up endpoints powering the agent-console overview tiles. The
+    # Roll-up endpoints powering the fleet overview tiles. The
     # janitor side owns the JSONB read so Django doesn't reach across DBs.
 
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:

@@ -431,7 +431,11 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "kind": {"type": "string", "const": "posthog"},
                             "id": {"type": "string", "minLength": 1, "default": "posthog"},
-                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
                             "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
                             # Backend-injected on promote (the provisioned
                             # OAuthApplication's client_id). Authors never set it.
@@ -445,7 +449,11 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "properties": {
                             "kind": {"type": "string", "const": "oauth2"},
                             "id": {"type": "string", "minLength": 1},
-                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
+                            # `agent` (one app-scoped credential shared by every asker)
+                            # isn't implemented at runtime yet, so it's rejected here
+                            # until it lands — the runtime seam exists, but no spec can
+                            # select it. Keep in lockstep with the zod enum in spec.ts.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
                             "authorize_url": {"type": "string", "format": "uri"},
                             "token_url": {"type": "string", "format": "uri"},
                             "client_id": {"type": "string", "minLength": 1},

@@ -22,6 +22,23 @@ export interface ResetOpts {
     databaseUrl?: string
 }
 
+/**
+ * True if the (test) Postgres at `databaseUrl` accepts a one-shot connection.
+ * Lets a real-PG suite skip itself when the local DB isn't wired, instead of
+ * failing. Shared here so the probe isn't re-implemented per test file.
+ */
+export async function isReachable(databaseUrl: string): Promise<boolean> {
+    const probe = new Pool({ connectionString: databaseUrl, max: 1 })
+    try {
+        await probe.query('SELECT 1')
+        return true
+    } catch {
+        return false
+    } finally {
+        await probe.end().catch(() => undefined)
+    }
+}
+
 // Truncated in FK-safe order (CASCADE handles the rest).
 const AGENT_TABLES = [
     'agent_identity_link_state',

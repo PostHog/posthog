@@ -58,10 +58,11 @@ jobs:
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
                         - '.oxlintrc.json'
+                        - '.oxfmtrc*'
 
     typecheck-lint:
         if: needs.changes.outputs.agents == 'true'
-        name: ${{ matrix.workspace }} typecheck + lint
+        name: ${{ matrix.workspace }} typecheck + lint + format
         needs: changes
         runs-on: depot-ubuntu-latest
         timeout-minutes: 10
@@ -92,6 +93,12 @@ jobs:
 
             - name: Lint
               run: pnpm --filter="${{ matrix.workspace }}" lint
+
+            # The agent Node workspaces own their own oxfmt check, run per-workspace
+            # against the same root .oxfmtrc.json, so a service is format-gated by its
+            # own CI rather than relying on the repo-wide frontend formatting job.
+            - name: Format
+              run: pnpm --filter="${{ matrix.workspace }}" format:check
 
     unit-tests:
         if: needs.changes.outputs.agents == 'true'

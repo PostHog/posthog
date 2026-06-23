@@ -42,7 +42,7 @@ cron trigger, native tools, both prose (`memory-*`) and tabular
   or a custom API tool.
 - **Drive a UI.** This is a fire-and-write agent; it produces a
   markdown file + Slack post. The user reads from those, not from
-  an agent-console session.
+  a console session.
 - **Edit its own config.** Things like `channels.yml`,
   `teammates.yml`, `relevance.yml` live in memory as user-maintained
   notes — the agent reads them but doesn't rewrite them.

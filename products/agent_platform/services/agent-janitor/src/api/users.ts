@@ -56,8 +56,8 @@ export function mountUsersRoutes(app: Express, opts: MountUsersRoutesOpts): void
             if (!store) {
                 return
             }
-            const { applicationId } = scope(req)
-            const results = await store.listUsersWithConnections(applicationId)
+            const { teamId, applicationId } = scope(req)
+            const results = await store.listUsersWithConnections(teamId, applicationId)
             res.json({ count: results.length, results })
         })
     )
@@ -70,9 +70,9 @@ export function mountUsersRoutes(app: Express, opts: MountUsersRoutesOpts): void
             if (!store) {
                 return
             }
-            const { applicationId } = scope(req)
+            const { teamId, applicationId } = scope(req)
             const { agent_user_id, provider } = ConnectionParamsSchema.parse(req.params)
-            const revoked = await store.revokeConnection(applicationId, agent_user_id, provider)
+            const revoked = await store.revokeConnection(teamId, applicationId, agent_user_id, provider)
             res.json({ provider, revoked })
         })
     )
