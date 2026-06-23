@@ -243,6 +243,10 @@ class BatchConsumer:
 
                 self._reap_finished_tasks()
 
+                if len(self._in_flight) >= self._config.max_concurrency:
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    continue
+
                 exclude_keys = set(self._in_flight.keys())
 
                 poll_start = time.monotonic()
@@ -300,12 +304,14 @@ class BatchConsumer:
                     schema_id=k[1],
                 )
             elif task.exception() is not None:
+                exc = task.exception()
                 logger.error(
                     self._event("group_task_failed"),
                     team_id=k[0],
                     schema_id=k[1],
-                    error=str(task.exception()),
+                    error=str(exc),
                 )
+                capture_exception(exc)
 
     async def _process_group_tracked(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         """Wrapper that updates the active-groups gauge and removes self from in-flight on completion."""
