@@ -2612,14 +2612,6 @@ export interface PatchedProjectBackwardCompatApi {
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
 }
 
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
-}
-
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
