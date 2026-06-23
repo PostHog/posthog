@@ -70,6 +70,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class MetabaseAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "session"] = "api_key"
+    api_key: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+@config.config
 class ServiceNowAuthMethodConfig(config.Config):
     selection: Literal["basic", "api_key"] = "basic"
     username: str | None = None
@@ -1866,7 +1874,8 @@ class MetaAdsSourceConfig(config.Config):
 
 @config.config
 class MetabaseSourceConfig(config.Config):
-    pass
+    host: str
+    auth_method: MetabaseAuthMethodConfig
 
 
 @config.config
