@@ -32,6 +32,7 @@ from posthog.hogql.transforms.geoip_dict_fallback import (
     geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_extract_to_property import normalize_json_extract_to_property
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -195,6 +196,13 @@ def prepare_ast_for_printing(
             build_property_swapper(node, context)
             if context.property_swapper is None:
                 return None
+
+            # Normalize literal JSONExtractString/JSONExtract(properties, 'x') calls into property-access reads BEFORE
+            # lazy-table resolution, so they flow through the same machinery as `properties.x` chain access (including
+            # the lazy persons/groups subquery) and reach their materialized column. Only rewrites when a static mat
+            # column exists, so no-mat calls keep their raw-JSONExtract semantics.
+            with context.timings.measure("normalize_json_extract_to_property"):
+                node = normalize_json_extract_to_property(node, context)
 
             # It would be nice to be able to run property swapping after we resolve lazy tables, so that logic added onto the lazy tables
             # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
