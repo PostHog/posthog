@@ -164,10 +164,13 @@ def get_rows(
             batcher.batch(item)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the
-                # primary key) rather than skipping it.
-                if next_until is not None and not stop_after_page:
-                    resumable_source_manager.save_state(VercelResumeConfig(until=next_until))
+                # Checkpoint the cursor for the CURRENT page (not next_until): a yield can fire
+                # mid-page, so the rest of this page may still be unprocessed. Saving next_until
+                # here would advance the watermark past those rows and silently skip them on
+                # resume. Re-fetching the current page instead re-yields its rows; the merge
+                # dedupes on the primary key, so the already-yielded rows are harmless duplicates.
+                if not stop_after_page:
+                    resumable_source_manager.save_state(VercelResumeConfig(until=until))
 
         page_count += 1
         if stop_after_page or next_until is None:

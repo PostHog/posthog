@@ -191,19 +191,26 @@ class TestGetRows:
         assert rows == []
         assert len(calls) == 1
 
-    def test_state_saved_after_each_yielded_batch(self, monkeypatch: Any) -> None:
-        # One page large enough to cross the batcher's 2000-row chunk: the batch yields mid-page and
-        # state must be checkpointed (after the yield) at the page's next cursor.
-        big_page: dict = {
-            "deployments": [{"uid": str(i), "created": 100000 - i} for i in range(2500)],
-            "pagination": {"next": 999},
-        }
-        responses: list[dict] = [big_page, {"deployments": [], "pagination": {"next": None}}]
+    def test_mid_page_yield_checkpoints_current_page_not_next(self, monkeypatch: Any) -> None:
+        # Regression: a mid-page yield must checkpoint the cursor for the CURRENT page, not the
+        # next one. Page two crosses the batcher's 2000-row chunk, so the batch yields while the
+        # rest of page two is still unprocessed. Saving the next cursor (400) here would advance
+        # the watermark past those rows and silently skip them after a crash/resume; the checkpoint
+        # must stay at page two's own cursor (200) so resume re-fetches it (dedup handles the
+        # already-yielded rows).
+        responses: list[dict] = [
+            {"deployments": [{"uid": "a", "created": 100}, {"uid": "b", "created": 99}], "pagination": {"next": 200}},
+            {
+                "deployments": [{"uid": str(i), "created": 100000 - i} for i in range(2500)],
+                "pagination": {"next": 400},
+            },
+            {"deployments": [], "pagination": {"next": None}},
+        ]
         manager = _FakeResumableManager()
         rows, _ = _collect("deployments", manager, monkeypatch, responses)
 
-        assert len(rows) == 2500
-        assert manager.saved == [VercelResumeConfig(until=999)]
+        assert len(rows) == 2502
+        assert manager.saved == [VercelResumeConfig(until=200)]
 
 
 class TestVercelSource:
