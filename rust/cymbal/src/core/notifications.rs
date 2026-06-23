@@ -4,14 +4,15 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
+
+use crate::core::types::Exception;
 
 /// A notification emitted by error-tracking ingestion. Serialized as
 /// internally-tagged JSON (`{"type": "issue_created", ...}`) so new variants can
 /// be added without breaking existing consumers — an unknown `type` simply fails
 /// to deserialize and is skipped as a poison pill.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum IngestionNotification {
     /// A new issue was created during ingestion.
@@ -19,20 +20,28 @@ pub enum IngestionNotification {
 }
 
 /// Payload for [`IngestionNotification::IssueCreated`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueCreated {
     pub team_id: i32,
     pub issue_id: Uuid,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
-    /// The symbolicated exception event that triggered issue creation, carried
-    /// as raw JSON so `core` stays free of processing-only types. The producer
-    /// serializes its output exception properties here.
-    pub event: Value,
+    /// The exception event that triggered issue creation.
+    pub event: IssueEvent,
     /// Timestamp of the originating exception event (distinct from the issue's
     /// `created_at`).
     pub event_timestamp: DateTime<Utc>,
+}
+
+/// The symbolicated exception event that triggered issue creation. Built from
+/// shared `core` types — the producer projects its richer output properties
+/// down to this, so `core` carries no processing-only dependency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueEvent {
+    pub fingerprint: String,
+    pub exceptions: Vec<Exception>,
+    pub handled: bool,
 }
 
 #[cfg(test)]
@@ -47,16 +56,30 @@ mod tests {
             name: Some("TypeError".to_string()),
             description: None,
             created_at: DateTime::from_timestamp(0, 0).unwrap(),
-            event: serde_json::json!({"$exception_fingerprint": "abc"}),
+            event: IssueEvent {
+                fingerprint: "abc".to_string(),
+                exceptions: vec![Exception {
+                    exception_id: None,
+                    exception_type: "TypeError".to_string(),
+                    exception_message: "x is not a function".to_string(),
+                    mechanism: None,
+                    module: None,
+                    thread_id: None,
+                    stack: None,
+                }],
+                handled: false,
+            },
             event_timestamp: DateTime::from_timestamp(0, 0).unwrap(),
         });
 
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");
         assert_eq!(json["team_id"], 42);
-        assert_eq!(json["event"]["$exception_fingerprint"], "abc");
+        assert_eq!(json["event"]["fingerprint"], "abc");
+        assert_eq!(json["event"]["exceptions"][0]["type"], "TypeError");
 
-        let decoded: IngestionNotification = serde_json::from_value(json).unwrap();
-        assert_eq!(decoded, notification);
+        // Round-trips back to the same JSON through the typed enum.
+        let decoded: IngestionNotification = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
     }
 }
