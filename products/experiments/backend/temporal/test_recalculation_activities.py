@@ -1,6 +1,8 @@
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -22,6 +24,7 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _discover_experiment_metrics_sync,
     _update_recalculation_progress_sync,
 )
+from products.experiments.stats.shared.statistics import StatisticError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
@@ -39,9 +42,15 @@ def _update(update: RecalculationProgressUpdate):
         return _update_raw(update)
 
 
-def _calculate(experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str):
+def _calculate(
+    experiment_id: int,
+    metric_uuid: str,
+    recalculation_id: str,
+    query_to: str,
+    metric_type: str = "primary",
+):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to)
+        return _calculate_raw(experiment_id, metric_uuid, recalculation_id, query_to, metric_type)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -203,6 +212,42 @@ class TestRecalculationActivities(BaseTest):
         assert recalc.started_at == first_started_at
         # Both attempts return the same canonical query_to so the workflow threads the same value either way.
         assert first == second == first_query_to.isoformat()
+
+    @parameterized.expand(
+        [
+            # name, end_date_offset_days (None = running experiment), expect query_to clamped to end_date
+            ("running_experiment_uses_now", None, False),
+            ("stopped_experiment_caps_at_end_date", -5, True),
+            ("future_end_date_uses_now", 5, False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_caps_query_to_at_end_date(self, name: str, end_date_offset_days, expect_capped: bool):
+        # A stopped experiment's linked flag often keeps firing, so query_to must freeze at end_date — otherwise
+        # each recalc advances it to now and pulls post-end exposures (and their conversions) into the results.
+        now = timezone.now()
+        exp = self._experiment(flag_key=f"cap-{name}")
+        if end_date_offset_days is not None:
+            exp.end_date = now + timedelta(days=end_date_offset_days)
+            exp.save(update_fields=["end_date"])
+        recalc = self._recalc(exp)
+
+        _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=1,
+                metric_uuids=["m1"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        assert recalc.query_to is not None
+        if expect_capped:
+            assert recalc.query_to == now + timedelta(days=end_date_offset_days)
+        else:
+            assert recalc.query_to == now
 
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
@@ -565,3 +610,177 @@ class TestMissingRecalcRow:
         assert bogus_id in str(exc_info.value)
         assert "not found" in str(exc_info.value)
         assert exc_info.value.non_retryable is True
+
+
+@contextmanager
+def _record_captures():
+    """Patch ph_scoped_capture so the analytics tests can assert the exact event name + properties
+    without standing up a real PostHog client. Yields the list of captured capture(...) kwargs."""
+    captured: list[dict] = []
+
+    def _fake_capture(*args, **kwargs) -> None:
+        captured.append(kwargs)
+
+    @contextmanager
+    def _fake_scoped():
+        yield _fake_capture
+
+    with patch(
+        "products.experiments.backend.temporal.recalculation_logic.ph_scoped_capture",
+        _fake_scoped,
+    ):
+        yield captured
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRecalculationAnalytics(BaseTest):
+    """Product analytics emitted by the recalculation activities. Names mirror the legacy client-side
+    events; execution_mode='recalculation' distinguishes the backend-driven flow."""
+
+    def _flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            name=f"Flag for {key}",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def _experiment(self, flag_key: str, *, metrics=None, secondary=None) -> Experiment:
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=self._flag(flag_key),
+            name="exp",
+            start_date=timezone.now(),
+        )
+        if metrics is not None:
+            exp.metrics = metrics
+        if secondary is not None:
+            exp.metrics_secondary = secondary
+        exp.save()
+        return exp
+
+    def _recalc(self, exp: Experiment, *, metric_uuids: list[str]) -> ExperimentMetricsRecalculation:
+        return ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=metric_uuids,
+            total_metrics=len(metric_uuids),
+            query_to=datetime.fromisoformat(_QUERY_TO),
+        )
+
+    def test_metric_finished_event_on_success(self):
+        exp = self._experiment(flag_key="an-success", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert len(captured) == 1
+        props = captured[0]["properties"]
+        assert captured[0]["event"] == "experiment metric finished"
+        assert captured[0]["distinct_id"] == self.user.distinct_id
+        assert props["experiment_id"] == exp.id
+        assert props["team_id"] == self.team.id
+        assert props["metric_uuid"] == "m1"
+        assert props["metric_kind"] == "mean"
+        assert props["is_primary"] is True
+        assert props["execution_mode"] == "recalculation"
+        assert "duration_ms" in props
+
+    def test_metric_error_event_on_insufficient_data(self):
+        exp = self._experiment(flag_key="an-error", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = StatisticError("not enough data")
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert len(captured) == 1
+        props = captured[0]["properties"]
+        assert captured[0]["event"] == "experiment metric error"
+        assert props["error_type"] == "insufficient_data"
+        assert props["error_message"] == "not enough data"
+        assert props["execution_mode"] == "recalculation"
+
+    def test_secondary_metric_is_not_marked_primary(self):
+        # metric_type is now threaded through from the workflow's discovery output rather than re-derived
+        # from a fresh DB lookup. The activity's caller (workflow) reads the value from
+        # ExperimentMetricToRecalculate; tests pass it explicitly to exercise the same path.
+        exp = self._experiment(flag_key="an-secondary", secondary=[_mean_metric("s1")])
+        recalc = self._recalc(exp, metric_uuids=["s1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, metric_type="secondary")
+
+        assert captured[0]["properties"]["is_primary"] is False
+
+    def test_transient_failure_emits_no_per_metric_event(self):
+        # The transient except-Exception path re-raises for Temporal to retry; emitting there would
+        # double-count per attempt. The failure is reflected in the run-level event instead.
+        exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
+                with pytest.raises(RuntimeError, match="kaboom"):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        assert captured == []
+
+    def test_results_refresh_completed_event_on_finish(self):
+        exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            _update(
+                RecalculationProgressUpdate(
+                    recalculation_id=str(recalc.id),
+                    status="completed",
+                    mark_completed=True,
+                    succeeded_metrics=3,
+                    failed_metrics=1,
+                )
+            )
+
+        assert len(captured) == 1
+        props = captured[0]["properties"]
+        assert captured[0]["event"] == "experiment results refresh completed"
+        assert captured[0]["distinct_id"] == self.user.distinct_id
+        assert props["experiment_id"] == exp.id
+        assert props["team_id"] == self.team.id
+        assert props["recalculation_id"] == str(recalc.id)
+        assert props["status"] == "completed"
+        assert props["succeeded_metrics"] == 3
+        assert props["failed_metrics"] == 1
+        assert props["execution_mode"] == "recalculation"
+        assert "total_duration_ms" in props
+
+    def test_results_refresh_completed_not_re_emitted_on_retry(self):
+        # mark_completed is first-write-wins; a retried finish activity must not re-fire the run-level event.
+        exp = self._experiment(flag_key="an-finish-retry", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        update = RecalculationProgressUpdate(
+            recalculation_id=str(recalc.id), status="completed", mark_completed=True, succeeded_metrics=1
+        )
+        with _record_captures() as captured:
+            _update(update)
+            _update(update)  # simulated Temporal retry
+
+        assert len(captured) == 1

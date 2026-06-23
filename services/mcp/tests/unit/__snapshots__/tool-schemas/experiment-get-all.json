@@ -6,8 +6,8 @@
             "type": "boolean"
         },
         "created_by_id": {
-            "description": "Filter to experiments created by the given user ID.",
-            "type": "number"
+            "description": "Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            "type": "string"
         },
         "event": {
             "description": "Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.",

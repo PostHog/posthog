@@ -8,7 +8,7 @@ import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail } from 'lib/utils'
+import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'

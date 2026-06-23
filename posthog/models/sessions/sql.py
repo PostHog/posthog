@@ -144,8 +144,7 @@ def source_column(column_name: str) -> str:
     return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
-SESSION_TABLE_MV_SELECT_SQL = (
-    lambda: """
+SESSION_TABLE_MV_SELECT_SQL = lambda: """
 SELECT
 
 `$session_id` as session_id,
@@ -192,57 +191,52 @@ FROM {database}.sharded_events
 WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN ({allowed_team_ids})
 GROUP BY `$session_id`, team_id
 """.format(
-        database=settings.CLICKHOUSE_DATABASE,
-        current_url_property=source_column("$current_url"),
-        referring_domain_property=source_column("$referring_domain"),
-        utm_source_property=source_column("utm_source"),
-        utm_campaign_property=source_column("utm_campaign"),
-        utm_medium_property=source_column("utm_medium"),
-        utm_term_property=source_column("utm_term"),
-        utm_content_property=source_column("utm_content"),
-        gclid_property=source_column("gclid"),
-        gad_source_property=source_column("gad_source"),
-        gclsrc_property=source_column("gclsrc"),
-        dclid_property=source_column("dclid"),
-        gbraid_property=source_column("gbraid"),
-        wbraid_property=source_column("wbraid"),
-        fbclid_property=source_column("fbclid"),
-        msclkid_property=source_column("msclkid"),
-        twclid_property=source_column("twclid"),
-        li_fat_id_property=source_column("li_fat_id"),
-        mc_cid_property=source_column("mc_cid"),
-        igshid_property=source_column("igshid"),
-        ttclid_property=source_column("ttclid"),
-        epik_property=source_column("epik"),
-        qclid_property=source_column("qclid"),
-        sccid_property=source_column("sccid"),
-        allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
-    )
+    database=settings.CLICKHOUSE_DATABASE,
+    current_url_property=source_column("$current_url"),
+    referring_domain_property=source_column("$referring_domain"),
+    utm_source_property=source_column("utm_source"),
+    utm_campaign_property=source_column("utm_campaign"),
+    utm_medium_property=source_column("utm_medium"),
+    utm_term_property=source_column("utm_term"),
+    utm_content_property=source_column("utm_content"),
+    gclid_property=source_column("gclid"),
+    gad_source_property=source_column("gad_source"),
+    gclsrc_property=source_column("gclsrc"),
+    dclid_property=source_column("dclid"),
+    gbraid_property=source_column("gbraid"),
+    wbraid_property=source_column("wbraid"),
+    fbclid_property=source_column("fbclid"),
+    msclkid_property=source_column("msclkid"),
+    twclid_property=source_column("twclid"),
+    li_fat_id_property=source_column("li_fat_id"),
+    mc_cid_property=source_column("mc_cid"),
+    igshid_property=source_column("igshid"),
+    ttclid_property=source_column("ttclid"),
+    epik_property=source_column("epik"),
+    qclid_property=source_column("qclid"),
+    sccid_property=source_column("sccid"),
+    allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
 )
 
-SESSIONS_TABLE_MV_SQL = (
-    lambda: """
+SESSIONS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
-        database=settings.CLICKHOUSE_DATABASE,
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
-    )
+    table_name=f"{TABLE_BASE_NAME}_mv",
+    target_table=f"writable_{TABLE_BASE_NAME}",
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
+    database=settings.CLICKHOUSE_DATABASE,
+    select_sql=SESSION_TABLE_MV_SELECT_SQL(),
 )
 
-SESSION_TABLE_UPDATE_SQL = (
-    lambda: """
+SESSION_TABLE_UPDATE_SQL = lambda: """
 ALTER TABLE {table_name} MODIFY QUERY
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME}_mv",
-        select_sql=SESSION_TABLE_MV_SELECT_SQL(),
-    )
+    table_name=f"{TABLE_BASE_NAME}_mv",
+    select_sql=SESSION_TABLE_MV_SELECT_SQL(),
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -279,8 +273,8 @@ def DISTRIBUTED_SESSIONS_TABLE_SQL(on_cluster=True):
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
 # debugging
-SESSIONS_VIEW_SQL = (
-    lambda: f"""
+SESSIONS_VIEW_SQL = lambda: (
+    f"""
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
 SELECT
     session_id,

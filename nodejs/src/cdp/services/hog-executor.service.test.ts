@@ -8,7 +8,9 @@ import { logger } from '~/utils/logger'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
@@ -19,6 +21,7 @@ import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -59,8 +62,10 @@ describe('Hog Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         executor = new HogExecutorService(
@@ -71,6 +76,7 @@ describe('Hog Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -914,6 +920,119 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('postHogGetAccount', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+        }
+
+        const createAccountInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetAccount queues internal fetch with the external_id query param', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-secret-token' },
+            })
+        })
+
+        it('postHogGetAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{}])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
+
+        it('postHogGetAccount errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+
+        it('postHogGetAccount errors when the team has no secret API token', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('has no secret API token configured')
+        })
+
+        it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
+            ])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
+                method: 'PATCH',
+                body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-secret-token',
+                },
+            })
+        })
+
+        it('postHogUpdateAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [{ updates: { tags: ['enterprise'] } }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
+    })
+
     describe('produceToWarehouseWebhooks', () => {
         const buildInvocation = async (code: string): Promise<CyclotronJobInvocationHogFunction> => {
             const bytecode = await compileHog(code)
@@ -1169,6 +1288,193 @@ describe('Hog Executor', () => {
             expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
             expect(result.error.message).toContain('with status code 500')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        describe('aws_sigv4', () => {
+            // `secret: true` HogFunction inputs land in `encrypted_inputs` after
+            // Django's `move_secret_inputs` runs on save. The Node manager decrypts
+            // `encrypted_inputs` in memory before the executor sees the function, so
+            // by the time we reach the fetch path it's a plaintext map keyed by
+            // input name. Seed *that* field — not `inputs` — so the tests mirror the
+            // production data shape for the Kinesis template.
+            const seedAwsCredentialInputs = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.encrypted_inputs = {
+                    ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+            }
+
+            const sigv4Refs = {
+                service: 'kinesis',
+                region: 'us-east-1',
+                access_key_id_input: 'aws_access_key_id',
+                secret_access_key_input: 'aws_secret_access_key',
+            }
+
+            it('signs the request and Authorization header arrives at the upstream', async () => {
+                let receivedAuth: string | undefined
+                let receivedAmzDate: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    receivedAmzDate = req.headers['x-amz-date']
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAmzDate).toBe('20250101T000000Z')
+                expect(receivedAuth).toMatch(
+                    /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20250101\/us-east-1\/kinesis\/aws4_request, SignedHeaders=[a-z0-9;-]+, Signature=[a-f0-9]{64}$/
+                )
+            })
+
+            // Customer impact this prevents: the original bug ticket had a request
+            // signed at T, queued behind a timed-out attempt, then retried >5 min
+            // later — AWS rejected the retry with InvalidSignatureException because
+            // the X-Amz-Date inside the Authorization no longer matched server time.
+            it('produces a fresh signature on retry instead of reusing the original', async () => {
+                const receivedAuthHeaders: string[] = []
+                const receivedAmzDates: string[] = []
+                let callCount = 0
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuthHeaders.push(req.headers.authorization)
+                    receivedAmzDates.push(req.headers['x-amz-date'])
+                    callCount++
+                    if (callCount === 1) {
+                        res.writeHead(500, { 'Content-Type': 'text/plain' })
+                        res.end('first attempt fails')
+                    } else {
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('second attempt ok')
+                    }
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                let result = await executor.executeFetch(invocation)
+                expect(result.invocation.state.attempts).toBe(1)
+
+                // Simulate the cyclotron queue + backoff: by the time the retry
+                // actually runs, >6 minutes have passed. With the old "sign once
+                // in Hog" path this would push the signature past AWS's 5-minute
+                // window and the retry would 400 with InvalidSignatureException.
+                const retryTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' }).plus({
+                    minutes: 6,
+                })
+                jest.spyOn(Date, 'now').mockReturnValue(retryTime.toMillis())
+
+                result = await executor.executeFetch(result.invocation)
+
+                expect(receivedAmzDates[0]).toBe('20250101T000000Z')
+                expect(receivedAmzDates[1]).toBe('20250101T000600Z')
+                expect(receivedAuthHeaders[0]).not.toBe(receivedAuthHeaders[1])
+                expect(result.error).toBeUndefined()
+            })
+
+            // Defense in depth: queue payloads should never carry a stale
+            // Authorization, but if one ever leaks in (e.g. through a custom
+            // template that sets it directly), it must not be used.
+            it('overwrites any stale Authorization header sitting in the queue payload', async () => {
+                let receivedAuth: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: {
+                        'Content-Type': 'application/x-amz-json-1.1',
+                        Authorization: 'AWS4-HMAC-SHA256 Credential=STALE/19700101/us-east-1/kinesis/aws4_request, ...',
+                        'X-Amz-Date': '19700101T000000Z',
+                    },
+                    aws_sigv4: sigv4Refs,
+                })
+                seedAwsCredentialInputs(invocation)
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAuth).not.toContain('STALE')
+                expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // Defense in depth for an unusual case: if a custom template wires
+            // up the credential as a non-secret input (`secret: false`), the value
+            // will live on `inputs` rather than `encrypted_inputs`. The lookup
+            // must fall through to `inputs` so signing still works.
+            it('falls back to plaintext inputs when encrypted_inputs does not carry the credential', async () => {
+                let receivedAuth: string | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    receivedAuth = req.headers.authorization
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                    aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                } as any
+
+                await executor.executeFetch(invocation)
+
+                expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
+            })
+
+            // If the input referenced by `*_input` is missing or non-string we must
+            // NOT fall through and ship an unsigned request to AWS — that'd 403 and
+            // potentially leak the request body in error logs.
+            it('errors loudly when the referenced credential input is missing', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method: 'POST',
+                    body: '{}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    aws_sigv4: sigv4Refs,
+                })
+                // Intentionally do NOT seed inputs.
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('AWS SigV4 signing failed')
+                expect(result.error.message).toContain('aws_access_key_id')
+                expect(result.error.message).toContain('aws_secret_access_key')
+            })
         })
 
         it('respects maxFetchRetries option to disable retries', async () => {
@@ -1664,6 +1970,95 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('status code 400')
             })
         })
+
+        describe('self-loop guard', () => {
+            const OWN_TOKEN = 'phc_synthetic_own_0000000000000000'
+            const INGEST_URL = 'https://us.i.posthog.com/capture/'
+
+            const mockOwnTeam = (): void => {
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    api_token: OWN_TOKEN,
+                    secret_api_token: null,
+                } as any)
+            }
+
+            const setMode = (mode: 'disabled' | 'warn'): void => {
+                ;(executor as any).config.selfLoopGuardMode = mode
+            }
+
+            const ownTokenCaptureBody = (): string =>
+                JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
+
+            // The detected count is the production signal that drives the enforce decision,
+            // so assert it actually moves - not just the human-facing log.
+            const readDetectedCount = async (): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
+            }
+
+            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                // Observe-only: the fetch still happens and nothing errors.
+                expect(result.error).toBeUndefined()
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore + 1)
+            })
+
+            it('does not flag a normal external fetch even with the project token in the body', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
+                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore)
+            })
+
+            it('fails open: a team lookup error never breaks the fetch', async () => {
+                setMode('warn')
+                jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+
+                const result = await executor.executeFetch(invocation)
+
+                // Detection failing must not surface as a destination error.
+                expect(result.error).toBeUndefined()
+            })
+        })
     })
 
     describe('isConnectionLevelError', () => {
@@ -1770,8 +2165,10 @@ describe('Hog Executor', () => {
                     sesEndpoint: hub.SES_ENDPOINT,
                 },
                 hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
             return new HogExecutorService(
@@ -1782,6 +2179,7 @@ describe('Hog Executor', () => {
                     fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                     fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                     emailQueueRouting,
+                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                 },
                 { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                 hogInputsService,

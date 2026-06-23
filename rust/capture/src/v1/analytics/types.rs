@@ -22,7 +22,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 
@@ -137,7 +137,7 @@ impl SinkEvent for WrappedEvent {
     // fields. Sinks convert the returned CapturedEventHeaders to their
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
-    fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
         // v1 decouples overflow routing from person-processing (unlike v0 where
         // overflow ForceLimited unconditionally sets this); operators configure
@@ -189,8 +189,9 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn partition_key(&self, ctx: &Context, buf: &mut String) {
+    fn partition_key(&self, ctx: &RequestContext) -> String {
         use std::fmt::Write;
+        let mut buf = String::with_capacity(128);
         match (
             self.event.options.cookieless_mode == Some(true),
             ctx.capture_internal,
@@ -205,9 +206,10 @@ impl SinkEvent for WrappedEvent {
                 let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
             }
         }
+        buf
     }
 
-    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
@@ -228,7 +230,7 @@ impl SinkEvent for WrappedEvent {
             &ip
         };
         let timestamp = self.adjusted_timestamp.ok_or_else(|| {
-            anyhow::anyhow!("serialize_into called on event without adjusted_timestamp")
+            anyhow::anyhow!("serialize called on event without adjusted_timestamp")
         })?;
         let now = ctx
             .server_received_at
@@ -247,15 +249,16 @@ impl SinkEvent for WrappedEvent {
             historical_migration: ctx.historical_migration,
         };
 
-        serde_json::to_string(&ie)
-            .map(|s| buf.push_str(&s))
-            .map_err(|e| anyhow::anyhow!("serializing IngestionEvent: {e:#}"))
+        let mut buf = Vec::with_capacity(data.len() + 512);
+        serde_json::to_writer(&mut buf, &ie)
+            .map_err(|e| anyhow::anyhow!("serializing IngestionEvent: {e:#}"))?;
+        Ok(bytes::Bytes::from(buf))
     }
 }
 
 impl WrappedEvent {
     #[allow(unused_assignments)]
-    fn build_property_injections(&self, ctx: &Context) -> anyhow::Result<String> {
+    fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -307,7 +310,10 @@ impl WrappedEvent {
 
     /// Build spliced properties if injection is needed, or return None
     /// to signal the caller should borrow `self.event.properties` directly.
-    fn build_spliced_properties(&self, ctx: &Context) -> anyhow::Result<Option<Box<RawValue>>> {
+    fn build_spliced_properties(
+        &self,
+        ctx: &RequestContext,
+    ) -> anyhow::Result<Option<Box<RawValue>>> {
         let injection = self.build_property_injections(ctx)?;
         if injection.is_empty() {
             return Ok(None);
@@ -362,7 +368,7 @@ impl HasEventName for WrappedEvent {
     }
 }
 
-/// The Kafka payload produced by `WrappedEvent::serialize_into`.
+/// The Kafka payload produced by `WrappedEvent::serialize`.
 ///
 /// Field order matches `CapturedEvent` from `common_types` so that serde's
 /// derived `Serialize` emits JSON keys in the same order as v0. Serde
@@ -370,7 +376,7 @@ impl HasEventName for WrappedEvent {
 ///
 /// Borrows from `WrappedEvent` and `Context` to avoid per-event heap
 /// allocations -- the struct is created, serialized, and dropped within
-/// a single `serialize_into` call.
+/// a single `serialize` call.
 #[derive(Debug, Serialize)]
 pub struct IngestionEvent<'a> {
     pub uuid: Uuid,
@@ -929,20 +935,11 @@ mod tests {
         assert!(h.historical_migration.is_none());
     }
 
-    fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> String {
-        let mut buf = String::new();
-        ev.partition_key(ctx, &mut buf);
-        buf
-    }
-
     #[test]
     fn partition_key_normal_mode() {
         let ctx = test_utils::test_context();
         let ev = ok_wrapped("$pageview", "user-42");
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            format!("{}:user-42", ctx.api_token)
-        );
+        assert_eq!(ev.partition_key(&ctx), format!("{}:user-42", ctx.api_token));
     }
 
     #[test]
@@ -951,7 +948,7 @@ mod tests {
         let mut ev = ok_wrapped("$pageview", "user-42");
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
-            partition_key_str(&ev, &ctx),
+            ev.partition_key(&ctx),
             format!("{}:{}", ctx.api_token, ctx.client_ip)
         );
     }
@@ -963,7 +960,7 @@ mod tests {
         let mut ev = ok_wrapped("$pageview", "user-42");
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
-            partition_key_str(&ev, &ctx),
+            ev.partition_key(&ctx),
             format!("{}:127.0.0.1", ctx.api_token)
         );
     }
@@ -982,7 +979,7 @@ mod tests {
         ev.force_disable_person_processing = true;
         ev.destination = Destination::AnalyticsMain;
         assert_eq!(
-            partition_key_str(&ev, &ctx),
+            ev.partition_key(&ctx),
             format!("{}:user-42", ctx.api_token),
             "partition_key() is unconditional; sink applies null-key policy"
         );
@@ -1015,7 +1012,7 @@ mod tests {
         assert!(!ev.has_property("unknown_key"));
     }
 
-    // --- serialize_into ---
+    // --- serialize ---
 
     use std::net::{IpAddr, Ipv4Addr};
 
@@ -1030,7 +1027,7 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn serialize_ctx() -> crate::v1::context::Context {
+    fn serialize_ctx() -> crate::v1::context::RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_project_abc123".to_string();
         ctx.client_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 42));
@@ -1072,26 +1069,22 @@ mod tests {
 
     fn serialize_and_parse(
         wrapped: &WrappedEvent,
-        ctx: &crate::v1::context::Context,
+        ctx: &crate::v1::context::RequestContext,
     ) -> (CapturedEvent, RawEvent) {
-        let mut buf = String::new();
-        wrapped
-            .serialize_into(ctx, &mut buf)
-            .expect("serialize_into failed");
+        let buf = wrapped.serialize(ctx).expect("serialize failed");
         let captured: CapturedEvent =
-            serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+            serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
         let data: RawEvent =
             serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
         (captured, data)
     }
 
     #[test]
-    fn serialize_into_fails_without_adjusted_timestamp() {
+    fn serialize_fails_without_adjusted_timestamp() {
         let mut ev = pageview_event();
         ev.adjusted_timestamp = None;
         let ctx = serialize_ctx();
-        let mut buf = String::new();
-        let err = ev.serialize_into(&ctx, &mut buf).unwrap_err();
+        let err = ev.serialize(&ctx).unwrap_err();
         assert!(
             err.to_string().contains("adjusted_timestamp"),
             "error should mention adjusted_timestamp: {err}"
@@ -1205,8 +1198,7 @@ mod tests {
         let headers = wrapped.headers(&ctx);
         assert_eq!(headers.distinct_id.as_deref(), Some("user-42"));
 
-        let mut key = String::new();
-        wrapped.partition_key(&ctx, &mut key);
+        let key = wrapped.partition_key(&ctx);
         assert_eq!(key, format!("{}:user-42", ctx.api_token));
     }
 
@@ -1434,9 +1426,8 @@ mod tests {
         let wrapped = pageview_event();
         assert_eq!(wrapped.event.options.cookieless_mode, Some(false));
         let ctx = serialize_ctx();
-        let mut buf = String::new();
-        wrapped.serialize_into(&ctx, &mut buf).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let buf = wrapped.serialize(&ctx).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("is_cookieless_mode").is_none(),
             "is_cookieless_mode should be absent when false"
@@ -1456,9 +1447,8 @@ mod tests {
     fn serialize_historical_migration_false_skipped() {
         let wrapped = pageview_event();
         let ctx = serialize_ctx();
-        let mut buf = String::new();
-        wrapped.serialize_into(&ctx, &mut buf).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let buf = wrapped.serialize(&ctx).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("historical_migration").is_none(),
             "historical_migration should be absent when false"
@@ -1608,8 +1598,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let mut buf = String::new();
-        let err = wrapped.serialize_into(&ctx, &mut buf).unwrap_err();
+        let err = wrapped.serialize(&ctx).unwrap_err();
         assert!(
             err.to_string().contains("must be a JSON object"),
             "expected object guard, got: {err}"
@@ -1775,9 +1764,8 @@ mod tests {
     fn partition_key_parity_normal() {
         let ctx = serialize_ctx();
         let ev = realistic_pageview("user-42");
-        let mut buf = String::new();
-        ev.partition_key(&ctx, &mut buf);
-        assert_eq!(buf, format!("{}:user-42", ctx.api_token));
+        let key = ev.partition_key(&ctx);
+        assert_eq!(key, format!("{}:user-42", ctx.api_token));
     }
 
     #[test]
@@ -1785,9 +1773,8 @@ mod tests {
         let ctx = serialize_ctx();
         let mut ev = realistic_pageview("user-42");
         ev.event.options.cookieless_mode = Some(true);
-        let mut buf = String::new();
-        ev.partition_key(&ctx, &mut buf);
-        assert_eq!(buf, format!("{}:{}", ctx.api_token, ctx.client_ip));
+        let key = ev.partition_key(&ctx);
+        assert_eq!(key, format!("{}:{}", ctx.api_token, ctx.client_ip));
     }
 
     #[test]
@@ -1796,10 +1783,9 @@ mod tests {
         let ev = realistic_pageview("user-42")
             .with_force_disable_person_processing(true)
             .with_destination(Destination::AnalyticsMain);
-        let mut buf = String::new();
-        ev.partition_key(&ctx, &mut buf);
+        let key = ev.partition_key(&ctx);
         assert_eq!(
-            buf,
+            key,
             format!("{}:user-42", ctx.api_token),
             "partition_key() is unconditional; sink applies null-key policy"
         );

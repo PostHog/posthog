@@ -33,6 +33,12 @@ export const SessionReplayListWidgetConfig = /* @__PURE__ */ zod.object({
         .enum(['ASC', 'DESC'])
         .default(sessionReplayListWidgetConfigOrderDirectionDefault)
         .describe('Sort direction for orderBy.'),
+    savedFilterId: zod
+        .union([zod.string(), zod.null()])
+        .optional()
+        .describe(
+            'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+        ),
 })
 
 export type SessionReplayListWidgetConfig = zod.input<typeof SessionReplayListWidgetConfig>

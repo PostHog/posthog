@@ -9,7 +9,6 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
 import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
-import { isLegacyExperiment } from '~/scenes/experiments/utils'
 import { notebookLogic } from '~/scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from '~/scenes/notebooks/types'
 import { Experiment } from '~/types'
@@ -67,7 +66,7 @@ export function ExperimentsNotebookTable({ insertionPosition }: ExperimentsNoteb
                             <Tooltip title={experiment.name}>
                                 <span className="block truncate max-w-full font-medium">{experiment.name}</span>
                             </Tooltip>
-                            {isLegacyExperiment(experiment) && (
+                            {experiment.is_legacy && (
                                 <LemonTag type="warning" size="small">
                                     Legacy
                                 </LemonTag>

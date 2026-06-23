@@ -29,7 +29,7 @@ def reconcile_refresh_name_substitutions(
         source_schemas=source_schemas,
         team_id=team_id,
         # Warehouse-mode rename would change the Delta path on the next sync; defer to consolidate
-        # below which preserves the path via `dwh_storage_key`.
+        # below which preserves the path via `s3_folder_name`.
         allow_rename=source.is_direct_query,
     )
 

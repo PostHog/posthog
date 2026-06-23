@@ -2,13 +2,11 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -193,8 +191,6 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [aiObservabilityTraceLogic, ['setEventId']],
     })),
@@ -358,12 +354,9 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 })),
         ],
         initialFocusEventId: [
-            (s) => [s.showableEvents, s.filteredTree, s.initialTab],
-            (
-                showableEvents: LLMTraceEvent[],
-                filteredTree: TraceTreeNode[],
-                initialTab: string | null
-            ): string | null => getInitialFocusEventId(showableEvents, filteredTree, initialTab),
+            (s) => [s.trace, s.filteredTree, s.initialTab],
+            (trace: LLMTrace | undefined, filteredTree: TraceTreeNode[], initialTab: string | null): string | null =>
+                getInitialFocusEventId(trace, filteredTree, initialTab),
         ],
         effectiveEventId: [
             (s) => [s.eventId, s.initialFocusEventId],
@@ -511,7 +504,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            if (trace?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
+            if (trace?.id) {
                 llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
                     dateFrom: trace.createdAt,
                     dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
@@ -641,39 +634,38 @@ export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string)
     return null
 }
 
+// The trace query runner folds the $ai_trace event into the trace itself (its
+// `inputState`/`outputState`) and drops it from `events`, so populated state is the
+// only signal left that a real $ai_trace event existed. Mirrors the scene's
+// `isTopLevelTraceWithoutContent` so the focus decision and the rendered root agree.
+export function traceHasRootContent(trace: LLMTrace | undefined): boolean {
+    return !!trace && (!!trace.inputState || !!trace.outputState)
+}
+
 export function getInitialFocusEventId(
-    showableEvents: LLMTraceEvent[],
+    trace: LLMTrace | undefined,
     filteredTree: TraceTreeNode[],
     initialTab: string | null
 ): string | null {
-    // First, look for an $ai_trace event
-    const aiTraceEvent = showableEvents.find((event) => event.event === '$ai_trace')
-
-    if (aiTraceEvent) {
-        return aiTraceEvent.id
+    // A real trace renders its whole conversation at the root, so focus the root
+    // (null) instead of diving into a child node.
+    if (traceHasRootContent(trace)) {
+        return null
     }
 
-    // If tab=summary is specified, user wants to stay at the trace level (e.g., from clusters view)
-    // Don't skip to first generation event in this case
+    // tab=summary means the user explicitly asked to stay at the trace level (e.g. from clusters view).
     if (initialTab === 'summary') {
         return null
     }
 
-    // If no $ai_trace event, look for the first $ai_generation event
-    // This provides a better default for pseudo-traces where the generation
-    // is typically what users want to see
+    // Pseudo-trace: bare generations grouped by trace_id with no $ai_trace event.
+    // The first generation is the most useful default here.
     const firstGenerationNode = filteredTree.find((node) => node.event.event === '$ai_generation')
-
     if (firstGenerationNode) {
         return firstGenerationNode.event.id
     }
 
-    // Fall back to first event in tree
-    if (filteredTree.length > 0) {
-        return filteredTree[0].event.id
-    }
-
-    return null
+    return filteredTree[0]?.event.id ?? null
 }
 
 export function getEffectiveEventId(eventId: string | null, initialFocusEventId: string | null): string | null {

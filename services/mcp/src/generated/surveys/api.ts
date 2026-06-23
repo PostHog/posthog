@@ -18,6 +18,7 @@ export const SurveysListParams = /* @__PURE__ */ zod.object({
 
 export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional(),
+    ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
@@ -725,6 +726,16 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1522,6 +1533,16 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()

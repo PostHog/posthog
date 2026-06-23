@@ -3,14 +3,11 @@ import { useValues } from 'kea'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import { costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
+import { asString, costContextFromProperties, formatLLMCost, hasCostBreakdown } from '../utils'
 import { CostBreakdownTooltip } from './CostBreakdownTooltip'
 import { SentimentBar } from './SentimentTag'
 
@@ -32,7 +29,6 @@ export function AIObservabilityEventCard({
     onToggleExpand,
     traceId,
 }: AIObservabilityEventCardProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
 
     const isGeneration = event.event === '$ai_generation'
@@ -49,11 +45,11 @@ export function AIObservabilityEventCard({
     const hasError = event.properties.$ai_error || event.properties.$ai_is_error
 
     // Generation-specific properties
-    const model = event.properties.$ai_model || 'Unknown model'
+    const model = asString(event.properties.$ai_model) || 'Unknown model'
     const costContext = isGeneration || isEmbedding ? costContextFromProperties(event.properties) : undefined
 
     // Span-specific properties
-    const spanName = event.properties.$ai_span_name || 'Unnamed span'
+    const spanName = asString(event.properties.$ai_span_name) || 'Unnamed span'
 
     return (
         <div className="border rounded bg-bg-3000">
@@ -111,7 +107,6 @@ export function AIObservabilityEventCard({
                     )}
                     {isGeneration &&
                         traceId &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
                         (() => {
                             const genSentiment = getGenerationSentiment(event.id)
                             return genSentiment ? (

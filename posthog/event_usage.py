@@ -18,6 +18,7 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_instance_realm
 
 if TYPE_CHECKING:
@@ -271,6 +272,7 @@ def report_user_organization_membership_level_changed(
 class EventSource(StrEnum):
     WEB = "web"
     API = "api"
+    CLI = "cli"
     POSTHOG_AI = "posthog_ai"
     POSTHOG_CODE = "posthog_code"
     TERRAFORM = "terraform"
@@ -318,14 +320,17 @@ def get_event_source(request) -> EventSource:
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
-    # Wizard, posthog-code etc. all wrap MCP — their UA tokens must win over the
-    # X-PostHog-Client header so the source reflects the outer caller.
+    # Wizard, posthog-code, posthog-cli etc. all wrap MCP — their UA tokens
+    # must win over the X-PostHog-Client header so the source reflects the
+    # outer caller.
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
+    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
+        return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return EventSource.MCP
     # DRF sets successful_authenticator during view dispatch; before that
@@ -389,7 +394,7 @@ _tracer = trace.get_tracer(__name__)
 
 
 def report_user_action(
-    user: User | AnonymousUser,
+    user: User | AnonymousUser | SyntheticUser,
     event: str,
     properties: Optional[dict] = None,
     *,
@@ -399,9 +404,6 @@ def report_user_action(
     analytics_props: Optional[AnalyticsProps] = None,
     send_feature_flags: bool = False,
 ):
-    # isinstance works through Django's SimpleLazyObject because it proxies __class__
-    if not isinstance(user, User) or not user.distinct_id:
-        return
     if request is not None and analytics_props is not None:
         raise ValueError("Pass either request or analytics_props, not both")
     if properties is None:
@@ -410,6 +412,22 @@ def report_user_action(
         properties = {**get_request_analytics_properties(request), **properties}
     if analytics_props is not None:
         properties = {**analytics_props, **properties}
+
+    # Synthetic principals (e.g. project secret API keys) have no User row but still carry a
+    # distinct_id, so service-authenticated actions are captured instead of silently dropped.
+    if isinstance(user, SyntheticUser):
+        synthetic_team = team or user.team
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event=event,
+            properties=properties,
+            groups=groups(organization or synthetic_team.organization, synthetic_team),
+        )
+        return
+
+    # isinstance works through Django's SimpleLazyObject because it proxies __class__
+    if not isinstance(user, User) or not user.distinct_id:
+        return
     if user.email:
         properties["$set_once"] = {"email": user.email}
     with _tracer.start_as_current_span("report_user_action"):

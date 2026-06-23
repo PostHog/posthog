@@ -2,15 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
+
+from django.db import InterfaceError, OperationalError
 
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
-from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.temporal import metrics
+
+if TYPE_CHECKING:
+    # Type-only: importing the harness runner at module load would close the cycle
+    # runner -> temporal.agentic -> scout_coordinator -> scout_scheduler -> runner.
+    from products.signals.backend.scout_harness.runner import RunResult
 
 logger = structlog.get_logger(__name__)
 
@@ -47,20 +56,56 @@ def _to_output(result: RunResult) -> RunSignalsScoutOutput:
 
 
 @temporalio.activity.defn
+@close_db_connections
 async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsScoutOutput:
     """One scheduled scout run for a (team, skill) pair.
 
     The activity itself never raises — failures are persisted on the run row and the
     workflow sees a `status='failed'` outcome. This matches the spec's "fail safe and
     silent" rule: a bad run does not retry blindly.
+
+    The long-lived worker pools its DB connections through pgbouncer, so a pool recycle,
+    failover, or deploy can leave a stale pooled connection that raises `OperationalError`
+    the next time it's used. `@close_db_connections` evicts stale connections around the
+    activity, and the `(OperationalError, InterfaceError)` guard below catches a blip that
+    lands mid-run — including the runner's early guards and its own except-handler reads,
+    which run outside the run-row try/except — so a transient drop is reported as a failed
+    run rather than escaping the activity and breaching the "never raises" contract.
     """
-    async with Heartbeater():
-        result = await arun_signals_scout(
+    # Deferred to break the runner <-> temporal import cycle (see the TYPE_CHECKING note
+    # above): importing the runner at module load leaves RunResult undefined when runner
+    # is the import entry point. Imported here at call time, after both modules are loaded.
+    from products.signals.backend.scout_harness.runner import arun_signals_scout  # noqa: PLC0415
+
+    try:
+        async with Heartbeater():
+            result = await arun_signals_scout(
+                team_id=input.team_id,
+                skill_name=input.skill_name,
+                skill_version=input.skill_version,
+                repository=input.repository,
+            )
+    except (OperationalError, InterfaceError):
+        # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
+        # fail-safe and silent: report a failed run for this tick rather than raising. The
+        # decorator already evicted the dead connection; the next scheduled tick retries on
+        # a fresh one. `"failed"` mirrors `TaskRun.Status.FAILED.value`.
+        metrics.increment_scout_run("failed")
+        logger.warning(
+            "signals_scout activity: transient DB connection failure, reporting failed run",
             team_id=input.team_id,
             skill_name=input.skill_name,
-            skill_version=input.skill_version,
-            repository=input.repository,
+            exc_info=True,
         )
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status="failed",
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+        )
+    metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",
         team_id=input.team_id,

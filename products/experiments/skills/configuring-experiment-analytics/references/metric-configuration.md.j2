@@ -159,13 +159,27 @@ required and controls how users with multiple start events are anchored:
 `"first_seen"` (anchor on first occurrence) or `"last_seen"` (anchor on most
 recent).
 
-### Right — 7-day retention
+The window is measured **from the start event** and bucketed by
+`retention_window_unit`, which is `"day"` or `"hour"`. The start occurrence never
+counts as its own completion — only a *distinct* later event does — so the start
+and completion events may be the same:
+
+- **Different events** (e.g. `$pageview` → `uploaded_file`) — conversion retention:
+  "did the user reach the target action within the window?"
+- **Same event** (e.g. `promoted_product_clicked` → `promoted_product_clicked`) —
+  repeat retention: "did the user fire it _again_ within the window?" `From 0`
+  counts a repeat from the same period onward (same-day/same-hour repeats count);
+  `From N` (N ≥ 1) requires the repeat in a later period. Use `start_handling: "first_seen"`
+  so in-experiment repeats fall after the anchor — `last_seen` anchors on the user's
+  final occurrence, which has no in-experiment activity after it.
+
+### Right — conversion retention (different events)
 
 ```json
 {
   "kind": "ExperimentMetric",
   "metric_type": "retention",
-  "name": "7-day retention",
+  "name": "7-day file-upload retention",
   "start_event": {
     "kind": "EventsNode",
     "event": "$pageview"
@@ -180,6 +194,33 @@ recent).
   "start_handling": "first_seen"
 }
 ```
+
+### Right — repeat retention (same event)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day repeat-click retention",
+  "start_event": {
+    "kind": "EventsNode",
+    "event": "promoted_product_clicked"
+  },
+  "completion_event": {
+    "kind": "EventsNode",
+    "event": "promoted_product_clicked"
+  },
+  "retention_window_start": 0,
+  "retention_window_end": 7,
+  "retention_window_unit": "day",
+  "start_handling": "first_seen"
+}
+```
+
+Measures "of users who clicked the promoted product, how many clicked it again
+within 7 days". The first click anchors the window and never counts as its own
+completion — only a later distinct click does, so a one-time clicker is correctly
+counted as not retained.
 
 ### Wrong — missing `retention_window_start` and `start_handling`
 

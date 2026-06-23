@@ -36,6 +36,13 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        /**
+         * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
+         * so the agent sees it at point of use instead of it growing the always-loaded tool
+         * description. Keep it to a sentence or two and defer details to the referenced
+         * tools' own descriptions.
+         */
+        agent_note: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         /**
@@ -65,6 +72,14 @@ export const ToolConfigSchema = z
                          */
                         optional: z.boolean().optional(),
                         /**
+                         * When true, strip the optionality the Orval body schema applies
+                         * to PATCH fields, so the param is required in the tool schema.
+                         * Use when the backend serializer requires the field even though
+                         * the endpoint is a PATCH (drf-spectacular marks every PATCH body
+                         * field optional). Mutually exclusive with `optional`.
+                         */
+                        required: z.boolean().optional(),
+                        /**
                          * State manager key to resolve the param from when omitted.
                          * Supported keys: 'orgId' (→ getOrgID()), 'projectId' (→ getProjectId()).
                          */
@@ -90,6 +105,9 @@ export const ToolConfigSchema = z
                     })
                     .refine((data) => !(data.optional && !data.fallback), {
                         message: 'optional requires a fallback key to resolve the value from state',
+                    })
+                    .refine((data) => !(data.optional && data.required), {
+                        message: 'optional and required are mutually exclusive',
                     })
                     .refine((data) => !(data.cast && (data.input_schema || data.schema_ref)), {
                         message:
@@ -166,6 +184,43 @@ export const ToolConfigSchema = z
                 message: 'response.include and response.exclude are mutually exclusive',
             })
             .optional(),
+        /**
+         * Opt the tool into the typed-confirm two-tool paradigm. Codegen
+         * emits TWO tools per YAML entry that declares this block:
+         *
+         *   - `<name>-prepare` — signs the validated args + user identity into
+         *     a hash and returns a result instructing the model to surface the
+         *     confirmation prompt to the user.
+         *   - `<name>-execute` — takes the hash plus the literal string the
+         *     user typed, validates both (single-use, TTL-bounded), then runs
+         *     the underlying action with the original args.
+         *
+         * Use for destructive or security-sensitive actions an LLM should
+         * never perform unattended (org-wide settings, key revocation,
+         * bulk deletes). The security guarantee is weaker than client-
+         * rendered elicitation because the LLM controls the `confirmation`
+         * argument — but strictly stronger than a single destructive tool.
+         */
+        confirmed_action: z
+            .object({
+                /**
+                 * Prompt text shown to the user. Supports `{paramName}`
+                 * placeholders interpolated from the validated tool args
+                 * at runtime.
+                 *
+                 * Example: `"About to enable enforce 2FA on organization {orgId}. Reply 'confirm' to proceed."`
+                 */
+                message: z.string(),
+                /**
+                 * Short human-readable label for the action ("enable 2FA",
+                 * "delete project"). Surfaced in refusal messages when the
+                 * confirmation fails so the user sees what was refused.
+                 * Defaults to the tool's title if omitted.
+                 */
+                action_label: z.string().optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict()
     .refine(
@@ -183,6 +238,16 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
+    })
+    // confirmed_action emits two factories (`-prepare`, `-execute`) via a
+    // codegen path that doesn't currently wrap either with `withUiApp`.
+    // Reject the combination at YAML time rather than silently drop the
+    // UI app at codegen — if a real consumer wants both, wire `withUiApp`
+    // around the execute factory explicitly first.
+    .refine((data) => !(data.confirmed_action && data.ui_app), {
+        message:
+            '`confirmed_action` cannot be combined with `ui_app` yet — the codegen does not wrap the generated -execute factory with withUiApp. Drop one or extend buildConfirmedActionFactories to opt in.',
+        path: ['confirmed_action'],
     })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
@@ -441,6 +506,14 @@ export const CategoryConfigSchema = z
         category: z.string(),
         feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
         url_prefix: z.string(),
+        /**
+         * Category-level feature flag gate, inherited by every tool that doesn't
+         * set its own `feature_flag`. Use to hide a whole not-yet-GA product
+         * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
+         */
+        feature_flag: z.string().optional(),
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        feature_flag_variant: z.string().optional(),
         tools: z.record(
             z
                 .string()

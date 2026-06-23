@@ -60,12 +60,14 @@ export interface MaxErrorTrackingIssueContext {
     name?: string | null
 }
 
+export type EvaluationRuntime = 'hog' | 'llm_judge' | 'sentiment'
+
 export interface MaxEvaluationContext {
     type: MaxContextType.EVALUATION
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: EvaluationRuntime
     hog_source?: string | null
 }
 
@@ -73,6 +75,9 @@ export interface MaxNotebookContext {
     type: MaxContextType.NOTEBOOK
     id: string // short_id
     name?: string | null
+    markdown_with_insertion_placeholder?: string
+    insertion_placeholder_block_id?: string
+    insertion_placeholder_marker?: string
 }
 
 // The main shape for the UI context sent to the backend
@@ -139,7 +144,7 @@ type MaxEvaluationContextInput = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }
 }
@@ -221,7 +226,7 @@ export const createMaxContextHelpers = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: EvaluationRuntime
         hog_source?: string | null
     }): MaxEvaluationContextInput => ({
         type: MaxContextType.EVALUATION,
@@ -236,4 +241,51 @@ export const createMaxContextHelpers = {
 
 export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
+}
+
+/**
+ * The shape `sandboxToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
+ * renderer-facing fields resolved at render time.
+ */
+export interface SandboxToolCallMessage {
+    /** Stable id — the tool call id. */
+    id: string
+    /** Registry lookup key — the inner tool name for single-exec calls, otherwise the wire tool name. */
+    resolvedKey: string
+    rawServerName: string
+    rawToolName: string
+    innerToolName?: string
+    /** Stable SDK tool name from `_meta.claudeCode.toolName` — set for Claude built-ins. */
+    claudeToolName?: string
+    /** rawInput at `tool_call` (for `exec`, includes the wrapper `{ command }`). */
+    rawInput: Record<string, unknown>
+    /** JSON-parsed inner args when `innerToolName` is set. */
+    innerInput?: Record<string, unknown>
+    rawOutput?: unknown
+    /** Accumulated ACP `content[]`. */
+    content: unknown[]
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    title?: string
+    kind?: string
+    /** ACP `toolCall.locations` — file paths (with optional line) the tool touched. */
+    locations?: { path: string; line?: number }[]
+    error?: { message?: string } | null
+}
+
+/**
+ * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).
+ *
+ * Unlike the rich `MaxUIContext` payloads used by the LangGraph runtime, the sandbox runtime
+ * carries only typed references the agent fetches on demand via its read tools. This is a new
+ * export added alongside the existing context types during the coexistence window — existing
+ * types are untouched.
+ */
+export interface AttachedContext {
+    type: 'dashboard' | 'insight' | 'event' | 'action' | 'error_tracking_issue' | 'evaluation' | 'notebook' | 'text'
+    /** Entity id — int for dashboards/actions, short_id for insights/notebooks, UUID for error tracking issues. */
+    id?: string | number
+    /** Optional human-readable label for entity types. */
+    name?: string
+    /** Free-text value — only set when `type === 'text'`. */
+    value?: string
 }

@@ -11,7 +11,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
@@ -252,6 +252,9 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -307,7 +310,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Setup main repo and dependencies
@@ -337,6 +340,9 @@ jobs:
 
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
@@ -448,6 +454,9 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache

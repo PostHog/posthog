@@ -98,7 +98,13 @@ class LLMTracesSummarizerEmbedder:
         return result[0][0] > 0
 
     def embed_document(
-        self, content: str, document_id: str, document_type: str, rendering: str, product: str
+        self,
+        content: str,
+        document_id: str,
+        document_type: str,
+        rendering: str,
+        product: str,
+        metadata: dict | None = None,
     ) -> datetime:
         timestamp = timezone.now()
         payload = {
@@ -109,6 +115,7 @@ class LLMTracesSummarizerEmbedder:
             "document_id": document_id,
             "timestamp": timestamp.isoformat(),
             "content": content,
+            "metadata": metadata or {},
             "models": [self._embedding_model_name.value],
         }
         self._producer.produce(topic=DOCUMENT_EMBEDDINGS_TOPIC, data=payload)

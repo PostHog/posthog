@@ -48,9 +48,6 @@ tools:
     task-automations-run-create:
         operation: task_automations_run_create
         enabled: false
-    task-automations-update:
-        operation: task_automations_update
-        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: false
@@ -180,9 +177,6 @@ tools:
                 - created_at
                 - updated_at
                 - completed_at
-    tasks-runs-logs-retrieve:
-        operation: tasks_runs_logs_retrieve
-        enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false
