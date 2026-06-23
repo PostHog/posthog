@@ -19,6 +19,8 @@ IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 
+SOURCE_MAPS_DOCS_URL = weekly_digest.SOURCE_MAPS_DOCS_URL
+
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
     if assignment is None:

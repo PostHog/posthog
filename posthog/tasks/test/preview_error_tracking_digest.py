@@ -17,7 +17,7 @@ from django.template.loader import get_template
 
 from posthog.email import inline_css
 
-from products.error_tracking.backend.weekly_digest import SOURCE_MAPS_DOCS_URL
+from products.error_tracking.backend.facade.api import SOURCE_MAPS_DOCS_URL
 
 
 def _wizard_command() -> str:
