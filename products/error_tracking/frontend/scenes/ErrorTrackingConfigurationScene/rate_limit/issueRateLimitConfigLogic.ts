@@ -51,8 +51,6 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
     actions({
         selectIssue: (issueId: string | null) => ({ issueId }),
         setChartMode: (mode: RateLimitChartMode) => ({ mode }),
-        // Loads whichever chart (simulation volume or history) matches the current mode for an issue.
-        loadSelectedIssueChart: (issueId: string, force?: boolean) => ({ issueId, force }),
         refreshChart: true,
     }),
 
@@ -149,11 +147,12 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                             FROM events
                             WHERE event = '$exception'
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
-                              AND toString(issue_id_v2) = '${issueId}'
+                              AND toString(issue_id_v2) = {issueId}
                             GROUP BY bucket
                             ORDER BY bucket
                             LIMIT ${option.bucketCount + 1}
                         `,
+                            values: { issueId },
                             tags: { productKey: ProductKey.ERROR_TRACKING },
                         },
                         force ? { refresh: 'force_blocking' } : undefined
@@ -195,13 +194,14 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                                 sum(count) AS count
                             FROM app_metrics
                             WHERE app_source = '${EXCEPTIONS_APP_SOURCE}'
-                              AND app_source_id = '${issueId}'
+                              AND app_source_id = {issueId}
                               AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}')
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                             GROUP BY bucket, metric_name
                             ORDER BY bucket
                             LIMIT ${(option.bucketCount + 1) * 2}
                         `,
+                            values: { issueId },
                             tags: { productKey: ProductKey.ERROR_TRACKING },
                         },
                         force ? { refresh: 'force_blocking' } : undefined
@@ -276,13 +276,24 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             }
         },
         selectIssue: ({ issueId }) => {
-            if (issueId) {
-                actions.loadSelectedIssueChart(issueId)
+            if (!issueId) {
+                return
+            }
+            const bucketMinutes = values.configForm.per_issue_rate_limit_bucket_size_minutes
+            // Volume backs the default simulation view, so load it eagerly (like the project-wide
+            // chart loads volume on mount) — switching back to simulation then needs no refetch.
+            actions.loadSelectedIssueVolume({ issueId, bucketMinutes })
+            if (values.chartMode === 'history') {
+                actions.loadSelectedIssueHistory({ issueId, bucketMinutes })
             }
         },
-        setChartMode: () => {
-            if (values.selectedIssueId) {
-                actions.loadSelectedIssueChart(values.selectedIssueId)
+        setChartMode: ({ mode }) => {
+            // Only history needs fetching on toggle; volume is already loaded for the selected issue.
+            if (mode === 'history' && values.selectedIssueId) {
+                actions.loadSelectedIssueHistory({
+                    issueId: values.selectedIssueId,
+                    bucketMinutes: values.configForm.per_issue_rate_limit_bucket_size_minutes,
+                })
             }
         },
         loadTopIssuesSuccess: ({ topIssues }) => {
@@ -293,17 +304,16 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                 actions.selectIssue(nextId)
             }
         },
-        loadSelectedIssueChart: ({ issueId, force }) => {
+        refreshChart: () => {
+            const issueId = values.selectedIssueId
+            if (!issueId) {
+                return
+            }
             const bucketMinutes = values.configForm.per_issue_rate_limit_bucket_size_minutes
             if (values.chartMode === 'history') {
-                actions.loadSelectedIssueHistory({ issueId, bucketMinutes, force })
+                actions.loadSelectedIssueHistory({ issueId, bucketMinutes, force: true })
             } else {
-                actions.loadSelectedIssueVolume({ issueId, bucketMinutes, force })
-            }
-        },
-        refreshChart: () => {
-            if (values.selectedIssueId) {
-                actions.loadSelectedIssueChart(values.selectedIssueId, true)
+                actions.loadSelectedIssueVolume({ issueId, bucketMinutes, force: true })
             }
         },
     })),
