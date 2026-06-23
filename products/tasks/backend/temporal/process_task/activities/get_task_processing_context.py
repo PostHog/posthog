@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -231,13 +232,35 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
+def _vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("origin_products") if isinstance(payload, dict) else payload
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
 def _is_modal_vm_sandbox_enabled(
     *,
     distinct_id: str,
     organization_id: str,
     run_id: str,
+    origin_product: str | None,
+    allowed_domains: list[str] | None,
     state: dict | None = None,
 ) -> bool:
+    if allowed_domains is not None:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
     state_override = (state or {}).get("use_modal_vm_sandbox")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -258,16 +281,30 @@ def _is_modal_vm_sandbox_enabled(
                 send_feature_flag_events=False,
             )
         )
+        allowed_origins: set[str] = set()
+        if enabled:
+            payload = posthoganalytics.get_feature_flag_payload(
+                MODAL_VM_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+            )
+            allowed_origins = _vm_sandbox_allowed_origin_products(payload)
     except Exception as e:
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
+    result = enabled and origin_product in allowed_origins
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        use_modal_vm_sandbox=enabled,
+        flag_enabled=enabled,
+        origin_product=origin_product,
+        allowed_origin_products=sorted(allowed_origins),
+        use_modal_vm_sandbox=result,
     )
-    return enabled
+    return result
 
 
 def _is_burstable_sandbox_resources_enabled(
@@ -452,6 +489,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
+        origin_product=task.origin_product,
+        allowed_domains=allowed_domains,
         state=state,
     )
     emit_agent_log(

@@ -34,6 +34,40 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 _MYSQL_IMPLEMENTATION = MySQLImplementation()
 
+# Create-time-only refinement of the connection error shown when a source fails to
+# validate. pymysql collapses every connect-level failure into error 2003,
+# "Can't connect to MySQL server on '<host>' (<os detail>)", so the generic
+# "check all connection details" message can't tell the user whether the host is
+# wrong, the port is closed, or a firewall is dropping us — unlike the Postgres
+# source, which is granular. We match the OS detail (and the 1049 "Unknown database"
+# server error) to give the same actionable messages. Kept out of
+# get_non_retryable_errors — which the sync path also consults for retry
+# classification — so connection-error retry behaviour is unchanged.
+_VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    (
+        "Name or service not known",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "nodename nor servname provided",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "Connection refused",
+        "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
+    ),
+    ("timed out", "Connection timed out. Does your database have our IP addresses allowed?"),
+    (
+        "No route to host",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    (
+        "Network is unreachable",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    ("Unknown database", "Database does not exist. Check the database name is correct."),
+]
+
 
 @SourceRegistry.register
 class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -245,6 +279,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # message without reporting them to error tracking — only genuinely unexpected
             # failures get captured. Mirrors the Postgres and MSSQL `validate_credentials` handling.
             error_msg = " ".join(str(arg) for arg in e.args) if e.args else str(e)
+            # Refine the generic connect failure into a specific, actionable message first.
+            for hint_pattern, hint_message in _VALIDATE_CONNECTION_HINTS:
+                if hint_pattern in error_msg:
+                    return False, hint_message
             for pattern, friendly_error in self.get_non_retryable_errors().items():
                 if pattern in error_msg:
                     return (

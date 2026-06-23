@@ -294,7 +294,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
+    @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
     @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
         index: GroupTypeIndex = 0

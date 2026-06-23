@@ -103,6 +103,10 @@ class SandboxConfig(BaseModel):
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
 
+    @property
+    def is_vm(self) -> bool:
+        return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
+
 
 WORKING_DIR = "/tmp/workspace"
 

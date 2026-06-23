@@ -38,6 +38,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
+    get_excluded_variants,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
@@ -170,6 +171,17 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
             "which historically lived in `parameters`; values are kept in sync with `parameters` "
             "during the deprecation window."
+        ),
+    )
+    excluded_variants = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variant keys to exclude from metric result calculations. Excluded variants are still "
+            "served to users but omitted from statistical analysis. The baseline variant and holdout "
+            "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
+            "`parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window."
         ),
     )
     conclusion = serializers.ChoiceField(
@@ -316,6 +328,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -413,7 +426,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                        excluded_variants=get_excluded_variants(instance),
                     )
 
         return data
@@ -432,6 +445,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_running_time_calculation(self, value):
         ExperimentService.validate_running_time_calculation(value)
+        return value
+
+    def validate_excluded_variants(self, value):
+        ExperimentService.validate_excluded_variants(value)
         return value
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
@@ -466,6 +483,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
             running_time_calculation=self.validated_data.get("running_time_calculation"),
+            excluded_variants=self.validated_data.get("excluded_variants"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -504,6 +522,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "type",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",
@@ -583,6 +602,7 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "archived",
             "deleted",
             "created_by",
