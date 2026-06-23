@@ -135,23 +135,4 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
         const count = await pool.query('SELECT count(*) FROM agent_identity_credential')
         expect(Number(count.rows[0].count)).toBe(0)
     })
-
-    it('revokeForApplication revokes only that app, returns the count', async () => {
-        if (!reachable) {
-            return
-        }
-        const appA = randomUUID()
-        const appB = randomUUID()
-        const U1 = randomUUID()
-        const U2 = randomUUID()
-        const U3 = randomUUID()
-        await put({ agentUserId: U1, applicationId: appA })
-        await put({ agentUserId: U2, applicationId: appA, provider: 'posthog' })
-        await put({ agentUserId: U3, applicationId: appB })
-
-        expect(await store.revokeForApplication(appA)).toBe(2)
-        expect(await store.get(U1, 'dogs')).toBeNull()
-        expect(await store.get(U2, 'posthog')).toBeNull()
-        expect((await store.get(U3, 'dogs'))?.credential.access_token).toBe('at-1')
-    })
 })

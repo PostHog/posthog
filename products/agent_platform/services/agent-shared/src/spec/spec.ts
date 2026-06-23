@@ -714,10 +714,12 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
         kind: z.literal('posthog'),
         id: z.string().min(1).default('posthog'),
         scopes: z.array(z.string()).default([]),
-        /** Who the credential acts as — `principal` (per-asker, default) or
-         *  `agent` (one author-linked credential shared by the whole agent).
-         *  `agent` is not yet implemented at runtime (resolve throws). */
-        binding: z.enum(['principal', 'agent']).default('principal'),
+        /** Who the credential acts as. Only `principal` (per-asker) is accepted:
+         *  the `agent` binding (one credential shared by the whole agent) isn't
+         *  implemented yet, so it's rejected at the schema until the app-scoped
+         *  credential shape lands. The runtime seam still exists (resolve throws
+         *  `agent_binding_not_implemented`) for when it does. */
+        binding: z.enum(['principal']).default('principal'),
         /** Backend-injected on promote (the provisioned OAuthApplication's
          *  client_id). Author never sets it; absent until the agent is promoted. */
         client_id: z.string().optional(),
@@ -725,7 +727,7 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('oauth2'),
         id: z.string().min(1),
-        binding: z.enum(['principal', 'agent']).default('principal'),
+        binding: z.enum(['principal']).default('principal'),
         authorize_url: z.string().url(),
         token_url: z.string().url(),
         client_id: z.string().min(1),

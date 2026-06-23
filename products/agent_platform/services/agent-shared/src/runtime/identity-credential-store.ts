@@ -78,8 +78,6 @@ export interface IdentityCredentialStore {
     revoke(agentUserId: string, provider: string): Promise<void>
     /** Hard-delete the link. Idempotent. */
     remove(agentUserId: string, provider: string): Promise<void>
-    /** Revoke every active link for an application (archive cascade). Returns count. */
-    revokeForApplication(applicationId: string): Promise<number>
 }
 
 interface CredentialRow {
@@ -189,15 +187,5 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
             agentUserId,
             provider,
         ])
-    }
-
-    async revokeForApplication(applicationId: string): Promise<number> {
-        const r = await this.pool.query(
-            `UPDATE agent_identity_credential
-                SET state = 'revoked', revoked_at = NOW(), updated_at = NOW()
-              WHERE application_id = $1 AND state = 'active'`,
-            [applicationId]
-        )
-        return r.rowCount ?? 0
     }
 }

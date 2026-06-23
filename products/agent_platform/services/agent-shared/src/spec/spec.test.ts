@@ -728,4 +728,23 @@ describe('AgentSpecSchema', () => {
             expect(principalsMatch(stored, incoming)).toBe(expected)
         })
     })
+
+    describe('identity_providers[] binding', () => {
+        it('accepts the per-asker `principal` binding (defaulting when omitted)', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                identity_providers: [{ kind: 'posthog' }],
+            })
+            expect(spec.identity_providers[0]?.binding).toBe('principal')
+        })
+
+        it('rejects the unimplemented `agent` binding (the runtime seam exists, but a spec cannot select it)', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    identity_providers: [{ kind: 'posthog', binding: 'agent' }],
+                })
+            ).toThrow()
+        })
+    })
 })

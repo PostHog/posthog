@@ -8252,14 +8252,14 @@ export namespace Schemas {
       kind: 'posthog';
       /** @minLength 1 */
       id?: string;
-      binding?: 'principal' | 'agent';
+      binding?: 'principal';
       scopes?: string[];
       client_id?: string;
     } | {
       kind: 'oauth2';
       /** @minLength 1 */
       id: string;
-      binding?: 'principal' | 'agent';
+      binding?: 'principal';
       authorize_url: string;
       token_url: string;
       /** @minLength 1 */
@@ -33969,14 +33969,14 @@ export namespace Schemas {
       kind: 'posthog';
       /** @minLength 1 */
       id?: string;
-      binding?: 'principal' | 'agent';
+      binding?: 'principal';
       scopes?: string[];
       client_id?: string;
     } | {
       kind: 'oauth2';
       /** @minLength 1 */
       id: string;
-      binding?: 'principal' | 'agent';
+      binding?: 'principal';
       authorize_url: string;
       token_url: string;
       /** @minLength 1 */

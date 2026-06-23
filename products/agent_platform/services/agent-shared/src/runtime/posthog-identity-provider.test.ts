@@ -145,9 +145,6 @@ class MemCredStore implements IdentityCredentialStore {
     }
     async revoke(): Promise<void> {}
     async remove(): Promise<void> {}
-    async revokeForApplication(): Promise<number> {
-        return 0
-    }
 }
 
 const initiateArgs = {

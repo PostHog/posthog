@@ -62,7 +62,7 @@
                                 "properties": {
                                     "binding": {
                                         "default": "principal",
-                                        "enum": ["principal", "agent"],
+                                        "enum": ["principal"],
                                         "type": "string"
                                     },
                                     "client_id": {
@@ -96,7 +96,7 @@
                                     },
                                     "binding": {
                                         "default": "principal",
-                                        "enum": ["principal", "agent"],
+                                        "enum": ["principal"],
                                         "type": "string"
                                     },
                                     "client_id": {
