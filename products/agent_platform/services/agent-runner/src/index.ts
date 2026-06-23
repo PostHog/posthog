@@ -7,8 +7,9 @@
  *
  *   - agentDb (AGENT_DB_URL): the queue / runtime database, owns
  *     agent_session, agent_user, agent_sandbox_instance. Schema is
- *     managed by @posthog/agent-migrations; this entry applies any
- *     pending migrations on boot (idempotent).
+ *     Django-owned (migrations in products/agent_platform/backend/migrations/,
+ *     applied in prod by the migrate_product_databases job); the runner
+ *     is a pure client and never migrates.
  *
  * In dev / CI both env vars can point at the same Postgres; production
  * deploys them separately so high-churn runtime writes don't pressure the
@@ -28,8 +29,11 @@ import {
     DirectHttpClient,
     EncryptedEnvSecretResolver,
     EncryptedFields,
+    createMetricsServer,
+    handleMetricsRequest,
     HttpClient,
     HttpGatewayClient,
+    initMetrics,
     installProcessHandlers,
     isDev,
     KafkaLogSink,
@@ -39,6 +43,8 @@ import {
     NoopAnalyticsSink,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
@@ -56,7 +62,6 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
-import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
@@ -69,12 +74,27 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
 
+    // Prometheus: register Node process defaults. Prod runs a dedicated scrape
+    // server on its own port (independent of /healthz). Dev mounts /metrics on
+    // the health server instead (see below) — three services on one host can't
+    // all bind the same dedicated port.
+    initMetrics({ service: 'agent-runner' })
+    const metricsServer = isDev() ? null : createMetricsServer({ port: config.metricsPort, log })
+
     // Fail-fast prod guard for the dev-only bearer attached to auth-less
     // external MCP refs. Prod must route auth via integrations or the
     // resolver-minted `kind: agent` path, not via a global bearer.
     if (config.devMcpBearerToken && !isDev()) {
         throw new Error(
             'AGENT_DEV_MCP_BEARER_TOKEN is a dev-only escape hatch for external-MCP auth and must not be set when NODE_ENV=production.'
+        )
+    }
+
+    // Gateway path authenticates every call with one static phs_ bearer; without
+    // it every request 401s, so fail fast rather than crash-loop at first turn.
+    if (config.useAiGateway && !config.posthogAiGatewayKey) {
+        throw new Error(
+            'AGENT_USE_AI_GATEWAY requires POSTHOG_AI_GATEWAY_KEY — a phs_ project secret key with the llm_gateway:read scope.'
         )
     }
 
@@ -158,9 +178,8 @@ async function main(): Promise<void> {
     await logSink.connect()
 
     // Resolves a team's `phc_` project key from the main PostHog DB (cached per
-    // team). Two consumers: the ai-gateway bearer (below) and the LLM-analytics
-    // sink (next). Constructed unconditionally so analytics can route per-team
-    // even when the gateway is off. See ai-gateway-integration.md §3 (W1).
+    // team) for the LLM-analytics sink's per-team routing (below). The gateway
+    // bearer is a single static phs_ now, so this no longer feeds it.
     const teamApiKeys = new PgTeamApiKeyResolver(posthogDb)
 
     // LLM analytics sink. Captures `$ai_generation` per pi-ai call, `$ai_span`
@@ -180,14 +199,13 @@ async function main(): Promise<void> {
         })
     }
 
-    // Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-    // Lets a Slack user who's already a team admin drive a gated tool
-    // directly via chat instead of going through the queued-approval UI.
-    // Reuses the same identity table the ingress writes through. Threaded
-    // into `WorkerDeps.isAskerInApproverScope` → driver → gated tool's
-    // pre-queue check in build-agent-tools.
+    // Principal → agent_user mapping the ingress writes through; consulted by
+    // the runtime identity providers (spec.identity_providers).
     const identities = new PgIdentityStore(agentDb)
-    const isAskerInApproverScope = makePerAskerAuth({ identities, posthogDb })
+    // Persistent linked-credential store backing the runtime identity providers.
+    const identityCredentials = new PgIdentityCredentialStore(agentDb, {
+        encryptionSaltKeys: config.encryptionSaltKeys,
+    })
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
     // ai-gateway is a cluster-internal service — use the direct client so the
     // call doesn't hit smokescreen (which would refuse it as RFC1918). The
@@ -298,21 +316,24 @@ async function main(): Promise<void> {
                   posthogAiGatewayModel({
                       specModel,
                       baseUrl: config.aiGatewayUrl,
+                      // Non-null: boot guard above throws when useAiGateway && !posthogAiGatewayKey.
+                      apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
-        // The driver streams through pi-ai's `streamSimple`; the per-session
-        // API key flows in here (no more client-level default). Gateway path
-        // → resolve the owning team's `phc_`; direct path → fall back to the
-        // boot-time default (ANTHROPIC_API_KEY / OPENAI_API_KEY / etc).
-        resolveApiKey: config.useAiGateway ? (session) => teamApiKeys.resolve(session.team_id) : () => defaultApiKey,
+        // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
+        // Gateway path → the static phs_ (cost bills to the team that owns it);
+        // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).
+        resolveApiKey: config.useAiGateway ? () => config.posthogAiGatewayKey : () => defaultApiKey,
         resolveGatewayHeaders: config.useAiGateway
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
               })
             : undefined,
+        // /v1/usage + /v1/wallet reads use the same static phs_ (the `phc` field
+        // is the read client's bearer; key presence is guaranteed at boot above).
         resolveGatewayUsage: gatewayClient
-            ? async (session) => ({ client: gatewayClient, phc: await teamApiKeys.resolve(session.team_id) })
+            ? () => ({ client: gatewayClient, phc: config.posthogAiGatewayKey! })
             : undefined,
         // On the gateway path pi-ai's cost numbers are client-side estimates;
         // the gateway itself owns billing. We keep token counts. Cost is
@@ -323,7 +344,12 @@ async function main(): Promise<void> {
         maxOutputTokens: config.maxOutputTokens,
         memoryStore,
         tabularStore,
-        isAskerInApproverScope,
+        // Per-principal identity linking (spec.identity_providers): reuse the
+        // same agent DB + encryption the credential broker uses.
+        identityCredentials,
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        identities,
+        linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         devMcpBearerToken: config.devMcpBearerToken,
         // Per-integration-kind host allowlist. Without this, any external MCP
         // ref with `auth.integration` fails closed at open with
@@ -339,7 +365,12 @@ async function main(): Promise<void> {
     // path, so GET /healthz is the only thing on a port — 200 while running,
     // 503 once draining so k8s pulls a shutting-down pod out promptly.
     let healthy = true
+    const devMetrics = isDev()
     const healthServer = createServer((req, res) => {
+        // Dev: /metrics rides the health port (no dedicated scrape server).
+        if (devMetrics && handleMetricsRequest(req, res, log)) {
+            return
+        }
         if (req.url === '/healthz') {
             res.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' })
             res.end(JSON.stringify({ ok: healthy }))
@@ -354,6 +385,7 @@ async function main(): Promise<void> {
         log.info({ sig }, 'shutdown signal received — suspending in-flight sessions')
         healthy = false
         healthServer.close()
+        metricsServer?.close()
         void worker.stop()
     }
     process.on('SIGTERM', () => shutdown('SIGTERM'))

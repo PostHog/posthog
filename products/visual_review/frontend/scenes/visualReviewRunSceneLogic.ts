@@ -28,6 +28,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
@@ -276,6 +277,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
         isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
+        isReportingOnly: [(s) => [s.run], (run): boolean => isReportingOnlyRun(run)],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [

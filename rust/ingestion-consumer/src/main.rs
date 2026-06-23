@@ -19,6 +19,9 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::discovery::{
+    DiscoveryMode, EndpointSliceDiscovery, StaticDiscovery, WorkerDiscovery,
+};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
@@ -126,47 +129,83 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    let worker_urls = config.worker_urls();
+    // Build the worker health registry empty; the discovery provider below
+    // populates it (statically from config, or dynamically from EndpointSlices).
+    let registry_config = WorkerRegistryConfig::from(&config);
+    let registry = Arc::new(WorkerRegistry::new(&[], registry_config));
 
-    // Build the worker health registry and start background probe tasks.
-    let registry_config = WorkerRegistryConfig {
-        probe_interval: Duration::from_millis(config.worker_probe_interval_ms),
-        dead_declaration: Duration::from_millis(config.worker_dead_declaration_ms),
-        passive_window: Duration::from_millis(config.worker_passive_window_ms),
-        passive_error_threshold: config.worker_passive_error_threshold,
-        passive_min_samples: config.worker_passive_min_samples,
-        degraded_hold: Duration::from_millis(config.worker_degraded_hold_ms),
-        min_state_duration: Duration::from_millis(config.worker_min_state_duration_ms),
-        probe_failure_threshold: config.worker_probe_failure_threshold,
-    };
-    let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
-
-    // Probe tasks run until the consumer shuts down.
+    // Probe tasks run until shutdown.
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
 
-    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        Arc::clone(&registry),
+        config.routing_strategy,
+    ));
 
     let api_secret = if config.internal_api_secret.is_empty() {
         None
     } else {
         Some(config.internal_api_secret.clone())
     };
+    // Transport semaphores are created lazily per worker, so it starts empty.
     let transport = Arc::new(HttpTransport::new(
         Duration::from_millis(config.http_timeout_ms),
         config.max_retries,
         api_secret,
-        &worker_urls,
+        &[],
         config.ingestion_worker_concurrent_batches,
     ));
+
+    // Select the worker discovery provider and start it (static applies the
+    // configured list immediately; endpointslice watches and keeps in sync).
+    let discovery_token = CancellationToken::new();
+    let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
+        DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
+        DiscoveryMode::EndpointSlice => {
+            if config.worker_service_name.is_empty() {
+                anyhow::bail!("WORKER_SERVICE_NAME is required for endpointslice discovery");
+            }
+            let client = kube::Client::try_default()
+                .await
+                .context("Failed to create Kubernetes client for EndpointSlice discovery")?;
+            Box::new(EndpointSliceDiscovery::new(
+                client,
+                config.worker_namespace.clone(),
+                config.worker_service_name.clone(),
+                config.worker_port,
+            ))
+        }
+    };
+    let _discovery_handle = discovery.start(
+        Arc::clone(&registry),
+        Arc::clone(&transport),
+        discovery_token.clone(),
+    );
+
+    // For dynamic discovery, wait for the first workers before consuming so the
+    // first batch has somewhere to route.
+    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
+        info!("Waiting for the first workers from EndpointSlice discovery");
+        while registry.worker_count() == 0 {
+            tokio::select! {
+                _ = consumer_handle.shutdown_recv() => {
+                    info!("Shutdown received while waiting for worker discovery");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+            }
+        }
+    }
 
     let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
         .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;
-        // Cancel probe tasks once the consumer loop exits.
+        // Cancel background tasks once the consumer loop exits.
         probe_token.cancel();
+        discovery_token.cancel();
     });
 
     // Build and serve the health/metrics HTTP server

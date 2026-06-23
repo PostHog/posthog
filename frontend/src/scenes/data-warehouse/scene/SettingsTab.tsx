@@ -99,6 +99,7 @@ export function SettingsTab(): JSX.Element {
         retryDatabaseName,
         initialPassword,
         isResettingPassword,
+        warehouseDomain,
     } = useValues(warehouseProvisioningLogic)
     const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
         useActions(warehouseProvisioningLogic)
@@ -117,10 +118,7 @@ export function SettingsTab(): JSX.Element {
             <div>
                 <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
-                    <p className="text-muted mb-4">
-                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your
-                        organization. It's shared by every project in the organization.
-                    </p>
+                    <p className="text-muted mb-4">This warehouse is shared by every project in the organization.</p>
                 )}
             </div>
 
@@ -184,14 +182,26 @@ export function SettingsTab(): JSX.Element {
                                 and ending with a letter or number.
                             </p>
                         )}
-                        {(!databaseName ||
-                            (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
+                        {databaseName &&
+                        isValidDatabaseName &&
+                        !databaseNameChecking &&
+                        databaseNameAvailable === true &&
+                        warehouseDomain ? (
+                            <p className="text-muted text-xs mt-1">
+                                Your warehouse will be available at{' '}
+                                <code>
+                                    {databaseName}.dw.{warehouseDomain}
+                                </code>
+                                . You always connect with <code>dbname=ducklake</code>.
+                            </p>
+                        ) : !databaseName ||
+                          (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true)) ? (
                             <p className="text-muted text-xs mt-1">
                                 Unique name for your warehouse. It becomes the subdomain of your connection host (e.g.{' '}
-                                <code>my-warehouse.dw.us.postwh.com</code>). You always connect with{' '}
-                                <code>dbname=ducklake</code>.
+                                <code>my-warehouse.dw.{warehouseDomain ?? 'us.postwh.com'}</code>). You always connect
+                                with <code>dbname=ducklake</code>.
                             </p>
-                        )}
+                        ) : null}
                     </div>
                     <LemonButton
                         type="primary"
@@ -211,7 +221,7 @@ export function SettingsTab(): JSX.Element {
                                     ? 'Retry managed warehouse provisioning?'
                                     : 'Provision managed warehouse?',
                                 description:
-                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your organization, shared by every project in it. This typically takes 5-15 minutes.',
+                                    'This will create a managed warehouse for your organization, shared by every project in it. Should take less than 5 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
                                     onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
@@ -294,7 +304,7 @@ export function SettingsTab(): JSX.Element {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',
                                         description:
-                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your organization and every project in it. This action cannot be undone.',
+                                            'This will delete the managed warehouse for your organization and every project in it. This action cannot be undone.',
                                         primaryButton: {
                                             children: 'Deprovision',
                                             status: 'danger',

@@ -174,6 +174,27 @@
 
             <quota>default</quota>
         </app>
+
+        <!-- Low-privilege reader baked into dictionary SOURCE(CLICKHOUSE(...)) clauses.
+             Mirrors prod's dict_reader: read-only, database-wide SELECT (not table-enumerated,
+             so new dictionary source tables are covered without editing this file). -->
+        <dict_reader>
+            <password>dictreaderpass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>readonly</profile>
+
+            <quota>default</quota>
+
+            <access_management>0</access_management>
+            <grants>
+                <query>GRANT SELECT ON default.*</query>
+                <query>GRANT SELECT ON posthog_test.*</query>
+            </grants>
+        </dict_reader>
     </users>
 
     <!-- Quotas. -->

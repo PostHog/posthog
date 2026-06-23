@@ -441,6 +441,11 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
         # URL-prefix property missing its trailing slash.
         ("https://agentic30.app", "https://agentic30.app/"),
         ("https://docebo.com", "https://docebo.com/"),
+        # Capitalized scheme/host — Google stores both lowercase, so an exact match needs them lowered.
+        ("Https://www.veteranpcs.com/", "https://www.veteranpcs.com/"),
+        ("HTTPS://Example.com", "https://example.com/"),
+        # Path case is preserved — it can be significant for a URL-prefix property.
+        ("Https://example.com/Blog", "https://example.com/Blog/"),
         # Surrounding whitespace.
         ("  https://example.com/  ", "https://example.com/"),
         # The full Search Console UI URL — the property lives in resource_id.

@@ -5,13 +5,13 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, serialize_fields
+from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
 )
-from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import (
+    get_view_or_table_by_name,
+    validate_warehouse_table_url_pattern,
+)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -87,7 +90,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if database.has_table(table.name):
             fields = database.get_table(table.name).fields
@@ -183,8 +189,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
-            name_exists_in_hogql_database = self.context["database"].has_table(name)
-            if name_exists_in_hogql_database:
+            # has_table covers system/posthog tables and warehouse objects the requesting user can see;
+            # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+            # Otherwise a user with denied table could create another one with colliding name.
+            if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
                 raise serializers.ValidationError("A table with this name already exists.")
 
         return name
@@ -192,18 +200,31 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
 class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
+    hogql_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or "
+        "`postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier.",
+    )
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count", "user_access_level"]
-        read_only_fields = ["id", "name", "columns", "row_count", "user_access_level"]
+        fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+        read_only_fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+
+    @extend_schema_field(serializers.CharField())
+    def get_hogql_name(self, table: DataWarehouseTable) -> str:
+        return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         team_id = self.context.get("team_id", None)
 
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            request = self.context.get("request")
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, request.user) if request else None,
+            )
 
         fields = serialize_fields(
             table.hogql_definition().fields,
@@ -239,7 +260,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         context["team_id"] = self.team_id
         return context
 
@@ -354,7 +375,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(description="Schema refreshed from the table's underlying source")},
+        summary="Refresh table schema from source",
+        description=(
+            "Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying "
+            "source files and overwrite its stored column list. Use when the source schema has evolved "
+            "(e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the "
+            "new columns, because PostHog serves a cached column snapshot until the table is refreshed. "
+            "Not for tables managed by an external data source sync — those refresh on their own schedule."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 

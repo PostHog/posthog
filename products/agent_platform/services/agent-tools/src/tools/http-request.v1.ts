@@ -224,8 +224,6 @@ export const httpRequestV1 = defineNativeTool({
         'secrets declared in `spec.secrets` as `${NAME}` inside url, headers, or',
         'body; the runner substitutes the plaintext value before the request goes',
         "out, so the token never appears in the model's tool-call history.",
-        'For Slack specifically: POST to `https://slack.com/api/<method>` with',
-        '`Authorization: Bearer ${SLACK_BOT_TOKEN}` and a JSON body.',
     ].join(' '),
     args: Type.Object({
         url: Type.String({
@@ -255,7 +253,7 @@ export const httpRequestV1 = defineNativeTool({
         body: Type.Optional(
             Type.Union([Type.String(), Type.Record(Type.String(), Type.Unknown())], {
                 description:
-                    'Request body. Strings are sent verbatim; objects are JSON-encoded and Content-Type defaults to application/json. `${NAME}` placeholders work inside either form.',
+                    'Request body. Strings are sent verbatim; objects are JSON-encoded and Content-Type defaults to application/json. For form-encoded (or any non-JSON) APIs, pass a pre-encoded string body and set Content-Type yourself. `${NAME}` placeholders work inside either form.',
             })
         ),
         timeout_ms: Type.Optional(
@@ -282,7 +280,7 @@ export const httpRequestV1 = defineNativeTool({
         url: Type.String(),
         truncated: Type.Boolean({ description: 'True if the response body was clipped to max_response_bytes.' }),
     }),
-    requires: { integrations: [], scopes: ['web:fetch'] },
+    requires: {},
     cost_hint: 'medium',
     async run(args, ctx) {
         // URL is substituted first so we know the FINAL host; every secret

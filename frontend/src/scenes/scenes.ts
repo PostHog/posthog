@@ -930,6 +930,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
+    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
+    // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
+    [urls.inboxScout(':skillName', ':findingId')]: [Scene.Inbox, 'inbox'],
     [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],

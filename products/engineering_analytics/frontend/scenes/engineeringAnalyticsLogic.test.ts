@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
@@ -130,6 +130,9 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        pushes: 0,
+        rerunCycles: 0,
+        estimatedCostUsd: null,
         ...overrides,
     }
 }
@@ -147,13 +150,16 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         merged_at: null,
         open_to_merge_seconds: null,
         labels: [],
+        pushes: 0,
+        rerun_cycles: 0,
+        estimated_cost_usd: null,
         ...overrides,
     }
 }
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 } }),
+    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
     apiPr({
         number: 102,
         title: 'fix: y',
@@ -300,6 +306,9 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests).toHaveLength(2)
         expect(logic.values.pullRequests[0].authorHandle).toBe('alice')
         expect(ciStatusOf(logic.values.pullRequests[0])).toBe('failing')
+        expect(logic.values.pullRequests[0].pushes).toBe(7)
+        expect(logic.values.pullRequests[0].rerunCycles).toBe(2)
+        expect(logic.values.pullRequests[0].estimatedCostUsd).toBeNull()
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
@@ -308,7 +317,9 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
-        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
     })
 
     it('reloads workflow health when the date range changes', async () => {
@@ -481,16 +492,51 @@ describe('engineeringAnalyticsLogic', () => {
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
-    it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {
-        mockCiCards.mockRejectedValue(new Error('Connect a GitHub data warehouse source to use engineering analytics.'))
-        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
-        mockWorkflowHealth.mockResolvedValue([])
-
+    it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
+        mockCiCards.mockRejectedValue(
+            new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
+        )
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
-        expect(logic.values.loadFailed).toBe(true)
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('flags notConnected from the workflow-health loader too (the Workflows scene renders no cards)', async () => {
+        // notConnected must react to any loader's 400, not cards alone — else the Workflows scene
+        // could miss the connect prompt.
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Connect a GitHub data warehouse source.', 400))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+    })
+
+    it('a cards/PR 500 errors the PR scene only — not the Workflows scene', async () => {
+        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
+
+        expect(logic.values.pullRequestsLoadError).toBe(true)
+        expect(logic.values.workflowHealthLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+    })
+
+    it('a workflow-health 500 errors the Workflows scene only — not the PR scene', async () => {
+        mockWorkflowHealth.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthFailure'])
+
+        expect(logic.values.workflowHealthLoadError).toBe(true)
+        expect(logic.values.pullRequestsLoadError).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
     })
 
     it.each([

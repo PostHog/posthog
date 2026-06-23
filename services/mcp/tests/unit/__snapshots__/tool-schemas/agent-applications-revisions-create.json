@@ -6,6 +6,7 @@
         },
         "bundle_uri": {
             "default": "",
+            "description": "Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint.",
             "type": "string"
         },
         "parent_revision": {
@@ -49,6 +50,89 @@
                         }
                     },
                     "type": "object"
+                },
+                "identity_providers": {
+                    "default": [],
+                    "items": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "default": "posthog",
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "posthog",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["kind"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "authorize_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "client_secret_ref": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "oauth2",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "token_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "userinfo_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                                "type": "object"
+                            }
+                        ]
+                    },
+                    "type": "array"
                 },
                 "integrations": {
                     "default": [],
@@ -112,6 +196,9 @@
                                 "properties": {
                                     "integration": {
                                         "type": "string"
+                                    },
+                                    "provider": {
+                                        "type": "string"
                                     }
                                 },
                                 "type": "object"
@@ -147,28 +234,20 @@
                                             "properties": {
                                                 "approval_policy": {
                                                     "properties": {
-                                                        "allow_agent_approver": {
-                                                            "default": false,
-                                                            "type": "boolean"
-                                                        },
                                                         "allow_edit": {
                                                             "default": false,
                                                             "type": "boolean"
-                                                        },
-                                                        "approvers": {
-                                                            "default": ["team_admins"],
-                                                            "items": {
-                                                                "enum": ["team_admins", "session_principal"],
-                                                                "type": "string"
-                                                            },
-                                                            "minItems": 1,
-                                                            "type": "array"
                                                         },
                                                         "ttl_ms": {
                                                             "default": 86400000,
                                                             "maximum": 604800000,
                                                             "minimum": 60000,
                                                             "type": "number"
+                                                        },
+                                                        "type": {
+                                                            "default": "principal",
+                                                            "enum": ["principal", "agent"],
+                                                            "type": "string"
                                                         }
                                                     },
                                                     "type": "object"
@@ -289,28 +368,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
@@ -334,28 +405,20 @@
                                 "properties": {
                                     "approval_policy": {
                                         "properties": {
-                                            "allow_agent_approver": {
-                                                "default": false,
-                                                "type": "boolean"
-                                            },
                                             "allow_edit": {
                                                 "default": false,
                                                 "type": "boolean"
-                                            },
-                                            "approvers": {
-                                                "default": ["team_admins"],
-                                                "items": {
-                                                    "enum": ["team_admins", "session_principal"],
-                                                    "type": "string"
-                                                },
-                                                "minItems": 1,
-                                                "type": "array"
                                             },
                                             "ttl_ms": {
                                                 "default": 86400000,
                                                 "maximum": 604800000,
                                                 "minimum": 60000,
                                                 "type": "number"
+                                            },
+                                            "type": {
+                                                "default": "principal",
+                                                "enum": ["principal", "agent"],
+                                                "type": "string"
                                             }
                                         },
                                         "type": "object"
@@ -373,6 +436,9 @@
                                     "requires_approval": {
                                         "default": false,
                                         "type": "boolean"
+                                    },
+                                    "requires_identity": {
+                                        "type": "string"
                                     }
                                 },
                                 "required": ["kind", "id", "path"],

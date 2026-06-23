@@ -12,6 +12,8 @@ class IncrementalFieldType(StrEnum):
     Timestamp = "timestamp"
     # MongoDB specific
     ObjectID = "objectid"
+    # Postgres xmin system column — synthetic cursor, never in information_schema
+    XID = "xid"
 
 
 class IncrementalField(typing.TypedDict, total=False):
@@ -661,7 +663,28 @@ class ExternalDataSourceType(models.TextChoices):
     CLARIFAI = "Clarifai", "Clarifai"
     ADAPTY = "Adapty", "Adapty"
     BRAINTRUST = "Braintrust", "Braintrust"
+    STREAMELEMENTS = "StreamElements", "StreamElements"
+    STREAMLABS = "Streamlabs", "Streamlabs"
+    DATORAMA = "Datorama", "Datorama"
+    AHREFS = "Ahrefs", "Ahrefs"
+    LIGHTFIELD = "Lightfield", "Lightfield"
+    APPSTACK = "Appstack", "Appstack"
+    RAZORPAY = "Razorpay", "Razorpay"
+    NEON = "Neon", "Neon"
+    NEWRELIC = "NewRelic", "NewRelic"
     CUSTOM = "Custom", "Custom"
+    TILE38 = "Tile38", "Tile38"
+    CHATWOOT = "Chatwoot", "Chatwoot"
+    SANITY = "Sanity", "Sanity"
+
+
+# Maps a source type to the direct-SQL engine that can query it live. A source type is only
+# direct-query-capable if it appears here AND has an adapter registered in posthog/hogql/direct_sql.
+# Adding an engine = one entry here + one adapter module + one registry call.
+DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
+    ExternalDataSourceType.POSTGRES: "postgres",
+    ExternalDataSourceType.MYSQL: "mysql",
+}
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
     isSkeletonItem,
@@ -186,6 +187,29 @@ describe('taxonomicFilterLogic', () => {
                 [TaxonomicFilterGroupType.SessionProperties]: 2,
             }),
         })
+    })
+
+    it('emits search latency for the active remote tab when its results land', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const eventsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+
+        await expectLogic(eventsListLogic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+            'loadRemoteItemsSuccess',
+        ])
+        await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1)
+
+        const latencyCall = captureSpy.mock.calls.find(([event]) => event === 'taxonomic filter search latency')
+        expect(latencyCall).toBeTruthy()
+        expect(latencyCall?.[1]).toMatchObject({
+            groupType: TaxonomicFilterGroupType.Events,
+            searchQuery: 'event',
+            time_to_see_data_ms: expect.any(Number),
+        })
+
+        captureSpy.mockRestore()
     })
 
     it('tabs skip groups with no results', async () => {

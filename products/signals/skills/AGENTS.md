@@ -40,6 +40,15 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   point if you want to understand how a scout decides what to investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
+- `signals-scout-apm/` — RED-metrics anomaly watcher for the distributed tracing (APM /
+  OpenTelemetry spans) product. Scores each `(service, operation)` against its own
+  seasonality-matched baseline (the same window 7 days ago, via `apm-spans-aggregate`'s
+  `compare_to`) for error-rate steps, p95 latency regressions, new error signatures,
+  failing downstream dependencies, and service traffic cliffs. Its discriminator is a
+  _rate_ regression with a steady denominator — error rate / p95 stepping up while request
+  volume holds is signal; counts moving in lockstep with traffic are baseline. Distinct
+  from `signals-scout-ai-observability`, which watches `$ai_*` LLM traces, not OTel spans;
+  raw log lines are the logs scout's territory.
 - `signals-scout-logs/` — anomaly watcher for logs (rate / level / pattern shifts).
 - `signals-scout-error-tracking/` — anomaly watcher for error tracking
   (issue spikes, regressions, suppression-rule churn).
@@ -170,8 +179,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 ### How the coordinator decides what runs
 
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
-`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 60 =
-hourly) and a `last_run_at` stamp. Every tick the coordinator:
+`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 =
+every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
    JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
@@ -200,8 +209,8 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
-  due tick dispatches it.
+- auto-register an enabled `SignalScoutConfig` on the default every-24-hours schedule
+  for it so the next due tick dispatches it.
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
 template if your scout is broad; pick a specialist as the template if it is

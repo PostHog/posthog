@@ -99,6 +99,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
+                    groups,
                     filterGlobals,
                 })
             })

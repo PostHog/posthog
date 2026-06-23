@@ -5,7 +5,7 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -57,7 +57,7 @@ describe('CDP Consumer loop', () => {
                 return ActualKafkaProducerWrapper.create(...args)
             })
 
-            await resetKafka()
+            await ensureKafkaTopics(TEST_KAFKA_TOPICS)
 
             await resetTestDatabase()
             hub = await createHub()

@@ -53,6 +53,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    # Whether archiving this experiment also auto-archived its linked feature flag,
+    # so unarchiving only undoes an archive the experiment itself performed.
+    feature_flag_auto_archived = models.BooleanField(default=False, db_default=False)
     deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
@@ -142,6 +145,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         if self.is_running:
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
+
+    @property
+    def status_label(self) -> str:
+        """Public status string (draft/running/paused/stopped) — single source for the API
+        serializer and dashboard widgets."""
+        if self.is_paused:
+            return "paused"
+        return self.status or self.computed_status.value
 
     def get_feature_flag_key(self):
         # Strip the soft-delete tombstone so the API and analytics surface the original
@@ -361,6 +372,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
+        AUTO_REFRESH = "auto_refresh", "Auto Refresh"
+        CONFIG_CHANGE = "config_change", "Config Change"
+        # Deprecated: never emitted, retained for old rows.
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
@@ -374,9 +390,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
     metric_uuids = models.JSONField(default=list)
 
-    # Internal: single data-window end shared by all metrics in the run. Set once when the run starts; every metric
+    # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric
     # (including retries) uses this value so all metrics cover the same window and retries overwrite rather than
-    # orphan rows. Not exposed by the API serializer.
+    # orphan rows. Exposed by the API serializer as the data freshness cutoff for the run's results.
     query_to = models.DateTimeField(null=True, blank=True)
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)

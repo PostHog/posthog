@@ -4,6 +4,7 @@
        ❌ feat: Added retention export.   (capitalized, period, no scope)
      Description: high-level rationale, not a step-by-step replay. See "Rules for agent-authored PRs" lower down.
      Public OSS repo: no internal customers, incidents, or operational metrics.
+     Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 -->
 
 ## Problem
@@ -47,6 +48,7 @@
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
+     - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
@@ -55,6 +57,7 @@
 <!-- Rules for agent-authored PRs:
      - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
      - If a human directed this work, assign them as the PR assignee (the DRI) — actually set the assignee, don't just name them here. Leave a PR unassigned only when it is fully autonomous with no human driver (set Autonomy to "Fully autonomous").
+     - Never write a GitHub @mention or username you have not verified this session. Resolve a real handle from `gh api user` (current user) or the PR's actual author/assignee via `gh pr view --json author,assignees` — never infer a handle from a display name.
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
      - Agent-authored PRs always require human review — do not self-merge or auto-approve.
      - Do NOT claim manual testing you haven't done.

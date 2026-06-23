@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
@@ -21,12 +19,10 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FUNNEL_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]: true }
-
 describe('FunnelLineChart', () => {
     describe('series rendering', () => {
         it('renders a single conversion series with percentage values in the tooltip', async () => {
-            renderInsight({ query: buildFunnelsQuery(), featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query: buildFunnelsQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
 
@@ -40,7 +36,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await waitFor(() => {
@@ -53,7 +48,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -67,7 +61,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -90,7 +83,6 @@ describe('FunnelLineChart', () => {
                     query: buildFunnelsQuery({
                         breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
                     }),
-                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
                 })
 
                 const tooltip = await chart.hoverTooltip(2)
@@ -115,7 +107,6 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     compareFilter: { compare: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -133,7 +124,7 @@ describe('FunnelLineChart', () => {
 
     describe('click → persons modal', () => {
         it('opens the persons modal with the day-scoped actors for a single-series chart', async () => {
-            renderInsight({ query: buildFunnelsQuery(), featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query: buildFunnelsQuery() })
 
             await chart.clickAtIndex(2)
 
@@ -148,7 +139,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -164,7 +154,6 @@ describe('FunnelLineChart', () => {
         it('renders percentage value labels when showValuesOnSeries is enabled', async () => {
             renderInsight({
                 query: buildFunnelsQuery({ funnelsFilter: { showValuesOnSeries: true } }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -184,7 +173,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     funnelsFilter: { goalLines: [{ label: 'Target', value: 30, displayIfCrossed: true }] },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -207,7 +195,6 @@ describe('FunnelLineChart', () => {
         it('adds a trend-line overlay when showTrendLines is enabled', async () => {
             renderInsight({
                 query: buildFunnelsQuery({ funnelsFilter: { showTrendLines: true, showValuesOnSeries: true } }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             // main series + trend-line series = 2 rendered series
@@ -230,7 +217,6 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     funnelsFilter: { showLegend: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -258,7 +244,7 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
             },
         ])('omits the legend when $desc', async ({ query }) => {
-            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query })
 
             await screen.findByRole('img', { name: /chart with/i })
             expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
@@ -270,14 +256,14 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     funnelsFilter: { showLegend: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
             const legend = await screen.findByTestId('funnel-line-legend')
-            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]')).map(
-                (el) => el.style.backgroundColor
-            )
+            // The label span also carries an inline style now (max-width), so keep only the colored swatches.
+            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]'))
+                .map((el) => el.style.backgroundColor)
+                .filter(Boolean)
             expect(swatchColors).toHaveLength(2)
             expect(new Set(swatchColors).size).toBe(2)
         })
@@ -292,8 +278,38 @@ describe('FunnelLineChart', () => {
             async ({ inSharedMode, expectsBadges }) => {
                 renderInsight({
                     query: buildFunnelsQuery(),
-                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
                     inSharedMode,
+                    mocks: {
+                        annotations: [
+                            buildAnnotation({
+                                scope: AnnotationScope.Project,
+                                content: 'Hedgehog spotted',
+                                date_marker: '2024-06-12T12:00:00Z',
+                            }),
+                        ],
+                    },
+                })
+
+                if (expectsBadges) {
+                    await waitFor(() => {
+                        expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
+                    })
+                } else {
+                    await screen.findByRole('img', { name: /chart with/i })
+                    expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+                }
+            }
+        )
+
+        it.each([
+            { showAnnotations: undefined, expectsBadges: true },
+            { showAnnotations: true, expectsBadges: true },
+            { showAnnotations: false, expectsBadges: false },
+        ])(
+            'respects the showAnnotations funnels filter (showAnnotations=$showAnnotations)',
+            async ({ showAnnotations, expectsBadges }) => {
+                renderInsight({
+                    query: buildFunnelsQuery({ funnelsFilter: { showAnnotations } }),
                     mocks: {
                         annotations: [
                             buildAnnotation({

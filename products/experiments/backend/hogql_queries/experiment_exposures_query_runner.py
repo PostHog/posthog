@@ -22,7 +22,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -165,15 +165,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             try:
-                result = self._ensure_exposures_precomputed(builder)
+                with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
+                    result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
+                    tag_queries(experiment_exposures_path="precomputed")
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
+        tag_queries(experiment_exposures_path="direct_scan")
         return builder.get_exposure_timeseries_query()
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
@@ -287,6 +290,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             experiment_name=self.query.experiment_name,
             experiment_feature_flag_key=self.feature_flag_key,
             product=Product.EXPERIMENTS,
+            experiment_query_surface="exposures_timeseries",
+            experiment_metric_events_path="not_applicable",
         )
 
         # Set limit to avoid being cut-off by the default 100 rows limit

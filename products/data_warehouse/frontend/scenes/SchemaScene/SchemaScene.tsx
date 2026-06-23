@@ -39,7 +39,8 @@ export const scene: SceneExport<SchemaSceneProps> = {
 const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     details: 'Details',
     'sync-method': 'Sync method',
-    columns: 'Columns',
+    columns: 'Columns and filters',
+    descriptions: 'Descriptions',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }
@@ -61,8 +62,11 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     const showColumnsSection = supportsColumnSelection
-    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
+    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
+        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'descriptions' || showDescriptions)
+    )
 
     useEffect(() => {
         if (!showMetrics && currentTab === 'metrics') {
@@ -75,6 +79,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentSection('details')
         }
     }, [showColumnsSection, currentSection, setCurrentSection])
+
+    useEffect(() => {
+        if (!showDescriptions && currentSection === 'descriptions') {
+            setCurrentSection('details')
+        }
+    }, [showDescriptions, currentSection, setCurrentSection])
 
     if (schemaDataLoading && !schema) {
         return (
