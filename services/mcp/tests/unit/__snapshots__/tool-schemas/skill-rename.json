@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "new_name": {
+            "description": "New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "skill_name": {
+            "description": "The current kebab-case name of the skill to rename.",
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["skill_name", "new_name"],
+    "type": "object"
+}
