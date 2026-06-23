@@ -1735,3 +1735,36 @@ class TestAlertAPIKeyAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert missing_scope in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            (["alert:read", "insight:read"],),
+            (["alert:write", "insight:write"],),  # write grants read for both
+        ]
+    )
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_simulate_with_both_scopes_passes_the_gate(self, scopes, mock_calculate) -> None:
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [10.0, 12.0, 11.0, 50.0, 13.0, 12.0, 11.0] * 5,
+                    "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
+                    "label": "pageview",
+                }
+            ]
+        )
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate/",
+            data={
+                "insight": self.insight["id"],
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "series_index": 0,
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content

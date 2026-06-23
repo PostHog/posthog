@@ -205,11 +205,7 @@ def simulate_detector_on_insight(
     user: Optional[User] = None,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
-
-    ``config`` carries the per-kind alert config — used by SQL insights to pick the evaluated column
-    and read direction (last_row/first_row); ignored by trends (which use ``series_index``).
-    """
+    """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
@@ -237,7 +233,7 @@ def simulate_detector_on_insight(
         )
         interval_value = None
     else:
-        raise ValueError("Only TrendsQuery and HogQLQuery insights are supported for simulation.")
+        raise ValueError(f"Anomaly detection simulation isn't supported for {kind} insights")
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that
