@@ -17,9 +17,11 @@ import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -69,8 +71,10 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -1038,7 +1042,8 @@ describe('Hogflow Executor', () => {
                     {
                         finished: false,
                         scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
-                        nextActionId: 'exit',
+                        // Still pending, so the delay parks without advancing currentAction
+                        nextActionId: 'delay',
                     },
                 ],
                 [
@@ -1373,6 +1378,41 @@ describe('Hogflow Executor', () => {
             const result = await executor.buildHogFlowInvocations([hogFlow], globals)
 
             // Should match because email doesn't contain @posthog.com
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
+        })
+    })
+
+    describe('data-warehouse-table trigger', () => {
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (per consumer),
+        // not the executor — coverage for source matching lives in the consumer tests. Here we just
+        // assert that when a warehouse-trigger flow with always-true filters is handed to the
+        // executor with warehouse-row globals, an invocation is produced.
+        it('builds an invocation when filter bytecode evaluates true for warehouse-row globals', async () => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'data-warehouse-table',
+                        table_name: 'postgres.table_1',
+                        // Always-true bytecode (return true) like the no-filter data warehouse example
+                        filters: { properties: [], bytecode: ['_h', 29] } as any,
+                    },
+                })
+                .build()
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'row-uuid-0001',
+                    event: '$warehouse_source_row',
+                    distinct_id: '',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: '',
+                    properties: { column1: 'value1', column2: 123, $source_table: 'postgres.table_1' },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
             expect(result.invocations).toHaveLength(1)
             expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
         })
@@ -1877,8 +1917,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2075,8 +2117,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2109,8 +2153,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )

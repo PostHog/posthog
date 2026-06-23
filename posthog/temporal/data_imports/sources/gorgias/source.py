@@ -20,7 +20,7 @@ from posthog.temporal.data_imports.sources.gorgias.gorgias import (
     gorgias_source,
     validate_credentials as validate_gorgias_credentials,
 )
-from posthog.temporal.data_imports.sources.gorgias.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.gorgias.settings import ENDPOINTS, GORGIAS_ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -45,13 +45,14 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        # Gorgias list endpoints have no server-side timestamp filter (only client-side
-        # ordering), so every endpoint is full-refresh only. Cursor pagination still lets
-        # an interrupted sync resume mid-stream via the ResumableSourceManager.
+        # Gorgias has no server-side timestamp filter. Incremental-capable endpoints sort
+        # their cursor field newest-first and stop paginating at the watermark; the rest
+        # stay full-refresh. Cursor pagination lets any sync resume mid-stream via the
+        # ResumableSourceManager.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=GORGIAS_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
@@ -85,6 +86,9 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property

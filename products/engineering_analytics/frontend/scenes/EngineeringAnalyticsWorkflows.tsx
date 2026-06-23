@@ -10,6 +10,7 @@ import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { githubWorkflowUrl } from '../lib/github'
 import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
@@ -51,12 +52,21 @@ function successRateClass(rate: number | null): string {
 }
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
-    const { workflowHealth, workflowHealthLoading, loadFailed, workflowDateFrom, workflowDateTo } =
-        useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange } = useActions(engineeringAnalyticsLogic)
+    const {
+        workflowHealth,
+        workflowHealthLoading,
+        notConnected,
+        workflowHealthLoadError,
+        workflowDateFrom,
+        workflowDateTo,
+    } = useValues(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, refresh } = useActions(engineeringAnalyticsLogic)
 
-    if (loadFailed) {
+    if (notConnected) {
         return <ConnectGitHubSource />
+    }
+    if (workflowHealthLoadError) {
+        return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
     const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 30 days') ?? 'Last 30 days'

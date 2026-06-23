@@ -1,15 +1,19 @@
 import { LogicWrapper, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
+import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
+    engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
+import type { GitHubSourceApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
@@ -52,6 +56,12 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** CI triggers in the PR's window: distinct head SHAs across its workflow runs. Fork PRs unattributed. */
+    pushes: number
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    rerunCycles: number
+    /** Estimated Depot CI cost (USD). Null until the job-level warehouse source lands. */
+    estimatedCostUsd: number | null
 }
 
 export interface CardsData {
@@ -170,6 +180,19 @@ export function filterPullRequests(
     })
 }
 
+/**
+ * Per-loader outcome. The endpoints all resolve the same GitHub source, so a 400
+ * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other
+ * failure is a genuine error scoped to the loader that hit it. Tracked per loader so a
+ * 500 on one endpoint drives only the scenes that read it — not, say, an error banner on
+ * the PR list because workflow health failed.
+ */
+export type LoaderStatus = 'ok' | 'notConnected' | 'error'
+
+export function loaderStatusFromError(errorObject: unknown): LoaderStatus {
+    return errorObject instanceof ApiError && errorObject.status === 400 ? 'notConnected' : 'error'
+}
+
 export interface EngineeringAnalyticsLogicProps {
     tabId?: string
 }
@@ -190,6 +213,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
             applyCardFilter: (card: CardFilter) => ({ card }),
+            setSourceId: (sourceId: string | null) => ({ sourceId }),
+            setCostLensEnabled: (enabled: boolean) => ({ enabled }),
             resetFilters: true,
             refresh: true,
         }),
@@ -199,7 +224,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 null as CardsData | null,
                 {
                     loadCards: async (): Promise<CardsData> => {
-                        const data = await engineeringAnalyticsCiCards(projectId())
+                        const data = await engineeringAnalyticsCiCards(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
                         return {
                             openPrs: data.open_prs,
                             repos: data.repos,
@@ -213,7 +240,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [] as PullRequestRow[],
                 {
                     loadPullRequests: async (): Promise<PullRequestRow[]> => {
-                        const response = await engineeringAnalyticsPullRequests(projectId())
+                        const response = await engineeringAnalyticsPullRequests(projectId(), {
+                            source_id: values.sourceId ?? undefined,
+                        })
                         return response.items.map(
                             (it): PullRequestRow => ({
                                 number: it.number,
@@ -233,6 +262,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 passing: it.ci.passing,
                                 failing: it.ci.failing,
                                 pending: it.ci.pending,
+                                // Defensive ?? 0: during a deploy the new frontend can briefly hit an
+                                // older backend whose response predates these fields — degrade, don't crash.
+                                pushes: it.pushes ?? 0,
+                                rerunCycles: it.rerun_cycles ?? 0,
+                                estimatedCostUsd: it.estimated_cost_usd ?? null,
                             })
                         )
                     },
@@ -245,6 +279,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.workflowDateFrom ?? undefined,
                             date_to: values.workflowDateTo ?? undefined,
+                            source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
                             (it): WorkflowHealthRow => ({
@@ -265,6 +300,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                             })
                         )
                     },
+                },
+            ],
+            githubSources: [
+                [] as GitHubSourceApi[],
+                {
+                    loadGithubSources: async (): Promise<GitHubSourceApi[]> =>
+                        await engineeringAnalyticsSources(projectId()),
                 },
             ],
         })),
@@ -301,16 +343,40 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
                 },
             ],
-            // The endpoints 400 when the team has no GitHub warehouse source connected.
-            // A failed cards load is the canary for "no source connected".
-            loadFailed: [
-                false,
+            // Which connected GitHub source to read; null = the backend default (oldest connected).
+            // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
+            sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
+            // Per-loader status. Each endpoint resolves the same GitHub source, so any one 400 means
+            // "not connected" for every scene; a non-400 failure is a per-loader error. Tracked
+            // separately (rather than off cards alone) so notConnected and the scene error states can
+            // each react to the loaders that actually feed them — see the selectors below.
+            cardsStatus: [
+                'ok' as LoaderStatus,
                 {
-                    loadCards: () => false,
-                    loadCardsSuccess: () => false,
-                    loadCardsFailure: () => true,
+                    loadCards: () => 'ok',
+                    loadCardsSuccess: () => 'ok',
+                    loadCardsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
+            pullRequestsStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadPullRequests: () => 'ok',
+                    loadPullRequestsSuccess: () => 'ok',
+                    loadPullRequestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            workflowHealthStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadWorkflowHealth: () => 'ok',
+                    loadWorkflowHealthSuccess: () => 'ok',
+                    loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
+            // (no persisted/stateful UI in this phase, per SPEC).
+            costLensEnabled: [false, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({
@@ -363,7 +429,38 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading): boolean =>
                     cardsLoading || pullRequestsLoading || workflowHealthLoading,
             ],
+            // No GitHub source connected: a 400 from any endpoint (they share source resolution).
+            // Drives the "connect a source" state on every scene, regardless of which loaders it renders.
+            notConnected: [
+                (s) => [s.cardsStatus, s.pullRequestsStatus, s.workflowHealthStatus],
+                (cardsStatus, pullRequestsStatus, workflowHealthStatus): boolean =>
+                    [cardsStatus, pullRequestsStatus, workflowHealthStatus].includes('notConnected'),
+            ],
+            // Genuine (non-400) failure of a loader the PR scene renders (cards + the PR list). A 500
+            // here shows the retryable error; a failure of only workflow health does not, so the PR
+            // list isn't hidden behind an error it doesn't depend on.
+            pullRequestsLoadError: [
+                (s) => [s.cardsStatus, s.pullRequestsStatus],
+                (cardsStatus, pullRequestsStatus): boolean => cardsStatus === 'error' || pullRequestsStatus === 'error',
+            ],
+            // Genuine (non-400) failure of the only loader the Workflows scene renders. Decoupled from
+            // cards so workflow health failing surfaces an error there (not a misleading empty table),
+            // and a cards-only failure doesn't error a scene whose own data loaded fine.
+            workflowHealthLoadError: [
+                (s) => [s.workflowHealthStatus],
+                (workflowHealthStatus): boolean => workflowHealthStatus === 'error',
+            ],
             tableTruncated: [(s) => [s.pullRequests], (pullRequests): boolean => pullRequests.length >= PR_TABLE_LIMIT],
+            // Only worth a picker when the team has more than one GitHub source connected.
+            hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
+            sourceOptions: [
+                (s) => [s.githubSources],
+                (githubSources): { value: string; label: string }[] =>
+                    githubSources.map((source) => ({
+                        value: source.id,
+                        label: source.repo || source.prefix || `source ${source.id.slice(0, 8)}`,
+                    })),
+            ],
         }),
 
         listeners(({ actions, values }) => ({
@@ -372,6 +469,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
             },
+            // Cards, the PR list, and workflow health are all per-source — reload them all.
+            setSourceId: () => actions.refresh(),
             setWorkflowDateRange: () => {
                 actions.loadWorkflowHealth()
             },
@@ -384,9 +483,34 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
         })),
 
+        actionToUrl(() => ({
+            setSourceId: ({ sourceId }) => {
+                const searchParams = { ...router.values.searchParams }
+                if (sourceId) {
+                    searchParams.source = sourceId
+                } else {
+                    delete searchParams.source
+                }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
+        })),
+
+        urlToAction(({ actions, values }) => {
+            // The chosen source rides in `?source=` so it survives tab switches and deep-links into a PR's detail.
+            const applySource = (source: string | undefined): void => {
+                const next = source ?? null
+                if (next !== values.sourceId) {
+                    actions.setSourceId(next)
+                }
+            }
+            return {
+                [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+            }
+        }),
+
         afterMount(({ actions }) => {
-            actions.loadCards()
-            actions.loadPullRequests()
-            actions.loadWorkflowHealth()
+            actions.loadGithubSources()
+            actions.refresh()
         }),
     ])

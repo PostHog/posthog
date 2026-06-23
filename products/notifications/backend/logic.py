@@ -5,7 +5,7 @@ import posthoganalytics
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 
 from products.notifications.backend.cache import invalidate_unread_count_for_users
 from products.notifications.backend.facade.contracts import NotificationData
@@ -50,9 +50,10 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
 def _filter_by_user_preferences(
     user_ids: list[int],
     notification_type: NotificationType,
-    team_id: int,
+    team_id: int | None,
 ) -> list[int]:
-    if not user_ids:
+    # Per-team preferences only apply to team-level notifications; org-level dispatch has no team key to gate on.
+    if not user_ids or team_id is None:
         return user_ids
     rows = User.objects.filter(id__in=user_ids).values_list("id", "partial_notification_settings")
     type_key = notification_type.value
@@ -88,13 +89,23 @@ def has_been_dispatched(
 
 
 def create_notification(data: NotificationData) -> NotificationEvent | None:
-    try:
-        team = Team.objects.select_related("organization").get(id=data.team_id)
-    except Team.DoesNotExist:
-        logger.warning("notifications.team_not_found", team_id=data.team_id)
+    team: Team | None = None
+    if data.team_id is not None:
+        try:
+            team = Team.objects.select_related("organization").get(id=data.team_id)
+        except Team.DoesNotExist:
+            logger.warning("notifications.team_not_found", team_id=data.team_id)
+            return None
+        organization = team.organization
+    elif data.organization_id is not None:
+        try:
+            organization = Organization.objects.get(id=data.organization_id)
+        except Organization.DoesNotExist:
+            logger.warning("notifications.organization_not_found", organization_id=data.organization_id)
+            return None
+    else:
+        logger.warning("notifications.no_target_scope")
         return None
-
-    organization = team.organization
 
     if not posthoganalytics.feature_enabled(
         "real-time-notifications",
@@ -108,7 +119,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     resolver = data.resolver or RecipientsResolver()
     resolved_user_ids = resolver.resolve(data.target_type, data.target_id, data.team_id)
 
-    if data.resource_type and str(data.resource_type) in AC_RESOURCE_TYPES:
+    if team is not None and data.resource_type and str(data.resource_type) in AC_RESOURCE_TYPES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
 
     # Per-user pref filter must run AFTER AC — prefs cannot override access denials.

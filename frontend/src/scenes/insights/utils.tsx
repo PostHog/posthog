@@ -334,7 +334,7 @@ export function getCohortNameFromId(
     cohorts: CohortType[] | null | undefined
 ): string {
     // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-    if (cohortId === 'all' || cohortId === 0) {
+    if (cohortId === 'all' || cohortId === 0 || cohortId === '0') {
         return 'All Users'
     }
 
@@ -342,7 +342,18 @@ export function getCohortNameFromId(
         return 'Not in cohort'
     }
 
-    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+    const cohortName = cohorts?.filter((c) => c.id == cohortId)[0]?.name
+    if (cohortName) {
+        return cohortName
+    }
+
+    // The cohorts list may not be loaded yet (or the cohort was deleted). Fall back to a
+    // human-readable label rather than leaking a bare numeric id into pills/axis labels.
+    // Keep in sync with BreakdownTag's `Cohort ${id}` convention.
+    if (cohortId == null || cohortId === '') {
+        return ''
+    }
+    return `Cohort ${cohortId}`
 }
 
 export function formatBreakdownLabel(

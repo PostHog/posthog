@@ -5,6 +5,7 @@ describe('statusReasonLabel', () => {
         ['trial_limit_reached' as const, 'Trial evaluation limit reached'],
         ['model_not_allowed' as const, 'Model not available on the trial plan'],
         ['provider_key_deleted' as const, 'Provider API key was deleted'],
+        ['no_default_model' as const, 'No default model available for the selected provider'],
     ])('maps %s to user-facing copy', (reason, expected) => {
         expect(statusReasonLabel(reason)).toBe(expected)
     })

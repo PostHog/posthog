@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from posthog.models.project import Project
     from posthog.models.team.team import Team
     from posthog.personhog_client.client import PersonHogClient
@@ -18,13 +20,17 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.models.utils import RootTeamMixin
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.person_db_router import PERSONS_DB_FOR_READ, PERSONS_DB_FOR_WRITE
+from posthog.personhog_client import ReadConsistency, consistency_to_read_options
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
+
+_T = TypeVar("_T")
 
 GROUP_TYPES_CACHE_TTL = 60 * 5  # 5 minutes
 GROUP_TYPES_STALE_CACHE_TTL = 60 * 60 * 24  # 24 hours — last-known-good fallback during outages
@@ -82,6 +88,44 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
         capture_throttled=not captured,
         **log_fields,
     )
+
+
+def _personhog_routed(
+    operation: str,
+    personhog_fn: Callable[[PersonHogClient], _T],
+    orm_fn: Callable[[], _T],
+    *,
+    caller_tag: str | None = None,
+    **log_fields: Any,
+) -> _T:
+    """Try personhog first, fall back to ORM on failure or when disabled.
+
+    ``operation`` is the RPC being performed (used in metrics).
+    ``caller_tag`` is the granular calling context (used in personhog caller
+    tagging for observability).  Defaults to ``operation`` when not given.
+
+    ORM exceptions are NOT caught — callers handle their own DatabaseError
+    recovery (stale cache, fail-closed, etc.).
+    """
+    from posthog.personhog_client.client import get_personhog_client
+
+    tag = caller_tag or operation
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            with personhog_caller_tag(f"group_type_mapping/{tag}"):
+                result = personhog_fn(client)
+            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
+            return result
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation=operation, source="personhog", error_type="grpc_error", client_name=get_client_name()
+            ).inc()
+            logger.warning("personhog_%s_failure", operation, **log_fields, exc_info=True)
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
+    return orm_fn()
 
 
 # Defined here for reuse between OS and EE
@@ -178,10 +222,8 @@ def _fetch_group_types_via_personhog(client: PersonHogClient, project_id: int) -
     return result
 
 
-def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+def get_group_types_for_project(project_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types from cache, falling back to personhog then ORM, then stale cache, then empty list."""
-    from posthog.personhog_client.client import get_personhog_client
-
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
 
@@ -189,37 +231,18 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
     if cached is not None:
         return cached
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            result = _fetch_group_types_via_personhog(client, project_id)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_types_for_project", source="personhog", client_name=get_client_name()
-            ).inc()
-            safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
-            _write_project_stale_if_non_empty(project_id, result)
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_group_types_for_project",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_group_types_failure", project_id=project_id, exc_info=True)
-
     try:
-        result = list(
-            GroupTypeMapping.objects.filter(project_id=project_id)  # nosemgrep: no-direct-persons-db-orm
-            .order_by("group_type_index")
-            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        result = _personhog_routed(
+            "get_group_types_for_project",
+            lambda client: _fetch_group_types_via_personhog(client, project_id),
+            lambda: list(
+                GroupTypeMapping.objects.filter(project_id=project_id)  # nosemgrep: no-direct-persons-db-orm
+                .order_by("group_type_index")
+                .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+            ),
+            caller_tag=caller_tag,
+            project_id=project_id,
         )
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="get_group_types_for_project", source="django_orm", client_name=get_client_name()
-        ).inc()
-        safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
-        _write_project_stale_if_non_empty(project_id, result)
-        return result
     except DatabaseError as exc:
         _record_group_types_fetch_failure(
             operation="get_group_types_for_project",
@@ -234,6 +257,10 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
         safe_cache_set(cache_key, [], GROUP_TYPES_NEGATIVE_CACHE_TTL)
         return []
 
+    safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
+    _write_project_stale_if_non_empty(project_id, result)
+    return result
+
 
 def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: int) -> list[dict[str, Any]]:
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -245,35 +272,19 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
     return result
 
 
-def get_group_types_for_team(team_id: int) -> list[dict[str, Any]]:
+def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog, falling back to ORM on error."""
-    from posthog.personhog_client.client import get_personhog_client
-
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            result = _fetch_group_types_for_team_via_personhog(client, team_id)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_types_for_team", source="personhog", client_name=get_client_name()
-            ).inc()
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_group_types_for_team",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_group_types_for_team_failure", team_id=team_id, exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="get_group_types_for_team", source="django_orm", client_name=get_client_name()
-    ).inc()
     try:
-        return list(
-            GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
-            .order_by("group_type_index")
-            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        return _personhog_routed(
+            "get_group_types_for_team",
+            lambda client: _fetch_group_types_for_team_via_personhog(client, team_id),
+            lambda: list(
+                GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
+                .order_by("group_type_index")
+                .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+            ),
+            caller_tag=caller_tag,
+            team_id=team_id,
         )
     except DatabaseError as exc:
         _record_group_types_fetch_failure(
@@ -382,7 +393,9 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
     return recovered
 
 
-def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+def get_group_types_for_projects(
+    project_ids: list[int], *, caller_tag: str | None = None
+) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
     ORM, then to the per-project stale cache on a DB failure.
 
@@ -390,33 +403,15 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     project has no cached last-known-good, rather than returning an all-empty
     mapping. Callers must handle that case.
     """
-    from posthog.personhog_client.client import get_personhog_client
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
-            for pid in project_ids:
-                result.setdefault(pid, [])
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_group_types_for_projects", source="personhog", client_name=get_client_name()
-            ).inc()
-            _populate_projects_stale_cache(result)
-            return result
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_group_types_for_projects",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_group_types_for_projects_failure", project_ids=project_ids, exc_info=True)
+    def _personhog_fn(client: PersonHogClient) -> dict[int, list[dict[str, Any]]]:
+        result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
+        for pid in project_ids:
+            result.setdefault(pid, [])
+        return result
 
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="get_group_types_for_projects", source="django_orm", client_name=get_client_name()
-    ).inc()
-    result = {pid: [] for pid in project_ids}
-    try:
+    def _orm_fn() -> dict[int, list[dict[str, Any]]]:
+        result: dict[int, list[dict[str, Any]]] = {pid: [] for pid in project_ids}
         for row in (
             GroupTypeMapping.objects.filter(project_id__in=project_ids)  # nosemgrep: no-direct-persons-db-orm
             .order_by("group_type_index")
@@ -424,6 +419,12 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
         ):
             pid = row.pop("project_id")
             result.setdefault(pid, []).append(row)
+        return result
+
+    try:
+        result = _personhog_routed(
+            "get_group_types_for_projects", _personhog_fn, _orm_fn, caller_tag=caller_tag, project_ids=project_ids
+        )
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
 
@@ -431,36 +432,23 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     return result
 
 
-def count_group_type_mappings_per_team() -> list[dict[str, int]]:
+def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list[dict[str, int]]:
     """Count group type mappings per team via personhog, falling back to ORM."""
-    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            resp = client.count_group_type_mappings(CountGroupTypeMappingsRequest())
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="count_group_type_mappings_per_team", source="personhog", client_name=get_client_name()
-            ).inc()
-            return [{"team_id": c.team_id, "total": c.count} for c in resp.counts]
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="count_group_type_mappings_per_team",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_count_group_type_mappings_failure", exc_info=True)
-
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="count_group_type_mappings_per_team", source="django_orm", client_name=get_client_name()
-    ).inc()
     try:
-        return list(
-            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
-            .annotate(total=Count("id"))
-            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+        return _personhog_routed(
+            "count_group_type_mappings_per_team",
+            lambda client: [
+                {"team_id": c.team_id, "total": c.count}
+                for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
+            ],
+            lambda: list(
+                GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+                .annotate(total=Count("id"))
+                .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+            ),
+            caller_tag=caller_tag,
         )
     except DatabaseError:
         logger.warning("count_group_type_mappings_orm_failure", exc_info=True)
@@ -468,18 +456,16 @@ def count_group_type_mappings_per_team() -> list[dict[str, int]]:
 
 
 def project_has_group_types_authoritatively(project_id: int) -> bool:
-    """True if the project has group types per the persons-DB primary, or if that
+    """True if the project has group types per a strong-consistency read, or if that
     cannot be confirmed (fail closed).
 
     The local-eval empty-mapping guard uses this when its cheap last-known-good signal
     (the per-project stale key) is absent, so a write that would empty a populated
     mapping is only allowed when the project is *confirmed* to have no group types.
 
-    Reads the primary (PERSONS_DB_FOR_WRITE) on purpose: the normal fetch already
-    returned the suspect empty (possibly from personhog or a lagging replica), so this
-    independent check must hit the source of truth rather than route through personhog
-    again. On a DB error it returns True — the caller must not treat an unconfirmable
-    state as safe to empty.
+    Uses _fetch_group_types_for_project_direct with "strong" consistency so the read
+    hits the primary, not a lagging replica.  On any error it returns True — the caller
+    must not treat an unconfirmable state as safe to empty.
 
     A short-lived "confirmed empty" marker caches the authoritative False so a team
     that has never had group types — the common case, where this fires on every
@@ -490,27 +476,135 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     confirmed_empty_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}"
     if get_safe_cache(confirmed_empty_key):
         return False
+
     try:
         has_group_types = (
-            GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-            .filter(project_id=project_id)
-            .exists()
+            len(_fetch_group_types_for_project_direct(project_id, "strong", caller_tag="flags/has-group-types")) > 0
         )
     except DatabaseError:
         logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
         return True
+
     if not has_group_types:
-        # Only cache the negative. A True must keep hitting the DB so a later deletion
-        # is seen promptly, and the DB-error branch above must never be cached.
         safe_cache_set(confirmed_empty_key, True, GROUP_TYPES_CONFIRMED_EMPTY_CACHE_TTL)
     return has_group_types
+
+
+def _dict_to_group_type_mapping_model(
+    row: dict[str, Any],
+    *,
+    project_id: int,
+    team: Team | None = None,
+) -> GroupTypeMapping:
+    """Build an unsaved GroupTypeMapping from a get_group_types_for_project dict.
+
+    The instance is NOT database-backed — it carries data in memory so serializers
+    and attribute access work without a round-trip.  Mark _state.adding = False so
+    Django treats it as "existing" for serializer context, but note that save() will
+    not work — writes go through update_group_type_mapping_fields instead.
+    """
+    detail_dashboard_id = row.get("detail_dashboard", row.get("detail_dashboard_id"))
+    obj = GroupTypeMapping(
+        project_id=project_id,
+        team=team,
+        group_type=row["group_type"],
+        group_type_index=row["group_type_index"],
+        name_singular=row.get("name_singular"),
+        name_plural=row.get("name_plural"),
+        detail_dashboard_id=detail_dashboard_id,
+        default_columns=row.get("default_columns"),
+        created_at=row.get("created_at"),
+    )
+    obj._state.adding = False
+    return obj
+
+
+def _fetch_group_types_for_project_direct(
+    project_id: int,
+    consistency: ReadConsistency,
+    *,
+    caller_tag: str | None = None,
+) -> list[dict[str, Any]]:
+    """Cache-bypassing read at the requested consistency level."""
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
+
+    db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else PERSONS_DB_FOR_READ
+
+    return _personhog_routed(
+        "get_group_types_for_project_direct",
+        lambda client: sorted(
+            [
+                proto_group_type_mapping_to_dict(m)
+                for m in client.get_group_type_mappings_by_project_id(
+                    GetGroupTypeMappingsByProjectIdRequest(
+                        project_id=project_id,
+                        read_options=consistency_to_read_options(consistency),
+                    )
+                ).mappings
+            ],
+            key=lambda d: d["group_type_index"],
+        ),
+        lambda: list(
+            GroupTypeMapping.objects.using(db_alias)  # nosemgrep: no-direct-persons-db-orm
+            .filter(project_id=project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        ),
+        caller_tag=caller_tag,
+        project_id=project_id,
+    )
+
+
+def get_group_type_mapping_instance(
+    project_id: int,
+    group_type_index: int,
+    *,
+    team: Team | None = None,
+    consistency: ReadConsistency | None = None,
+    caller_tag: str | None = None,
+) -> GroupTypeMapping:
+    """Fetch a single GroupTypeMapping by (project_id, group_type_index) via personhog.
+
+    When consistency is None (default), uses the cached get_group_types_for_project
+    helper.  If the mapping isn't in the cached results, invalidates the cache and
+    retries once before raising GroupTypeMapping.DoesNotExist.
+
+    When consistency is set (e.g. "strong"), skips the cache and does a direct read
+    at the requested consistency level — use "strong" before writes to avoid acting
+    on stale data.
+    """
+    if consistency is not None:
+        rows = _fetch_group_types_for_project_direct(project_id, consistency, caller_tag=caller_tag)
+        for row in rows:
+            if row["group_type_index"] == group_type_index:
+                return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
+        raise GroupTypeMapping.DoesNotExist(
+            f"GroupTypeMapping matching query does not exist: project_id={project_id}, group_type_index={group_type_index}"
+        )
+
+    rows = get_group_types_for_project(project_id, caller_tag=caller_tag)
+    for row in rows:
+        if row["group_type_index"] == group_type_index:
+            return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
+
+    # Cache may be stale — bust it and retry once via the full personhog/ORM chain.
+    invalidate_group_types_cache(project_id)
+    rows = get_group_types_for_project(project_id, caller_tag=caller_tag)
+    for row in rows:
+        if row["group_type_index"] == group_type_index:
+            return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
+
+    raise GroupTypeMapping.DoesNotExist(
+        f"GroupTypeMapping matching query does not exist: project_id={project_id}, group_type_index={group_type_index}"
+    )
 
 
 def update_group_type_mapping_fields(
     instance: GroupTypeMapping,
     *,
     fields: dict[str, Any],
-    operation: str = "group_type_update",
+    caller_tag: str | None = None,
 ) -> None:
     """Update specific fields on a GroupTypeMapping via personhog, falling back to ORM.
 
@@ -518,139 +612,105 @@ def update_group_type_mapping_fields(
     For `detail_dashboard_id`, pass None to clear or an int to set.
     For `default_columns`, pass a list[str] or None.
     """
-    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import UpdateGroupTypeMappingRequest
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            update_mask: list[str] = list(fields.keys())
-            kwargs: dict[str, Any] = {
-                "project_id": instance.project_id,
-                "group_type_index": instance.group_type_index,
-                "update_mask": update_mask,
-            }
-            if "name_singular" in fields:
-                kwargs["name_singular"] = fields["name_singular"] or ""
-            if "name_plural" in fields:
-                kwargs["name_plural"] = fields["name_plural"] or ""
-            if "detail_dashboard_id" in fields:
-                if fields["detail_dashboard_id"] is not None:
-                    kwargs["detail_dashboard_id"] = fields["detail_dashboard_id"]
-            if "default_columns" in fields:
-                if fields["default_columns"] is not None:
-                    kwargs["default_columns"] = json.dumps(fields["default_columns"]).encode()
+    def _personhog_fn(client: PersonHogClient) -> None:
+        update_mask: list[str] = list(fields.keys())
+        kwargs: dict[str, Any] = {
+            "project_id": instance.project_id,
+            "group_type_index": instance.group_type_index,
+            "update_mask": update_mask,
+        }
+        if "name_singular" in fields:
+            kwargs["name_singular"] = fields["name_singular"] or ""
+        if "name_plural" in fields:
+            kwargs["name_plural"] = fields["name_plural"] or ""
+        if "detail_dashboard_id" in fields:
+            if fields["detail_dashboard_id"] is not None:
+                kwargs["detail_dashboard_id"] = fields["detail_dashboard_id"]
+        if "default_columns" in fields:
+            if fields["default_columns"] is not None:
+                kwargs["default_columns"] = json.dumps(fields["default_columns"]).encode()
+        client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**kwargs))
 
-            client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**kwargs))
-            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
-            return
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation=operation,
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning(
-                "personhog_update_group_type_mapping_failure",
-                project_id=instance.project_id,
-                group_type_index=instance.group_type_index,
-                exc_info=True,
-            )
+    def _orm_fn() -> None:
+        GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            project_id=instance.project_id,
+            group_type_index=instance.group_type_index,
+        ).update(**fields)
 
-    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
+    _personhog_routed(
+        "update_group_type_mapping_fields",
+        _personhog_fn,
+        _orm_fn,
+        caller_tag=caller_tag,
+        project_id=instance.project_id,
+        group_type_index=instance.group_type_index,
+    )
     for field_name, value in fields.items():
         setattr(instance, field_name, value)
-    instance.save()
 
 
-def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
+def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | None = None) -> None:
     """Delete a GroupTypeMapping via personhog, falling back to ORM."""
-    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            client.delete_group_type_mapping(
-                DeleteGroupTypeMappingRequest(
-                    project_id=instance.project_id,
-                    group_type_index=instance.group_type_index,
-                )
-            )
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="delete_group_type_mapping", source="personhog", client_name=get_client_name()
-            ).inc()
-            return
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="delete_group_type_mapping",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning(
-                "personhog_delete_group_type_mapping_failure",
+    _personhog_routed(
+        "delete_group_type_mapping",
+        lambda client: client.delete_group_type_mapping(
+            DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
                 group_type_index=instance.group_type_index,
-                exc_info=True,
             )
+        ),
+        lambda: GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            project_id=instance.project_id,
+            group_type_index=instance.group_type_index,
+        ).delete(),
+        caller_tag=caller_tag,
+        project_id=instance.project_id,
+        group_type_index=instance.group_type_index,
+    )
 
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="delete_group_type_mapping", source="django_orm", client_name=get_client_name()
-    ).inc()
-    instance.delete()
 
-
-def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, project_id: int | None = None) -> None:
+def clear_dashboard_from_group_type_mapping(
+    team_id: int, dashboard_id: int, project_id: int | None = None, *, caller_tag: str | None = None
+) -> None:
     """Clear detail_dashboard_id from any GroupTypeMapping referencing this dashboard.
 
     Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
     Falls back to ORM filter/update.
     """
-    from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            resp = client.get_group_type_mapping_by_dashboard_id(
-                GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
-            )
-            if resp.mapping and resp.mapping.group_type_index is not None:
-                client.update_group_type_mapping(
-                    UpdateGroupTypeMappingRequest(
-                        project_id=resp.mapping.project_id,
-                        group_type_index=resp.mapping.group_type_index,
-                        update_mask=["detail_dashboard_id"],
-                    )
+    def _personhog_fn(client: PersonHogClient) -> None:
+        resp = client.get_group_type_mapping_by_dashboard_id(
+            GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
+        )
+        if resp.mapping and resp.mapping.group_type_index is not None:
+            client.update_group_type_mapping(
+                UpdateGroupTypeMappingRequest(
+                    project_id=resp.mapping.project_id,
+                    group_type_index=resp.mapping.group_type_index,
+                    update_mask=["detail_dashboard_id"],
                 )
-                invalidate_group_types_cache(resp.mapping.project_id)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="clear_dashboard_from_group_type_mapping", source="personhog", client_name=get_client_name()
-            ).inc()
-            return
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="clear_dashboard_from_group_type_mapping",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning(
-                "personhog_clear_dashboard_from_group_type_mapping_failure",
-                team_id=team_id,
-                dashboard_id=dashboard_id,
-                exc_info=True,
             )
+            invalidate_group_types_cache(resp.mapping.project_id)
 
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name=get_client_name()
-    ).inc()
-    GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
-        detail_dashboard_id=dashboard_id
-    ).update(  # nosemgrep: no-direct-persons-db-orm
-        detail_dashboard_id=None
+    def _orm_fn() -> None:
+        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
+            detail_dashboard_id=dashboard_id
+        ).update(  # nosemgrep: no-direct-persons-db-orm
+            detail_dashboard_id=None
+        )
+        if project_id is not None:
+            invalidate_group_types_cache(project_id)
+
+    _personhog_routed(
+        "clear_dashboard_from_group_type_mapping",
+        _personhog_fn,
+        _orm_fn,
+        caller_tag=caller_tag,
+        team_id=team_id,
+        dashboard_id=dashboard_id,
     )
-    if project_id is not None:
-        invalidate_group_types_cache(project_id)

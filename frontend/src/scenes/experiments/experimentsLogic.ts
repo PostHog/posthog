@@ -281,8 +281,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         offset: values.paramsFromFilters.offset,
                     }
                 },
-                archiveExperiment: async (id: number) => {
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
+                archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
+                        disable_feature_flag: disableFeatureFlag,
+                    })
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,
@@ -513,12 +515,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
     }),
     afterMount(({ actions, values }) => {
         actions.loadExperimentsStats()
-        // Sync modal page with URL on mount
+        // Sync modal page with URL on mount. Eligible flags themselves are loaded lazily when the
+        // "link existing flag" modal opens (openFeatureFlagModal listener), not on every list mount.
         const urlPage = values.featureFlagModalPageFromURL
         if (urlPage !== 1) {
             actions.setFeatureFlagModalFilters({ page: urlPage })
-        } else {
-            actions.loadFeatureFlagModalFeatureFlags()
         }
     }),
     actionToUrl(({ values }) => {

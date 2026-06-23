@@ -160,6 +160,7 @@ import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
+import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -1741,10 +1742,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-security',
                 title: 'Security',
-                description:
-                    'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
+                description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
-                keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
+                keywords: ['compliance', 'sharing', 'public'],
             },
             {
                 id: 'organization-personal-api-keys',
@@ -1968,6 +1968,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
                 component: <PersonalIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-reminders',
+        title: 'Reminders',
+        settings: [
+            {
+                id: 'reminders',
+                title: 'Reminders',
+                description: 'Schedule one-off or recurring nudges that notify you in-app when they are due.',
+                component: <Reminders />,
+                keywords: ['reminder', 'notification', 'schedule', 'recurring', 'cron'],
             },
         ],
     },

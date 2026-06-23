@@ -180,8 +180,8 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             pass
 
         return False, response.text
-    except RequestException as e:
-        return False, str(e)
+    except RequestException:
+        return False, "Could not reach the Mailchimp API. Check your network connection and try again."
 
 
 def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:

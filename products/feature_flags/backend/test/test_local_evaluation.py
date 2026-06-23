@@ -386,9 +386,11 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
                 "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
                 return_value={self.team.project_id: []},
             ),
-            patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects,
+            patch(
+                "posthog.models.group_type_mapping._fetch_group_types_for_project_direct",
+                side_effect=DatabaseError("persons db down"),
+            ),
         ):
-            mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("persons db down")
             with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
                 update_flag_caches(self.team)
                 mock_set.assert_not_called()

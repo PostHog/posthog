@@ -49,6 +49,11 @@ class HogQLContext:
     # cache fingerprint resolve access from the same rows (one bulk preload per run).
     user_access_control: Optional["UserAccessControl"] = None
 
+    # SECURITY-SENSITIVE: bypass for HogQL access control on warehouse tables.
+    # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
+    # Every call site that sets this MUST include an inline comment explaining why.
+    bypass_warehouse_access_control: bool = False
+
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected

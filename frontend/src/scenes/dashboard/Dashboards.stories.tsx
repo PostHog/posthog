@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { BaseMathType, DashboardMode, EntityTypes } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
@@ -43,8 +44,8 @@ const insightMocks = dashboard.tiles.reduce((acc: Record<string, any>, tile: any
 }, {})
 
 // Add the generic insight fetching endpoint that requires from_dashboard param
-const insightFetchMock = (req: any): [number, any] => {
-    const insightId = req.params.id
+const insightFetchMock = ({ params }: MockResolverInfo): [number, any] => {
+    const insightId = params.id
 
     // Don't require from_dashboard in storybook to simplify things
     // Find the insight in the dashboard tiles
@@ -105,6 +106,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboards(),
+        // Suppress async chart canvas painting so these dashboard snapshots are deterministic.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta

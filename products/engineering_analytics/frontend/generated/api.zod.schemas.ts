@@ -247,6 +247,18 @@ export const PullRequestListItemApi = zod.object({
             'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
         ),
     labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+    pushes: zod
+        .number()
+        .describe(
+            'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+        ),
+    rerun_cycles: zod.number().describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+    estimated_cost_usd: zod
+        .number()
+        .nullish()
+        .describe(
+            'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+        ),
 })
 
 export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
@@ -304,6 +316,20 @@ export const PullRequestListApi = zod.object({
                         'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
                     ),
                 labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+                pushes: zod
+                    .number()
+                    .describe(
+                        'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+                    ),
+                rerun_cycles: zod
+                    .number()
+                    .describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+                estimated_cost_usd: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+                    ),
             })
         )
         .describe('Pull requests, newest first, capped at `limit`.'),
@@ -317,6 +343,15 @@ export const PullRequestListApi = zod.object({
 
 export type PullRequestListApi = zod.input<typeof PullRequestListApi>
 export type PullRequestListApiOutput = zod.output<typeof PullRequestListApi>
+
+export const GitHubSourceApi = zod.object({
+    id: zod.string().describe('Source id — pass as `source_id` to the other endpoints to read this source.'),
+    repo: zod.string().describe("Connected repository as 'owner\/name', or '' if unknown."),
+    prefix: zod.string().describe("User-chosen warehouse table-name prefix for this source, or '' when none."),
+})
+
+export type GitHubSourceApi = zod.input<typeof GitHubSourceApi>
+export type GitHubSourceApiOutput = zod.output<typeof GitHubSourceApi>
 
 export const WorkflowHealthDayApi = zod.object({
     day: zod.iso.date().describe('UTC calendar day.'),

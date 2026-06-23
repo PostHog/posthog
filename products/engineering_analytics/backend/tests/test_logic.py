@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -14,32 +13,44 @@ from django.utils import timezone
 import pandas as pd
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from posthog.models.team import Team
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    GitHubSource,
     GitHubSourceNotConnectedError,
     MetricQuality,
     PRLifecycleEventKind,
     PRState,
 )
-from products.engineering_analytics.backend.logic import (
-    build_ci_cards,
-    build_pr_lifecycle,
-    build_pull_request_list,
-    build_workflow_health,
+from products.engineering_analytics.backend.logic import build_workflow_health
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+    GitHubTables,
+    list_github_sources,
+    resolve_github_tables,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
+    GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    connect_github_source_without_data,
+    create_github_source,
+    create_warehouse_table_row,
+    link_schema,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-# All query modules run through this helper; patch it to test row mapping without a warehouse.
-_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
+# Every query module runs HogQL through this method; patch it to test row mapping without a
+# warehouse. Patching the unbound method means the mock is called without `self`, so a plain
+# return_value / side_effect works as before.
+_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.run"
 _PR_LIST = "products.engineering_analytics.backend.logic.queries.pull_request_list"
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.logic"
@@ -87,38 +98,54 @@ def _header(
 
 
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
-    """Creates warehouse tables from in-memory rows; skips when object storage is
-    unreachable so the suite still runs without the dev stack."""
+    """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
+    so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
+    tables. Skips when object storage is unreachable so the suite still runs without the
+    dev stack."""
 
-    def _create_table(self, name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        self._github_source: ExternalDataSource | None = None
+
+    def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team)
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
         try:
-            _table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
-                table_name=name,
+                table_name=base_name,
                 table_columns=columns,
                 test_bucket=TEST_BUCKET,
                 team=self.team,
-                source_prefix="",
+                source=self._github_source,
+                source_prefix=GITHUB_SOURCE_PREFIX,
             )
         except PermissionError as err:
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
+        link_schema(self.team, self._github_source, name=base_name.removeprefix("github_"), table=table)
 
 
 class TestPRLifecycleMapping(BaseTest):
     """HogQL parsing (parse_select runs for real) plus row mapping and event
-    assembly, without touching object storage."""
+    assembly, without touching object storage. The query helper is mocked, so a GitHub
+    source is connected (ORM only) just to satisfy the resolver."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
         with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.metric_quality == MetricQuality.PARTIAL
@@ -134,51 +161,64 @@ class TestPRLifecycleMapping(BaseTest):
         ]
         assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
+    def test_skips_events_with_null_timestamps(self) -> None:
+        # parseDateTimeBestEffort yields NULL on a malformed/missing timestamp, so an event's `at`
+        # can come back None. A single bad run timestamp must drop just that event, not raise and
+        # take down the whole PR's lifecycle (the contract's `at` is non-nullable, and the event
+        # sort can't order a None key).
+        header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
+        runs = [
+            # null start -> CI_STARTED dropped, but the completed finish still lands
+            (2001, "CI", "completed", "success", None, _dt("2026-01-11T12:00:00")),
+            # both timestamps null -> both events dropped
+            (2002, "Deploy", "completed", "success", None, None),
+        ]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+
+        assert lifecycle is not None
+        assert [e.kind for e in lifecycle.events] == [
+            PRLifecycleEventKind.OPENED,
+            PRLifecycleEventKind.CI_FINISHED,
+            PRLifecycleEventKind.MERGED,
+        ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, None]
+
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
-            assert build_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
+            assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
 
     @parameterized.expand(["PostHog", "PostHog/", "/posthog", "/"])
     def test_malformed_repo_raises_before_querying(self, repo: str) -> None:
         # A half-specified repo must fail loudly, not silently drop the filter and
         # return a PR from the wrong repo. Raises in _split_repo before any query.
         with self.assertRaises(ValueError):
-            build_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
+            api.get_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
 
     def test_passes_through_view_derived_fields(self) -> None:
         # is_bot and state come from the curated query as columns; the logic layer does not re-derive them.
         header = _header("closed", merged_at=None, closed_at=_dt("2026-01-12T15:00:00"), is_bot=True, head_sha="")
         with mock.patch(_RUN_QUERY, return_value=_resp([header])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == PRState.CLOSED
         assert lifecycle.pull_request.author.is_bot is True
         assert [e.kind for e in lifecycle.events] == [PRLifecycleEventKind.OPENED, PRLifecycleEventKind.CLOSED]
 
-    @parameterized.expand(
-        [
-            ("open", PRState.OPEN),
-            ("closed", PRState.CLOSED),
-            ("merged", PRState.MERGED),
-        ]
-    )
-    def test_state_passthrough(self, state: str, expected: PRState) -> None:
-        merged_at = _dt("2026-01-12T15:00:00") if state == "merged" else None
-        with mock.patch(_RUN_QUERY, return_value=_resp([_header(state, merged_at=merged_at, head_sha="")])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
-
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == expected
-
 
 class TestEndpointMapping(BaseTest):
-    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse),
-    plus the no-source error path."""
+    """Row mapping for the aggregate endpoints (the query method mocked, no warehouse).
+    A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
+    query runs."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        connect_github_source_without_data(self.team)
 
     def test_ci_cards_maps_counts(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([(5, 2, 1, 1)])):
-            cards = build_ci_cards(team=self.team)
+            cards = api.get_ci_cards(team=self.team)
         assert (cards.open_prs, cards.repos, cards.stuck, cards.failing_ci) == (5, 2, 1, 1)
 
     def test_pull_request_list_maps_row(self) -> None:
@@ -200,9 +240,11 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            5,
+            2,
         )
         with mock.patch(_RUN_QUERY, return_value=_resp([row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is False
         assert len(result.items) == 1
@@ -214,6 +256,8 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.pushes, item.rerun_cycles) == (5, 2)
+        assert item.estimated_cost_usd is None
 
     def test_pull_request_list_flags_truncation(self) -> None:
         # Cap patched low; return more rows than the cap to exercise the N+1 overflow
@@ -236,9 +280,11 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
+            0,
+            0,
         )
         with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is True
         assert result.limit == 2
@@ -253,7 +299,7 @@ class TestEndpointMapping(BaseTest):
         # Must be inside the -30d window, which is relative to now.
         daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
-            items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
+            items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
         assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
@@ -267,70 +313,183 @@ class TestEndpointMapping(BaseTest):
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
+
+class TestResolveGitHubTables(BaseTest):
+    """The per-team table resolver over the warehouse models (ORM only, no object storage).
+    No source is connected in setUp so the missing-source path can be exercised."""
+
+    def _connect(
+        self,
+        *,
+        prefix: str,
+        schemas: list[tuple[str, bool, bool]],
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
+    ) -> ExternalDataSource:
+        # schemas: (endpoint name, should_sync, has a backing table)
+        team = team or self.team
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+        )
+        for name, should_sync, has_table in schemas:
+            table = (
+                create_warehouse_table_row(team, name=f"{prefix}github_{name}", source=source) if has_table else None
+            )
+            link_schema(team, source, name=name, table=table, should_sync=should_sync)
+        return source
+
+    _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
+
+    def test_resolves_non_default_prefix_tables(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+        )
+
+    def test_raises_without_a_github_source(self) -> None:
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
+
+    def test_build_raises_without_a_github_source(self) -> None:
+        # The orchestrator surfaces the resolver's error so the viewset can map it to a 400.
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            api.get_ci_cards(team=self.team)
+
     @parameterized.expand(
         [
-            ("github_pull_requests", GitHubSourceNotConnectedError),
-            ("github_workflow_runs", GitHubSourceNotConnectedError),
-            # An unrelated missing table is a real bug, not "no GitHub source" — it must
-            # surface as the original QueryError rather than masquerade as a 4xx.
-            ("some_typo", QueryError),
+            # Same-named schemas on a non-GitHub source must not be mistaken for a GitHub source.
+            ("non_github_source", [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)], "stripe"),
+            ("endpoint_not_synced", [(PULL_REQUESTS_SCHEMA, False, True), (WORKFLOW_RUNS_SCHEMA, False, True)], "gh"),
+            ("missing_one_endpoint", [(PULL_REQUESTS_SCHEMA, True, True)], "gh"),
+            ("schema_without_table", [(PULL_REQUESTS_SCHEMA, True, False), (WORKFLOW_RUNS_SCHEMA, True, False)], "gh"),
         ]
     )
-    def test_unknown_table_only_translates_for_source_tables(self, table: str, expected: type[Exception]) -> None:
-        with mock.patch(
-            "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
-            side_effect=QueryError(f"Unknown table `{table}`."),
-        ):
-            with self.assertRaises(expected):
-                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test")
+    def test_raises_when_endpoints_unavailable(
+        self, _name: str, schemas: list[tuple[str, bool, bool]], kind: str
+    ) -> None:
+        source_type = ExternalDataSourceType.STRIPE if kind == "stripe" else ExternalDataSourceType.GITHUB
+        self._connect(prefix="myprefix", schemas=schemas, source_type=source_type)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
 
-    def test_build_propagates_source_error(self) -> None:
-        with mock.patch(_RUN_QUERY, side_effect=GitHubSourceNotConnectedError()):
-            with self.assertRaises(GitHubSourceNotConnectedError):
-                build_pull_request_list(team=self.team)
+    def test_prefers_oldest_complete_source(self) -> None:
+        # Two fully-connected GitHub sources (e.g. one per repo): the oldest wins, deterministically.
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables.pull_requests == "oldergithub_pull_requests"
 
-
-class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
-    """End-to-end through the curated builders over real warehouse tables.
-    Skips when object storage is unreachable."""
-
-    @freeze_time("2026-02-01")
-    def test_pr_lifecycle_end_to_end(self) -> None:
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [
-                _pr_row(
-                    10, "alice", "closed", 0, "2026-01-10 09:00:00", merged_at="2026-01-12 15:00:00", head_sha="sha10"
-                )
-            ],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(2001, "CI", "sha10", "completed", "success", "2026-01-11 09:00:00", "2026-01-11 12:00:00")],
+    def test_skips_incomplete_source_for_a_complete_one(self) -> None:
+        # The oldest source is missing an endpoint; resolution falls through to the complete one.
+        self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])
+        self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team)
+        assert tables == GitHubTables(
+            pull_requests="completegithub_pull_requests", workflow_runs="completegithub_workflow_runs"
         )
 
-        lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+    def test_ignores_soft_deleted_source(self) -> None:
+        source = self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team)
 
-        assert lifecycle is not None
-        assert lifecycle.pull_request.state == PRState.MERGED
-        assert lifecycle.pull_request.author.handle == "alice"
-        assert lifecycle.pull_request.repo.name == "posthog"
-        assert [e.kind for e in lifecycle.events] == [
-            PRLifecycleEventKind.OPENED,
-            PRLifecycleEventKind.CI_STARTED,
-            PRLifecycleEventKind.CI_FINISHED,
-            PRLifecycleEventKind.MERGED,
+    def test_source_id_selects_a_specific_source(self) -> None:
+        self._connect(prefix="older", schemas=self._BOTH_SYNCED)
+        newer = self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
+        tables = resolve_github_tables(team=self.team, source_id=str(newer.id))
+        assert tables == GitHubTables(
+            pull_requests="newergithub_pull_requests", workflow_runs="newergithub_workflow_runs"
+        )
+
+    def test_unknown_source_id_raises(self) -> None:
+        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id="0192f000-0000-7000-8000-000000000000")
+
+    def test_malformed_source_id_raises_value_error(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_github_tables(team=self.team, source_id="not-a-uuid")
+
+    def test_source_id_is_scoped_to_the_team(self) -> None:
+        # Selecting another team's source id must not leak it — the team filter excludes it.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_source = self._connect(prefix="other", schemas=self._BOTH_SYNCED, team=other_team)
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            resolve_github_tables(team=self.team, source_id=str(other_source.id))
+
+
+class TestListGitHubSources(BaseTest):
+    """list_github_sources lists every connected GitHub source for a picker (ORM only).
+    Unlike resolve_github_tables it does not require synced tables — a half-synced source the
+    user connected should still be selectable; the empty state handles an unusable pick."""
+
+    def _source(
+        self,
+        *,
+        prefix: str,
+        repository: str | None = None,
+        source_type: ExternalDataSourceType = ExternalDataSourceType.GITHUB,
+        team: Team | None = None,
+    ) -> ExternalDataSource:
+        team = team or self.team
+        return ExternalDataSource.objects.create(
+            team=team,
+            source_id=f"src-{prefix}",
+            connection_id=f"src-{prefix}",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=source_type,
+            prefix=prefix,
+            job_inputs={"repository": repository} if repository else {},
+        )
+
+    def test_lists_sources_oldest_first_with_repo_and_prefix(self) -> None:
+        older = self._source(prefix="older", repository="PostHog/posthog")
+        newer = self._source(prefix="newer", repository="PostHog/posthog.com")
+        assert list_github_sources(team=self.team) == [
+            GitHubSource(id=str(older.id), repo="PostHog/posthog", prefix="older"),
+            GitHubSource(id=str(newer.id), repo="PostHog/posthog.com", prefix="newer"),
         ]
-        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
+
+    def test_includes_sources_without_synced_tables(self) -> None:
+        # No schemas/tables linked: resolve_github_tables would reject this, the picker keeps it.
+        source = self._source(prefix="pronly", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(source.id)]
+
+    def test_repo_is_blank_without_a_repository_input(self) -> None:
+        source = self._source(prefix="noinputs")
+        assert list_github_sources(team=self.team) == [GitHubSource(id=str(source.id), repo="", prefix="noinputs")]
+
+    def test_excludes_non_github_and_soft_deleted_sources(self) -> None:
+        self._source(prefix="stripe", source_type=ExternalDataSourceType.STRIPE)
+        deleted = self._source(prefix="gone", repository="PostHog/posthog")
+        ExternalDataSource.objects.filter(pk=deleted.pk).update(deleted=True)
+        kept = self._source(prefix="kept", repository="PostHog/posthog")
+        assert [s.id for s in list_github_sources(team=self.team)] == [str(kept.id)]
+
+    def test_empty_without_a_github_source(self) -> None:
+        assert list_github_sources(team=self.team) == []
+
+    def test_scoped_to_the_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._source(prefix="theirs", repository="PostHog/posthog", team=other_team)
+        assert list_github_sources(team=self.team) == []
 
 
 class TestWorkflowHealthWindowCap(BaseTest):
     @parameterized.expand(["2000-01-01", "-500d"])
     def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
+        # The window cap is build_workflow_health's own guard, reached before it reads any data; a
+        # handle with dummy table names exposes the team (for timezone) and nothing else is touched.
+        curated = CuratedGitHubSource(team=self.team, tables=GitHubTables(pull_requests="pr", workflow_runs="wr"))
         with pytest.raises(ValueError, match="the maximum is 366"):
-            build_workflow_health(team=self.team, date_from=date_from)
+            build_workflow_health(curated=curated, date_from=date_from)
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
@@ -363,8 +522,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1)),
-                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2)),
+                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
+                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
+                # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                _run_row(
+                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
             ],
         )
 
@@ -386,6 +550,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert by_number[11].ci.passing == 1
         assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
         assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
+        # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
+        assert by_number[12].pushes == 0  # no runs attributed to this PR
+        assert by_number[10].estimated_cost_usd is None  # cost scaffold: populated once jobs land
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()
@@ -394,3 +563,52 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+
+    def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
+        # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
+        # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
+        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(10, "alice", "open", 0, _ago(1), head_sha="sha10", full_name="PostHog/posthog"),
+                _pr_row(10, "bob", "open", 0, _ago(1), head_sha="shaB10", full_name="PostHog/posthog.com"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(3001, "CI", "sha10", "completed", "success", _ago(1), _ago(1), pr_number=10),
+                _run_row(
+                    3002,
+                    "CI",
+                    "shaB10",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    full_name="PostHog/posthog.com",
+                ),
+                # A second push + re-run on the other repo's PR #10 — must not leak onto posthog's #10.
+                _run_row(
+                    3003,
+                    "CI",
+                    "shaB10b",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=10,
+                    run_attempt=2,
+                    full_name="PostHog/posthog.com",
+                ),
+            ],
+        )
+        result = api.list_pull_requests(team=self.team)
+        by_repo = {(item.repo.owner, item.repo.name): item for item in result.items}
+        assert (by_repo[("PostHog", "posthog")].pushes, by_repo[("PostHog", "posthog")].rerun_cycles) == (1, 0)
+        assert (by_repo[("PostHog", "posthog.com")].pushes, by_repo[("PostHog", "posthog.com")].rerun_cycles) == (2, 1)

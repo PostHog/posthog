@@ -12,6 +12,18 @@
             "formSchemaExport": "errorTrackingWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"]
         },
+        "experiment_results": {
+            "configSchemaExport": "experimentResultsWidgetConfigSchema",
+            "configTypeExport": "ExperimentResultsWidgetConfig",
+            "formSchemaExport": "experimentResultsWidgetFormSchema",
+            "formFields": ["experimentId"]
+        },
+        "experiments_list": {
+            "configSchemaExport": "experimentsWidgetConfigSchema",
+            "configTypeExport": "ExperimentsWidgetConfig",
+            "formSchemaExport": "experimentsWidgetFormSchema",
+            "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"]
+        },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",

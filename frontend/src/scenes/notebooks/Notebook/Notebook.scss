@@ -699,6 +699,20 @@ body:has(.Notebook--markdown-v2),
     }
 }
 
+.NotebookPresence__ai-bubble {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    color: var(--white);
+    background: var(--notebook-ai-presence-color, var(--color-accent));
+    border: 0;
+    border-radius: 50%;
+}
+
 // Google-Docs-style remote presence carets + name flag.
 .NotebookRemotePresence {
     position: relative;

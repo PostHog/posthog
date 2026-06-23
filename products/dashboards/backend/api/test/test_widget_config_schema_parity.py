@@ -25,10 +25,14 @@ class TestWidgetConfigSchemaParity(BaseTest):
 
     def test_widget_config_limit_constraints_match_ssot(self) -> None:
         for widget_type, spec in WIDGET_SPECS.items():
+            properties = spec.config_model.model_json_schema(mode="serialization")["properties"]
+            if "limit" not in properties:
+                # Non-list widgets (e.g. experiment_results) have no row limit.
+                continue
             expected_max, expected_default = WIDGET_LIMIT_BOUNDS.get(
                 widget_type, (MAX_WIDGET_RESULT_LIMIT, DEFAULT_WIDGET_LIST_LIMIT)
             )
-            limit_schema = spec.config_model.model_json_schema(mode="serialization")["properties"]["limit"]
+            limit_schema = properties["limit"]
             assert limit_schema["minimum"] == 1
             assert limit_schema["maximum"] == expected_max
             assert limit_schema["default"] == expected_default

@@ -81,6 +81,12 @@ def bing_ads_source(
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
 
+        # Without these the SDK posts a token request omitting client_id, and Microsoft replies with the
+        # opaque AADSTS900144 ("request body must contain client_id") — fail fast so it isn't mis-surfaced
+        # as a customer "reconnect your integration" error when it's really a missing PostHog config.
+        if not integrations.BING_ADS_CLIENT_ID or not integrations.BING_ADS_CLIENT_SECRET:
+            raise ValueError("Bing Ads OAuth application credentials not configured")
+
         client = BingAdsClient(
             access_token=access_token,
             refresh_token=refresh_token,

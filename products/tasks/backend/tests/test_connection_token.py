@@ -8,8 +8,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.connection_token import (
+from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_CONNECTION_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
     _compute_kid,
@@ -21,6 +20,7 @@ from products.tasks.backend.services.connection_token import (
     reset_sandbox_jwt_key_cache,
     validate_sandbox_event_ingest_token,
 )
+from products.tasks.backend.models import TaskRun
 
 
 def _generate_private_key_pem() -> str:

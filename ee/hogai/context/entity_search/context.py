@@ -1,10 +1,10 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any, Literal
 
 from django.conf import settings
-from django.db.models import Max, Q, QuerySet
+from django.db.models import Max
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -23,7 +23,9 @@ from posthog.sync import database_sync_to_async
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.facade import api as customer_analytics_facade
+from products.customer_analytics.backend.facade.api import build_account_deeplink
+from products.customer_analytics.backend.facade.contracts import AccountRef
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flag_status import (
@@ -367,21 +369,13 @@ class EntitySearchContext:
 
         return all_entities, total_count
 
-    def _accounts_queryset(self) -> QuerySet[Account]:
-        """Base accounts queryset. Uses the unscoped manager since Account is fail-closed."""
-        if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
-            return Account.objects.unscoped().none()
-        return self.user_access_control.filter_queryset_by_access_level(
-            Account.objects.unscoped().filter(team=self._team)
-        )
-
     @staticmethod
-    def _account_entities(accounts: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _account_entities(accounts: Iterable[AccountRef]) -> list[dict[str, Any]]:
         return [
             {
                 "type": "account",
-                "result_id": str(account["id"]),
-                "extra_fields": {"name": account["name"], "external_id": account["external_id"]},
+                "result_id": account.id,
+                "extra_fields": {"name": account.name, "external_id": account.external_id},
             }
             for account in accounts
         ]
@@ -454,9 +448,9 @@ class EntitySearchContext:
         return await database_sync_to_async(self._search_accounts_sync, thread_sensitive=False)(query)
 
     def _search_accounts_sync(self, query: str) -> tuple[list[dict[str, Any]], int]:
-        queryset = self._accounts_queryset().filter(Q(name__icontains=query) | Q(external_id__icontains=query))
-        total_count = queryset.count()
-        accounts = list(queryset.order_by("name")[:SEARCH_LIMIT].values("id", "name", "external_id"))
+        accounts, total_count = customer_analytics_facade.search_accounts(
+            self._team.id, query, self.user_access_control, SEARCH_LIMIT
+        )
         return self._account_entities(accounts), total_count
 
     async def _list_accounts(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
@@ -464,9 +458,9 @@ class EntitySearchContext:
         return await database_sync_to_async(self._list_accounts_sync, thread_sensitive=False)(limit, offset)
 
     def _list_accounts_sync(self, limit: int = 100, offset: int = 0) -> tuple[list[dict[str, Any]], int]:
-        queryset = self._accounts_queryset().order_by("-created_at")
-        total_count = queryset.count()
-        accounts = list(queryset[offset : offset + limit].values("id", "name", "external_id"))
+        accounts, total_count = customer_analytics_facade.list_accounts(
+            self._team.id, offset, limit, self.user_access_control
+        )
         return self._account_entities(accounts), total_count
 
     def _get_entity_row_values(self, result: dict, extra_columns: list[str], include_type: bool) -> list[str]:
@@ -557,6 +551,7 @@ class EntitySearchContext:
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case "account":
-                return f"{base_url}/customer_analytics/accounts"
+                # Deep-link to the specific account (filtered + expanded) rather than the bare list.
+                return f"{base_url}{build_account_deeplink(account_id=result_id)}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

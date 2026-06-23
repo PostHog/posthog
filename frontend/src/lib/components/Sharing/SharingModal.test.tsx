@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -76,11 +77,16 @@ function mockInsightSharingConfiguration({
 }
 
 describe('SharingModal (dashboard)', () => {
+    // Unmount the modal portal between tests so its embed CodeSnippet (a themeLogic
+    // consumer) can't commit a deferred render after a later file resets the kea store.
+    afterEach(() => cleanup())
+
     function DashboardSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
         // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
         // the branding option in the form.
         useAvailableFeatures([AvailableFeature.WHITE_LABELLING])
         initKeaTests()
+        themeLogic.mount()
         useMocks({
             get: mockDashboardSharingConfiguration({}),
         })
@@ -161,9 +167,12 @@ describe('SharingModal (insight)', () => {
         name: 'My insight',
     }
 
+    afterEach(() => cleanup())
+
     function InsightSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
         useAvailableFeatures([])
         initKeaTests()
+        themeLogic.mount()
         useMocks({
             get: mockInsightSharingConfiguration({ insightId: defaultInsightId }),
         })

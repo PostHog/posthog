@@ -64,6 +64,19 @@ The Usage tab renders an existing saved billing-usage insight — **point users 
 
 `accountsLogic` mirrors the full view (search, tags, unassigned, assigned-to, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
 
+### Deep-link to one account (path route)
+
+`/customer_analytics/accounts/:accountId/:tab` opens a single account directly (separate from the persistent `#view=` filter state). `accountsLogic.urlToAction` reads the route params, validates the id (UUID) and tab (against `ACCOUNT_EXPANSION_TABS`, default `DEFAULT_ACCOUNT_TAB`), sets `accountIdFilter` — which ANDs `toString(id) = '<id>'` into the query's `filterExpression`, filtering the list to just that account — and opens the tab via `openAccountTab`. Returning to the bare `/customer_analytics/accounts` clears `accountIdFilter`. Because it filters by the PK, the id alone is enough; no name/external_id is needed in the link.
+
+**Build the URL via the canonical helpers, never hand-build the path:**
+
+- Frontend: `urls.customerAnalyticsAccount(accountId, tab?)` (in the product manifest). Used by the notebook→Accounts breadcrumb.
+- Backend: `build_account_deeplink(account_id, tab=None)` in `backend/account_urls.py` — the single source of truth for the Python side, returning `/customer_analytics/accounts/<id>[/<tab>]`. Used by the usage-spike notification (`backend/services/usage_spike_notifications.py`, `tab='usage'`) and by the agent's entity-search results (`ee/hogai/context/entity_search/context.py`), so when Max/MCP references an account it found, the link opens that account rather than the list.
+
+Anywhere we know the account, prefer a deep-link over the bare list. The notification path is routed through `buildNotificationSourcePath` in `sidePanelNotificationsLogic.tsx`, which has **no** `customer_analytics` entry in `SOURCE_TYPE_TO_PATH` precisely so the precise `source_url` deep-link wins instead of a static accounts-list path. The notification `source_url` is project-relative — the notifications side panel adds the project prefix on navigation.
+
+(Separately, `openAccount` — reveal + expand + scroll **within the current list** — remains the Max contextual-tool entry point for surfacing an account during an active session. It's not URL-driven.)
+
 ## Saved views
 
 A saved view is a named snapshot of the full Accounts list state (columns, sort, filters, overview tiles).

@@ -43,6 +43,7 @@ from posthog.schema import (
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    MCPHarnessBreakdownQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -308,6 +309,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MCPHarnessBreakdownQuery,
 ]
 
 
@@ -769,7 +771,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -793,9 +795,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
-            ErrorTrackingIssueCorrelationQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -807,9 +807,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingSimilarIssuesQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
-            ErrorTrackingSimilarIssuesQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
         return ErrorTrackingSimilarIssuesQueryRunner(
             query=query,
@@ -821,9 +819,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingBreakdownsQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
-            ErrorTrackingBreakdownsQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
             query=query,
@@ -943,6 +939,17 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPHarnessBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPHarnessBreakdownQueryRunner
+
+        return MCPHarnessBreakdownQueryRunner(
+            query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -1020,7 +1027,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.facade.queries import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
@@ -1032,7 +1039,7 @@ def get_query_runner(
         )
 
     if kind == "AccountsQuery":
-        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+        from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
             query=query,
@@ -1094,7 +1101,7 @@ def get_query_runner(
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
     # Direct queries are blocked by LogsQueryRunner.validate_query_runner_access.
     if kind == "LogsQuery":
-        from products.logs.backend.logs_query_runner import LogsQueryRunner
+        from products.logs.backend.facade.queries import LogsQueryRunner
 
         return LogsQueryRunner(
             query=query,
@@ -2236,7 +2243,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query)
+        queried_resources = queried_access_controlled_resources(self.query, self.team)
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():

@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
-from snowflake.connector.errors import InterfaceError, OperationalError
+from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -605,6 +605,15 @@ class SnowflakeClient:
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
 
+        # Handle 404 errors (usually indicates the provided account is invalid)
+        except HttpError as err:
+            if err.msg is not None and "404 Not Found" in err.msg:
+                raise SnowflakeConnectionError(
+                    f"Could not establish a connection to Snowflake as the resolved URL does not exist. This usually indicates an invalid Snowflake account."
+                ) from err
+            # allow other errors to raise in case they're temporary connection issues
+            raise
+
         self.logger.debug("Connected to Snowflake")
 
         self._connection = connection
@@ -798,7 +807,7 @@ class SnowflakeClient:
             SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
             SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
                 mutable table and one or more fields from the primary key are missing
-                from the table.
+                from the table, or the fields we require have types we do not support.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -845,14 +854,22 @@ class SnowflakeClient:
             if field_metadata.name.lower() in record_batch_field_names
         )
 
-        return SnowflakeTable.from_snowflake_table(
-            table.name,
-            fields=fields,
-            parents=table.parents,
-            primary_key=table.primary_key,
-            version_key=table.version_key,
-            stage_prefix=table.stage_prefix,
-        )
+        try:
+            table = SnowflakeTable.from_snowflake_table(
+                table.name,
+                fields=fields,
+                parents=table.parents,
+                primary_key=table.primary_key,
+                version_key=table.version_key,
+                stage_prefix=table.stage_prefix,
+            )
+        except ValueError as exc:
+            raise SnowflakeIncompatibleSchemaError(
+                f"A Snowflake table '{table.name}' was found, but one or more "
+                f"fields are defined with incompatible types: '{exc}'. Have "
+                "you created the table following the PostHog documentation? "
+            ) from exc
+        return table
 
     async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.

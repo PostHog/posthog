@@ -4,7 +4,7 @@ import threading
 import dataclasses
 import collections.abc
 from typing import Any
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -127,11 +127,38 @@ def normalize_site_url(raw: str) -> str:
     if "%" in site:
         site = unquote(site).strip()
 
-    # URL-prefix properties are canonically stored with a trailing slash.
-    if site.startswith(("http://", "https://")) and not site.endswith("/"):
-        site = site + "/"
+    # URL-prefix properties are canonically stored with a lowercase scheme and host and a
+    # trailing slash. Schemes and hostnames are case-insensitive, so a value like
+    # "Https://Example.com/" never matches Google's lowercase form on an exact lookup — lower
+    # both (leaving the path alone, which can be case-sensitive) and add the trailing slash.
+    parsed = urlparse(site)
+    if parsed.scheme.lower() in ("http", "https"):
+        site = urlunparse(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower()))
+        if not site.endswith("/"):
+            site = site + "/"
 
     return site
+
+
+def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[str]) -> str | None:
+    """Return the registered property a bare-hostname entry most likely meant, else None.
+
+    ``normalize_site_url`` deliberately leaves a bare hostname (e.g. ``example.com``)
+    untouched because it can't tell a URL-prefix property (``https://example.com/``) from
+    a domain property (``sc-domain:example.com``). When such an entry matches no property,
+    check whether either canonical form *is* registered and point the user at it, so a
+    dead-end "not visible" error becomes "enter this exact value instead".
+    """
+    if urlparse(site_url).scheme or site_url.startswith("sc-domain:"):
+        return None
+    host = site_url.strip().strip("/").lower()
+    if not host:
+        return None
+    registered_set = set(registered)
+    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+        if candidate in registered_set:
+            return candidate
+    return None
 
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:

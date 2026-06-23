@@ -195,28 +195,38 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        # Fail fast on a runaway scan — the path predicate is not backed by an index, and a wide window
-        # over a hot attribute is expensive.
+        # No byte ceiling. The path predicate can't use an index (suffix match on a Map attribute), so it
+        # full-scans the window — but the logs cluster reads that fast (a 24h scan is single-digit seconds).
+        # A 10GB read cap instead raised exception 307 (TOO_MANY_BYTES) on every window past ~1h, since one
+        # hour alone reads ~6.5GB; max_execution_time is the real runaway backstop. This matches the sibling
+        # attribute-breakdown runner, which scans the same data uncapped.
         return HogQLGlobalSettings(
             allow_experimental_object_type=False,
             max_execution_time=30,
-            max_bytes_to_read=10_000_000_000,
-            read_overflow_mode="throw",
+            max_bytes_to_read=None,
+            read_overflow_mode=None,
         )
 
     def to_query(self) -> ast.SelectQuery:
         req = _normalize_request_path(self.query.filePath)
 
-        # Segment-anchored suffix match: the recorded path equals the request, or ends with
-        # '/' + request. So `feature-flags/src/flags/flag_matching.rs` matches a request for
-        # `src/flags/flag_matching.rs`, while `crate-b/src/mod.rs` does not match `crate-a/src/mod.rs`.
+        # Segment-anchored suffix match in BOTH directions: recorded and request match when one's
+        # segment list is a '/'-anchored suffix of the other's. The leading '/' anchors on a segment
+        # boundary, so `internal/superuser.go` never matches `user.go`.
+        #   - request is a suffix of recorded: `feature-flags/src/flags/flag_matching.rs` matched by
+        #     `src/flags/flag_matching.rs` (the editor sends a shorter, repo-relative path).
+        #   - recorded is a suffix of request: a monorepo editor sends the workspace-prefixed
+        #     `rust/feature-flags/src/flags/flag_matching.rs` while the service recorded only
+        #     `feature-flags/src/flags/flag_matching.rs`.
+        # `crate-b/src/mod.rs` still does not match `crate-a/src/mod.rs` (divergent leading segments).
+        req_slash = "/" + req
         path_predicate = parse_expr(
-            "{path} = {req} OR endsWith({path_dup}, {req_slash})",
+            "endsWith(concat('/', {recorded}), {req_slash}) OR endsWith({req_slash_dup}, concat('/', {recorded_dup}))",
             placeholders={
-                "path": _normalized_file_path_expr(),
-                "path_dup": _normalized_file_path_expr(),
-                "req": ast.Constant(value=req),
-                "req_slash": ast.Constant(value="/" + req),
+                "recorded": _normalized_file_path_expr(),
+                "recorded_dup": _normalized_file_path_expr(),
+                "req_slash": ast.Constant(value=req_slash),
+                "req_slash_dup": ast.Constant(value=req_slash),
             },
         )
 
@@ -372,7 +382,10 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
         symbol = symbols_by_start.get(line)
         symbol_name, symbol_end_line = (symbol.name, symbol.endLine) if symbol else (None, None)
         current_count = count or 0
+        current_error_count = error_count or 0
+        current_p50 = _num(p50_duration_nano)
         current_p95 = _num(p95_duration_nano)
+        current_p99 = _num(p99_duration_nano)
         previous = SymbolStatsPeriod(
             count=prev_count or 0,
             error_count=prev_error_count or 0,
@@ -385,23 +398,30 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
             p95_busy_nano=_num(prev_p95_busy_nano),
             p99_busy_nano=_num(prev_p99_busy_nano),
         )
+        # Error rate per window (0 when the window had no traffic); the delta is null when the previous
+        # window's rate is 0 — no errors or no traffic — so a 0→N spike reads as "no baseline", not +inf.
+        current_error_rate = current_error_count / current_count if current_count else 0.0
+        previous_error_rate = previous.error_count / previous.count if previous.count else 0.0
         return SymbolStatsRow(
             line=line,
             name=symbol_name,
             end_line=symbol_end_line,
             count=current_count,
-            error_count=error_count or 0,
+            error_count=current_error_count,
             sum_duration_nano=_num(sum_duration_nano),
-            p50_duration_nano=_num(p50_duration_nano),
+            p50_duration_nano=current_p50,
             p95_duration_nano=current_p95,
-            p99_duration_nano=_num(p99_duration_nano),
+            p99_duration_nano=current_p99,
             busy_count=busy_count or 0,
             p50_busy_nano=_num(p50_busy_nano),
             p95_busy_nano=_num(p95_busy_nano),
             p99_busy_nano=_num(p99_busy_nano),
             previous=previous,
             count_pct_change=_pct_change(current_count, previous.count),
+            p50_duration_pct_change=_pct_change(current_p50, previous.p50_duration_nano),
             p95_duration_pct_change=_pct_change(current_p95, previous.p95_duration_nano),
+            p99_duration_pct_change=_pct_change(current_p99, previous.p99_duration_nano),
+            error_rate_pct_change=_pct_change(current_error_rate, previous_error_rate),
         )
 
     def run(self, *args, **kwargs) -> TraceSpansSymbolStatsQueryResponse | CachedTraceSpansSymbolStatsQueryResponse:

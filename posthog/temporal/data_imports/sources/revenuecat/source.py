@@ -152,7 +152,7 @@ class RevenueCatSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-revenuecat",
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "

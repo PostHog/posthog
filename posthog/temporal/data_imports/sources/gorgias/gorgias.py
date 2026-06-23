@@ -2,7 +2,8 @@ import re
 import base64
 import dataclasses
 from collections.abc import Iterator
-from typing import Any
+from datetime import UTC, date, datetime
+from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -11,7 +12,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.gorgias.settings import GORGIAS_ENDPOINTS
+from posthog.temporal.data_imports.sources.gorgias.settings import GORGIAS_ENDPOINTS, GorgiasEndpointConfig
 
 # Gorgias caps `limit` at 100 on every list endpoint.
 PAGE_SIZE = 100
@@ -59,6 +60,42 @@ def get_base_url(domain: str) -> str:
     return f"https://{subdomain}.gorgias.com/api"
 
 
+def _coerce_to_utc(value: Any) -> datetime | None:
+    """Best-effort parse of a Gorgias datetime (ISO string) or a DB watermark (datetime)."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _page_newest(items: list[Any], field: str) -> datetime | None:
+    """Newest value of `field` across a page; None if nothing parses."""
+    parsed = [dt for item in items if isinstance(item, dict) and (dt := _coerce_to_utc(item.get(field))) is not None]
+    return max(parsed) if parsed else None
+
+
+def _incremental_sort_field(
+    config: GorgiasEndpointConfig, should_use_incremental_field: bool, incremental_field: Optional[str]
+) -> str | None:
+    """The field to sort `<field>:desc` for an incremental sync, or None for full refresh.
+
+    Guards against sending a sort the endpoint does not accept: an `order_by` Gorgias
+    rejects (or silently ignores) would break the newest-first ordering the watermark
+    stop condition relies on, so anything not in `sortable_datetime_fields` falls back
+    to full refresh.
+    """
+    if should_use_incremental_field and incremental_field in config.sortable_datetime_fields:
+        return incremental_field
+    return None
+
+
 def _get_auth_header(email: str, api_key: str) -> str:
     token = base64.b64encode(f"{email}:{api_key}".encode()).decode()
     return f"Basic {token}"
@@ -102,10 +139,20 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[GorgiasResumeConfig],
+    should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[Any]:
     config = GORGIAS_ENDPOINTS[endpoint]
     url = f"{get_base_url(domain)}{config.path}"
     session = make_tracked_session(headers=get_headers(email, api_key), redact_values=(api_key,))
+
+    # Gorgias has no server-side time filter. For incremental we sort the chosen field
+    # newest-first and stop paginating once a whole page predates the watermark, so a
+    # steady-state sync only pulls the changed prefix instead of every page.
+    sort_field = _incremental_sort_field(config, should_use_incremental_field, incremental_field)
+    order_by = f"{sort_field}:desc" if sort_field else config.order_by
+    watermark = _coerce_to_utc(db_incremental_field_last_value) if sort_field else None
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume_config.cursor if resume_config else None
@@ -121,7 +168,12 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(request_cursor: str | None) -> dict[str, Any]:
-        params: dict[str, Any] = {"limit": PAGE_SIZE, "order_by": config.order_by}
+        # `cursor` is documented as "position in the list of resources" — the list is
+        # defined by `order_by`/`limit`, so we re-send them on every page to keep the
+        # sort stable. The docs list `cursor` and `order_by` as coexisting params (no
+        # mutual exclusion); dropping order_by on follow-up pages could reset to the
+        # endpoint default and corrupt the newest-first order incremental relies on.
+        params: dict[str, Any] = {"limit": PAGE_SIZE, "order_by": order_by}
         if request_cursor:
             params["cursor"] = request_cursor
 
@@ -144,6 +196,13 @@ def get_rows(
         if items:
             yield items
 
+        # Rows arrive newest-first under incremental sort; once an entire page predates the
+        # watermark, everything further back is already synced, so stop.
+        if watermark is not None and sort_field is not None and items:
+            page_newest = _page_newest(items, sort_field)
+            if page_newest is not None and page_newest < watermark:
+                break
+
         next_cursor = (data.get("meta") or {}).get("next_cursor")
         if not next_cursor:
             break
@@ -161,8 +220,12 @@ def gorgias_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[GorgiasResumeConfig],
+    should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GORGIAS_ENDPOINTS[endpoint]
+    incremental = _incremental_sort_field(config, should_use_incremental_field, incremental_field) is not None
 
     return SourceResponse(
         name=endpoint,
@@ -173,6 +236,9 @@ def gorgias_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=["id"],
         partition_count=1,
@@ -180,5 +246,7 @@ def gorgias_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[config.partition_key],
-        sort_mode="asc",
+        # Incremental sort returns newest-first; full refresh stays ascending on the
+        # stable creation field. sort_mode must match the order rows actually arrive in.
+        sort_mode="desc" if incremental else "asc",
     )

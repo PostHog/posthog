@@ -132,6 +132,7 @@ PropertyAccessControl
 QueryTabState
 QuickFilter
 QuickFilterContext
+Reminder
 ReplayObservation
 ReplayScanner
 RepoRoutingRule

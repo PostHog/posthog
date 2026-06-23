@@ -7,6 +7,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import Extractor
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
+from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -14,6 +15,7 @@ from products.product_analytics.backend.models.insight import Insight
 # Each insight kind that supports threshold alerts maps to one extractor. The comparator is shared.
 EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsExtractor(),
+    NodeKind.HOG_QL_QUERY: HogQLExtractor(),
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared

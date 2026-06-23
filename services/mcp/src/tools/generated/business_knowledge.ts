@@ -8,6 +8,8 @@ import {
     BusinessKnowledgeDocumentsWindowListQueryParams,
     BusinessKnowledgeSourcesCreateBody,
     BusinessKnowledgeSourcesListQueryParams,
+    BusinessKnowledgeSourcesPartialUpdateBody,
+    BusinessKnowledgeSourcesPartialUpdateParams,
     BusinessKnowledgeSourcesRetrieveParams,
 } from '@/generated/business_knowledge/api'
 import { BusinessKnowledgeUrlSourceCreateSchema } from '@/schema/tool-inputs'
@@ -92,6 +94,7 @@ const businessKnowledgeSourcesList = (): ToolBase<
                     'chunk_count',
                     'source_url',
                     'has_unsafe_documents',
+                    'always_include',
                     'refresh_interval',
                     'next_refresh_at',
                     'created_at',
@@ -100,6 +103,37 @@ const businessKnowledgeSourcesList = (): ToolBase<
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/business-knowledge')
+    },
+})
+
+const BusinessKnowledgeSourcesPartialUpdateSchema = BusinessKnowledgeSourcesPartialUpdateParams.omit({
+    project_id: true,
+}).extend(BusinessKnowledgeSourcesPartialUpdateBody.shape)
+
+const businessKnowledgeSourcesPartialUpdate = (): ToolBase<
+    typeof BusinessKnowledgeSourcesPartialUpdateSchema,
+    Schemas.KnowledgeSource
+> => ({
+    name: 'business-knowledge-sources-partial-update',
+    schema: BusinessKnowledgeSourcesPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof BusinessKnowledgeSourcesPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.always_include !== undefined) {
+            body['always_include'] = params.always_include
+        }
+        const result = await context.api.request<Schemas.KnowledgeSource>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -138,6 +172,9 @@ const businessKnowledgeSourcesTextCreate = (): ToolBase<
         if (params.text !== undefined) {
             body['text'] = params.text
         }
+        if (params.always_include !== undefined) {
+            body['always_include'] = params.always_include
+        }
         const result = await context.api.request<Schemas.KnowledgeSource>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
@@ -171,6 +208,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
     'business-knowledge-documents-search': businessKnowledgeDocumentsSearch,
     'business-knowledge-sources-list': businessKnowledgeSourcesList,
+    'business-knowledge-sources-partial-update': businessKnowledgeSourcesPartialUpdate,
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,
     'business-knowledge-sources-text-create': businessKnowledgeSourcesTextCreate,
     'business-knowledge-sources-url-create': businessKnowledgeSourcesUrlCreate,

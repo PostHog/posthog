@@ -10,6 +10,25 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const EngineeringAnalyticsSourcesSchema = z.object({})
+
+const engineeringAnalyticsSources = (): ToolBase<
+    typeof EngineeringAnalyticsSourcesSchema,
+    WithPostHogUrl<Schemas.GitHubSource[]>
+> => ({
+    name: 'engineering-analytics-sources',
+    schema: EngineeringAnalyticsSourcesSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof EngineeringAnalyticsSourcesSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GitHubSource[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/sources/`,
+        })
+        return await withPostHogUrl(context, result, '/engineering-analytics')
+    },
+})
+
 const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams.extend({
     pr_number: EngineeringAnalyticsPrLifecycleQueryParams.shape['pr_number'].describe(
         'Pull request number to inspect.'
@@ -30,6 +49,7 @@ const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> 
             query: {
                 pr_number: params.pr_number,
                 repo: params.repo,
+                source_id: params.source_id,
             },
         })
         return result
@@ -52,6 +72,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pull_requests/`,
             query: {
                 date_from: params.date_from,
+                source_id: params.source_id,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
@@ -78,6 +99,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                source_id: params.source_id,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics/workflows')
@@ -85,6 +107,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'engineering-analytics-sources': engineeringAnalyticsSources,
     'pr-lifecycle': prLifecycle,
     'pull-requests': pullRequests,
     'workflow-health': workflowHealth,

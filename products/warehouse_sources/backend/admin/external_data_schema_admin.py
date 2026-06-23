@@ -55,7 +55,7 @@ async def _is_schedule_paused(client: Client, schedule_id: str) -> bool:
 
 
 def _change_url(schema_id) -> str:
-    return reverse("admin:data_warehouse_externaldataschema_change", args=[schema_id])
+    return reverse("admin:warehouse_sources_externaldataschema_change", args=[schema_id])
 
 
 @admin.register(ExternalDataSchema)
@@ -128,7 +128,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
-            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
         if schema.partition_mode is None:
             messages.error(
@@ -272,7 +272,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
-            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
         # Both checkboxes default to off: an unchecked checkbox isn't sent in the
         # POST body, so .get() returns None, and `None == "on"` is False.
@@ -299,15 +299,28 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         # marker. reset_pipeline goes on sync_type_config rather than the workflow
         # input — the pipeline pops it after the first reset; on the input it
         # would re-fire on every activity retry and wipe progress.
-        sync_type_config_dirty = False
+        update_fields: list[str] = []
         if reset_pipeline:
             schema.sync_type_config["reset_pipeline"] = True
-            sync_type_config_dirty = True
+            update_fields.append("sync_type_config")
+            # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
+            # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
+            # full re-snapshot, mirroring ExternalDataSchemaViewSet.reset. The job below is created
+            # billable=False, and on completion set_initial_sync_complete transitions it back to
+            # streaming, so ongoing CDC stays billable. The save must precede the workflow start so
+            # the source reloads cdc_mode="snapshot" instead of racing on stale "streaming".
+            if schema.is_cdc and schema.cdc_mode == "streaming":
+                schema.sync_type_config["cdc_mode"] = "snapshot"
+                schema.sync_type_config.pop("cdc_last_log_position", None)
+                schema.sync_type_config.pop("cdc_deferred_runs", None)
+                schema.initial_sync_complete = False
+                update_fields.append("initial_sync_complete")
         if admin_paused_now:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
-            sync_type_config_dirty = True
-        if sync_type_config_dirty:
-            schema.save(update_fields=["sync_type_config"])
+            if "sync_type_config" not in update_fields:
+                update_fields.append("sync_type_config")
+        if update_fields:
+            schema.save(update_fields=update_fields)
 
         inputs = ExternalDataWorkflowInputs(
             team_id=schema.team_id,
@@ -393,6 +406,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["unpause_schedule_url"] = reverse(
                 "admin:external_data_schema_unpause_schedule", args=[obj.id]
             )
+
+            # CDC schemas stream via a source-level extraction schedule; the per-schema schedule
+            # above is paused once streaming starts, so surface the real one too.
+            if obj.is_cdc:
+                extra_context["cdc_extraction_schedule_id"] = f"cdc-extraction-{obj.source_id}"
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Team")

@@ -89,7 +89,7 @@ class ReadTaxonomyTool(MaxTool):
         except ValidationError as e:
             raise MaxToolRetryableError(str(e))
 
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user)
 
         try:
             res = execute_taxonomy_query(validated_query, toolkit, self._team)

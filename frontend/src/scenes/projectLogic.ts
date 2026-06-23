@@ -93,12 +93,10 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    try {
-                        return await api.create('api/projects/', { name })
-                    } catch {
-                        lemonToast.error('Failed to create project')
-                        return values.currentProject
-                    }
+                    // Let failures (e.g. a 403 for non-admins) propagate: kea-loaders surfaces the API
+                    // error toast and clears the loading state, and createProjectSuccess never fires — so we
+                    // don't switch into a project that wasn't created or leave the modal stuck open.
+                    return await api.create('api/projects/', { name })
                 },
             },
         ],

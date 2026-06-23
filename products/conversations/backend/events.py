@@ -18,6 +18,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
@@ -164,7 +165,8 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     if ticket.distinct_id:
         # Only is_identified is read, and the membership lookup below keys off the ticket's own
         # distinct_id — so skip fetching the person's distinct_ids.
-        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        with personhog_caller_tag("conversations/ticket-event-person"):
+            persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
         if any(p.is_identified for p in persons):
             membership = (
                 OrganizationMembership.objects.select_related("organization")
@@ -221,11 +223,21 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
+def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
+    """Customer identity on the ticket, for workflow filters and analytics."""
+    traits = ticket.anonymous_traits or {}
+    properties = {
+        "customer_name": traits.get("name", ""),
+        "customer_email": traits.get("email") or ticket.email_from or "",
+    }
+    if include_distinct_id:
+        properties["customer_distinct_id"] = ticket.distinct_id or ""
+    return properties
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     team_id = team.id
@@ -326,6 +338,7 @@ def capture_message_sent(
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal_routed(
         token=ticket.team.api_token,
@@ -343,9 +356,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     process_person = False

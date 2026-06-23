@@ -4,7 +4,138 @@ from unittest.mock import MagicMock, patch
 import duckdb
 from parameterized import parameterized
 
-from posthog.ducklake.common import initialize_ducklake, is_version_mismatch, reset_ducklake_catalog
+from posthog.ducklake.common import (
+    DucklingBackfillEnableError,
+    enable_team_backfill,
+    get_team_backfill_state,
+    initialize_ducklake,
+    is_version_mismatch,
+    reset_ducklake_catalog,
+    upsert_duckgres_server_for_org,
+)
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+from posthog.models import Organization, Team
+
+
+@pytest.mark.django_db
+class TestUpsertDuckgresServerForOrg:
+    def test_creates_then_updates_a_single_row(self):
+        org = Organization.objects.create(name="Test Org")
+
+        created = upsert_duckgres_server_for_org(
+            org.id, host="wh.dw.us.postwh.com", port=5432, database="ducklake", username="root", password="pw1"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert created.host == "wh.dw.us.postwh.com"
+        assert created.password == "pw1"
+
+        updated = upsert_duckgres_server_for_org(
+            org.id, host="wh2.dw.us.postwh.com", port=6543, database="ducklake", username="root", password="pw2"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert updated.pk == created.pk
+        assert updated.host == "wh2.dw.us.postwh.com"
+        assert updated.port == 6543
+        assert updated.password == "pw2"
+
+
+@pytest.mark.django_db
+class TestEnableTeamBackfill:
+    def _server(self, org: Organization) -> DuckgresServer:
+        return DuckgresServer.objects.create(
+            organization=org, host="h", port=5432, database="ducklake", username="root", password="x"
+        )
+
+    def test_creates_membership_and_suffixed_backfill(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = self._server(org)
+
+        suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="my_prod_env")
+
+        assert suffix == "my_prod_env"
+        assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).exists()
+        backfill = DuckLakeBackfill.objects.get(team_id=team.id)
+        assert backfill.enabled is True
+        assert backfill.table_suffix == "my_prod_env"
+
+    def test_rejects_an_invalid_table_name(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+
+        with pytest.raises(DucklingBackfillEnableError):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="Bad Name!")
+
+    def test_rejects_duplicate_suffix_within_org(self):
+        org = Organization.objects.create(name="Org")
+        team_a = Team.objects.create(organization=org)
+        team_b = Team.objects.create(organization=org)
+        self._server(org)
+        DuckLakeBackfill.objects.create(team=team_a, table_suffix="shared")
+
+        with pytest.raises(DucklingBackfillEnableError):
+            enable_team_backfill(team_id=team_b.id, organization_id=org.id, table_name="shared")
+
+    def test_same_name_is_idempotent(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+
+        enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+        suffix = enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="prod")
+
+        assert suffix == "prod"
+        assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
+        assert DuckgresServerTeam.objects.filter(team_id=team.id).count() == 1
+
+    def test_refuses_to_change_a_set_suffix(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+        enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="first")
+
+        with pytest.raises(DucklingBackfillEnableError):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="second")
+        assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix == "first"
+
+    def test_refuses_to_set_a_suffix_on_a_legacy_shared_team(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        self._server(org)
+        DuckLakeBackfill.objects.create(team=team, enabled=True, table_suffix=None)
+
+        with pytest.raises(DucklingBackfillEnableError):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="new_name")
+        assert DuckLakeBackfill.objects.get(team_id=team.id).table_suffix is None
+
+    def test_requires_a_provisioned_server(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+
+        with pytest.raises(DucklingBackfillEnableError):
+            enable_team_backfill(team_id=team.id, organization_id=org.id, table_name="events")
+
+
+@pytest.mark.django_db
+class TestGetTeamBackfillState:
+    def test_no_backfill(self):
+        team = Team.objects.create(organization=Organization.objects.create(name="Org"))
+
+        assert get_team_backfill_state(team.id) == {"has_backfill": False, "table_suffix": None}
+
+    def test_legacy_shared_backfill(self):
+        team = Team.objects.create(organization=Organization.objects.create(name="Org"))
+        DuckLakeBackfill.objects.create(team=team, table_suffix=None)
+
+        assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": None}
+
+    def test_suffixed_backfill(self):
+        team = Team.objects.create(organization=Organization.objects.create(name="Org"))
+        DuckLakeBackfill.objects.create(team=team, table_suffix="prod")
+
+        assert get_team_backfill_state(team.id) == {"has_backfill": True, "table_suffix": "prod"}
+
 
 TEST_CONFIG = {
     "DUCKLAKE_RDS_HOST": "localhost",

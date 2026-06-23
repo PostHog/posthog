@@ -67,12 +67,60 @@ SPANS = [
     ("window/src/file.rs", 5, "current", 0, 10, None, "current"),
     ("window/src/file.rs", 6, "current", 0, 10, None, "previous"),
     ("window/src/file.rs", 7, "current", 0, 10, None, "outside"),
+    # Period-over-period delta fixtures. Each "function" lives on a SINGLE line so the bucket and the five
+    # *_pct_change values are identical in line mode (bucket = the line) and in symbol mode (a [L, L] range
+    # anchored on L) — letting one parametrized test assert mode parity.
+    #   line 10: traffic + errors in BOTH windows → real deltas (count/p50/p95/p99 +100, error_rate -50).
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 10, "current", 2, 100, None, "current"),  # 4 current, 1 error → rate 1/4
+    ("pct/src/deltas.rs", 10, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 10, "current", 2, 50, None, "previous"),  # 2 previous, 1 error → rate 1/2
+    #   line 20: previous only → every metric (count, p50/p95/p99, error_rate) drops -100%.
+    ("pct/src/deltas.rs", 20, "current", 2, 50, None, "previous"),
+    ("pct/src/deltas.rs", 20, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 20, "current", 0, 50, None, "previous"),  # 3 previous, 1 error → rate 1/3
+    #   line 30: current only → no baseline for any metric → all five pct_change null.
+    ("pct/src/deltas.rs", 30, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 30, "current", 0, 100, None, "current"),
+    #   line 40: errors present previous, none current but traffic continues → error_rate -100.
+    ("pct/src/deltas.rs", 40, "current", 2, 50, None, "previous"),
+    ("pct/src/deltas.rs", 40, "current", 0, 50, None, "previous"),  # 2 previous, 1 error → rate 1/2
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 40, "current", 0, 100, None, "current"),  # 3 current, 0 errors → rate 0
+    #   line 50: no errors previous, errors appear current → error_rate null (0→N spike, prev rate 0).
+    ("pct/src/deltas.rs", 50, "current", 0, 50, None, "previous"),
+    ("pct/src/deltas.rs", 50, "current", 0, 50, None, "previous"),  # 2 previous, 0 errors → rate 0
+    ("pct/src/deltas.rs", 50, "current", 2, 100, None, "current"),
+    ("pct/src/deltas.rs", 50, "current", 0, 100, None, "current"),
+    ("pct/src/deltas.rs", 50, "current", 0, 100, None, "current"),  # 3 current, 1 error → rate 1/3
 ]
 
 FM_SYMBOLS = [
     {"name": "match_flags", "startLine": 459, "endLine": 826},
     {"name": "closure", "startLine": 500, "endLine": 520},
     {"name": "evaluate_flags_in_level", "startLine": 900, "endLine": 980},
+]
+
+# Single-line ranges over the pct/src/deltas.rs fixture: each anchors on its own line, so symbol mode
+# buckets exactly as line mode does.
+DELTA_SYMBOLS = [
+    {"name": "ten", "startLine": 10, "endLine": 10},
+    {"name": "twenty", "startLine": 20, "endLine": 20},
+    {"name": "thirty", "startLine": 30, "endLine": 30},
+    {"name": "forty", "startLine": 40, "endLine": 40},
+    {"name": "fifty", "startLine": 50, "endLine": 50},
+]
+
+# The five server-computed deltas every row carries, in both line and symbol mode.
+PCT_CHANGE_FIELDS = [
+    "count_pct_change",
+    "p50_duration_pct_change",
+    "p95_duration_pct_change",
+    "p99_duration_pct_change",
+    "error_rate_pct_change",
 ]
 
 
@@ -177,6 +225,45 @@ class TestTraceSpansSymbolStats(_TraceSpansTestBase):
         self.assertEqual(by_line[900]["count_pct_change"], -100.0)
         self.assertEqual(by_line[900]["p95_duration_pct_change"], -100.0)
 
+    @parameterized.expand([("line_mode", None), ("symbol_mode", DELTA_SYMBOLS)])
+    def test_all_five_pct_changes(self, _name, symbols):
+        # Single-line buckets make every delta identical across granularities, so the same assertions hold
+        # whether we bucket by line (no symbols) or by a [L, L] symbol range.
+        by_line = {r["line"]: r for r in self._post("pct/src/deltas.rs", symbols)["results"]}
+        self.assertEqual(sorted(by_line), [10, 20, 30, 40, 50])
+
+        # Mode parity: line and symbol mode return the same five server-computed deltas on every row.
+        for row in by_line.values():
+            for field in PCT_CHANGE_FIELDS:
+                self.assertIn(field, row)
+
+        # line 10 — traffic in both windows: positive count/duration delta, real (negative) error-rate delta.
+        # count 2→4 = +100; p50/p95/p99 50ms→100ms = +100; error_rate 1/2→1/4 = -50.
+        ten = by_line[10]
+        self.assertEqual(ten["count_pct_change"], 100.0)
+        self.assertEqual(ten["p50_duration_pct_change"], 100.0)
+        self.assertEqual(ten["p95_duration_pct_change"], 100.0)
+        self.assertEqual(ten["p99_duration_pct_change"], 100.0)
+        self.assertEqual(ten["error_rate_pct_change"], -50.0)
+
+        # line 20 — previous only: every metric drops -100% (incl. error_rate, errors present previously).
+        twenty = by_line[20]
+        self.assertEqual(twenty["count_pct_change"], -100.0)
+        self.assertEqual(twenty["p50_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["p95_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["p99_duration_pct_change"], -100.0)
+        self.assertEqual(twenty["error_rate_pct_change"], -100.0)
+
+        # line 30 — current only: no baseline → null for each of the five.
+        for field in PCT_CHANGE_FIELDS:
+            self.assertIsNone(by_line[30][field])
+
+        # line 40 — errors vanish (present previous, none current though traffic continues) → error_rate -100.
+        self.assertEqual(by_line[40]["error_rate_pct_change"], -100.0)
+
+        # line 50 — new errors (none previous, appear current) → null, preserving 0→N-spike semantics.
+        self.assertIsNone(by_line[50]["error_rate_pct_change"])
+
     def test_busy_absent_yields_zero_count_and_no_name(self):
         rows = self._symbol_stats("svc/src/legacy.rs", [{"startLine": 10, "endLine": 50}])
         by_line = {r["line"]: r for r in rows}
@@ -199,6 +286,64 @@ class TestTraceSpansSymbolStats(_TraceSpansTestBase):
     def test_same_basename_not_cross_attributed(self, file_path, expected_count):
         rows = self._symbol_stats(file_path, [{"startLine": 10, "endLine": 30}])
         self.assertEqual([(r["line"], r["count"]) for r in rows], [(10, expected_count)])
+
+    # The recorded path is `feature-flags/src/flags/flag_matching.rs`. Many editor/repo conventions
+    # produce a different spelling for the same source file — each must resolve to it and aggregate
+    # byte-identical spans:
+    #   - request is a segment-suffix of recorded (editor sends a shorter, repo-relative path, down to
+    #     the bare basename),
+    #   - recorded is a segment-suffix of request (a monorepo editor prepends one or more workspace
+    #     segments the service never recorded — the bug this fixes),
+    #   - and request paths that only differ after normalization (leading `./`, leading `/`, Windows
+    #     separators).
+    @parameterized.expand(
+        [
+            ("exact", "feature-flags/src/flags/flag_matching.rs"),
+            ("suffix_drop_one_segment", "src/flags/flag_matching.rs"),
+            ("suffix_drop_two_segments", "flags/flag_matching.rs"),
+            ("suffix_basename_only", "flag_matching.rs"),
+            ("monorepo_one_prefix", "rust/feature-flags/src/flags/flag_matching.rs"),
+            ("monorepo_two_prefixes", "services/rust/feature-flags/src/flags/flag_matching.rs"),
+            ("leading_dot_slash", "./feature-flags/src/flags/flag_matching.rs"),
+            ("leading_slash", "/feature-flags/src/flags/flag_matching.rs"),
+            ("windows_separators", "rust\\feature-flags\\src\\flags\\flag_matching.rs"),
+        ]
+    )
+    def test_segment_suffix_match_across_path_conventions(self, _name, file_path):
+        expected = self._symbol_stats("feature-flags/src/flags/flag_matching.rs", FM_SYMBOLS)
+        self.assertEqual([r["line"] for r in expected], [459, 500, 900])  # baseline actually matched
+        self.assertEqual(self._symbol_stats(file_path, FM_SYMBOLS), expected)
+
+    # Paths that share only a partial segment or divergent leading segments must NOT match — the
+    # leading '/' anchors the suffix test on a segment boundary.
+    @parameterized.expand(
+        [
+            # Partial-segment overlap with `flag_matching.rs`: without the '/' anchor these would
+            # spuriously match (e.g. `flag_matching.rs` endsWith `lag_matching.rs`).
+            ("partial_basename_prefix", "lag_matching.rs", FM_SYMBOLS),
+            ("partial_basename_infix", "_matching.rs", FM_SYMBOLS),
+            ("divergent_middle_segment", "other/flag_matching.rs", FM_SYMBOLS),
+            # Divergent leading segment: `crate-c` shares only the unsent `src/mod.rs` tail with the
+            # recorded `crate-a`/`crate-b` files.
+            ("divergent_leading_segment", "crate-c/src/mod.rs", [{"startLine": 10, "endLine": 30}]),
+        ]
+    )
+    def test_non_segment_aligned_paths_do_not_match(self, _name, file_path, symbols):
+        self.assertEqual(self._symbol_stats(file_path, symbols), [])
+
+    def test_monorepo_match_identical_in_line_and_symbol_mode(self):
+        # Matching happens in the WHERE before bucketing, so a workspace-prefixed request aggregates
+        # the same spans as the exact path in BOTH line mode (no symbols) and symbol mode.
+        prefixed = "rust/feature-flags/src/flags/flag_matching.rs"
+        exact = "feature-flags/src/flags/flag_matching.rs"
+
+        line_exact = self._post(exact)["results"]
+        self.assertNotEqual(line_exact, [])
+        self.assertEqual(self._post(prefixed)["results"], line_exact)
+
+        symbol_exact = self._symbol_stats(exact, FM_SYMBOLS)
+        self.assertNotEqual(symbol_exact, [])
+        self.assertEqual(self._symbol_stats(prefixed, FM_SYMBOLS), symbol_exact)
 
     def test_each_period_window_is_respected(self):
         rows = self._symbol_stats("window/src/file.rs", [{"startLine": 1, "endLine": 50}])
