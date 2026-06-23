@@ -1790,7 +1790,7 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailerSendSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
