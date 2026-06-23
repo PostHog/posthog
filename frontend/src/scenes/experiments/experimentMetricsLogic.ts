@@ -76,7 +76,9 @@ const sharedMetricsToExperimentMetrics = (
             },
         }))
 
-// One metric type's metrics (inline + shared) in the order results are positionally mapped against.
+/**
+ * One metric type's metrics (inline + shared) in the order results are positionally mapped against.
+ */
 const metricsInOrder = (experiment: Experiment, type: 'primary' | 'secondary'): ExperimentMetric[] => {
     const sharedMetrics = sharedMetricsToExperimentMetrics(experiment.saved_metrics as ExperimentSavedMetric[], type)
     const inline = (type === 'primary' ? experiment.metrics : experiment.metrics_secondary) || []
@@ -87,6 +89,23 @@ type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
 /**
+ * Metric uuids that currently hold a result, across primary and secondary. These are the metrics a
+ * non-cold recalculaions dims in place: they have a stale value to show while the fresh one loads.
+ */
+const metricUuidsWithResult = (
+    experiment: Experiment,
+    primaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[],
+    secondaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[]
+): string[] => [
+    ...metricsInOrder(experiment, 'primary')
+        .map((metric) => metric.uuid as string)
+        .filter((_, index) => primaryResults[index] !== undefined),
+    ...metricsInOrder(experiment, 'secondary')
+        .map((metric) => metric.uuid as string)
+        .filter((_, index) => secondaryResults[index] !== undefined),
+]
+
+/**
  * One value per metric, in `metricsInOrder` order. Curried: bind (experiment, type) once, then feed a
  * per-uuid resolver, the only thing that differs between results and errors.
  */
@@ -95,7 +114,9 @@ const alignByMetricPosition =
     <T>(resolve: ResolveByUuid<T>): T[] =>
         metricsInOrder(experiment, type).map((metric) => resolve(metric.uuid as string))
 
-// Resolver: a polled metric's computed result, or undefined if the run hasn't produced one yet.
+/**
+ * Resolver: a polled metric's computed result, or undefined if the run hasn't produced one yet.
+ */
 const resolveResultByUuid = (
     polledResults: readonly { metric_uuid: string; result: unknown }[] | undefined
 ): ResolveByUuid<CachedNewExperimentQueryResponse> => {
@@ -139,6 +160,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
         setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
         setRecalculationLoading: (loading: boolean) => ({ loading }),
+        // The metrics still showing a stale value while a non-cold recalc refreshes them in place.
+        setRecalculatingMetricUuids: (uuids: string[]) => ({ uuids }),
     }),
     reducers({
         currentRecalculation: [
@@ -179,6 +202,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
             },
         ],
+        recalculatingMetricUuids: [
+            [] as string[],
+            {
+                setRecalculatingMetricUuids: (_, { uuids }) => uuids,
+            },
+        ],
     }),
     selectors({
         // True while a recalculation is being fetched or is still running.
@@ -197,6 +226,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             }),
         ],
         lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
+        // Predicate the table uses to dim a metric whose stale value is still being refreshed.
+        isMetricRecalculating: [
+            (s) => [s.recalculatingMetricUuids],
+            (uuids): ((metricUuid: string | undefined) => boolean) => {
+                const recalculating = new Set(uuids)
+                return (metricUuid) => !!metricUuid && recalculating.has(metricUuid)
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => {
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
@@ -310,6 +347,17 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             actions.setSecondaryMetricsResultsErrors(
                 mergeErrors(values.secondaryMetricsResultsErrors, nextSecondaryErrors, nextSecondaryResults)
             )
+
+            if (values.recalculatingMetricUuids.length > 0) {
+                const landed = new Set([
+                    // metrics that produced a fresh result this poll
+                    ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
+                    // metrics that failed this poll
+                    ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
+                ])
+                // Un-dim each metric whose fresh result or failure just landed; the rest stay dimmed until they do.
+                actions.setRecalculatingMetricUuids(values.recalculatingMetricUuids.filter((uuid) => !landed.has(uuid)))
+            }
         }
 
         return {
@@ -406,6 +454,19 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  */
                 if (!experimentIsLaunched()) {
                     return
+                }
+                /**
+                 * Dim the metrics that already have a value so they read as "refreshing" until the new result
+                 * streams in. Cold runs have no prior results, so there's nothing to dim.
+                 */
+                if (trigger !== 'cold_run') {
+                    actions.setRecalculatingMetricUuids(
+                        metricUuidsWithResult(
+                            props.experiment,
+                            values.primaryMetricsResults,
+                            values.secondaryMetricsResults
+                        )
+                    )
                 }
                 /**
                  * guard against invalid project or experiment. bail and clear recalculation
@@ -533,12 +594,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     recalculation.status === RECALCULATION_STATUSES.in_progress
                 ) {
                     /**
-                     * Cold-start runs have no prior results to preserve, so surface each metric as it lands
-                     * (applyResults is positional and idempotent); other triggers keep terminal-only apply.
+                     * Surface each metric as it lands rather than waiting for terminal. applyResults is
+                     * positional and idempotent, and it un-dims each recalculating metric as its result
+                     * arrives, so the table streams fresh values in place.
                      */
-                    if (recalculation.trigger === 'cold_run') {
-                        applyResults(recalculation)
-                    }
+                    applyResults(recalculation)
                     actions.pollRecalculation(recalculationId)
                     return
                 }
