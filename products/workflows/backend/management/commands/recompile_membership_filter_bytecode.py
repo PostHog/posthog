@@ -95,9 +95,13 @@ class Command(BaseCommand):
         changed = 0
         for flow in flows.iterator():
             actions = copy.deepcopy(flow.actions)
-            row_changed = any(
-                self._recompile_filters(filters, flow.team) for filters in self._iter_action_filter_dicts(actions)
-            )
+            # Recompile every embedded filter — don't short-circuit, or a workflow with multiple
+            # filters (e.g. a trigger filter and a branch condition) would leave the later ones on
+            # the old bytecode.
+            row_changed = False
+            for filters in self._iter_action_filter_dicts(actions):
+                if self._recompile_filters(filters, flow.team):
+                    row_changed = True
             if not row_changed:
                 continue
             changed += 1
