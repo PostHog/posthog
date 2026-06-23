@@ -2623,7 +2623,7 @@ class RollbarSourceConfig(config.Config):
 
 @config.config
 class RootlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
