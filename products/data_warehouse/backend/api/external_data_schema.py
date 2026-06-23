@@ -1261,15 +1261,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
         # workflow starts, loads stale "streaming" mode, raises CDCHandledExternally, and the
         # full-refresh never runs.
+        # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
+        # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
+        extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
         instance.sync_type_config = update_sync_type_config_keys(
-            instance.id, instance.team_id, updates=updates, removes=removes
+            instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
         )
-        instance.status = ExternalDataSchema.Status.RUNNING
         if cdc_resync:
             instance.initial_sync_complete = False
-            instance.save(update_fields=["initial_sync_complete", "status", "updated_at"])
-        else:
-            instance.save(update_fields=["status", "updated_at"])
+        instance.status = ExternalDataSchema.Status.RUNNING
+        instance.save(update_fields=["status", "updated_at"])
 
         try:
             trigger_external_data_workflow(instance)

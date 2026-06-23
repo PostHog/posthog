@@ -173,6 +173,7 @@ class CDCExtractActivity:
         updates: dict[str, typing.Any] | None = None,
         removes: list[str] | None = None,
         mutate: Callable[[dict[str, typing.Any]], None] | None = None,
+        extra_model_fields: dict[str, typing.Any] | None = None,
     ) -> None:
         """Persist a `sync_type_config` change through the locked-merge helper, then refresh the
         in-memory copy from the returned dict.
@@ -182,8 +183,16 @@ class CDCExtractActivity:
         re-reads the row under a lock instead of overwriting it wholesale.
         """
         schema.sync_type_config = update_sync_type_config_keys(
-            schema.id, schema.team_id, updates=updates, removes=removes, mutate=mutate
+            schema.id,
+            schema.team_id,
+            updates=updates,
+            removes=removes,
+            mutate=mutate,
+            extra_model_fields=extra_model_fields,
         )
+        if extra_model_fields:
+            for field, value in extra_model_fields.items():
+                setattr(schema, field, value)
 
     # ------------------------------------------------------------------
     # Deferred run flushing
@@ -383,22 +392,22 @@ class CDCExtractActivity:
             deferred = config.setdefault("cdc_deferred_runs", [])
             entry: dict | None = next((d for d in deferred if d.get("run_uuid") == tracker.run_uuid), None)
 
-        if entry is None:
-            entry = {
-                "job_id": str(tracker.job.id),
-                "run_uuid": tracker.run_uuid,
-                # Replayed by the deferred flush so it targets the same Delta table this batch went to.
-                "resource_name": tracker.write_resource_name,
-                "data_folder": tracker.s3_writer.get_data_folder(),
-                "schema_path": None,  # written on finalization
-                "total_batches": 0,
-                "total_rows": 0,
-                "primary_keys": tracker.key_columns or None,
-                "cdc_write_mode": tracker.cdc_write_mode,
-                "cdc_table_mode": tracker.cdc_table_mode,
-                "batch_results": [],
-            }
-            deferred.append(entry)
+            if entry is None:
+                entry = {
+                    "job_id": str(tracker.job.id),
+                    "run_uuid": tracker.run_uuid,
+                    # Replayed by the deferred flush so it targets the same Delta table this batch went to.
+                    "resource_name": tracker.write_resource_name,
+                    "data_folder": tracker.s3_writer.get_data_folder(),
+                    "schema_path": None,  # written on finalization
+                    "total_batches": 0,
+                    "total_rows": 0,
+                    "primary_keys": tracker.key_columns or None,
+                    "cdc_write_mode": tracker.cdc_write_mode,
+                    "cdc_table_mode": tracker.cdc_table_mode,
+                    "batch_results": [],
+                }
+                deferred.append(entry)
 
             entry["batch_results"].append(
                 {
@@ -854,9 +863,12 @@ class CDCExtractActivity:
         removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
             removes.append("cdc_deferred_runs")
-        self._update_schema_sync_type_config(schema, updates={"cdc_mode": "snapshot"}, removes=removes)
-        schema.initial_sync_complete = False
-        schema.save(update_fields=["initial_sync_complete", "updated_at"])
+        self._update_schema_sync_type_config(
+            schema,
+            updates={"cdc_mode": "snapshot"},
+            removes=removes,
+            extra_model_fields={"initial_sync_complete": False},
+        )
 
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         schema_log = self._schema_log(schema)

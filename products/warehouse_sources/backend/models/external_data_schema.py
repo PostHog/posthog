@@ -603,6 +603,7 @@ def update_sync_type_config_keys(
     updates: dict[str, Any] | None = None,
     removes: Iterable[str] | None = None,
     mutate: Callable[[dict[str, Any]], None] | None = None,
+    extra_model_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Atomically merge keys into a schema's `sync_type_config` under a row lock and return the
     persisted config.
@@ -616,6 +617,10 @@ def update_sync_type_config_keys(
     `updates` sets keys, `removes` pops keys, and `mutate` runs last for in-place edits of nested
     structures (e.g. appending to `cdc_deferred_runs`) that must happen inside the critical section.
     Callers refresh their in-memory copy from the returned dict.
+
+    `extra_model_fields` saves additional model fields in the same transaction and row lock — use
+    when a reset must flip both `sync_type_config` and another field (e.g. `initial_sync_complete`)
+    atomically so no reader can observe the half-written state.
 
     Saves with `skip_activity_log=True`: `sync_type_config` is excluded from the schema's audit
     diff anyway, and the bypass skips the extra `_get_before_update` SELECT that can fail when the
@@ -632,7 +637,12 @@ def update_sync_type_config_keys(
         if mutate is not None:
             mutate(config)
         schema.sync_type_config = config
-        schema.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
+        update_fields = ["sync_type_config", "updated_at"]
+        if extra_model_fields:
+            for field, value in extra_model_fields.items():
+                setattr(schema, field, value)
+                update_fields.append(field)
+        schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
 
 
