@@ -353,6 +353,11 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
         help_text="Filter by service names (ignored when faceting on service_name).",
     )
     searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    facetSearch = serializers.CharField(
+        required=False,
+        help_text="Type-ahead filter over the faceted field's own values (case-insensitive substring match). "
+        "Distinct from searchTerm, which searches log bodies.",
+    )
     filterGroup = serializers.ListField(
         child=_LogPropertyFilterSerializer(),
         required=False,
@@ -846,7 +851,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
-        runner = LogFacetValuesQueryRunner(team=self.team, query=query, facet_field=facet_field)
+        runner = LogFacetValuesQueryRunner(
+            team=self.team, query=query, facet_field=facet_field, facet_search=query_data.get("facetSearch")
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),

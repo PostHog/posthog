@@ -10,7 +10,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsFilterBuilder, LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import (
+    LogsFilterBuilder,
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+    ilike_pattern,
+)
 
 # Columns a facet may group by. Each value is also the WHERE clause that gets omitted, so a facet's
 # counts reflect every *other* active filter rather than its own selection.
@@ -30,11 +35,14 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
 
-    def __init__(self, query: LogsQuery, facet_field: str, *args, **kwargs):
+    def __init__(self, query: LogsQuery, facet_field: str, *args, facet_search: str | None = None, **kwargs):
         super().__init__(query, *args, **kwargs)
         if facet_field not in FACET_FIELDS:
             raise ValueError(f"Unsupported facet field: {facet_field!r}")
         self.facet_field = facet_field
+        # Type-ahead over the facet's *own* values (e.g. service name contains "kafka"), distinct from
+        # query.searchTerm which searches log bodies. Lets a dynamic facet search past the LIMIT window.
+        self.facet_search = (facet_search or "").strip() or None
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -62,20 +70,30 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     def to_query(self) -> ast.SelectQuery:
         # The day-precision time_bucket prune in where() is widened to exact timestamp bounds so the
         # counts match the requested window (same half-open pattern as CountQueryRunner).
-        where = ast.And(
-            exprs=[
-                LogsFilterBuilder(
-                    self.query, self.team, self.query_date_range, exclude_facet_field=self.facet_field
-                ).where(),
+        exprs = [
+            LogsFilterBuilder(
+                self.query, self.team, self.query_date_range, exclude_facet_field=self.facet_field
+            ).where(),
+            parse_expr(
+                "timestamp >= {date_from} AND timestamp < {date_to}",
+                placeholders={
+                    "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                    "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                },
+            ),
+        ]
+        if self.facet_search:
+            exprs.append(
                 parse_expr(
-                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    "{facet_field} ILIKE {pattern}",
                     placeholders={
-                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                        "facet_field": ast.Field(chain=[self.facet_field]),
+                        # Escape %, _ and \ so user input matches literally instead of as wildcards.
+                        "pattern": ast.Constant(value=ilike_pattern(self.facet_search)),
                     },
-                ),
-            ]
-        )
+                )
+            )
+        where = ast.And(exprs=exprs)
         query = parse_select(
             """
             SELECT {facet_field} AS value, count() AS count
