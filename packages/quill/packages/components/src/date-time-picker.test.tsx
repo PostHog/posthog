@@ -5,7 +5,13 @@ import { CUSTOM_RANGE } from './date-time-ranges'
 import { DateTimePicker } from './date-time-picker'
 
 // The day grid wraps each Button in a div carrying the data-is-* range flags.
-const dayCell = (label: string): HTMLElement => screen.getByLabelText(label).closest('[data-is-start]') as HTMLElement
+const dayCell = (label: string): HTMLElement => {
+    const cell = screen.getByLabelText(label).closest('[data-is-start]')
+    if (!(cell instanceof HTMLElement)) {
+        throw new Error(`No range-flagged day cell found for "${label}"`)
+    }
+    return cell
+}
 
 // Range entirely inside value.end's month (January), which the always-rendered right calendar shows.
 const VALUE = { start: new Date(2023, 0, 10), end: new Date(2023, 0, 20), range: CUSTOM_RANGE }
@@ -36,5 +42,6 @@ describe('DateTimePicker', () => {
         expect(onApply).toHaveBeenCalledTimes(1)
         const applied = onApply.mock.calls[0][0]
         expect([applied.start.getDate(), applied.end.getDate()]).toEqual([10, 20])
+        expect(applied.range).toBe(CUSTOM_RANGE)
     })
 })
