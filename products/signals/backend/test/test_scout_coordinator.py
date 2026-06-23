@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _enrolled_team_ids,
     _read_flag_payload,
     _resolve_max_runs_per_day,
+    _resolve_withheld_skills,
     _team_configs,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -250,7 +251,7 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
     config = await database_sync_to_async(SignalScoutConfig.all_teams.get)(team=ateam, skill_name="signals-scout-foo")
     assert config.enabled is True
-    assert config.run_interval_minutes == 180
+    assert config.run_interval_minutes == 1440
     assert config.emit is True
     # Never-run row is immediately due, so it's dispatched this tick.
     assert [(p.team_id, p.skill_name) for p in planned] == [(ateam.id, "signals-scout-foo")]
@@ -771,8 +772,10 @@ async def test_seed_enabled_interval_validates_bounds(ateam, interval, expected)
 @pytest.mark.django_db
 async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
     # Option B: a canonical scout that seeds DISABLED under the allowlist still gets the launch
-    # cadence stamped, so when the user later toggles it on it runs at the daily cadence, not the
-    # 3h model default. general is allowlisted (enabled); error-tracking is gated (disabled).
+    # cadence stamped, so when the user later toggles it on it runs at the flag cadence, not the
+    # model default. The launch cadence here (720) is deliberately distinct from the 1440 model
+    # default so the assertion proves the flag value was stamped, not the fallback. general is
+    # allowlisted (enabled); error-tracking is gated (disabled).
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
 
@@ -781,7 +784,7 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
             "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
             "default_team_config": {
                 "enabled_skills": ["signals-scout-general"],
-                "enabled_interval_minutes": 1440,
+                "enabled_interval_minutes": 720,
             },
         }
 
@@ -794,9 +797,82 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
             for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
         }
     )()
-    assert rows["signals-scout-general"] == (True, 1440)
-    # Disabled, but already on the daily cadence — so enabling it later doesn't run it every 3h.
-    assert rows["signals-scout-error-tracking"] == (False, 1440)
+    assert rows["signals-scout-general"] == (True, 720)
+    # Disabled, but already on the flag cadence — so enabling it later doesn't fall back to the
+    # 1440 model default.
+    assert rows["signals-scout-error-tracking"] == (False, 720)
+
+
+# ── Per-scout holdback denylist (withheld_skills) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_withheld_scout_not_seeded_or_planned(ateam):
+    # A scout on the fleet-wide `withheld_skills` default is never seeded a config and never
+    # planned for a non-allowlisted team — the hard holdback. general is unaffected.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    seeded = await database_sync_to_async(
+        lambda: set(SignalScoutConfig.all_teams.filter(team_id=ateam.id).values_list("skill_name", flat=True))
+    )()
+    assert "signals-scout-error-tracking" not in seeded
+    assert "signals-scout-general" in seeded
+    assert {p.skill_name for p in planned if p.team_id == ateam.id} == {"signals-scout-general"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_withheld_scout_not_planned_even_when_config_enabled(ateam):
+    # Belt-and-suspenders: a team that already has the scout enabled (e.g. previously allowed, or
+    # self-enabled) still doesn't dispatch it once withheld — the dispatch gate, not just seeding.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-error-tracking", enabled=True)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert all(p.skill_name != "signals-scout-error-tracking" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_team_override_releases_withheld_scout(ateam):
+    # The dogfood case: error-tracking is withheld fleet-wide, but this team's `team_configs`
+    # override sets `withheld_skills: []`, so the scout seeds, enables, and plans for it.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]},
+            "team_configs": {str(ateam.id): {"withheld_skills": []}},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    config = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name="signals-scout-error-tracking")
+    )()
+    assert config.enabled is True
+    assert {p.skill_name for p in planned if p.team_id == ateam.id} == {"signals-scout-error-tracking"}
 
 
 # ── Per-team daily run budget (max_runs_per_day) ──────────────────────────────────
@@ -815,6 +891,36 @@ async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
 )
 def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
     assert _resolve_max_runs_per_day(7, team_configs, default_cfg) == expected
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, set()),  # nothing set → nothing withheld
+        ({}, {"withheld_skills": ["signals-scout-error-tracking"]}, {"signals-scout-error-tracking"}),  # fleet default
+        # per-team override REPLACES the default list (here: release the full fleet to a dogfooder)
+        ({7: {"withheld_skills": []}}, {"withheld_skills": ["signals-scout-error-tracking"]}, set()),
+        # per-team override can withhold a different scout than the default
+        (
+            {7: {"withheld_skills": ["signals-scout-logs"]}},
+            {"withheld_skills": ["signals-scout-error-tracking"]},
+            {"signals-scout-logs"},
+        ),
+        # malformed team value (not a list of strings) falls through to the fleet default
+        (
+            {7: {"withheld_skills": "nope"}},
+            {"withheld_skills": ["signals-scout-error-tracking"]},
+            {"signals-scout-error-tracking"},
+        ),
+        (
+            {7: {"withheld_skills": [1, 2]}},
+            {"withheld_skills": ["signals-scout-error-tracking"]},
+            {"signals-scout-error-tracking"},
+        ),
+    ],
+)
+def test_resolve_withheld_skills(team_configs, default_cfg, expected):
+    assert _resolve_withheld_skills(7, team_configs, default_cfg) == expected
 
 
 def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:

@@ -303,6 +303,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                         ? {
                               icon: <IconX />,
                               onClick: () => props.onChange?.(null),
+                              'aria-label': 'Clear date',
                           }
                         : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable
                 }

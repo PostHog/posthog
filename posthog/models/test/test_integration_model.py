@@ -887,6 +887,124 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    def test_get_diff_compares_branch_tips(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+            assert result == {
+                "success": True,
+                "diff": "diff --git a b",
+                "truncated": False,
+            }
+            mock_get.assert_called_once()
+            assert "/compare/master...feature/foo" in mock_get.call_args.args[0]
+
+    def test_get_diff_pins_to_shas_when_given(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog",
+                target_branch="feature/foo",
+                base_branch="master",
+                target_sha="abc123f",
+                base_sha="def456a",
+            )
+            assert result["success"] is True
+            assert "/compare/def456a...abc123f" in mock_get.call_args.args[0]
+
+    def test_get_diff_maps_upstream_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result == {"success": False, "error": "Not Found", "status_code": 404}
+
+    def test_get_diff_handles_request_exception(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is False
+        assert result["status_code"] == 502
+
+    def test_get_diff_truncates_oversized_diff(self):
+        from posthog.models.integration import _MAX_DIFF_CHARS
+
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        oversized = "x" * (_MAX_DIFF_CHARS + 100)
+        mock_response = MagicMock(status_code=200, text=oversized)
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is True
+        assert result["truncated"] is True
+        assert len(result["diff"]) < len(oversized)
+        assert result["diff"].startswith("x" * 100)
+        assert "truncated" in result["diff"]
+
+    @parameterized.expand(
+        [
+            ("repo_traversal", {"repository": "../../other/repo"}),
+            ("repo_extra_path", {"repository": "owner/repo/contents/x"}),
+            ("target_branch_traversal", {"target_branch": "../../../etc"}),
+            ("target_branch_query", {"target_branch": "main?ref=x"}),
+            ("base_branch_traversal", {"base_branch": "..%2f"}),
+            ("target_sha_not_hex", {"target_sha": "main?ref=x"}),
+            ("base_sha_not_hex", {"base_sha": "../../x"}),
+        ]
+    )
+    def test_get_diff_rejects_unsafe_values(self, _name, overrides):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
+        kwargs.update(overrides)
+        with patch.object(github, "_github_api_get") as mock_get:
+            result = github.get_diff(**kwargs)
+        assert result["success"] is False
+        assert result["status_code"] == 400
+        mock_get.assert_not_called()
+
+    def test_get_diff_allows_nested_branch_names(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog", target_branch="feature/nested/branch", base_branch="release/v1.2"
+            )
+        assert result["success"] is True
+        mock_get.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("traversal", "../../other/repo"),
+            ("extra_path_segment", "owner/repo/contents/secret"),
+            ("query_injection", "owner/repo?ref=x"),
+            ("fragment", "owner/repo#"),
+            ("bare_name", "repo"),
+        ]
+    )
+    def test_first_for_team_repository_rejects_unsafe_path_without_probing(self, _name, repository):
+        # The access check interpolates `repository` into an authenticated GET /repos/{repository};
+        # an unsafe path must be rejected before any request fires, so it can't probe other endpoints.
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository") as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        assert result is None
+        mock_access.assert_not_called()
+
+    def test_first_for_team_repository_allows_owner_repo(self):
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", return_value=True) as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        mock_access.assert_called_once_with("PostHog/posthog")
+
     @parameterized.expand(
         [
             (

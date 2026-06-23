@@ -98,13 +98,6 @@ jobs:
                   toolchain: stable
                   components: cargo
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -189,13 +182,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: false
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
