@@ -23,7 +23,6 @@ class LemlistEndpointConfig:
     # Server-side time filter param (minDate) is honoured only on /activities, so it's the one
     # endpoint that can sync incrementally. Everything else is full refresh.
     supports_incremental: bool = False
-    incremental_field: Optional[str] = None
     # /activities returns newest-first and exposes no sort param, so its watermark must be
     # finalised at end-of-run (sort_mode="desc"); the paginated full-refresh endpoints request
     # createdAt ascending for stable page boundaries.
@@ -59,7 +58,6 @@ LEMLIST_ENDPOINTS: dict[str, LemlistEndpointConfig] = {
         requires_version_v2=True,
         partition_key="createdAt",
         supports_incremental=True,
-        incremental_field="createdAt",
         incremental_fields=[_datetime_incremental_field("createdAt")],
         sort_mode="desc",
         default_lookback_days=365,

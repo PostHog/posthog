@@ -141,9 +141,12 @@ def get_rows(
 
     if not config.paginate:
         data = _fetch(session, _build_url(config.path, base_params), api_key, logger)
-        rows = [data] if config.single_object else data
-        if rows:
-            yield rows  # type: ignore[list-item]
+        # `/team` returns a single object; the other non-paginated endpoints return an array.
+        if config.single_object:
+            if isinstance(data, dict):
+                yield [data]
+        elif isinstance(data, list) and data:
+            yield data
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
