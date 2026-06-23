@@ -22,8 +22,12 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
+import { InAppNotification, InsightShortId, ResourceEditedEvent, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
 
+import {
+    RESOURCE_EDITED_EVENT_TYPE,
+    resourceEditedLogic,
+} from 'products/notifications/frontend/resourceEditedLogic'
 import {
     notificationsList,
     notificationsMarkAllReadCreate,
@@ -127,7 +131,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -459,6 +470,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                     token,
                                     abortController.signal,
                                     (notification) => {
+                                        // Transient "edited elsewhere" events ride this stream but are
+                                        // not inbox notifications — forward them to interested editors and
+                                        // skip the unread-count / toast / list handling below.
+                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                            return
+                                        }
                                         if (!values.isInitialLoadComplete) {
                                             return
                                         }
