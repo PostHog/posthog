@@ -230,7 +230,42 @@ export const experimentResultsSamplePayload = {
             error: null,
         },
     ],
+    secondaryMetrics: [
+        {
+            uuid: 'secondary-1',
+            name: 'Revenue per user',
+            metric: {
+                kind: 'ExperimentMetric',
+                metric_type: 'mean',
+                uuid: 'secondary-1',
+                name: 'Revenue per user',
+                source: { kind: 'EventsNode', event: 'purchase' },
+            },
+            result: {
+                baseline: {
+                    key: 'control',
+                    number_of_samples: 4321,
+                    sum: 8600,
+                    sum_squares: 21400,
+                },
+                variant_results: [
+                    {
+                        key: 'test',
+                        method: 'bayesian',
+                        number_of_samples: 4287,
+                        sum: 9120,
+                        sum_squares: 23900,
+                        chance_to_win: 0.78,
+                        credible_interval: [-0.004, 0.061],
+                        significant: false,
+                    },
+                ],
+            },
+            error: null,
+        },
+    ],
     totalMetricsCount: 1,
+    totalSecondaryMetricsCount: 1,
 }
 
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */

@@ -466,6 +466,7 @@ depends_on = [
     "products.event_definitions",
     "products.ai_observability",
     "products.logs",
+    "products.tasks",
 ]
 layer = "modules"
 

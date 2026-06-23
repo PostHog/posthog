@@ -76,7 +76,11 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         if validate_credentials(subdomain, config.api_key, config.email_address):
             return True, None
 
-        return False, "Invalid credentials"
+        return (
+            False,
+            "Zendesk rejected the credentials. Check the subdomain, email address, and API token are correct, "
+            "and that token access is enabled for your account.",
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:

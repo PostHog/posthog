@@ -11,9 +11,10 @@ segment: a job_id belonging to another team resolves to a prefix this team never
 
 from typing import Any
 
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -26,8 +27,10 @@ from products.growth.backend.constants import (
     IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
     IDENTITY_MATCHING_LINKS_DATASET,
     IDENTITY_MATCHING_LINKS_STRUCTURE,
+    IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE,
     IDENTITY_MATCHING_TIERS,
     identity_matching_dataset_read_args,
+    identity_matching_s3_unconfigured,
 )
 
 MAX_RUNS_LISTED = 50
@@ -127,10 +130,32 @@ class IdentityMatchingRunsResponseSerializer(serializers.Serializer):
     results = IdentityMatchingRunSerializer(many=True, help_text="Runs ordered by recency, most recent first.")
 
 
+class IdentityMatchingErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable explanation of why the request could not be served.")
+
+
+class IdentityMatchingStorageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "identity_matching_storage_unavailable"
+    default_detail = IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE
+
+
+_STORAGE_UNAVAILABLE_RESPONSE = OpenApiResponse(
+    response=IdentityMatchingErrorSerializer,
+    description="The identity matching scratch bucket is not configured on this deployment.",
+)
+
+
 class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     # Staff-only while identity matching is under development.
     permission_classes = [IsStaffUser]
+
+    def _assert_storage_configured(self) -> None:
+        """Fail with a clear 503 if the scratch bucket env is missing, rather than letting every
+        s3() read hit the wrong (fallback) bucket and surface an opaque AccessDenied 500."""
+        if identity_matching_s3_unconfigured():
+            raise IdentityMatchingStorageUnavailable()
 
     def _links_read_args(self, job_id: str) -> str:
         """`s3(...)` args for one run's links objects (`job_id` is a validated UUID string)."""
@@ -166,9 +191,10 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         "evidence behind each link. Produced by the identity matching Dagster job; empty until that "
         "job has run for this project.",
         parameters=[IdentityMatchingLinksFilterSerializer],
-        responses={200: IdentityMatchingLinksResponseSerializer},
+        responses={200: IdentityMatchingLinksResponseSerializer, 503: _STORAGE_UNAVAILABLE_RESPONSE},
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
+        self._assert_storage_configured()
         filters = IdentityMatchingLinksFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
         params = filters.validated_data
@@ -277,10 +303,11 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="List identity matching runs",
         description="Recent identity matching runs for this project with link counts per scoring "
         "model, most recent first.",
-        responses={200: IdentityMatchingRunsResponseSerializer},
+        responses={200: IdentityMatchingRunsResponseSerializer, 503: _STORAGE_UNAVAILABLE_RESPONSE},
     )
     @action(detail=False, methods=["GET"])
     def runs(self, request: Request, **kwargs: Any) -> Response:
+        self._assert_storage_configured()
         rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
             f"""
             SELECT job_id, max(computed_at) AS computed_at, model_version, count() AS link_count

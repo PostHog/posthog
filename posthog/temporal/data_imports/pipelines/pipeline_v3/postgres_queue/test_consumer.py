@@ -1,12 +1,14 @@
 import asyncio
+import dataclasses
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
 import structlog
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import OwnershipLostError
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
@@ -167,6 +169,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -189,6 +196,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -217,6 +229,11 @@ class TestProcessGroup:
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -247,6 +264,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -269,6 +291,10 @@ class TestRecoverySweep:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
                 new_callable=AsyncMock,
             ) as mock_status,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
         ):
             await consumer._recovery_sweep()
 
@@ -277,8 +303,9 @@ class TestRecoverySweep:
             batch_id=stale_batch.id,
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
-            error_response={"error": "executing timed out — pod restart or OOM"},
+            error_response={"error": "executing timed out - pod restart or OOM"},
         )
+        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
 
     @pytest.mark.asyncio
     async def test_fails_exhausted_stale_batch(self):
@@ -292,11 +319,42 @@ class TestRecoverySweep:
                 return_value=[stale_batch],
             ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
         ):
             await consumer._recovery_sweep()
 
         mock_fail.assert_called_once()
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_releases_probe_locks_on_error(self):
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=1)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+                side_effect=Exception("db gone"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            pytest.raises(Exception, match="db gone"),
+        ):
+            await consumer._recovery_sweep()
+
+        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
 
 
 class TestFailRun:
@@ -486,12 +544,16 @@ class TestConnectionRecovery:
                 new_callable=AsyncMock,
                 side_effect=Exception("the connection is closed"),
             ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), [_make_batch()])
 
     @pytest.mark.asyncio
     async def test_process_group_does_not_raise_when_process_single_raises(self):
-        # An unguarded queue-DB write blowing up mid-batch must cost the group, not crash the gather()/pod.
         consumer = _make_consumer()
 
         with (
@@ -529,6 +591,66 @@ class TestConnectionRecovery:
 
         mock_get_stale.assert_awaited_once()
         assert mock_get_stale.call_args[0][0] is fresh
+
+
+class TestInFlightTaskRegistry:
+    @pytest.mark.asyncio
+    async def test_reap_removes_finished_tasks(self):
+        consumer = _make_consumer()
+
+        done_task = asyncio.create_task(asyncio.sleep(0))
+        await done_task
+        consumer._in_flight[(1, "s1")] = done_task
+
+        running_task = asyncio.create_task(asyncio.sleep(100))
+        consumer._in_flight[(2, "s2")] = running_task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+        assert (2, "s2") in consumer._in_flight
+        running_task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_reap_logs_failed_tasks(self):
+        consumer = _make_consumer()
+
+        async def fail():
+            raise RuntimeError("boom")
+
+        task = asyncio.create_task(fail())
+        try:
+            await task
+        except RuntimeError:
+            pass
+        consumer._in_flight[(1, "s1")] = task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+
+    @pytest.mark.asyncio
+    async def test_process_group_tracked_increments_and_decrements_gauge(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        mock_gauge = MagicMock()
+        consumer._metrics = dataclasses.replace(consumer._metrics, active_groups=mock_gauge)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_group_tracked((1, "schema-1"), [_make_batch()])
+
+        mock_gauge.inc.assert_called_once()
+        mock_gauge.dec.assert_called_once()
 
 
 class TestGroupByKey:
@@ -695,3 +817,77 @@ class TestHeartbeatLoop:
         # Once the heartbeat stops, liveness correctly goes stale again.
         await asyncio.sleep(0.2)
         assert health.is_healthy() is False
+
+
+class TestOwnershipVerification:
+    @pytest.mark.asyncio
+    async def test_ownership_lost_abandons_group(self):
+        consumer = _make_consumer()
+        processed: list[int] = []
+
+        async def track_and_lose_lock(batch):
+            processed.append(batch.batch_index)
+
+        consumer._process_batch = track_and_lose_lock
+
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                side_effect=[True, True, False],
+            ),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # Batch 0 processes (verify returns True before batch 0, True before succeeded write),
+        # batch 1 fails on verify (returns False) and the group is abandoned.
+        assert len(processed) <= 2
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dead_lock_conn_raises_ownership_lost(self):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=0)
+
+        dead_conn = _make_healthy_conn(closed=True)
+        consumer._conn = dead_conn
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            await consumer._process_single(batch, lock_conn=dead_conn)
+
+    @pytest.mark.asyncio
+    async def test_process_single_without_lock_conn_skips_verification(self):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+            ) as mock_verify,
+        ):
+            result = await consumer._process_single(batch, lock_conn=None)
+
+        assert result is True
+        mock_verify.assert_not_called()

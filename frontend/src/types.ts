@@ -750,6 +750,7 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -4746,6 +4747,7 @@ export interface Experiment {
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
+        variant_notes?: Record<string, string>
         rollout_percentage?: number
         excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
@@ -4756,6 +4758,8 @@ export interface Experiment {
         }
     }
     running_time_calculation?: ExperimentRunningTimeCalculationConfig
+    /** Variant keys dropped from statistical analysis. Canonical home for what historically lived in `parameters.excluded_variants`. */
+    excluded_variants?: string[] | null
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -7276,6 +7280,13 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Runtime the conversation was created on. Stamped at create-time from the `phai-sandbox-mode`
+     * flag and never re-read. Existing rows default to `'langgraph'`.
+     */
+    agent_runtime?: 'langgraph' | 'sandbox'
+    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
+    task?: { id: string; latest_run: string | null } | null
 }
 
 export interface ConversationDetail extends Conversation {

@@ -40,6 +40,7 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
@@ -64,6 +65,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
+    let dwhConsumer: CdpDatawarehouseEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let hogflowQueue: JobQueue
 
@@ -146,6 +148,12 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             hogQueue: kafkaQueue,
             hogflowQueue,
         })
+        // Drives the data-warehouse-table trigger path. We call processBatch() directly, so the
+        // Kafka consumer is never connected — the shared queues below are the only producers.
+        dwhConsumer = new CdpDatawarehouseEventsConsumer(hub, deps, {
+            hogQueue: kafkaQueue,
+            hogflowQueue,
+        })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
         // Start hogflow worker (consumer side — polls from the mode's backend)
@@ -162,6 +170,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     afterEach(async () => {
+        // dwhConsumer shares the already-stopped queues with eventsConsumer, so it has nothing to stop.
         await Promise.all([eventsConsumer?.stop() ?? Promise.resolve(), hogflowWorker?.stop() ?? Promise.resolve()])
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -203,6 +212,33 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     /** Send an event through the events consumer and wait for it to be queued to v2 */
     async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
+        await backgroundTask
+    }
+
+    /**
+     * Build the row-scoped globals the DWH consumer produces for a synced warehouse row: a synthetic
+     * event named `$warehouse_source_row` with no real person, and the source table on
+     * `event.properties.$source_table` so the consumer's eligibilityFn matches warehouse-table triggers.
+     */
+    function createDwhGlobals(
+        tableName: string,
+        rowProperties: Record<string, any> = {}
+    ): HogFunctionInvocationGlobals {
+        return createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: new UUIDT().toString(),
+                event: '$warehouse_source_row',
+                distinct_id: '',
+                properties: { ...rowProperties, $source_table: tableName },
+                timestamp: '2024-09-03T09:00:00Z',
+            } as any,
+        })
+    }
+
+    /** Send a synced warehouse row through the DWH consumer and wait for it to be queued */
+    async function triggerDwhWorkflow(rowGlobals: HogFunctionInvocationGlobals): Promise<void> {
+        const { backgroundTask } = await dwhConsumer.processBatch([rowGlobals])
         await backgroundTask
     }
 
@@ -837,6 +873,46 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('does not collapse a delay before a wait when the wait event fires during the delay', async () => {
+            // trigger -> delay(5m) -> wait_until_condition(wakeup_event) -> matched / timeout. The
+            // wait's event firing DURING the delay must not wake the job: the delay handler no longer
+            // pre-advances currentAction to the wait, so while parked the job is at the delay (not the
+            // wait) and the matcher leaves it alone. The delay is honored.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay: { type: 'delay', config: { delay_duration: '5m' } },
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            events: [eventNameFilter('wakeup_event')],
+                            condition: { filters: null },
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    function_matched: fetchAction('https://example.com/matched'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The wait's event fires during the delay — the job must stay parked in the delay.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('does not run the next step early when a conversion event fires during a delay', async () => {
             // trigger -> delay -> fetch, with an event-based conversion goal used only for
             // measurement (exit_only_at_end). A conversion event arriving while the job is parked
@@ -948,10 +1024,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             globals = createGlobals()
         })
 
-        it('should reschedule to the time window start and execute after it opens', async () => {
+        it('parks until the window opens and does not advance early on a premature resume', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled to the future time window
+            // Job should be rescheduled to the future time window.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -959,18 +1035,47 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 )
                 expect(rescheduled.length).toBe(1)
             }, 5000)
-
-            // Fetch should NOT be called yet
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Fast-forward: set the scheduled time to now so the worker picks it up
+            // A premature resume (the window is still in the future) must re-park, not advance to the
+            // next step. The handler stays at the wait_until_time_window step and reschedules, so the
+            // step that follows the window never runs early.
             await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('wait_until_time_window: window currently open', () => {
+        it('advances through the window and runs the next step', async () => {
+            // day: 'any', time: 'any' is always open, so the step must advance and run the next action
+            // instead of parking forever.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        config: { timezone: 'UTC', day: 'any', time: 'any' },
+                    },
+                    function_1: fetchAction('https://example.com/window-open'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            await triggerWorkflow(createGlobals())
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
-
-            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/window-open', expect.anything())
         })
     })
 
@@ -1218,6 +1323,76 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 5000)
 
             expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('data warehouse table trigger workflow', () => {
+        const TABLE_NAME = 'postgres.orders'
+
+        // Row-scoped trigger that always matches (return-true bytecode), so the row payload alone
+        // decides whether the flow fires.
+        const dwhTrigger = (tableName: string) =>
+            ({
+                type: 'trigger' as const,
+                config: {
+                    type: 'data-warehouse-table',
+                    table_name: tableName,
+                    filters: { properties: [], bytecode: ['_h', 29] },
+                },
+            }) as any
+
+        beforeEach(async () => {
+            await createWorkflow({
+                actions: {
+                    trigger: dwhTrigger(TABLE_NAME),
+                    function_1: fetchAction('https://example.com/warehouse-row'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        })
+
+        it('runs the workflow end-to-end when a row syncs into the matching table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 42 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/warehouse-row',
+                expect.objectContaining({ method: 'POST' })
+            )
+        })
+
+        it('does not run the workflow when the synced row belongs to a different table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals('postgres.other_table', { order_id: 1 }))
+
+            // Give the worker a chance to (not) pick anything up before asserting it stayed idle.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs).toHaveLength(0)
+            }, 3000)
+
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not look up a person for warehouse rows (no synthetic distinct_id resolution)', async () => {
+            // Regression guard: warehouse rows carry a made-up event.distinct_id that evals truthy.
+            // The worker must skip the person lookup for data-warehouse-table triggers so we don't
+            // pay a person round-trip (or accidentally resolve a bogus person) per synced row.
+            const personSpy = jest.spyOn((hogflowWorker as any).personsManager, 'getCyclotronPerson')
+
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 7 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(personSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -1982,24 +2157,15 @@ describe('Workflows E2E (email queue)', () => {
 
         expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(1)
 
-        // The delay's pause log MUST fire — this is the regression guard against
-        // over-suppression. The only routing pause in this workflow (email_1 hopping onto
-        // the email queue) is sub-millisecond and silenced. So exactly one pause line
-        // should appear, and it must be the delay's.
+        // The delay is a genuine pause and must still be logged; the email's routing hop onto
+        // the email queue must NOT add a duplicate. Assert exactly one pause and one resume line
+        // overall, independent of which action each references — so the guard tests the
+        // suppression's intent and stays valid regardless of whether the delay advances
+        // currentAction before parking.
         const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
         expect(pauseLogs).toHaveLength(1)
-
-        // The delay-wake Resuming log MUST fire — the workflow really did pause and resume.
-        // The delay handler returns `{ scheduledAt, nextAction: email_1 }` on the rescheduling
-        // dequeue, so `currentAction` is advanced to email_1 *before* the next dequeue. On
-        // wake we therefore see "Resuming workflow execution at [Action:email_1]", NOT at
-        // [Action:delay_1] — the delay is finished, email_1 is what's about to run. This must
-        // appear exactly once (the real wake from delay). The email's routing-continuation
-        // Resuming would be a SECOND identical line; the fix suppresses it, so length stays 1.
-        const resumingEmailLogs = logMessages.filter(
-            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
-        )
-        expect(resumingEmailLogs).toHaveLength(1)
+        const resumeLogs = logMessages.filter((msg) => msg.includes('Resuming workflow execution at'))
+        expect(resumeLogs).toHaveLength(1)
     })
 
     it('wakes a wait_until_condition parked on the email queue after an email step', async () => {

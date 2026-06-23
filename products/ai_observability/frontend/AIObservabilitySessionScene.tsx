@@ -92,7 +92,6 @@ function SessionTraceSentimentBar({ traceId, createdAt }: { traceId: string; cre
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
-    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
     const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
         useValues(aiObservabilitySessionDataLogic)
@@ -105,10 +104,6 @@ function SessionSceneWrapper(): JSX.Element {
     // every `SessionTurnView` consumes the same `traceSearchParams`.
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
-
-    const showSessionSummarization =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -170,24 +165,16 @@ function SessionSceneWrapper(): JSX.Element {
                         </Suspense>
                     )}
                 </div>
-                {showSessionSummarization && (
-                    <SummarizeAllButton
-                        loading={summariesLoading}
-                        dataProcessingAccepted={dataProcessingAccepted}
-                        onSummarize={summarizeAllTraces}
-                    />
-                )}
+                <SummarizeAllButton
+                    loading={summariesLoading}
+                    dataProcessingAccepted={dataProcessingAccepted}
+                    onSummarize={summarizeAllTraces}
+                />
             </header>
 
             <div className="flex flex-col">
                 {sessionTurns.map((turn) => (
-                    <SessionTurnView
-                        key={turn.trace.id}
-                        turn={turn}
-                        showSentiment={showSentiment}
-                        showSessionSummarization={!!showSessionSummarization}
-                        traceSearchParams={traceSearchParams}
-                    />
+                    <SessionTurnView key={turn.trace.id} turn={turn} traceSearchParams={traceSearchParams} />
                 ))}
                 {hasMoreData && (
                     <div className="flex justify-center pt-4">
@@ -255,13 +242,9 @@ function SummarizeAllButton({
 
 function SessionTurnView({
     turn,
-    showSentiment,
-    showSessionSummarization,
     traceSearchParams,
 }: {
     turn: SessionTurn
-    showSentiment: boolean
-    showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
 }): JSX.Element {
     const { traceSummaries, loadingFullTraces, fullTraces, stepsExpandedTraceIds, expandedGenerationIds } = useValues(
@@ -295,9 +278,7 @@ function SessionTurnView({
             </div>
             <div className="flex gap-10 pb-4">
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
-                    {showSessionSummarization && summary && (
-                        <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
-                    )}
+                    {summary && <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />}
 
                     <TurnBody turn={turn} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
 
@@ -349,7 +330,7 @@ function SessionTurnView({
                 </div>
 
                 <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
-                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
+                    <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />
                     <div className="flex flex-col gap-1 items-start">
                         {hasTranscript && (
                             <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>

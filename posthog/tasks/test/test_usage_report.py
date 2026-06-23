@@ -4266,6 +4266,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
 
+        from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
         from products.signals.backend.models import SignalReport, SignalReportTask
 
         # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
@@ -4286,9 +4287,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         task = Task.objects.create(
             team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
         )
-        SignalReportTask.objects.create(
-            team=team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-        )
+        SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
         TaskRun.objects.create(
             team=team,
             task=task,

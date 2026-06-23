@@ -10,6 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -1013,7 +1014,19 @@ class IntegrationViewSet(
             return Response(cached)
 
         session = google_search_console_session(instance.id, instance.team_id)
-        sites = list_sites(session)
+        try:
+            sites = list_sites(session)
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code in (401, 403):
+                # The token refreshed fine but the connected Google account isn't authorized to
+                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
+                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
+                raise ValidationError(
+                    "Google Search Console rejected the credentials. Please reconnect your account "
+                    "and ensure it has read access to the property."
+                )
+            raise
         response_data = {"sites": sites}
         cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)

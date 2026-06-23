@@ -1860,6 +1860,11 @@ class MetricoolSourceConfig(config.Config):
 
 
 @config.config
+class MetronomeSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MicrosoftDataverseSourceConfig(config.Config):
     pass
 
@@ -2667,6 +2672,11 @@ class SalesforceSourceConfig(config.Config):
 
 
 @config.config
+class SanitySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SapConcurSourceConfig(config.Config):
     pass
 
@@ -2959,9 +2969,9 @@ class SupabaseSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -3803,6 +3813,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.METABASE: MetabaseSourceConfig,
         ExternalDataSourceType.METRICOOL: MetricoolSourceConfig,
+        ExternalDataSourceType.METRONOME: MetronomeSourceConfig,
         ExternalDataSourceType.MICROSOFTDATAVERSE: MicrosoftDataverseSourceConfig,
         ExternalDataSourceType.MICROSOFTENTRAID: MicrosoftEntraIdSourceConfig,
         ExternalDataSourceType.MICROSOFTLISTS: MicrosoftListsSourceConfig,
@@ -3956,6 +3967,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,
         ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,

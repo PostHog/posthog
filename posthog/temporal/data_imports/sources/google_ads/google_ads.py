@@ -1,3 +1,4 @@
+import time
 import typing
 import datetime as dt
 import collections.abc
@@ -14,6 +15,7 @@ from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
 from google.ads.googleads.v23.services import types as ga_services
 from google.ads.googleads.v23.services.services.google_ads_service import GoogleAdsServiceClient
+from google.auth import exceptions as google_auth_exceptions
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
@@ -64,6 +66,37 @@ def _ensure_grpc_receive_limit() -> None:
     options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
 
 
+# ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
+# endpoint over the network. A transient hiccup on that hop (e.g. a proxy connection timeout)
+# surfaces as ``google.auth.exceptions.TransportError`` — the stored credential is fine, only the
+# request failed, so a short backoff usually clears it. Riding it out here avoids failing (and
+# re-capturing) the whole import activity before a single row is fetched. Auth rejections surface
+# as ``RefreshError`` (handled as non-retryable elsewhere), not ``TransportError``, so retrying
+# here never masks bad credentials.
+_MAX_CLIENT_INIT_ATTEMPTS = 4
+
+
+def _load_client_with_transient_retry(
+    config_dict: dict[str, object],
+    *,
+    max_attempts: int = _MAX_CLIENT_INIT_ATTEMPTS,
+) -> GoogleAdsClient:
+    """Build a ``GoogleAdsClient`` from a config dict, retrying a transient transport failure.
+
+    Only the token-refresh network hop is retried; a ``RefreshError`` (revoked/expired credential)
+    or any other error re-raises immediately so the caller's non-retryable handling still applies.
+    """
+    attempt = 0
+    while True:
+        try:
+            return GoogleAdsClient.load_from_dict(config_dict)
+        except google_auth_exceptions.TransportError:
+            attempt += 1
+            if attempt >= max_attempts:
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
     _ensure_grpc_receive_limit()
@@ -90,7 +123,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if login_customer_id is not None:
             config_dict["login_customer_id"] = login_customer_id
 
-        client = GoogleAdsClient.load_from_dict(config_dict)
+        client = _load_client_with_transient_retry(config_dict)
     else:
         credentials = service_account.Credentials.from_service_account_info(
             {
