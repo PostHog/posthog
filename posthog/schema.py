@@ -3104,6 +3104,7 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 

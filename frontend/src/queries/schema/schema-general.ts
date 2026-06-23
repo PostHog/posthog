@@ -3295,6 +3295,7 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
     error_count: integer
 }
 

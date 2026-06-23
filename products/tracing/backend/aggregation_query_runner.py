@@ -268,6 +268,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 avg(duration_nano) AS avg_duration_nano,
                 quantile(0.5)(duration_nano) AS p50_duration_nano,
                 quantile(0.95)(duration_nano) AS p95_duration_nano,
+                quantile(0.99)(duration_nano) AS p99_duration_nano,
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
@@ -298,7 +299,8 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             avg_duration_nano=float(row[4] or 0),
             p50_duration_nano=float(row[5] or 0),
             p95_duration_nano=float(row[6] or 0),
-            error_count=row[7] or 0,
+            p99_duration_nano=float(row[7] or 0),
+            error_count=row[8] or 0,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:

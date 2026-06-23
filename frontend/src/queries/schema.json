@@ -576,6 +576,9 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
+                "p99_duration_nano": {
+                    "type": "number"
+                },
                 "service_name": {
                     "type": "string"
                 },
@@ -591,6 +594,7 @@
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
+                "p99_duration_nano",
                 "error_count"
             ],
             "type": "object"

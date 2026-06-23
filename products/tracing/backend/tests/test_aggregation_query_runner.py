@@ -6,7 +6,7 @@ from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
 
-from products.tracing.backend.logic import run_tree_query
+from products.tracing.backend.logic import run_aggregation_query, run_tree_query
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 # Child starts 40ms after its parent. In nanoseconds that's 40_000_000 — the unit the
@@ -111,3 +111,45 @@ class TestTraceSpansTreeCallRatio(_TraceSpansTestBase):
         )
         root_edge = next(node for node in response.results if node.parent_name == "<ROOT>")
         self.assertIsNone(root_edge.calls_per_parent_invocation)
+
+
+class TestTraceSpansFlatAggregationPercentiles(_TraceSpansTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        # Four spans for one operation, all exactly 100ms long, so every percentile (p50/p95/p99)
+        # equals 100ms with no quantile-approximation ambiguity. One span errors (status_code = 2).
+        start = dt.datetime(2026, 6, 2, 8, 0, 0)
+        end = start + dt.timedelta(milliseconds=100)
+        start_str = start.strftime("%Y-%m-%d %H:%M:%S.%f")
+        end_str = end.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        rows: list[str] = []
+        for i in range(4):
+            trace_id = _b64((i + 1).to_bytes(16, "big"))
+            span_id = _b64((i + 1).to_bytes(8, "big"))
+            status_code = 2 if i == 0 else 1
+            rows.append(
+                f"('019e8761-0000-0000-0000-{i:012d}', {cls.team.id}, '{trace_id}', "
+                f"'{span_id}', '', 'checkout', 2, '{start_str}', '{end_str}', '{start_str}', {status_code}, 'web')"
+            )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    def test_flat_aggregation_reports_p99(self):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+        )
+        row = next(r for r in response.results if r.name == "checkout")
+        hundred_ms_nano = float(100 * 1_000_000)
+        self.assertEqual(row.count, 4)
+        self.assertEqual(row.error_count, 1)
+        self.assertEqual(row.p50_duration_nano, hundred_ms_nano)
+        self.assertEqual(row.p95_duration_nano, hundred_ms_nano)
+        self.assertEqual(row.p99_duration_nano, hundred_ms_nano)
+        self.assertEqual(row.total_duration_nano, 4 * hundred_ms_nano)
