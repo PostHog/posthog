@@ -1632,3 +1632,98 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
             team_id=self.team.id, scope="CustomPropertyDefinition", item_id=str(created["id"])
         )
         self.assertEqual(set(logs.values_list("activity", flat=True)), {"created", "deleted"})
+
+
+class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
+    """Resource-level access control for custom property definitions.
+
+    Definitions are a team-wide ``account``-resource config (no per-object ownership), so they are
+    gated at the resource level by the default ``AccessControlPermission`` (keyed on
+    ``scope_object="account"``) — the same gate as accounts and journeys, including inheritance from
+    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.viewer_user = User.objects.create_and_join(self.organization, "def-viewer@posthog.com", "testtest")
+        self.editor_user = User.objects.create_and_join(self.organization, "def-editor@posthog.com", "testtest")
+        self.no_access_user = User.objects.create_and_join(self.organization, "def-noaccess@posthog.com", "testtest")
+
+        # nosemgrep: idor-lookup-without-team (test setup)
+        self.definition = CustomPropertyDefinition.objects.unscoped().create(
+            team=self.team, name="ARR", display_type="currency"
+        )
+        self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
+
+    def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
+        # ``account`` is a child of the ``customer_analytics`` umbrella; child resource-level rows are
+        # intentionally bypassed (only the parent is consulted), so resource-level access is set on the
+        # parent — matching how accounts and journeys are gated.
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=None,
+            access_level=access_level,
+            organization_member=membership,
+        )
+
+    def test_viewer_can_list(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_200_OK)
+
+    def test_viewer_can_retrieve(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_viewer_cannot_create(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.post(self.endpoint_base, {"name": "New", "display_type": "text"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_update(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.patch(f"{self.endpoint_base}{self.definition.id}/", {"name": "x"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_delete(self):
+        self._set_access_level(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+        response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_editor_can_create(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        response = self.client.post(self.endpoint_base, {"name": "Editor Prop", "display_type": "text"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_editor_can_delete(self):
+        self._set_access_level(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_none_access_blocks_list(self):
+        self._set_access_level(self.no_access_user, access_level="none")
+        self.client.force_login(self.no_access_user)
+        self.assertEqual(self.client.get(self.endpoint_base).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_org_admin_has_full_access(self):
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self.client.force_login(self.editor_user)
+        response = self.client.post(self.endpoint_base, {"name": "Admin Prop", "display_type": "text"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

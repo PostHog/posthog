@@ -181,6 +181,7 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
 
 class CustomPropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     _FacadePaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -189,6 +190,10 @@ class CustomPropertyDefinitionViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
+    # Resource-level access (viewer reads / editor writes) is enforced by the default
+    # ``AccessControlPermission`` keyed on this ``scope_object`` — the same gate as accounts and
+    # journeys, via inheritance from the ``customer_analytics`` umbrella resource. The mixin adds the
+    # resource's access-control management sub-endpoints.
     scope_object = "account"
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
