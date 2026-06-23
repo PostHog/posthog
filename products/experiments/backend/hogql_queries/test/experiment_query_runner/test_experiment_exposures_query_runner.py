@@ -1674,28 +1674,24 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        ended_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=experiment.end_date.isoformat(),
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        ended_runner = ExperimentExposuresQueryRunner(team=self.team, query=ended_query)
-        self.assertIsNone(ended_runner._evaluate_bias_risk(total_exposures))
+        def _runner() -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=experiment.id,
+                experiment_name=experiment.name,
+                feature_flag=model_to_dict(feature_flag),
+                start_date=experiment.start_date.isoformat(),
+                end_date=experiment.end_date.isoformat() if experiment.end_date else None,
+                exposure_criteria=experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        running_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=None,
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
-        risk = running_runner._evaluate_bias_risk(total_exposures)
+        # Ended (end_date set): the warning is skipped.
+        self.assertIsNone(_runner()._evaluate_bias_risk(total_exposures))
+
+        # Running (end_date cleared): the warning is evaluated.
+        experiment.end_date = None
+        experiment.save(update_fields=["end_date"])
+        risk = _runner()._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)

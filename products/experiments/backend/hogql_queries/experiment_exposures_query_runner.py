@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -34,6 +33,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -72,6 +72,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
 
+        # Evaluation point for the analysis window. The exposure chart always shows the experiment's
+        # own window — [start, end_date] once stopped, [start, now] while running — so it shares the
+        # same default as_of and primitive as ExperimentQueryRunner (experiment_window caps at end_date).
+        self.as_of = self.experiment.end_date or datetime.now(UTC)
+
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
@@ -92,29 +97,8 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_date_range(self) -> DateRange:
-        """
-        Returns a DateRange object based on the experiment's start and end dates from the query,
-        adjusted for the team's timezone if applicable.
-        """
-        start_date_str = self.query.start_date
-        end_date_str = self.query.end_date
-
-        if not start_date_str:
-            return DateRange(date_from=None, date_to=None, explicitDate=True)
-
-        start_date = datetime.fromisoformat(start_date_str)
-        end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
-
-        if self.team.timezone:
-            tz = ZoneInfo(self.team.timezone)
-            start_date = start_date.astimezone(tz) if start_date else start_date
-            end_date = end_date.astimezone(tz) if end_date else end_date
-
-        return DateRange(
-            date_from=start_date.isoformat() if start_date else None,
-            date_to=end_date.isoformat() if end_date else None,
-            explicitDate=True,
-        )
+        """Returns the experiment's analysis DateRange from the model (see experiment_window)."""
+        return experiment_window(self.experiment, self.team, self.as_of)
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
@@ -123,7 +107,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
-        date_to = self.experiment.end_date or datetime.now(UTC)
+        date_to = experiment_window_end(self.experiment, self.as_of)
 
         return ensure_precomputed(
             team=self.team,
@@ -270,7 +254,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
         # uneven-split check on data collected under the original split. The warning is
         # also unactionable post-stop — both CTAs only help while running.
-        if self.query.end_date is not None:
+        if self.experiment.end_date is not None:
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
