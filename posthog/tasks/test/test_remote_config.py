@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -98,12 +100,14 @@ class TestRemoteConfigCacheTasks(BaseTest):
             ),
         ]
     )
-    def test_task_skips_work_when_flags_redis_url_unset(self, _name, task, inner_path):
+    def test_task_skips_work_when_flags_redis_url_unset(
+        self, _name: str, task: Callable[[], None], inner_path: str
+    ) -> None:
         with override_settings(FLAGS_REDIS_URL=""), patch(inner_path) as mock_inner:
             task()
         mock_inner.assert_not_called()
 
-    def test_refresh_runs_work_when_flags_redis_url_set(self):
+    def test_refresh_runs_work_when_flags_redis_url_set(self) -> None:
         with (
             override_settings(FLAGS_REDIS_URL="redis://test:6379/0"),
             patch("posthog.tasks.remote_config.refresh_expiring_caches", return_value=(0, 0)) as mock_refresh,
@@ -112,7 +116,7 @@ class TestRemoteConfigCacheTasks(BaseTest):
             refresh_expiring_remote_config_cache_entries()
         mock_refresh.assert_called_once_with(ttl_threshold_hours=24)
 
-    def test_cleanup_runs_work_when_flags_redis_url_set(self):
+    def test_cleanup_runs_work_when_flags_redis_url_set(self) -> None:
         with (
             override_settings(FLAGS_REDIS_URL="redis://test:6379/0"),
             patch("posthog.tasks.remote_config.cleanup_stale_expiry_tracking", return_value=0) as mock_cleanup,
