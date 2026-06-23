@@ -345,9 +345,7 @@ export function ActionFilterRow({
         typeKey === 'plugin-filters'
             ? TaxonomicFilterGroupType.DataWarehouseSourceTables
             : TaxonomicFilterGroupType.DataWarehouse
-    const initialGroupType = isDataWarehouseFilter
-        ? dataWarehouseGroupType
-        : TaxonomicFilterGroupType.SuggestedFilters
+    const initialGroupType = isDataWarehouseFilter ? dataWarehouseGroupType : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter

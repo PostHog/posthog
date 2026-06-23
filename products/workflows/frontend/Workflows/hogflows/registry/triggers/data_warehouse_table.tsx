@@ -34,12 +34,15 @@ export function isDataWarehouseTableTriggerConfig(
 function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { externalDataSourceTables, dataWarehouseTablesMap, databaseLoading } = useValues(databaseTableListLogic)
+    const { externalDataSourceTables, dataWarehouseTables, dataWarehouseTablesMap, databaseLoading } =
+        useValues(databaseTableListLogic)
     const { loadDatabase } = useActions(databaseTableListLogic)
 
     useEffect(() => {
         // The list isn't loaded automatically on mount, so kick it off when the panel opens.
-        if (!externalDataSourceTables.length) {
+        // Guard on the full table list, not the source-filtered subset, so a project with only
+        // self-managed tables (which have no source) doesn't refetch on every mount.
+        if (!dataWarehouseTables.length) {
             loadDatabase()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

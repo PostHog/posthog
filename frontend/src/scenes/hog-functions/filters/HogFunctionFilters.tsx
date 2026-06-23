@@ -227,6 +227,13 @@ export function HogFunctionFilters({
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
 
+                    const dataWarehouseTableName = isDataWarehouse
+                        ? currentFilters?.data_warehouse?.[0]?.table_name
+                        : undefined
+                    const dataWarehouseColumns = dataWarehouseTableName
+                        ? Object.values(dataWarehouseTablesMap[dataWarehouseTableName]?.fields ?? {})
+                        : []
+
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
                             clearFiltersDiff()
@@ -323,21 +330,13 @@ export function HogFunctionFilters({
                                         excludedProperties={excludedProperties}
                                         allowNonCapturedEvents
                                     />
-                                    {isDataWarehouse
-                                        ? (() => {
-                                              const tableName = currentFilters?.data_warehouse?.[0]?.table_name
-                                              const columns = tableName
-                                                  ? Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
-                                                  : []
-                                              return tableName ? (
-                                                  <DataWarehouseColumnsHint
-                                                      schemaColumns={columns}
-                                                      tableName={tableName}
-                                                      personAvailable
-                                                  />
-                                              ) : null
-                                          })()
-                                        : null}
+                                    {dataWarehouseTableName ? (
+                                        <DataWarehouseColumnsHint
+                                            schemaColumns={dataWarehouseColumns}
+                                            tableName={dataWarehouseTableName}
+                                            personAvailable
+                                        />
+                                    ) : null}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
