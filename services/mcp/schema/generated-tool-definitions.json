@@ -2992,7 +2992,7 @@
         }
     },
     "external-data-schemas-list": {
-        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
@@ -3146,7 +3146,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected.",
+        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -7419,7 +7419,7 @@
         }
     },
     "view-update": {
-        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update saved query",

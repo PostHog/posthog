@@ -108,6 +108,13 @@ describe('maxThreadLogic', () => {
         jest.restoreAllMocks()
     })
 
+    it('builds for the bare scene without a panelId, falling back to the scene key', () => {
+        const sceneLogic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+        expect(() => sceneLogic.mount()).not.toThrow()
+        expect(sceneLogic.key).toBe(`${MOCK_CONVERSATION_ID}-scene`)
+        sceneLogic.unmount()
+    })
+
     it('selects threadGroup without a human message', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([

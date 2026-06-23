@@ -534,6 +534,32 @@ export type DataWarehouseSavedQueryApiQuery = {
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
+ * * `never` - never
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SavedQuerySyncFrequencyEnumApi =
+    (typeof SavedQuerySyncFrequencyEnumApi)[keyof typeof SavedQuerySyncFrequencyEnumApi]
+
+export const SavedQuerySyncFrequencyEnumApi = {
+    Never: 'never',
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
  * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -551,8 +577,18 @@ export interface DataWarehouseSavedQueryApi {
     query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @nullable */
-    readonly sync_frequency: string | null
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -652,8 +688,18 @@ export interface PatchedDataWarehouseSavedQueryApi {
     query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @nullable */
-    readonly sync_frequency?: string | null
+    /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1468,6 +1514,7 @@ export interface CredentialApi {
  * * `Custom` - Custom
  * * `Tile38` - Tile38
  * * `Chatwoot` - Chatwoot
+ * * `Sanity` - Sanity
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2106,6 +2153,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Custom: 'Custom',
     Tile38: 'Tile38',
     Chatwoot: 'Chatwoot',
+    Sanity: 'Sanity',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

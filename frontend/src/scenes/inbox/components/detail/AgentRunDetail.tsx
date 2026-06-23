@@ -30,9 +30,10 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { DetailSection, RightColumnSection } from './DetailSection'
+import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
-import { RELATIONSHIP_LABEL, TaskRunStatusDot } from './taskRunDisplay'
+import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -270,7 +271,7 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
                         label: (
                             <span className="flex items-center gap-1.5">
                                 <TaskRunStatusDot status={entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED} />
-                                {RELATIONSHIP_LABEL[entry.relationship]}
+                                {entry.purposeLabel}
                             </span>
                         ),
                     }))}
@@ -353,6 +354,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                         </RightColumnSection>
                     )}
                     <ReportTasksSection report={report} />
+                    <ReportActivitySection report={report} />
                 </div>
             </div>
         </div>

@@ -837,6 +837,46 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('does not collapse a delay before a wait when the wait event fires during the delay', async () => {
+            // trigger -> delay(5m) -> wait_until_condition(wakeup_event) -> matched / timeout. The
+            // wait's event firing DURING the delay must not wake the job: the delay handler no longer
+            // pre-advances currentAction to the wait, so while parked the job is at the delay (not the
+            // wait) and the matcher leaves it alone. The delay is honored.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay: { type: 'delay', config: { delay_duration: '5m' } },
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            events: [eventNameFilter('wakeup_event')],
+                            condition: { filters: null },
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    function_matched: fetchAction('https://example.com/matched'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The wait's event fires during the delay — the job must stay parked in the delay.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('does not run the next step early when a conversion event fires during a delay', async () => {
             // trigger -> delay -> fetch, with an event-based conversion goal used only for
             // measurement (exit_only_at_end). A conversion event arriving while the job is parked
@@ -948,10 +988,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             globals = createGlobals()
         })
 
-        it('should reschedule to the time window start and execute after it opens', async () => {
+        it('parks until the window opens and does not advance early on a premature resume', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled to the future time window
+            // Job should be rescheduled to the future time window.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -959,18 +999,47 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 )
                 expect(rescheduled.length).toBe(1)
             }, 5000)
-
-            // Fetch should NOT be called yet
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Fast-forward: set the scheduled time to now so the worker picks it up
+            // A premature resume (the window is still in the future) must re-park, not advance to the
+            // next step. The handler stays at the wait_until_time_window step and reschedules, so the
+            // step that follows the window never runs early.
             await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('wait_until_time_window: window currently open', () => {
+        it('advances through the window and runs the next step', async () => {
+            // day: 'any', time: 'any' is always open, so the step must advance and run the next action
+            // instead of parking forever.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        config: { timezone: 'UTC', day: 'any', time: 'any' },
+                    },
+                    function_1: fetchAction('https://example.com/window-open'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            await triggerWorkflow(createGlobals())
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
-
-            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/window-open', expect.anything())
         })
     })
 
@@ -1982,24 +2051,15 @@ describe('Workflows E2E (email queue)', () => {
 
         expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(1)
 
-        // The delay's pause log MUST fire — this is the regression guard against
-        // over-suppression. The only routing pause in this workflow (email_1 hopping onto
-        // the email queue) is sub-millisecond and silenced. So exactly one pause line
-        // should appear, and it must be the delay's.
+        // The delay is a genuine pause and must still be logged; the email's routing hop onto
+        // the email queue must NOT add a duplicate. Assert exactly one pause and one resume line
+        // overall, independent of which action each references — so the guard tests the
+        // suppression's intent and stays valid regardless of whether the delay advances
+        // currentAction before parking.
         const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
         expect(pauseLogs).toHaveLength(1)
-
-        // The delay-wake Resuming log MUST fire — the workflow really did pause and resume.
-        // The delay handler returns `{ scheduledAt, nextAction: email_1 }` on the rescheduling
-        // dequeue, so `currentAction` is advanced to email_1 *before* the next dequeue. On
-        // wake we therefore see "Resuming workflow execution at [Action:email_1]", NOT at
-        // [Action:delay_1] — the delay is finished, email_1 is what's about to run. This must
-        // appear exactly once (the real wake from delay). The email's routing-continuation
-        // Resuming would be a SECOND identical line; the fix suppresses it, so length stays 1.
-        const resumingEmailLogs = logMessages.filter(
-            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
-        )
-        expect(resumingEmailLogs).toHaveLength(1)
+        const resumeLogs = logMessages.filter((msg) => msg.includes('Resuming workflow execution at'))
+        expect(resumeLogs).toHaveLength(1)
     })
 
     it('wakes a wait_until_condition parked on the email queue after an email step', async () => {

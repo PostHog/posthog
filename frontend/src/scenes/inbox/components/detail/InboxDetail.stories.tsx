@@ -6,7 +6,6 @@ import { mswDecorator } from '~/mocks/browser'
 import {
     makeReport,
     mockArtefacts,
-    mockReportTasks,
     mockReviewers,
     mockRunLog,
     mockSignals,
@@ -34,10 +33,6 @@ const detailMocks = mswDecorator({
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
-        ],
-        '/api/projects/:id/signals/reports/:reportId/tasks': (req) => [
-            200,
-            mockReportTasks(req.params.reportId as string),
         ],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
         // Terminal run status so the inline run viewer replays its static log instead of opening SSE.
