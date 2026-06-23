@@ -420,7 +420,7 @@ function hasDisplayableContent(message: NormalizedMessage): boolean {
  * unknown state-wrapper shapes (the caller will then try the generation-level
  * fallback payload).
  */
-function pickLastInputMessage(
+export function pickLastInputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
