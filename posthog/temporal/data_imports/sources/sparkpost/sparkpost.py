@@ -55,6 +55,14 @@ def _format_from(value: Any) -> str:
     truncate to the minute (the finest granularity the filter accepts); ``from`` is inclusive, so
     the boundary event is re-fetched and deduped on ``event_id`` by the merge.
     """
+    if isinstance(value, str):
+        # The stored watermark can come back as an ISO 8601 string; parse it so we still emit the
+        # ``YYYY-MM-DDTHH:MM`` SparkPost wants rather than passing e.g. ``2026-01-01T00:00:00Z``
+        # through verbatim (which the API rejects). Normalize a trailing ``Z`` for fromisoformat.
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, date):
@@ -73,7 +81,13 @@ def validate_credentials(region: Optional[str], api_key: str) -> tuple[bool, str
         response = session.get(url, headers=_get_headers(api_key), timeout=10)
         if response.status_code == 200:
             return True, None
-        if response.status_code in (401, 403):
+        # 403 means the key authenticated but lacks the ``Account`` scope this probe uses. The key
+        # is genuine, and a user who only grants the per-data-type read scopes (as our caption
+        # suggests) shouldn't be blocked from connecting — real per-endpoint scope gaps surface at
+        # sync time via get_non_retryable_errors. Only 401 is a definitively bad key.
+        if response.status_code == 403:
+            return True, None
+        if response.status_code == 401:
             return False, "Invalid SparkPost API key. Check the API key and selected region, then try again."
         return False, f"SparkPost credential validation failed (status {response.status_code})."
     except requests.exceptions.RequestException as e:

@@ -126,7 +126,7 @@ SparkPost runs independent US and EU stacks that do not share data — pick the 
                     else None
                 ),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)

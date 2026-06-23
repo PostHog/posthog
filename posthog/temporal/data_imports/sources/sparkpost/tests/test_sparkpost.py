@@ -52,6 +52,12 @@ class TestFormatFrom:
             # Naive datetimes are treated as UTC.
             (datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58"),
             (date(2026, 3, 4), "2026-03-04T00:00"),
+            # ISO 8601 strings (how the stored watermark can come back) are parsed, not passed
+            # through — SparkPost rejects a raw ``...T00:00:00Z`` value.
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00"),
+            ("2026-01-15T10:30:45.123456Z", "2026-01-15T10:30"),
+            ("2026-03-04T02:58:14+00:00", "2026-03-04T02:58"),
+            # A genuinely unparseable string still falls through unchanged.
             ("already-a-string", "already-a-string"),
         ],
     )
@@ -198,7 +204,8 @@ class TestValidateCredentials:
         [
             (200, True),
             (401, False),
-            (403, False),
+            # 403 = genuine key without the Account scope used by the probe; don't block connecting.
+            (403, True),
             (500, False),
         ],
     )
