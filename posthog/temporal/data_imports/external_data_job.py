@@ -359,6 +359,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
+                enrichment_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -366,6 +367,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
+                enrichment_enabled = create_job_result.enrichment_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -487,21 +489,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     execution_timeout=dt.timedelta(hours=2),
                 )
 
-            # Generate semantic descriptions for the synced table (gated by feature flag inside the
-            # activity, and idempotent — it no-ops once a table is enriched). Fire-and-forget child on
-            # the data-warehouse queue; ABANDON means it never blocks or fails the import.
-            await workflow.start_child_workflow(
-                EnrichTableSemanticsWorkflow.run,
-                EnrichTableSemanticsInputs(
-                    team_id=inputs.team_id,
-                    schema_id=inputs.external_data_schema_id,
-                ),
-                id=f"enrich-warehouse-table-semantics-{job_id}",
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(minutes=30),
-            )
+            # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
+            # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
+            # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
+            # idempotent. Fire-and-forget child on the data-warehouse queue; ABANDON means it never
+            # blocks or fails the import.
+            if enrichment_enabled:
+                await workflow.start_child_workflow(
+                    EnrichTableSemanticsWorkflow.run,
+                    EnrichTableSemanticsInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    id=f"enrich-warehouse-table-semantics-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(minutes=30),
+                )
 
             # Create source templates
             await workflow.execute_activity(
