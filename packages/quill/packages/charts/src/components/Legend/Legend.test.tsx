@@ -64,6 +64,15 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
+    it('truncates each label and exposes the full name via a native title tooltip', () => {
+        const long = 'Breakdown value with an extremely long name that would otherwise crush the plot'
+        const { container } = render(<Legend items={[{ key: 'a', label: long, color: '#000' }]} />)
+        const label = container.querySelector<HTMLElement>(`[title="${long}"]`)!
+        expect(label.textContent).toBe(long)
+        expect(label.className).toContain('truncate')
+        expect(label.style.maxWidth).toBe('180px')
+    })
+
     it('dims only rows whose key is in hiddenKeys', () => {
         const { container } = render(<Legend items={ITEMS} hiddenKeys={['returning']} />)
         const dimmedLabels = rowsOf(container)

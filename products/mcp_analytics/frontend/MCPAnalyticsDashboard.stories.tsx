@@ -306,7 +306,10 @@ const meta: Meta = {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
-                    if (query.includes('$mcp_client_name')) {
+                    // The harness breakdown resolves the client from several signals and
+                    // aliases the result `AS client`; match that output alias rather than any
+                    // one input property so the mock survives changes to the resolution.
+                    if (query.includes('AS client')) {
                         return [200, { results: HARNESS_RESULTS }]
                     }
                     if (query.includes('AS session_id')) {

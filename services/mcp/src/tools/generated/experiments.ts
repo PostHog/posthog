@@ -9,6 +9,7 @@ import {
     ExperimentSavedMetricsPartialUpdateBody,
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
+    ExperimentsArchiveCreateBody,
     ExperimentsArchiveCreateParams,
     ExperimentsCalculateRunningTimeCreateBody,
     ExperimentsCopyToProjectCreateBody,
@@ -38,9 +39,9 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']),
-})
+const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
+    .extend(ExperimentsArchiveCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
 
 const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -48,9 +49,14 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
         schema: ExperimentArchiveSchema,
         handler: async (context: Context, params: z.infer<typeof ExperimentArchiveSchema>) => {
             const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.disable_feature_flag !== undefined) {
+                body['disable_feature_flag'] = params.disable_feature_flag
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
+                body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },

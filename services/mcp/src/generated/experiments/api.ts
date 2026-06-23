@@ -237,6 +237,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
+export const experimentsCreateBodyConclusionCommentMax = 4000
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -304,12 +306,18 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
             ),
         running_time_calculation: zod
             .union([
@@ -2507,7 +2515,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -2614,6 +2626,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePro
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
+export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
+
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(experimentsPartialUpdateBodyNameMax).optional().describe('Name of the experiment.'),
@@ -2680,12 +2694,18 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
             ),
         running_time_calculation: zod
             .union([
@@ -4888,7 +4908,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsPartialUpdateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4919,8 +4943,10 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
  * Archive an ended experiment.
  *
  * Hides the experiment from the default list view. The experiment can be
- * restored at any time by updating archived=false. Returns 400 if the
- * experiment is already archived or has not ended yet.
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4928,6 +4954,17 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
         ),
 })
 
@@ -5035,6 +5072,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
+export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
@@ -5102,12 +5141,18 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
+                    variant_notes: zod
+                        .union([zod.record(zod.string(), zod.string()), zod.null()])
+                        .optional()
+                        .describe(
+                            'Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.'
+                        ),
                 }),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`.'
             ),
         running_time_calculation: zod
             .union([
@@ -7313,7 +7358,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7361,6 +7410,8 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -7375,7 +7426,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -7481,6 +7536,8 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -7497,7 +7554,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()

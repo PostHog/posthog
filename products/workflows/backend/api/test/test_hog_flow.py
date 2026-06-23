@@ -1712,7 +1712,49 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 4, "total": 10}
+        body = response.json()
+        assert body["affected"] == 4
+        assert body["total"] == 10
+        assert "limit" in body
+        assert body["limit"] > 0
+
+    @override_settings(
+        HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+        HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 5000
+
+    def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
+        with (
+            override_settings(
+                HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+                HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+                HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
+            ),
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 50000
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
@@ -1747,7 +1789,10 @@ class TestHogFlowAPI(APIBaseTest):
                 headers={"authorization": f"Bearer {key}"},
             )
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 1, "total": 10}
+        body = response.json()
+        assert body["affected"] == 1
+        assert body["total"] == 10
+        assert "limit" in body
 
     @parameterized.expand(
         [

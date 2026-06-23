@@ -1,4 +1,6 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import type { notificationsMenuLogicType } from './notificationsMenuLogicType'
 
@@ -6,6 +8,9 @@ export type NotificationTab = 'all' | 'unread'
 
 export const notificationsMenuLogic = kea<notificationsMenuLogicType>([
     path(['lib', 'components', 'NotificationsMenu', 'notificationsMenuLogic']),
+    connect(() => ({
+        actions: [panelLayoutLogic, ['setActivePanelIdentifier', 'showLayoutPanel']],
+    })),
     actions({
         setNotificationsMenuOpen: (isOpen: boolean) => ({ isOpen }),
         toggleNotificationsMenu: true,
@@ -29,12 +34,12 @@ export const notificationsMenuLogic = kea<notificationsMenuLogicType>([
             },
         ],
     }),
-    listeners({
-        setNotificationsMenuOpen: ({ isOpen }) => {
-            // Reset to "all" tab when closing
-            if (!isOpen) {
-                // No-op — keep tab selection sticky
-            }
+    listeners(({ actions }) => ({
+        openToUnread: () => {
+            // The Notifications side panel's visibility is owned by panelLayoutLogic, so opening it
+            // (e.g. from a critical-notification toast button) has to go through these actions.
+            actions.setActivePanelIdentifier('Notifications')
+            actions.showLayoutPanel(true)
         },
-    }),
+    })),
 ])

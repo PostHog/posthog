@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 import unittest
@@ -14,10 +15,13 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -31,12 +35,20 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS
+from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+
+def _make(cls, **attrs):
+    """Build an auth instance without running __init__, setting only the attributes the test needs."""
+    instance = cls.__new__(cls)
+    for key, value in attrs.items():
+        setattr(instance, key, value)
+    return instance
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -4460,6 +4472,161 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.json()["archived"])
+
+    def test_archive_experiment_endpoint_disables_feature_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Archive And Disable Flag",
+                "feature_flag_key": "archive-disable-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertFalse(feature_flag.active)
+        self.assertTrue(feature_flag.archived)
+
+    def test_archive_endpoint_disable_requires_feature_flag_write_scope(self):
+        def _make_experiment(name: str, key: str) -> tuple[int, int]:
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "allow_unknown_events": True,
+                    "name": name,
+                    "feature_flag_key": key,
+                    "start_date": "2024-01-01T10:00",
+                    "end_date": "2024-01-15T10:00",
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "EventsNode", "event": "$pageview"},
+                        }
+                    ],
+                },
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+            return resp.json()["id"], resp.json()["feature_flag"]["id"]
+
+        def _pat(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        exp_deny, _ = _make_experiment("Scope Deny", "scope-deny-flag")
+        exp_no_disable, _ = _make_experiment("Scope No Disable", "scope-no-disable-flag")
+        exp_allow, flag_allow = _make_experiment("Scope Allow", "scope-allow-flag")
+
+        self.client.logout()
+
+        # experiment:write alone can't disable the linked flag — that needs feature_flag:write.
+        token = _pat(["experiment:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_deny}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+        # experiment:write alone still archives when not disabling the flag.
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_no_disable}/archive/",
+            {"disable_feature_flag": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With feature_flag:write, disabling the linked flag is allowed.
+        token = _pat(["experiment:write", "feature_flag:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_allow}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        flag = FeatureFlag.objects.get(id=flag_allow)
+        self.assertFalse(flag.active)
+        self.assertTrue(flag.archived)
+
+    @parameterized.expand(
+        [
+            # Personal API key: scopes come off the key.
+            (
+                "pak_denied",
+                _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["experiment:write"])),
+                False,
+            ),
+            (
+                "pak_allowed",
+                _make(
+                    PersonalAPIKeyAuthentication,
+                    personal_api_key=SimpleNamespace(scopes=["experiment:write", "feature_flag:write"]),
+                ),
+                True,
+            ),
+            ("pak_wildcard", _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["*"])), True),
+            # OAuth: scope is a space-separated string that must be split.
+            (
+                "oauth_denied",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="experiment:write")),
+                False,
+            ),
+            (
+                "oauth_allowed",
+                _make(
+                    OAuthAccessTokenAuthentication,
+                    access_token=SimpleNamespace(scope="experiment:write feature_flag:write"),
+                ),
+                True,
+            ),
+            ("oauth_wildcard", _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="*")), True),
+            (
+                "oauth_empty_scope",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope=None)),
+                False,
+            ),
+            # ID-JAG: scopes are already a list.
+            ("id_jag_denied", _make(IDJagAccessTokenAuthentication, scopes=["experiment:write"]), False),
+            (
+                "id_jag_allowed",
+                _make(IDJagAccessTokenAuthentication, scopes=["experiment:write", "feature_flag:write"]),
+                True,
+            ),
+            ("id_jag_wildcard", _make(IDJagAccessTokenAuthentication, scopes=["*"]), True),
+            # Session and other non-token auth aren't scope-limited.
+            ("session_auth", None, True),
+            ("other_auth", object(), True),
+        ]
+    )
+    def test_token_can_write_feature_flag_per_token_type(self, _name, authenticator, expected):
+        request = cast(Any, SimpleNamespace(successful_authenticator=authenticator))
+        viewset = EnterpriseExperimentsViewSet()
+        self.assertEqual(viewset._token_can_write_feature_flag(request), expected)
 
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(

@@ -197,7 +197,7 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def test_patch_rolls_back_role_assignment_when_tags_fail(self):
         with patch(
-            "products.customer_analytics.backend.presentation.views.external._apply_tags",
+            "products.customer_analytics.backend.facade.api._apply_external_tags",
             side_effect=Exception("boom"),
         ):
             response = self._patch(

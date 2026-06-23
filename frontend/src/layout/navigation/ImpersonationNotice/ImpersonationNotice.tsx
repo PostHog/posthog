@@ -13,7 +13,13 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExpiredSessionInfo, ImpersonationTicketContext, impersonationNoticeLogic } from './impersonationNoticeLogic'
+import { AdminLoginButtons } from './AdminLoginButtons'
+import {
+    AdminLoginUrl,
+    ExpiredSessionInfo,
+    ImpersonationTicketContext,
+    impersonationNoticeLogic,
+} from './impersonationNoticeLogic'
 import { ImpersonationReasonModal } from './ImpersonationReasonModal'
 
 function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: () => void }): JSX.Element {
@@ -50,19 +56,11 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
 
 function LoginAsContent({
     ticketContext,
-    adminLoginUrl,
+    adminLoginUrls,
 }: {
     ticketContext: ImpersonationTicketContext
-    adminLoginUrl: string | null
+    adminLoginUrls: AdminLoginUrl[]
 }): JSX.Element {
-    const disabledReason = !ticketContext.email
-        ? 'This ticket has no associated email'
-        : !ticketContext.region
-          ? 'Unable to determine region for this ticket, no login available'
-          : !adminLoginUrl
-            ? 'Unable to determine admin URL'
-            : undefined
-
     return (
         <>
             <p className="ImpersonationNotice__message">
@@ -74,21 +72,7 @@ function LoginAsContent({
                     'No customer email on this ticket'
                 )}
             </p>
-            <div className="flex gap-2 justify-end">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    tooltip={
-                        !disabledReason
-                            ? 'This currently redirects to the admin login page, but in future will log you in directly.'
-                            : undefined
-                    }
-                    disabledReason={disabledReason}
-                    onClick={() => adminLoginUrl && window.open(adminLoginUrl, '_blank')}
-                >
-                    Login as {ticketContext.email || 'customer'}
-                </LemonButton>
-            </div>
+            <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
         </>
     )
 }
@@ -215,7 +199,7 @@ export function ImpersonationNotice(): JSX.Element | null {
         isSessionExpired,
         expiredSessionInfo,
         ticketContext,
-        adminLoginUrl,
+        adminLoginUrls,
     } = useValues(impersonationNoticeLogic)
     const { minimize, maximize, openUpgradeModal, setPageVisible } = useActions(impersonationNoticeLogic)
 
@@ -304,7 +288,7 @@ export function ImpersonationNotice(): JSX.Element | null {
                         </div>
                         <div className="ImpersonationNotice__content">
                             {showLoginAs ? (
-                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrl={adminLoginUrl} />
+                                <LoginAsContent ticketContext={ticketContext!} adminLoginUrls={adminLoginUrls} />
                             ) : (
                                 <ImpersonationNoticeContent />
                             )}

@@ -24,6 +24,9 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
             channel?: string | null
             minPriority?: SignalReportPriority | null
         }) => ({ updates }),
+        // Ephemeral view state: whether the workspace/channel pickers are revealed. Lets a user
+        // with multiple workspaces (and nothing saved yet) open the pickers to pick one.
+        setSlackPickersExpanded: (expanded: boolean) => ({ expanded }),
     }),
     loaders({
         autonomyConfig: [
@@ -52,6 +55,12 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                 ...('minPriority' in updates ? { slack_notification_min_priority: updates.minPriority ?? null } : {}),
             }),
         },
+        slackPickersExpanded: [
+            false,
+            {
+                setSlackPickersExpanded: (_, { expanded }) => expanded,
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         setAutostartPriority: async ({ priority }) => {
