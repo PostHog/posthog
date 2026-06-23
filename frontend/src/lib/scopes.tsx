@@ -50,6 +50,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },

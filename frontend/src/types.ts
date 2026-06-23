@@ -288,6 +288,7 @@ export enum AccessControlResourceType {
     Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
     Export = 'export',
     ExternalDataSource = 'external_data_source',
@@ -4701,6 +4702,7 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    user_access_level: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
@@ -5558,6 +5560,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_holdout'
     | 'experiment_saved_metric'
     | 'external_data_source'
     | 'export'
