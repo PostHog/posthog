@@ -1,0 +1,50 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "adapter": {
+            "description": "Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document artifacts use connector storage with S3 fallback.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `document_connector` - document_connector\n* `s3` - s3\n* `github_pr` - github_pr",
+            "enum": ["slack_message", "slack_canvas", "document_connector", "s3", "github_pr"],
+            "type": "string"
+        },
+        "artifact_type": {
+            "default": "document",
+            "description": "Artifact format or delivery surface to create.\n\n* `slack_message` - slack_message\n* `slack_canvas` - slack_canvas\n* `document` - document\n* `spreadsheet` - spreadsheet\n* `dashboard` - dashboard\n* `file` - file\n* `github_pr` - github_pr",
+            "enum": ["slack_message", "slack_canvas", "document", "spreadsheet", "dashboard", "file", "github_pr"],
+            "type": "string"
+        },
+        "content": {
+            "description": "Markdown or text content for the initial artifact version.",
+            "maxLength": 500000,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "metadata": {
+            "additionalProperties": {},
+            "description": "Optional metadata to persist with the living artifact.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Human-readable artifact name, used as the title.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "source_artifact_id": {
+            "description": "Existing run artifact id to use as the initial content source.",
+            "type": "string"
+        },
+        "source_storage_path": {
+            "description": "Existing run artifact storage_path to use as the initial content source.",
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "task_id", "name"],
+    "type": "object"
+}

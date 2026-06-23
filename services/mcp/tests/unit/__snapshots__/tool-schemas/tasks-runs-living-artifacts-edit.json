@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artifact_id": {
+            "type": "string"
+        },
+        "content": {
+            "description": "Markdown or text content for the next version.",
+            "maxLength": 500000,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "metadata": {
+            "additionalProperties": {},
+            "description": "Optional metadata to merge into the artifact registry record.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Optional new human-readable artifact name.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["artifact_id", "id", "task_id", "content"],
+    "type": "object"
+}
