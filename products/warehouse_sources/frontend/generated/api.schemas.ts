@@ -3900,7 +3900,8 @@ export interface SourcePreviewRequestApi {
      * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot */
+     * * `Chatwoot` - Chatwoot
+     * * `Sanity` - Sanity */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
