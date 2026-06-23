@@ -621,6 +621,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+    migrations:clickhouse:
+        cmd: bin/migrate --scope=clickhouse
+        description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
+        env:
+            DEBUG: '1'
+        services:
+            - clickhouse
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
