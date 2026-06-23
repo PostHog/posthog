@@ -7,7 +7,7 @@ and for reads that consume stored rows — and everything in between passes the 
 around; the model helpers derive a row's type from the content model's class. The module is
 kept deliberately dependency-light so models, views, and temporal code can all import it without
 pulling in the report-research / sandbox machinery — its only non-pydantic import is a leaf DTO that
-carries no such weight: the cross-product `RepoSelectionResult` (`logic.repo_selection.types`).
+carries no such weight: the cross-product `RepoSelectionResult` (`tasks` facade types re-export).
 `RelevantCommit` is defined here rather than reused from the generated `posthog.schema`: importing
 that module drags ~1s of generated pydantic onto every process's `django.setup()` path, since this
 module loads with the signals models (see docs/internal/django-startup-time.md).
@@ -25,7 +25,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
-from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
 # contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays

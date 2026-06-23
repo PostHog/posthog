@@ -19,7 +19,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from products.signals.backend.models import ArtefactAttribution
-from products.tasks.backend.models import Task
+from products.tasks.backend.facade import api as tasks_api
 
 TASK_ID_HEADER = "X-PostHog-Task-Id"
 
@@ -37,7 +37,7 @@ def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
         task_uuid = uuid.UUID(raw.strip())
     except ValueError:
         raise ValidationError({TASK_ID_HEADER: "must be a task UUID."})
-    if not Task.objects.filter(id=task_uuid, team_id=team_id).exists():
+    if not tasks_api.task_exists(task_uuid, team_id):
         raise ValidationError({TASK_ID_HEADER: "unknown task for this project."})
     return str(task_uuid)
 

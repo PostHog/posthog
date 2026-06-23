@@ -20,7 +20,9 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.tasks.backend.models import Task
+
+# Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
+from products.tasks.backend.models import Task  # tach-ignore
 
 
 def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> None:

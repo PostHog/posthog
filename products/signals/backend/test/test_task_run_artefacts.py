@@ -23,8 +23,10 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
     signals_task_ids,
 )
-from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
+
+# Task/TaskRun ORM models needed to build cross-product fixtures; the tasks facade exposes DTOs only.
+from products.tasks.backend.models import Task, TaskRun  # tach-ignore
 
 
 class TestTaskRunArtefacts(BaseTest):
