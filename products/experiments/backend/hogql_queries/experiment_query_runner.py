@@ -40,7 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     ensure_precomputed,
 )
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import get_experiment_date_range
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
@@ -124,14 +124,13 @@ class ExperimentQueryRunner(QueryRunner):
     def __init__(
         self,
         *args,
-        override_end_date: Optional[datetime] = None,
+        as_of: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
@@ -143,6 +142,12 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
+
+        # Evaluation point for the analysis window; experiment_window_end caps it at end_date. An
+        # explicit as_of is a recalc's frozen run snapshot or a timeseries backfill's per-day point.
+        # The default — end_date for a stopped experiment, else now — makes a plain results query
+        # cover the full [start, end_date] window (or [start, now] while running).
+        self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
         self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
@@ -160,7 +165,7 @@ class ExperimentQueryRunner(QueryRunner):
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
 
-        self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
+        self.date_range = experiment_window(self.experiment, self.team, self.as_of)
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -237,7 +242,7 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
-        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+        date_to = experiment_window_end(self.experiment, self.as_of)
 
         return ensure_precomputed(
             team=self.team,
@@ -263,7 +268,7 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValidationError("Experiment must have a start date for lazy computation")
 
         date_from = self.experiment.start_date
-        date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+        date_to = experiment_window_end(self.experiment, self.as_of)
 
         # Extend time range by conversion window — funnel step events can occur after experiment end
         conversion_window_seconds = builder._get_conversion_window_seconds()

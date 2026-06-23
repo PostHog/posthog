@@ -625,7 +625,7 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
                 query_runner = ExperimentQueryRunner(
                     query=experiment_query,
                     team=experiment.team,
-                    override_end_date=query_to_utc,
+                    as_of=query_to_utc,
                     workload=Workload.OFFLINE,
                     # Scheduled backfill has no request user. Attribute the query to the experiment's creator
                     # so warehouse HogQL access control is enforced.

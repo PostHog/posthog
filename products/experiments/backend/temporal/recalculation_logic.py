@@ -482,13 +482,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
         calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
-            # the runner falls back to its default ("now-ish"), so every metric in the run would query a
-            # slightly different time window — defeating the "one query_to for the whole run" guarantee.
+            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
+            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
+            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
-                override_end_date=query_to_dt,
+                as_of=query_to_dt,
                 workload=Workload.OFFLINE,
                 # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
                 # warehouse HogQL access control is enforced against an accountable user instead of bypassed.

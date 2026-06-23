@@ -238,6 +238,59 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
     return conversion_window * multipliers[conversion_window_unit]
 
 
+def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
+    """Upper edge of an experiment's analysis window, evaluated at ``as_of``.
+
+    The window can't extend past the evaluation point ``as_of`` nor past the experiment's
+    ``end_date``, so the edge is the earlier of the two (``end_date`` acts as +infinity when unset):
+
+    - running (``end_date is None``)   -> ``as_of``
+    - ``as_of`` at/after ``end_date``  -> ``end_date`` (stopped; the common "view it later" case)
+    - ``as_of`` before ``end_date``    -> ``as_of`` (a timeseries point taken mid-experiment)
+
+    For an ordinary "current results" query the runner passes ``as_of = end_date or now`` (see
+    :class:`ExperimentQueryRunner`), so a stopped experiment resolves to ``end_date`` and a running
+    one to ``now``. A recalc passes its frozen run snapshot; a timeseries backfill passes each
+    historical day — which is why an ``as_of`` *below* ``end_date`` must win, so per-day points stay
+    distinct instead of all collapsing onto ``end_date``.
+
+    The historical "results keep growing after end_date" bug: the run snapshot (``now``, always at or
+    after a stopped experiment's ``end_date``) was used as the edge *instead of* ``end_date``, so the
+    window kept extending to now. Capping at ``end_date`` fixes it while preserving the sub-window.
+
+    ``as_of`` must be timezone-aware.
+    """
+    if experiment.end_date is None:
+        return as_of
+    return min(as_of, experiment.end_date)
+
+
+def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> DateRange:
+    """Single source of truth for an experiment's analysis ``DateRange``.
+
+    Replaces the scattered ``override_end_date or end_date or now`` derivations. The upper edge
+    always comes from :func:`experiment_window_end` (earlier of ``as_of`` and ``end_date``), so no
+    call site can extend the window past ``end_date``. A draft experiment (no ``start_date``) has no
+    window.
+    """
+    if experiment.start_date is None:
+        return DateRange(date_from=None, date_to=None, explicitDate=True)
+
+    start_date = experiment.start_date
+    end_date = experiment_window_end(experiment, as_of)
+
+    if team.timezone:
+        tz = ZoneInfo(team.timezone)
+        start_date = start_date.astimezone(tz)
+        end_date = end_date.astimezone(tz)
+
+    return DateRange(
+        date_from=start_date.isoformat(),
+        date_to=end_date.isoformat(),
+        explicitDate=True,
+    )
+
+
 def get_experiment_date_range(
     experiment: Experiment, team: Team, override_end_date: Optional[datetime] = None
 ) -> DateRange:
