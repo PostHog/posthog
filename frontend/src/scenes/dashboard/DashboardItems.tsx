@@ -90,6 +90,11 @@ export function DashboardItems(): JSX.Element {
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
+    // While a drag/resize is in progress the grid drives itself from its own internal state and ignores the
+    // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
+    // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
+    const interactionInProgress = useRef(false)
+    const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -264,12 +269,26 @@ export function DashboardItems(): JSX.Element {
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (layoutEditMode) {
-                updateLayouts(newLayouts)
+            if (!layoutEditMode) {
+                return
             }
+            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
+            if (interactionInProgress.current) {
+                pendingLayouts.current = newLayouts
+                return
+            }
+            updateLayouts(newLayouts)
         },
         [layoutEditMode, updateLayouts]
     )
+
+    const flushPendingLayouts = useCallback(() => {
+        interactionInProgress.current = false
+        if (pendingLayouts.current) {
+            updateLayouts(pendingLayouts.current)
+            pendingLayouts.current = null
+        }
+    }, [updateLayouts])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -278,18 +297,25 @@ export function DashboardItems(): JSX.Element {
         [updateContainerWidth]
     )
 
+    const handleResizeStart = useCallback(() => {
+        interactionInProgress.current = true
+    }, [])
+
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
+        interactionInProgress.current = true
         resizingItemRef.current = newItem
     }, [])
 
     const handleResizeStop = useCallback(() => {
         resizingItemRef.current = null
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(() => {
+        interactionInProgress.current = true
         scrollContainerRef.current = document.getElementById('main-content')
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
     }, [])
@@ -351,10 +377,11 @@ export function DashboardItems(): JSX.Element {
         dragEndTimeout.current = window.setTimeout(() => {
             isDragging.current = false
         }, 250)
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -392,6 +419,7 @@ export function DashboardItems(): JSX.Element {
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
+                        onResizeStart={handleResizeStart}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
