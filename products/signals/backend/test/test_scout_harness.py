@@ -764,6 +764,62 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_activity_skips_run_when_team_over_signals_quota(ateam):
+    fake_arun = AsyncMock()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
+            return_value=True,
+        ),
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    fake_arun.assert_not_called()
+    assert output.run_id is None
+    assert output.status is None
+    assert output.skip_reason == "quota_limited"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_runs_when_team_under_signals_quota(ateam):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status=TaskRun.Status.COMPLETED.value,
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
+            return_value=False,
+        ),
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    assert output.status == "completed"
+    assert output.skip_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_activity_swallows_transient_db_connection_drop(ateam):
     # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
     # synchronous DB access, outside the run-row try/except. The activity's "never raises"
