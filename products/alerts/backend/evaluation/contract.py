@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
+
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -84,5 +86,30 @@ def lookback_intervals_for(condition: AlertCondition) -> int:
             raise AlertExtractionError(f"Unsupported alert condition type: {condition.type}")
 
 
+@dataclass
+class SimulationContext:
+    """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
+    kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
+    ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
+
+    team: Any
+    detector_config: dict
+    user: User | None = None
+    series_index: int = 0
+    date_from: str | None = None
+    config: dict | None = None
+
+
 class Extractor(Protocol):
     def extract(self, alert: AlertConfiguration, insight: Insight, query: object) -> ExtractionResult: ...
+
+
+class DetectorExtractor(Extractor, Protocol):
+    """An ``Extractor`` that can also build its series for a read-only simulation (no
+    ``AlertConfiguration``). One implementation per detector-supported kind, registered in
+    ``dispatcher.DETECTOR_EXTRACTORS`` — the single source of truth for both the alert-check path
+    (``extract``) and the simulation path (``simulate``)."""
+
+    def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
+        """Return the extracted series plus the chart interval (None for kinds with no time interval)."""
+        ...

@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
+from posthog.schema import IntervalType, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -24,8 +24,12 @@ from posthog.tasks.alerts.trends import TrendResult, _has_breakdown, _is_non_tim
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
-from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
-from products.alerts.backend.evaluation.hogql import extract_hogql_detector_series, hogql_config_or_default
+from products.alerts.backend.evaluation.contract import (
+    ComparableSeries,
+    ExtractionResult,
+    SeriesPoint,
+    SimulationContext,
+)
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -195,6 +199,20 @@ class TrendsDetectorExtractor:
             insight, alert.team, trends_query, detector_config, series_index=series_index, user=alert.created_by
         )
 
+    def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
+        trends_query = TrendsQuery.model_validate(query)
+        result = extract_detector_series(
+            insight,
+            ctx.team,
+            trends_query,
+            ctx.detector_config,
+            series_index=ctx.series_index,
+            date_from=ctx.date_from,
+            user=ctx.user,
+        )
+        interval_value = trends_query.interval.value if trends_query.interval else None
+        return result, interval_value
+
 
 def simulate_detector_on_insight(
     insight: Insight,
@@ -221,23 +239,27 @@ def simulate_detector_on_insight(
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
 
-    # This per-kind dispatch parallels dispatcher.DETECTOR_EXTRACTORS but can't reuse it: the
-    # registry's extractors take an AlertConfiguration, while simulation is alert-less and threads
-    # kind-specific params (series_index/date_from for trends, config for SQL). Keep the two in
-    # sync — a kind added to DETECTOR_EXTRACTORS must also get a branch here, or it raises below.
-    if kind == NodeKind.TRENDS_QUERY:
-        trends_query = TrendsQuery.model_validate(query)
-        result = extract_detector_series(
-            insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from, user=user
-        )
-        interval_value = trends_query.interval.value if trends_query.interval else None
-    elif kind == NodeKind.HOG_QL_QUERY:
-        result = extract_hogql_detector_series(
-            insight, team, hogql_config_or_default(config), detector_config, user=user
-        )
-        interval_value = None
-    else:
+    # Route through the same kind→extractor registry as the alert path (check_detector_alert), so
+    # simulation and evaluation can't drift: a kind added to DETECTOR_EXTRACTORS is automatically
+    # simulatable via its extractor's simulate(). The import is lazy because dispatcher imports this
+    # module's extractor classes — importing the registry at module load would cycle.
+    from products.alerts.backend.evaluation.dispatcher import (  # noqa: PLC0415 — breaks dispatcher↔detector import cycle
+        DETECTOR_EXTRACTORS,
+    )
+
+    extractor = DETECTOR_EXTRACTORS.get(kind)
+    if extractor is None:
         raise ValueError(f"Anomaly detection simulation isn't supported for {kind} insights")
+
+    ctx = SimulationContext(
+        team=team,
+        detector_config=detector_config,
+        user=user,
+        series_index=series_index,
+        date_from=date_from,
+        config=config,
+    )
+    result, interval_value = extractor.simulate(insight, query, ctx)
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that

@@ -16,6 +16,7 @@ from products.alerts.backend.evaluation.contract import (
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
+    SimulationContext,
     zero_sentinel_series,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -269,6 +270,13 @@ class HogQLDetectorExtractor:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(insight, alert.team, config, detector_config, user=alert.created_by)
+
+    def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
+        # SQL rows are their own series, so there's no chart interval — return None alongside.
+        result = extract_hogql_detector_series(
+            insight, ctx.team, hogql_config_or_default(ctx.config), ctx.detector_config, user=ctx.user
+        )
+        return result, None
 
 
 def _resolve_value_column_index(configured: str | None, column_names: list[str] | None, rows: list) -> int:
