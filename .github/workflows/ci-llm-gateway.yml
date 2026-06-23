@@ -54,7 +54,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 15
         defaults:
             run:
                 working-directory: services/llm-gateway

@@ -17,7 +17,14 @@ import pytest
 from anthropic import Anthropic, BadRequestError
 from anthropic.types import TextBlock, ToolParam, ToolUseBlock
 
-from .conftest import BEDROCK_REGION, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, TEST_POSTHOG_API_KEY
+from .conftest import (
+    BEDROCK_REGION,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_KEY,
+    CLOUDFLARE_MAX_RETRIES,
+    CLOUDFLARE_REQUEST_TIMEOUT,
+    TEST_POSTHOG_API_KEY,
+)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 CLOUDFLARE_CONFIGURED = bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID)
@@ -34,6 +41,17 @@ def _get_text_block(response) -> TextBlock:
         if isinstance(block, TextBlock):
             return block
     raise AssertionError(f"No TextBlock found in response content: {response.content}")
+
+
+def _skip_cloudflare_full_matrix(provider: str) -> None:
+    """Smoke-test the Cloudflare routing path, don't run the whole behavioural matrix against it.
+
+    CF Workers AI calls are slow and high-variance, so running every SDK behaviour against them
+    blows the CI time budget. The adapter paths that matter (non-streaming, streaming, tool use)
+    are smoke-tested elsewhere in this file; the rest of the matrix is covered by the other providers.
+    """
+    if provider == "cloudflare":
+        pytest.skip("Cloudflare routing covered by smoke tests; skipping full matrix to bound CI time")
 
 
 @dataclass
@@ -73,6 +91,8 @@ def sdk_config(request) -> SDKTestConfig:
             api_key=TEST_POSTHOG_API_KEY,
             base_url=url,
             default_headers={"X-PostHog-Provider": "cloudflare"},
+            timeout=CLOUDFLARE_REQUEST_TIMEOUT,
+            max_retries=CLOUDFLARE_MAX_RETRIES,
         )
         return SDKTestConfig(client=client, model="@cf/moonshotai/kimi-k2.6", provider="cloudflare")
     else:
@@ -113,6 +133,7 @@ class TestAnthropicMessages:
         assert len(text) > 0
 
     def test_with_system_message(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         response = sdk_config.client.messages.create(
             model=sdk_config.model,
             system="You are a helpful assistant that only says 'OK'.",
@@ -125,6 +146,7 @@ class TestAnthropicMessages:
         assert text_block.text is not None
 
     def test_with_temperature(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         response = sdk_config.client.messages.create(
             model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'test'"}],
@@ -139,6 +161,7 @@ class TestAnthropicMessages:
 
 class TestAnthropicMultipleModels:
     def test_basic_request(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         response = sdk_config.client.messages.create(
             model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'A'"}],
@@ -150,6 +173,7 @@ class TestAnthropicMultipleModels:
         assert text_block.text is not None
 
     def test_sequential_requests_same_model(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         response1 = sdk_config.client.messages.create(
             model=sdk_config.model,
             messages=[{"role": "user", "content": "Say '1'"}],
@@ -166,6 +190,7 @@ class TestAnthropicMultipleModels:
         assert _get_text_block(response2).text is not None
 
     def test_streaming_then_non_streaming(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         with sdk_config.client.messages.stream(
             model=sdk_config.model,
             messages=[{"role": "user", "content": "Say 'stream'"}],
@@ -216,6 +241,7 @@ class TestAnthropicToolUse:
             assert "location" in tool_use.input
 
     def test_tool_choice_forced(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         tools: list[ToolParam] = [
             {
                 "name": "calculate",
@@ -305,6 +331,7 @@ class TestAnthropicVision:
 
 class TestAnthropicMultiTurn:
     def test_conversation_history(self, sdk_config: SDKTestConfig):
+        _skip_cloudflare_full_matrix(sdk_config.provider)
         response = sdk_config.client.messages.create(
             model=sdk_config.model,
             system="You are a helpful assistant. Be very brief.",

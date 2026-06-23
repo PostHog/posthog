@@ -28,6 +28,17 @@ xfail_provider_unavailable = pytest.mark.xfail(
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 
 
+def _skip_cloudflare_full_matrix(provider: str) -> None:
+    """Smoke-test the Cloudflare routing path, don't run the whole behavioural matrix against it.
+
+    CF Workers AI calls are slow and high-variance, so running every SDK behaviour against them
+    blows the CI time budget. The core adapter paths (non-streaming, streaming) are smoke-tested
+    elsewhere in this file; the rest of the matrix is covered by the OpenAI provider.
+    """
+    if provider == "cloudflare":
+        pytest.skip("Cloudflare routing covered by smoke tests; skipping full matrix to bound CI time")
+
+
 @dataclass
 class OpenAISDKTestConfig:
     client: OpenAI
@@ -120,6 +131,7 @@ class TestChatCompletions:
         assert len(content_chunks) > 0
 
     def test_with_system_message(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[
@@ -133,6 +145,7 @@ class TestChatCompletions:
         assert response.choices[0].message.content is not None
 
     def test_with_temperature(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'test'"}],
@@ -146,6 +159,7 @@ class TestChatCompletions:
 
 class TestMultipleModels:
     def test_basic_request(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'A'"}],
@@ -156,6 +170,7 @@ class TestMultipleModels:
         assert response.choices[0].message.content is not None
 
     def test_sequential_requests_same_model(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response1 = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say '1'"}],
@@ -172,6 +187,7 @@ class TestMultipleModels:
         assert response2.choices[0].message.content is not None
 
     def test_streaming_then_non_streaming(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         stream = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[{"role": "user", "content": "Say 'stream'"}],
@@ -191,6 +207,7 @@ class TestMultipleModels:
 
 class TestToolCalling:
     def test_tool_definition_and_response(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         tools: list[ChatCompletionToolParam] = [
             {
                 "type": "function",
@@ -268,6 +285,7 @@ class TestToolCalling:
 
 class TestMultiTurnParametrized:
     def test_conversation_history(self, oai_sdk_config: OpenAISDKTestConfig):
+        _skip_cloudflare_full_matrix(oai_sdk_config.provider)
         response = oai_sdk_config.client.chat.completions.create(
             model=oai_sdk_config.model,
             messages=[

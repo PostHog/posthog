@@ -26,6 +26,13 @@ BEDROCK_REGION = (
 )
 TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
 
+# Cloudflare Workers AI runs serverless and is slow + high-variance (cold starts on a large model
+# can push a single completion past 3 minutes). Bound each CF call and disable SDK-level retries so
+# a slow response can't blow the integration suite's CI time budget. The clients that talk to other
+# providers keep the SDK defaults.
+CLOUDFLARE_REQUEST_TIMEOUT = 120.0
+CLOUDFLARE_MAX_RETRIES = 0
+
 MOCK_MODEL_COSTS = {
     "gpt-4o": {
         "litellm_provider": "openai",
@@ -250,6 +257,8 @@ def cloudflare_anthropic_client(cloudflare_gateway_url):
         api_key=TEST_POSTHOG_API_KEY,
         base_url=cloudflare_gateway_url,
         default_headers={"X-PostHog-Provider": "cloudflare"},
+        timeout=CLOUDFLARE_REQUEST_TIMEOUT,
+        max_retries=CLOUDFLARE_MAX_RETRIES,
     )
 
 
@@ -258,4 +267,6 @@ def cloudflare_openai_client(cloudflare_gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
         base_url=f"{cloudflare_gateway_url}/v1",
+        timeout=CLOUDFLARE_REQUEST_TIMEOUT,
+        max_retries=CLOUDFLARE_MAX_RETRIES,
     )
