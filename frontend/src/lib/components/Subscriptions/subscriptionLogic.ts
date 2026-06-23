@@ -58,6 +58,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
+    post_all_insights_in_main_message: false,
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {

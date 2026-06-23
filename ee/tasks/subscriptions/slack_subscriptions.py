@@ -185,15 +185,35 @@ def _prepare_slack_message(
             }
         )
 
-    blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
+    post_all_in_main = subscription.post_all_insights_in_main_message
 
-    if other_assets:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"},
-            }
-        )
+    # The "Showing N of M Insights" overflow note (set below) rides in the main message
+    # when posting all insights there, otherwise it stays threaded.
+    overflow_block: dict | None = None
+    if total_asset_count > len(assets):
+        overflow_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
+            },
+        }
+
+    if post_all_in_main:
+        for asset in assets:
+            blocks.append(_block_for_asset(asset, resource_url=resource_info.url))
+        if overflow_block:
+            blocks.append(overflow_block)
+    else:
+        blocks.append(_block_for_asset(first_asset, resource_url=resource_info.url))
+
+        if other_assets:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "_See 🧵 for more Insights_"},
+                }
+            )
 
     action_elements: list[dict] = [
         {
@@ -218,25 +238,16 @@ def _prepare_slack_message(
     if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
-    # Prepare additional messages for thread
-    thread_messages = []
-    for asset in other_assets:
-        thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
+    # Prepare additional messages for thread. When posting all insights in the main
+    # message, the per-asset blocks (and overflow note) are already in the main message,
+    # so leave the thread empty.
+    thread_messages: list[dict] = []
+    if not post_all_in_main:
+        for asset in other_assets:
+            thread_messages.append({"blocks": [_block_for_asset(asset, resource_url=resource_info.url)]})
 
-    if total_asset_count > len(assets):
-        thread_messages.append(
-            {
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
-                        },
-                    }
-                ]
-            }
-        )
+        if overflow_block:
+            thread_messages.append({"blocks": [overflow_block]})
 
     return SlackMessageData(
         channel=channel,

@@ -184,6 +184,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "invite_message",
             "summary_enabled",
             "summary_prompt_guide",
+            "post_all_insights_in_main_message",
         ]
         read_only_fields = [
             "id",
@@ -243,6 +244,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics "
                     "to emphasize. Only settable when AI summary context is enabled for the organization; "
                     "clearing it (empty string) is always allowed."
+                ),
+            },
+            "post_all_insights_in_main_message": {
+                "help_text": (
+                    "Slack only: when true, all insight images are posted in the main Slack message instead "
+                    "of posting the first image in the main message and the rest as threaded replies. "
+                    "Defaults to false (threaded). Has no effect on email delivery."
                 ),
             },
         }

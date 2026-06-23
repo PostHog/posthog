@@ -547,6 +547,22 @@ function EditSubscriptionForm({
                                                 }}
                                             </LemonField>
                                         )}
+
+                                        <LemonField name="post_all_insights_in_main_message">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    bordered
+                                                    fullWidth
+                                                    label="Post all insights in the main message"
+                                                />
+                                            )}
+                                        </LemonField>
+                                        <div className="text-xs text-secondary">
+                                            By default, extra insights are posted in a thread reply. Enable this to
+                                            post every insight image in the main Slack message instead.
+                                        </div>
                                     </>
                                 )}
                             </>
