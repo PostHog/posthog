@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -161,7 +161,7 @@ def easypost_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[EasypostResumeConfig],
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = EASYPOST_ENDPOINTS[endpoint]

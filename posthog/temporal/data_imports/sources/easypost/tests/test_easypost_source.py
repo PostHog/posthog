@@ -4,7 +4,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import ExternalDataSourceType as SchemaExternalDataSourceType
+from posthog.schema import (
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    SourceFieldInputConfig,
+)
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.easypost.easypost import EasypostResumeConfig
@@ -35,6 +38,7 @@ class TestSourceConfig:
         fields = EasypostSource().get_source_config.fields
         assert [f.name for f in fields] == ["api_key"]
         api_key_field = fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.required is True
         assert api_key_field.secret is True
 
