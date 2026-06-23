@@ -3952,7 +3952,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         agent_auth = response.json()["agent_auth"]
 
         self.assertTrue(agent_auth["skill"].endswith("/auth.md"))
-        self.assertTrue(agent_auth["identity_endpoint"].endswith("/id-jag/token"))
+        self.assertTrue(agent_auth["identity_endpoint"].endswith("/oauth/token/"))
         self.assertEqual(agent_auth["identity_types_supported"], ["identity_assertion"])
         self.assertEqual(
             agent_auth["identity_assertion"]["assertion_types_supported"],
@@ -3963,11 +3963,9 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
 
-        # The device-claim and revocation-receiver endpoints do not exist yet,
-        # and the standard token endpoint does not accept jwt-bearer.
+        # The device-claim and revocation-receiver endpoints do not exist yet.
         self.assertNotIn("claim_endpoint", metadata["agent_auth"])
         self.assertNotIn("events_endpoint", metadata["agent_auth"])
-        self.assertNotIn("urn:ietf:params:oauth:grant-type:jwt-bearer", metadata["grant_types_supported"])
 
 
 class TestOAuthClientManifest(APIBaseTest):
@@ -3983,7 +3981,7 @@ class TestOAuthClientManifest(APIBaseTest):
         body = response.content.decode()
 
         self.assertIn("# PostHog", body)
-        self.assertIn("/id-jag/token", body)
+        self.assertIn("/oauth/token/", body)
         self.assertIn("urn:ietf:params:oauth:token-type:id-jag", body)
         self.assertIn("/.well-known/oauth-protected-resource", body)
 

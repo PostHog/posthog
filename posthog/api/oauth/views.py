@@ -1544,7 +1544,7 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
             # built yet, so they are deliberately omitted rather than advertised.
             "agent_auth": {
                 "skill": f"{base_url}/auth.md",
-                "identity_endpoint": f"{base_url}/id-jag/token",
+                "identity_endpoint": f"{base_url}/oauth/token/",
                 "identity_types_supported": ["identity_assertion"],
                 "identity_assertion": {
                     "assertion_types_supported": ["urn:ietf:params:oauth:token-type:id-jag"],
