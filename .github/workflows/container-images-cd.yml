@@ -157,6 +157,7 @@ jobs:
                       -e STATIC_COLLECTION=1 \
                       -e DATABASE_URL=postgres:/// \
                       -e REDIS_URL=redis:/// \
+                      -e INTERNAL_API_SECRET=ci-boot-test-dummy-secret \
                       "$IMAGE" sh -c 'python -c "import posthog.asgi" && python manage.py check'
 
             # Gate the deploy on backend CI. The image is already built and pushed above
