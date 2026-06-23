@@ -32,6 +32,8 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         workflowSummaryTrends,
         emailMetricsRows,
         emailTotalsByActionIdLoading,
+        conversionRate,
+        conversionStatsLoading,
     } = useValues(workflowMetricsSummaryLogic(props))
 
     const emailMetricsColumns: LemonTableColumns<EmailMetricRow> = useMemo(
@@ -128,6 +130,22 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                         />
                     )
                 })}
+                <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
+                    <div className="flex flex-col h-full">
+                        <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            Conversion rate
+                        </LemonLabel>
+                        <div className="flex flex-1 items-center justify-center">
+                            {conversionStatsLoading ? (
+                                <SpinnerOverlay />
+                            ) : (
+                                <div className="text-6xl text-muted-foreground mb-2">
+                                    {`${(conversionRate * 100).toFixed(1)}%`}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <LemonTable

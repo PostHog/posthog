@@ -107,7 +107,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         if (!invocationGlobals.length) {
             return
         }
-        await this.wakeMatchingWorkflows(invocationGlobals)
+        try {
+            await this.wakeMatchingWorkflows(invocationGlobals)
+        } finally {
+            // Flush any `conversion` metrics queued during matching. Best-effort: a metrics failure
+            // must not crash the batch (which would replay the event offsets). flush() is a no-op
+            // when nothing was queued, so it's safe to call unconditionally.
+            await instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+                try {
+                    await this.hogFunctionMonitoringService.flush()
+                } catch (err) {
+                    logger.error('⚠️', 'Failed to flush hogflow matcher app metrics', { err })
+                    captureException(err)
+                }
+            })
+        }
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
@@ -197,6 +211,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (stepMatched && conversionMatched) {
                     break
                 }
+            }
+
+            // Count the conversion regardless of exit condition. This is the only place event-based
+            // conversions are observed (the executor never sees them for non-exit flows), so emit the
+            // `conversion` metric here. Counted per matching conversion event — there is no cross-batch
+            // dedup, deliberately, to avoid writing cyclotron job state from the matcher.
+            if (conversionMatched) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: candidate.teamId,
+                        app_source_id: candidate.functionId,
+                        instance_id: hogflow.id,
+                        metric_kind: 'other',
+                        metric_name: 'conversion',
+                        count: 1,
+                    },
+                    'hog_flow'
+                )
             }
 
             // A matched wait step always resumes the job. A conversion match only wakes the job when
@@ -483,13 +515,15 @@ function exitsOnConversion(hogflow: HogFlow): boolean {
 }
 
 // Skip teams whose hogflows have nothing the matcher can act on: no wait_until_condition step, and
-// no event-based conversion goal that the workflow exits on.
+// no event-based conversion goal. Event conversions are evaluated regardless of exit condition so
+// the `conversion` metric is tracked even for flows that don't exit on conversion — only the *wake*
+// decision (in wakeMatchingWorkflows) still depends on exitsOnConversion.
 function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
         return true
     }
     const conversionEvents = hogflow.conversion?.events
-    return Array.isArray(conversionEvents) && conversionEvents.length > 0 && exitsOnConversion(hogflow)
+    return Array.isArray(conversionEvents) && conversionEvents.length > 0
 }
 
 // Single pass over the batch: dedup distinct/person ids, collect team ids,
