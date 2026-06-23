@@ -330,7 +330,10 @@ def _introspect(context: "HogQLContext") -> tuple[list[list[Any]], list[list[Any
     introspection — including the warehouse-metadata ORM queries — once per referenced table.
     """
     if context.information_schema_introspection is None:
-        context.information_schema_introspection = _Introspection(context.database, context).collect()
+        database = context.database
+        if database is None:
+            return [], [], []
+        context.information_schema_introspection = _Introspection(database, context).collect()
     return context.information_schema_introspection
 
 
