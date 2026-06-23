@@ -5,6 +5,7 @@ import {
     IconComment,
     IconFlask,
     IconFolder,
+    IconGraph,
     IconNotification,
     IconPieChart,
     IconPlug,
@@ -31,6 +32,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     reminder: <IconClock className="size-5 text-primary shrink-0" />,
     web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
     achievement_unlocked: <IconStar className="size-5 text-warning shrink-0" />,
+    pulse_digest: <IconGraph className="size-5 text-primary shrink-0" />,
 }
 
 export function getNotificationIcon(notificationType: string): JSX.Element {

@@ -28524,6 +28524,7 @@ export namespace Schemas {
      * * `experiment` - EXPERIMENT
      * * `error_tracking` - ERROR_TRACKING
      * * `customer_analytics` - CUSTOMER_ANALYTICS
+     * * `pulse` - PULSE
      */
     export type NotificationEventSourceTypeEnum = typeof NotificationEventSourceTypeEnum[keyof typeof NotificationEventSourceTypeEnum];
 
@@ -28538,6 +28539,7 @@ export namespace Schemas {
       Experiment: 'experiment',
       ErrorTracking: 'error_tracking',
       CustomerAnalytics: 'customer_analytics',
+      Pulse: 'pulse',
     } as const;
 
     export interface NotificationEvent {
