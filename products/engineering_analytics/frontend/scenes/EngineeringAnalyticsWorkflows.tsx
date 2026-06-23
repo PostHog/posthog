@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -59,8 +59,10 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         workflowHealthLoadError,
         workflowDateFrom,
         workflowDateTo,
+        branchInput,
+        appliedBranch,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, refresh } = useActions(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -117,7 +119,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     <Sparkline
                         className="h-8"
                         type="bar"
-                        name="Non-passing"
+                        name="Failing"
                         data={values}
                         labels={labels}
                         maximumIndicator={false}
@@ -168,6 +170,17 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onChange={setWorkflowDateRange}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="w-56"
+                    placeholder="Branch: all (e.g. main)"
+                    value={branchInput}
+                    onChange={setBranchFilter}
+                    onPressEnter={applyBranchFilter}
+                    onBlur={applyBranchFilter}
+                    data-attr="engineering-analytics-branch-filter"
+                />
             </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
@@ -178,12 +191,17 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
-                emptyState="No workflow runs in this window."
+                emptyState={
+                    appliedBranch
+                        ? `No workflow runs on '${appliedBranch}' in this window.`
+                        : 'No workflow runs in this window.'
+                }
                 nouns={['workflow', 'workflows']}
             />
             <div className="text-xs text-tertiary">
                 Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: {windowLabel}.
+                excluded, not counted as a failure. Window: {windowLabel}
+                {appliedBranch ? ` · branch: ${appliedBranch}` : ''}.
             </div>
         </div>
     )
