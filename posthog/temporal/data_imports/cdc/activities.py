@@ -975,15 +975,19 @@ class CDCExtractActivity:
         return info
 
     def _capture_non_retryable(self, info: CDCErrorInfo) -> None:
-        posthoganalytics.capture(
-            distinct_id=get_machine_id(),
-            event="cdc extraction non-retryable error",
-            properties={
-                "team_id": self.inputs.team_id,
-                "source_id": str(self.inputs.source_id),
-                "category": str(info.category),
-            },
-        )
+        # Best-effort: analytics must never mask the NonRetryableException the caller is about to raise.
+        try:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="cdc extraction non-retryable error",
+                properties={
+                    "team_id": self.inputs.team_id,
+                    "source_id": str(self.inputs.source_id),
+                    "category": str(info.category),
+                },
+            )
+        except Exception:
+            self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)

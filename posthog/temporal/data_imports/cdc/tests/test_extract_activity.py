@@ -1444,6 +1444,51 @@ class TestErrorClassification:
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_analytics_failure_does_not_mask_nonretryable(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
+            'password authentication failed for user "test"'
+        )
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        # Analytics is down — it must not swallow or replace the NonRetryableException.
+        mock_posthoganalytics.capture.side_effect = RuntimeError("analytics down")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
+    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
     def test_retryable_error_reraises_original_and_does_not_capture(
         self,
         mock_close_conns,

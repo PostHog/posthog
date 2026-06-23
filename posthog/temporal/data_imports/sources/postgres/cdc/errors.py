@@ -24,7 +24,6 @@ _SSL_REQUIRED_MARKERS = (
 )
 
 _AUTH_MARKERS = (
-    "password authentication failed",
     "authentication failed",
     "no password supplied",
 )
