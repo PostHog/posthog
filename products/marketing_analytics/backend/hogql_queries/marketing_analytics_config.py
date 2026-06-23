@@ -3,7 +3,6 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import (
     AttributionMode,
@@ -11,6 +10,8 @@ from posthog.schema import (
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
 )
+
+from posthog.ph_client import feature_enabled_or_false
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -116,7 +117,7 @@ class MarketingAnalyticsConfig:
             config.attribution_mode = AttributionMode(ma_config.attribution_mode)
 
         # Gate precomputation behind feature flag
-        config.conversion_goal_precomputation_enabled = posthoganalytics.feature_enabled(
+        config.conversion_goal_precomputation_enabled = feature_enabled_or_false(
             "marketing-analytics-precomputation",
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
@@ -134,7 +135,7 @@ class MarketingAnalyticsConfig:
 
         # Gate multi-touch attribution behind feature flag
         if config.attribution_mode in MULTI_TOUCH_MODES:
-            has_multi_touch = posthoganalytics.feature_enabled(
+            has_multi_touch = feature_enabled_or_false(
                 "marketing-analytics-multi-touch-attribution",
                 str(team.uuid),
                 groups={"organization": str(team.organization.id)},
