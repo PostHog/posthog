@@ -63,6 +63,18 @@ def create_slot_and_publication(
 
     Returns the consistent_point LSN from slot creation.
     """
+    create_publication(conn, pub_name, tables)
+    consistent_point = create_slot(conn, slot_name)
+    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
+    return consistent_point
+
+
+def create_publication(
+    conn: psycopg.Connection,
+    pub_name: str,
+    tables: list[tuple[str, str]],
+) -> None:
+    """Create a publication, optionally pre-populated with schema-qualified tables."""
     with conn.cursor() as cur:
         if tables:
             table_list = sql.SQL(", ").join(
@@ -82,13 +94,9 @@ def create_slot_and_publication(
                     sql.Identifier(pub_name),
                 )
             )
-        # Must commit before creating the slot — PG forbids logical slot
-        # creation in a transaction that has performed writes.
+        # Commit immediately so callers can create a replication slot on the same connection next.
         conn.commit()
-
-    consistent_point = create_slot(conn, slot_name)
-    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
-    return consistent_point
+    logger.info("Created publication '%s'", pub_name)
 
 
 def create_slot(conn: psycopg.Connection, slot_name: str) -> str:
@@ -141,6 +149,14 @@ def drop_slot_and_publication(
 ) -> None:
     """Drop a replication slot and publication. Best-effort — logs and continues on errors."""
     drop_slot(conn, slot_name)
+    drop_publication(conn, pub_name)
+
+
+def drop_publication(
+    conn: psycopg.Connection,
+    pub_name: str,
+) -> None:
+    """Drop a publication. Best-effort — logs and continues on errors."""
     with conn.cursor() as cur:
         try:
             cur.execute(
