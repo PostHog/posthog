@@ -1,8 +1,9 @@
 import asyncio
+import dataclasses
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
 import structlog
@@ -590,6 +591,66 @@ class TestConnectionRecovery:
 
         mock_get_stale.assert_awaited_once()
         assert mock_get_stale.call_args[0][0] is fresh
+
+
+class TestInFlightTaskRegistry:
+    @pytest.mark.asyncio
+    async def test_reap_removes_finished_tasks(self):
+        consumer = _make_consumer()
+
+        done_task = asyncio.create_task(asyncio.sleep(0))
+        await done_task
+        consumer._in_flight[(1, "s1")] = done_task
+
+        running_task = asyncio.create_task(asyncio.sleep(100))
+        consumer._in_flight[(2, "s2")] = running_task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+        assert (2, "s2") in consumer._in_flight
+        running_task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_reap_logs_failed_tasks(self):
+        consumer = _make_consumer()
+
+        async def fail():
+            raise RuntimeError("boom")
+
+        task = asyncio.create_task(fail())
+        try:
+            await task
+        except RuntimeError:
+            pass
+        consumer._in_flight[(1, "s1")] = task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+
+    @pytest.mark.asyncio
+    async def test_process_group_tracked_increments_and_decrements_gauge(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        mock_gauge = MagicMock()
+        consumer._metrics = dataclasses.replace(consumer._metrics, active_groups=mock_gauge)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_group_tracked((1, "schema-1"), [_make_batch()])
+
+        mock_gauge.inc.assert_called_once()
+        mock_gauge.dec.assert_called_once()
 
 
 class TestGroupByKey:

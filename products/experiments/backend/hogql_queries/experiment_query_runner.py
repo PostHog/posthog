@@ -62,7 +62,7 @@ from products.experiments.backend.hogql_queries.utils import (
     split_baseline_and_test_variants,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_excluded_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
@@ -152,7 +152,7 @@ class ExperimentQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the metric scorecard.
         # self.experiment.holdout is still readable for code paths that need it
         # (e.g. the Distribution table on the Variants tab).
-        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        excluded_variants = set(get_excluded_variants(self.experiment))
         self.variants = [
             variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
         ]

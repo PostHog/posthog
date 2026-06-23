@@ -153,6 +153,7 @@ jobs:
                       -e STATIC_COLLECTION=1 \
                       -e DATABASE_URL=postgres:/// \
                       -e REDIS_URL=redis:/// \
+                      -e INTERNAL_API_SECRET=ci-boot-test-dummy-secret \
                       "$IMAGE" sh -ec '
                           python -c "import posthog.asgi; import posthog.management.commands.start_temporal_worker; from posthog.celery import app; app.loader.import_default_modules()"
                           python manage.py check

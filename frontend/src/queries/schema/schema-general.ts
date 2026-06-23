@@ -1732,6 +1732,9 @@ export type FunnelsFilter = {
      * @default false
      */
     showLegend?: boolean
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1932,6 +1935,9 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1951,6 +1957,7 @@ export type StickinessFilter = {
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
 ])
@@ -1997,6 +2004,9 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
 }
@@ -3326,6 +3336,8 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3361,6 +3373,8 @@ export interface SpanTreeNode {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for
@@ -6915,6 +6929,9 @@ export const externalDataSources = [
     'Tile38',
     'Chatwoot',
     'Sanity',
+    'Metronome',
+    'Jobber',
+    'Knock',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

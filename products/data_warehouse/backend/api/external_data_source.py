@@ -44,6 +44,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
@@ -2200,7 +2201,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource) and source.supports_column_selection:
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",

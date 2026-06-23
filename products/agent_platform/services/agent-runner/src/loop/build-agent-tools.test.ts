@@ -141,7 +141,6 @@ function makeDeps(rev: AgentRevision, over: Partial<AgentToolDeps> = {}): AgentT
         rev,
         session: makeSession(),
         sandbox: null,
-        integrations: {},
         secrets: {},
         bundle: makeBundle(),
         log: () => undefined,

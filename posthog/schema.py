@@ -3104,6 +3104,8 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 
@@ -5512,6 +5514,10 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,
@@ -6989,6 +6995,8 @@ class SpanTreeNode(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     parent_name: str
     parent_service: str
     service_name: str
@@ -7010,6 +7018,10 @@ class StickinessFilter(BaseModel):
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -21396,6 +21408,57 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantFunnelsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    funnelStep: int | None = Field(
+        default=None,
+        description=(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the'
+            " step to drill into.\n**Positive** lists actors who converted through that"
+            " step; **negative** lists actors who dropped off at it. E.g. `2` ="
+            " converted through step 2, `-2` = dropped off at step 2. The smallest"
+            " negative value is `-2` (no one can drop off at the entry step)."
+        ),
+    )
+    funnelStepBreakdown: list[str] | None = Field(
+        default=None,
+        description=(
+            "Step mode only. Scope the actors to a single breakdown series. Pass the"
+            " breakdown value(s) from the matching `query-funnel` result row verbatim"
+            ' (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown)'
+            " series."
+        ),
+    )
+    funnelTrendsDropOff: bool | None = Field(
+        default=None,
+        description=(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`,'
+            " list the actors who dropped off; when `false`, list those who converted."
+            " Use together with `funnelTrendsEntrancePeriodStart`."
+        ),
+    )
+    funnelTrendsEntrancePeriodStart: str | None = Field(
+        default=None,
+        description=(
+            "Trends-dropoff mode only. The entrance period to drill into, as a"
+            " `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from"
+            " the funnel-trends point the user is asking about. Use together with"
+            " `funnelTrendsDropOff`."
+        ),
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    source: AssistantFunnelsQuery = Field(
+        ...,
+        description=("The source funnel insight query whose step (or trends point) we are drilling into."),
+    )
+
+
 class AssistantLifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22174,6 +22237,10 @@ class FunnelsFilter(BaseModel):
         ),
     )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
