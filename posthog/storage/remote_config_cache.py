@@ -16,16 +16,18 @@ from typing import Any
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
-    refresh_expiring_caches as refresh_generic,
+    get_teams_with_expiring_caches as get_teams_generic,
 )
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats as get_cache_stats_generic,
+    push_hypercache_teams_processed_metrics,
 )
 
 logger = structlog.get_logger(__name__)
@@ -74,8 +76,42 @@ REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
 
 
 def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
-    """Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns (successful, failed)."""
-    return refresh_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+    """
+    Refresh array/config.json caches expiring within ``ttl_threshold_hours``; returns (successful, failed).
+
+    Batch-loads every expiring team's config in one query — the config lives in a separate
+    table from Team, so re-stamping per team would be an N+1.
+    """
+    teams = get_teams_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+    if not teams:
+        return 0, 0
+
+    team_by_id = {team.id: team for team in teams}
+    configs = dict(RemoteConfig.objects.filter(team__in=teams).values_list("team_id", "config"))
+
+    successful = 0
+    failed = 0
+    for team_id, team in team_by_id.items():
+        config = configs.get(team_id)
+        if not config:
+            # No config (missing row or empty) — nothing to re-stamp.
+            failed += 1
+            continue
+        try:
+            remote_config_hypercache.set_cache_value_redis_only(team, config, track_expiry=True)
+            successful += 1
+        except Exception as e:
+            logger.exception("Failed to refresh remote config cache", team_id=team_id)
+            capture_exception(e)
+            failed += 1
+
+    push_hypercache_teams_processed_metrics(
+        namespace=REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG.namespace,
+        cache_name=REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG.cache_name,
+        successful=successful,
+        failed=failed,
+    )
+    return successful, failed
 
 
 def cleanup_stale_expiry_tracking() -> int:

@@ -1313,10 +1313,12 @@ class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
         mock_get_client.assert_not_called()
 
     @patch("posthog.storage.hypercache.get_client")
-    def test_track_expiry_skipped_for_non_team_key(self, mock_get_client):
-        # track_expiry only acts on a Team key; a bare token must not touch Redis.
+    def test_track_expiry_raises_for_non_team_key(self, mock_get_client):
+        # track_expiry needs a Team to derive the identifier, so a non-Team key must fail
+        # loud rather than silently skip the stamp.
         hc = self._make_hypercache()
-        hc.set_cache_value_redis_only(self.team.api_token, self.sample_data, track_expiry=True)
+        with pytest.raises(ValueError, match="requires a Team key"):
+            hc.set_cache_value_redis_only(self.team.api_token, self.sample_data, track_expiry=True)
 
         mock_get_client.assert_not_called()
 

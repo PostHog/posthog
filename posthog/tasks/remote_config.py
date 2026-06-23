@@ -48,9 +48,9 @@ def sync_all_remote_configs() -> None:
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
-    # Bound the worker slot: this processes up to 5000 teams (a DB read + Redis write
-    # each), so a stalled iteration shouldn't pin a worker. Well under the hourly cadence.
+    # Long batch loop kept off the latency-sensitive default queue.
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    # Bound the worker slot so a stalled iteration can't pin it.
     soft_time_limit=15 * 60,
     time_limit=16 * 60,
 )
@@ -96,7 +96,8 @@ def refresh_expiring_remote_config_cache_entries() -> None:
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.DEFAULT.value,
+    # Shares the refresh task's queue.
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=5 * 60,
     time_limit=6 * 60,
 )

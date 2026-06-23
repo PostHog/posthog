@@ -412,20 +412,27 @@ class HyperCache:
         key: KeyType,
         ttl: Optional[int] = None,
         should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
+        data: dict | None = None,
     ) -> bool:
+        """
+        Load (or accept a pre-built) value, write it to all tiers, and emit sync metrics.
+
+        Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
+        value is loaded via ``load_fn``.
+        """
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
         success = False
         size: int | None = None
         try:
-            data = self.load_fn(key)
-            if should_skip_write is not None and isinstance(data, dict) and should_skip_write(key, data):
+            value = self.load_fn(key) if data is None else data
+            if should_skip_write is not None and isinstance(value, dict) and should_skip_write(key, value):
                 # A caller-supplied predicate vetoed persisting this freshly loaded
                 # value (e.g. it would overwrite good data with a degraded one). Keep
                 # the existing entry; the predicate owns its own metric/logging.
                 return False
-            size = self.set_cache_value(key, data, ttl=ttl)
+            size = self.set_cache_value(key, value, ttl=ttl)
             success = True
             return True
         except HyperCacheDependencyUnavailable:
@@ -477,13 +484,16 @@ class HyperCache:
         In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is the dedicated flags
         Redis; in dev/test it's whatever the alias resolves to.
 
-        When track_expiry=True and key is a Team, the expiry sorted-set entry is
-        re-stamped too, keeping a redis-only refresh visible to the refresh task.
+        When track_expiry=True the expiry sorted-set entry is re-stamped too, keeping a
+        redis-only refresh visible to the refresh task. Requires a Team key (the identifier
+        derives from it without a DB lookup); raises ValueError otherwise rather than
+        silently skipping the stamp.
 
         Returns the serialized size in bytes, or None for None/missing values.
         """
+        if track_expiry and not isinstance(key, Team):
+            raise ValueError("set_cache_value_redis_only(track_expiry=True) requires a Team key")
         size = self._set_cache_value_redis(key, data, ttl=ttl)
-        # Tracking needs a Team to derive the identifier without a DB lookup.
         if track_expiry and isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
         return size
