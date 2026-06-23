@@ -219,6 +219,11 @@ async def prepare_data_imports_ducklake_metadata_activity(
         await logger.ainfo("DuckLake copy requested but no schema_ids were provided - skipping")
         return []
 
+    # Resolve the same per-team schema the v3 sink uses (table_suffix-aware), so the
+    # historical copy and the live sink never diverge on schema name. All schemas in the
+    # batch belong to one team, so this is loop-invariant — resolve it once.
+    ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
     for schema_id in inputs.schema_ids:
@@ -229,9 +234,6 @@ async def prepare_data_imports_ducklake_metadata_activity(
         normalized_name = schema.normalized_name
         source_type = schema.source.source_type
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
-        # Resolve the same per-team schema the v3 sink uses (table_suffix-aware),
-        # so the historical copy and the live sink never diverge on schema name.
-        ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
         )
