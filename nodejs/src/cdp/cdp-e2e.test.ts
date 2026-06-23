@@ -517,13 +517,13 @@ describe('CDP Consumer loop', () => {
                 )
             }
 
-            // The actual bug this whole PR exists to fix: a retry must NOT reuse the
-            // signature from the first attempt. The 1.5s delay on the 500 response
-            // forces the two attempts to sign in different wall-clock seconds, so a
-            // correct implementation produces different X-Amz-Date values and therefore
-            // different signatures. If we ever regress to "sign once, reuse on retry"
-            // these two would match and AWS would return InvalidSignatureException in
-            // production whenever the retry crossed the 5-minute signature window.
+            // A retry must NOT reuse the signature from the first attempt. The 1.5s
+            // delay on the 500 response forces the two attempts to sign in different
+            // wall-clock seconds, so a correct implementation produces different
+            // X-Amz-Date values and therefore different signatures. A regression to
+            // "sign once, reuse on retry" makes these match and AWS returns
+            // InvalidSignatureException whenever the retry crosses the 5-minute
+            // signature window.
             expect(sigv4AmzDates[0]).not.toEqual(sigv4AmzDates[1])
             expect(sigv4Authorizations[0]).not.toEqual(sigv4Authorizations[1])
         })
