@@ -207,7 +207,7 @@ class TestGetRows:
         assert rows == [{"_id": "cam_resumed"}]
 
     def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        pages = {self._campaigns_url(0): []}
+        pages: dict[str, list[dict[str, Any]]] = {self._campaigns_url(0): []}
         rows = self._collect("campaigns", _FakeResumableManager(), monkeypatch, pages)
         assert rows == []
 
@@ -246,13 +246,13 @@ class TestRetryClassification:
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=status_code, ok=False)
         with pytest.raises(lemlist.LemlistRetryableError):
-            lemlist._fetch.__wrapped__(session, "https://api.lemlist.com/api/campaigns", "key", MagicMock())
+            lemlist._fetch.__wrapped__(session, "https://api.lemlist.com/api/campaigns", "key", MagicMock())  # type: ignore[attr-defined]
 
     def test_client_error_raises_for_status(self) -> None:
         # A 4xx (other than 429) is a permanent error surfaced via raise_for_status.
         response = MagicMock(status_code=401, ok=False)
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
-            lemlist._fetch.__wrapped__(session, "https://api.lemlist.com/api/campaigns", "key", MagicMock())
+            lemlist._fetch.__wrapped__(session, "https://api.lemlist.com/api/campaigns", "key", MagicMock())  # type: ignore[attr-defined]

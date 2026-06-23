@@ -4,6 +4,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.sources.lemlist import source as source_module
 from posthog.temporal.data_imports.sources.lemlist.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from posthog.temporal.data_imports.sources.lemlist.lemlist import LemlistResumeConfig
@@ -27,8 +29,10 @@ class TestLemlistSourceConfig:
         assert config.unreleasedSource is True
         # A single API-key field, stored as a secret password input.
         assert [f.name for f in config.fields] == ["api_key"]
-        assert config.fields[0].secret is True
-        assert config.fields[0].required is True
+        api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.secret is True
+        assert api_key_field.required is True
 
 
 class TestGetSchemas:
@@ -108,7 +112,7 @@ class TestSourceForPipeline:
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-05-11T00:00:00Z",
         )
-        result = LemlistSource().source_for_pipeline(_config("secret"), manager, inputs)
+        result: Any = LemlistSource().source_for_pipeline(_config("secret"), manager, inputs)
 
         assert result == "response"
         assert captured["api_key"] == "secret"
