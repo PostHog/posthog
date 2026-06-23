@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
-import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
@@ -28,6 +28,7 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -48,7 +49,11 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
+
+    // controlled: false — chart manages toggle state internally. Lifecycle statuses all share the
+    // same resultCustomizationKey (same action.order), so the controlled path can't distinguish them.
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode, controlled: false })!
 
     const {
         indexedResults,
@@ -64,21 +69,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         querySource,
         showValuesOnSeries,
         showPercentagesOnSeries,
-        showLegend,
-        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
-
-    // The chart manages toggle state internally (uncontrolled). Lifecycle statuses all share the
-    // same action.order so resultCustomizations can't distinguish them — the chart's own state avoids that.
-    const legendConfig = useMemo<ChartLegendConfig>(
-        () => ({
-            show: !!showLegend,
-            position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
-            interactive: canEditInsight && !inSharedMode,
-        }),
-        [showLegend, legendPosition, canEditInsight, inSharedMode]
-    )
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
