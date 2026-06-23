@@ -7,9 +7,9 @@ quota gate and a warm-pool concurrency cap — live here so every product warms 
 one implementation rather than reimplementing provisioning, quota, and idempotency.
 
 The trigger (when to warm) and Task ownership (birth + linking to the product's own
-entity) stay per-product: ``SandboxWarmer`` operates on an *existing* Task. PostHog AI's
-prewarm is the only caller today; the registries below are fail-closed, so a product
-must opt in with a quota gate before it can warm.
+entity) stay per-product: ``SandboxWarmer`` operates on an *existing* Task behind the
+warming facade. The registries below are fail-closed, so a product must opt in with a
+quota gate before it can warm.
 """
 
 from collections.abc import Callable

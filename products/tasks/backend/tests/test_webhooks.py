@@ -15,7 +15,8 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import find_task_run
 
@@ -391,11 +392,12 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             title="Test report",
             summary="Test summary",
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=self.report,
-            task=self.task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(self.task.id),
         )
 
     def _post_pr_webhook(self, action: str, merged: bool):
@@ -461,7 +463,9 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
-        SignalReportTask.objects.filter(task=self.task).delete()
+        from products.signals.backend.models import SignalReportArtefact
+
+        SignalReportArtefact.objects.filter(task=self.task).delete()
 
         response = self._post_pr_webhook(action="closed", merged=True)
 

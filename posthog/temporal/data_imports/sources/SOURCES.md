@@ -98,7 +98,7 @@ the row lists both.
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
-| github            | HTTP                        | requests                                                        | ✅                          |
+| github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | gitlab            | HTTP                        | requests                                                        | ✅                          |
 | gladly            | HTTP                        | requests                                                        | ✅                          |
 | gocardless        | HTTP                        | requests                                                        | ✅                          |
@@ -436,6 +436,7 @@ doesn't conflict with concurrent PRs.
 - invoiceninja
 - ip2whois
 - jamf_pro
+- jobber
 - jobnimbus
 - jotform
 - judgeme_reviews
@@ -475,6 +476,7 @@ doesn't conflict with concurrent PRs.
 - merge
 - metabase
 - metricool
+- metronome
 - microsoft_dataverse
 - microsoft_entra_id
 - microsoft_lists
@@ -590,6 +592,7 @@ doesn't conflict with concurrent PRs.
 - sailthru
 - salesflare
 - salesforce_marketing_cloud
+- sanity
 - sap_concur
 - sap_erp
 - sap_fieldglass

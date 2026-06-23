@@ -76,6 +76,11 @@ export interface IdentityMatchingLinksResponseApi {
     count: number
 }
 
+export interface IdentityMatchingErrorApi {
+    /** Human-readable explanation of why the request could not be served. */
+    detail: string
+}
+
 export interface IdentityMatchingRunModelCountApi {
     /** Scoring model, e.g. 'rules_v1' or 'logreg_v1'. */
     model_version: string

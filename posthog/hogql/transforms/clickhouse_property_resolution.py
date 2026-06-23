@@ -27,7 +27,7 @@ from typing import Literal, cast
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
@@ -41,7 +41,7 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
@@ -301,6 +301,18 @@ def _materialized_head_expr(
     return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
 
 
+def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
+    """`has(map, key) ? map[key] : null` for a physical ClickHouse Map column — a missing key reads NULL, not ''."""
+    return ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="has", args=[clone_expr(blob), ast.Constant(value=key)]),
+            ast.ArrayAccess(array=clone_expr(blob), property=ast.Constant(value=key)),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
     """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
@@ -325,9 +337,19 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     source = resolve_materialized_property_source(field_type, first_key, context)
-    _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
+        # A physical Map column (logs/spans/metrics attributes) reads an un-grouped key via map subscript — the JSON
+        # fallback would print JSONExtract, which ClickHouse rejects on a Map. Plain JSON blobs (events.properties)
+        # keep the JSON fallback.
+        if isinstance(field_type.resolve_database_field(context), MapStringDatabaseField):
+            _record_property_usage(context, "map_subscript")
+            map_head = _map_value_read(node.expr, first_key)
+            if not deeper_keys:
+                return map_head
+            return ast.PropertyAccess(expr=map_head, keys=deeper_keys, type=ast.StringType(nullable=True))
+        _record_property_usage(context, None)
         return None
+    _record_property_usage(context, source.kind)
 
     head = _materialized_head_expr(
         source,
@@ -412,6 +434,7 @@ _USAGE_BY_SOURCE_KIND = {
     "materialized_column": "materialized_column",
     "dmat": "dynamic_materialized_column",
     "property_group": "property_group",
+    "map_subscript": "map_subscript",
 }
 
 

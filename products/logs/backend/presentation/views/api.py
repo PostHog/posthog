@@ -45,6 +45,7 @@ from products.logs.backend.count_ranges_query_runner import (
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
@@ -318,6 +319,65 @@ class _LogsCountBodySerializer(serializers.Serializer):
 
 class _LogsCountRequestSerializer(serializers.Serializer):
     query = _LogsCountBodySerializer(help_text="The count query to execute.")
+
+
+class _LogFacetValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The facet value (e.g. a severity level or service name).")
+    count = serializers.IntegerField(
+        help_text="Number of matching log records, with all active filters applied except this facet's own selection."
+    )
+
+
+class _LogsFacetValuesResponseSerializer(serializers.Serializer):
+    results = _LogFacetValueSerializer(
+        many=True, help_text="Facet values with cross-filtered counts, ordered by count descending."
+    )
+
+
+class _LogsFacetValuesBodySerializer(serializers.Serializer):
+    facetField = serializers.ChoiceField(
+        choices=["severity_text", "service_name"],
+        required=False,
+        allow_null=True,
+        help_text="Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. "
+        "Its own filter is excluded so counts reflect the other active filters.",
+    )
+    facetResourceAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
+        "facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts "
+        "reflect the other active filters.",
+    )
+    dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels (ignored when faceting on severity_text).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names (ignored when faceting on service_name).",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    facetSearch = serializers.CharField(
+        required=False,
+        help_text="Type-ahead filter over the faceted field's own values (case-insensitive substring match). "
+        "Distinct from searchTerm, which searches log bodies.",
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query.",
+    )
+
+
+class _LogsFacetValuesRequestSerializer(serializers.Serializer):
+    query = _LogsFacetValuesBodySerializer(help_text="The facet values query to execute.")
 
 
 class _LogsCountRangesBodySerializer(serializers.Serializer):
@@ -779,6 +839,44 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsFacetValuesRequestSerializer, responses={200: _LogsFacetValuesResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_values(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        facet_field = query_data.get("facetField")
+        facet_resource_attribute = query_data.get("facetResourceAttribute")
+        if bool(facet_field) == bool(facet_resource_attribute):
+            raise ParseError("Provide exactly one of facetField or facetResourceAttribute")
+        if facet_field and facet_field not in FACET_FIELDS:
+            raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        runner = LogFacetValuesQueryRunner(
+            team=self.team,
+            query=query,
+            facet_field=facet_field or None,
+            facet_resource_attribute=facet_resource_attribute or None,
+            facet_search=query_data.get("facetSearch"),
+        )
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])

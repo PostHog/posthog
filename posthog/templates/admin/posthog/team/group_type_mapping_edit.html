@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p>Edit group type mapping for <strong>{{ team.name }}</strong> (team {{ team.pk }}).</p>
+
+<table style="margin-bottom: 20px; border-collapse: collapse;">
+    <tr>
+        <td style="padding: 4px 12px 4px 0; font-weight: bold;">Group type index:</td>
+        <td style="padding: 4px 0;">{{ mapping.group_type_index }}</td>
+    </tr>
+    <tr>
+        <td style="padding: 4px 12px 4px 0; font-weight: bold;">Group type:</td>
+        <td style="padding: 4px 0;"><code>{{ mapping.group_type }}</code></td>
+    </tr>
+    <tr>
+        <td style="padding: 4px 12px 4px 0; font-weight: bold;">Created at:</td>
+        <td style="padding: 4px 0;">{{ mapping.created_at|default:"-" }}</td>
+    </tr>
+</table>
+
+<form method="post" onsubmit="this.querySelector('input[type=submit]').disabled = true;">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="name_singular" style="display: block; margin-bottom: 5px; font-weight: bold;">Name (singular):</label>
+        <input type="text" id="name_singular" name="name_singular" value="{{ mapping.name_singular|default:'' }}" style="width: 400px; padding: 8px;" />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="name_plural" style="display: block; margin-bottom: 5px; font-weight: bold;">Name (plural):</label>
+        <input type="text" id="name_plural" name="name_plural" value="{{ mapping.name_plural|default:'' }}" style="width: 400px; padding: 8px;" />
+    </div>
+    <div style="margin: 20px 0;">
+        <label for="default_columns" style="display: block; margin-bottom: 5px; font-weight: bold;">Default columns (JSON array):</label>
+        <input type="text" id="default_columns" name="default_columns" value="{{ default_columns_json }}" style="width: 400px; padding: 8px;" />
+        <p style="margin-top: 4px; color: #666; font-size: 12px;">JSON array of column names, e.g. <code>["name", "email"]</code>. Leave blank to clear.</p>
+    </div>
+    <div style="margin-top: 20px;">
+        <input type="submit" class="default" value="Save changes" style="padding: 10px 20px;" />
+        <a href="{% url 'admin:posthog_team_change' team.pk %}" style="margin-left: 10px;">Cancel</a>
+    </div>
+</form>
+{% endblock %}

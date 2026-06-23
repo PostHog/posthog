@@ -259,6 +259,131 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
+    it('auth.provider stamps the asker bearer when the identity resolves ok', async () => {
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
+        const { close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                resolve: async () => ({
+                    kind: 'ok',
+                    credential: { kind: 'oauth_bearer', token: 'asker-tok', provider: 'github' },
+                    allowedHosts: ['example.com'],
+                }),
+            },
+        })
+        expect(targets[0].headers.Authorization).toBe('Bearer asker-tok')
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('auth.provider unlinked → ref fails to open in the auth category', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
+        const { clients, failures, close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                resolve: async () => ({ kind: 'link_required', provider: 'github', authorizeUrl: 'https://gh/oauth' }),
+            },
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].devReason).toMatch(/mcp_identity_link_required: github/)
+        // The authorize URL rides on the failure so the system prompt can relay it.
+        expect(failures[0].authorizeUrl).toBe('https://gh/oauth')
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('auth.provider linked-but-rejected (e.g. missing scope) → offers a reconnect link via relink', async () => {
+        // Resolve succeeds (the asker IS linked), but the MCP rejects the grant
+        // at open with a scope error. The failure must carry a reconnect URL so
+        // the agent can relay it — not dead-end as "unavailable".
+        const failingFactory: McpTransportFactory = () =>
+            ({
+                async start() {
+                    throw new Error(
+                        "Streamable HTTP error: Error POSTing to endpoint: Missing PostHog API scope: 'user:read'"
+                    )
+                },
+                async send() {},
+                async close() {},
+            }) as unknown as Transport
+        const refs: McpRef[] = [
+            { id: 'posthog', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'posthog' } },
+        ]
+        const relink = vi.fn(async () => 'https://app.posthog.test/oauth/authorize/?reconnect=1')
+        const { clients, failures } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: {},
+            transportFactory: failingFactory,
+            identity: {
+                resolve: async () => ({
+                    kind: 'ok',
+                    credential: { kind: 'posthog_bearer', token: 'linked-but-underscoped' },
+                    allowedHosts: ['example.com'],
+                }),
+                relink,
+            },
+        })
+        expect(clients).toEqual([])
+        // Scope rejection classifies as auth (not unknown), which gates the reconnect offer.
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].authorizeUrl).toBe('https://app.posthog.test/oauth/authorize/?reconnect=1')
+        expect(relink).toHaveBeenCalledWith('posthog')
+    })
+
+    it('auth.provider refuses a host outside the resolved credential allowlist', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            { id: 'gh', url: 'https://evil.example/mcp', secrets: [], auth: { provider: 'github' } },
+        ]
+        const { clients, failures, close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                resolve: async () => ({
+                    kind: 'ok',
+                    credential: { kind: 'oauth_bearer', token: 'asker-tok', provider: 'github' },
+                    allowedHosts: ['api.github.com'],
+                }),
+            },
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].devReason).toMatch(/mcp_identity_host_not_allowed/)
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('auth.provider allows the local MCP over http loopback even on a different port than the credential host', async () => {
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            { id: 'posthog', url: 'http://localhost:8787/mcp', secrets: [], auth: { provider: 'posthog' } },
+        ]
+        const { close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: {},
+            transportFactory: factory,
+            identity: {
+                // allowedHosts is the API/OAuth host (localhost:8010) — a different
+                // port than the MCP (8787); loopback should still be allowed.
+                resolve: async () => ({
+                    kind: 'ok',
+                    credential: { kind: 'posthog_bearer', token: 'local-tok' },
+                    allowedHosts: ['localhost:8010'],
+                }),
+            },
+        })
+        expect(targets[0].headers.Authorization).toBe('Bearer local-tok')
+        await close()
+        await closePairs(pairs)
+    })
+
     it('reports a header-secret-missing ref as an unavailable MCP (auth category)', async () => {
         // Sending a literal `${NAME}` to the remote would 401 with a confusing
         // protocol error. We capture the resolver failure per-ref instead so
