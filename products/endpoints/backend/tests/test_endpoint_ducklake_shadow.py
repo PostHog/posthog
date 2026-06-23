@@ -4,15 +4,18 @@ from unittest import mock
 
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.test import APIRequestFactory
 
 from posthog.ducklake.client import DuckLakeQueryResult
 
 from products.endpoints.backend.services import ducklake_shadow
+from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
 
 HOGQL_QUERY = {"kind": "HogQLQuery", "query": "SELECT count() as cnt FROM events"}
+TRENDS_QUERY = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
 
 
 class TestShadowDispatch(APIBaseTest):
@@ -272,3 +275,49 @@ class TestShadowComparison(APIBaseTest):
             )
 
         assert len(captured) == 1
+
+
+class TestShouldShadowDucklake(APIBaseTest):
+    """The real gating in EndpointExecutionService._should_shadow_ducklake (unmocked)."""
+
+    def _service(self) -> EndpointExecutionService:
+        request = APIRequestFactory().get("/")
+        return EndpointExecutionService(team=self.team, request=request)
+
+    def test_does_not_shadow_during_test_suite(self):
+        # is_dev_mode() is True under the test suite (USE_LOCAL_SETUP = TEST or ...), but the shadow
+        # must not fire during tests: it builds a userless HogQL database and runs eagerly under Celery,
+        # which trips access-control assertions on unrelated runs (e.g. PSAK system-table gating).
+        endpoint = create_endpoint_with_version(
+            name="should-shadow-test", team=self.team, query=HOGQL_QUERY, created_by=self.user
+        )
+        assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is False
+
+    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=True)
+    def test_shadows_in_local_dev(self, _mock_dev):
+        endpoint = create_endpoint_with_version(
+            name="should-shadow-dev", team=self.team, query=HOGQL_QUERY, created_by=self.user
+        )
+        with self.settings(TEST=False):
+            assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is True
+
+    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=True)
+    def test_no_shadow_for_non_hogql_query(self, _mock_dev):
+        endpoint = create_endpoint_with_version(
+            name="should-shadow-trends", team=self.team, query=TRENDS_QUERY, created_by=self.user
+        )
+        with self.settings(TEST=False):
+            assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is False
+
+    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=False)
+    @mock.patch("products.endpoints.backend.services.execution.posthoganalytics.feature_enabled")
+    def test_shadows_in_prod_when_flag_enabled(self, mock_flag, _mock_dev):
+        endpoint = create_endpoint_with_version(
+            name="should-shadow-flag", team=self.team, query=HOGQL_QUERY, created_by=self.user
+        )
+        version = endpoint.get_version()
+        with self.settings(TEST=False):
+            mock_flag.return_value = True
+            assert self._service()._should_shadow_ducklake(endpoint, version) is True
+            mock_flag.return_value = False
+            assert self._service()._should_shadow_ducklake(endpoint, version) is False

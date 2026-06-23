@@ -14,6 +14,7 @@ import uuid
 from datetime import timedelta
 from typing import Literal, Union, cast
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -391,7 +392,9 @@ class EndpointExecutionService(PydanticModelMixin):
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        if is_dev_mode():
+        # is_dev_mode() is also true under the test suite (USE_LOCAL_SETUP = TEST or ...); never shadow
+        # there — it builds a userless HogQL database and runs eagerly under Celery, breaking unrelated runs.
+        if is_dev_mode() and not settings.TEST:
             return True
 
         return bool(
