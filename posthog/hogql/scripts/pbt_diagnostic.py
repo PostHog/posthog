@@ -75,6 +75,7 @@ import json
 import argparse
 import traceback
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 # Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
@@ -277,13 +278,15 @@ def main() -> int:
     # abort the whole grind. Keyed by normalised `<ExcType>: …`.
     crash_buckets: dict[str, list[str]] = {}
 
-    base_strategy = {
+    # `Callable[..., ...]` so the no-arg `string_literal_strategy` and the `depth`-taking grammar strategies unify.
+    strategies_by_rule: dict[str, Callable[..., st.SearchStrategy[str]]] = {
         "expr": expr_strategy,
         "select": select_strategy,
         "program": program_strategy,
         "full_template_string": fullTemplateString_strategy,
         "string_literal": string_literal_strategy,
-    }[args.rule]()
+    }
+    base_strategy = strategies_by_rule[args.rule]()
     strategy = base_strategy
     # Grammar-aware mutation runs first, on the clean space-separated query —
     # the whitespace jiggle below would otherwise break its tokenisation.

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 
 from hogql_parser import parse_string_literal_text as parse_string_cpp
@@ -9,6 +11,7 @@ from posthog.hogql.parse_string import parse_string_literal_text as parse_string
 
 
 def parse_string_test_factory(backend: HogQLParserBackend):
+    parse_string: Callable[[str], str]
     if backend == "python":
         parse_string = parse_string_py
     elif backend.startswith("rust"):
