@@ -112,6 +112,60 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert kwargs["headers"]["Authorization"] == "Bearer oauth-token-123"
 
     @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_follows_trailing_slash_redirect(self, mock_client_cls):
+        # Servers like mem0 307 /mcp -> /mcp/; real tool calls must follow it too.
+        installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
+        redirect = MagicMock()
+        redirect.is_redirect = True
+        redirect.headers = {"location": "/mcp/"}
+        real = MagicMock()
+        real.status_code = 200
+        real.is_redirect = False
+        real.headers = {"content-type": "application/json"}
+        real.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.side_effect = [redirect, real]
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        redirect.close.assert_called_once()
+        # The retry targets the canonical /mcp/ URL.
+        assert mock_client.build_request.call_args_list[-1].args == ("POST", "https://mcp.example.com/mcp/")
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_rejects_redirect_to_blocked_host(self, mock_client_cls):
+        installation = self._create_installation(sensitive_configuration={"api_key": "sk-test-key"})
+        redirect = MagicMock()
+        redirect.is_redirect = True
+        redirect.headers = {"location": "http://169.254.169.254/"}
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = redirect
+        mock_client_cls.return_value = mock_client
+
+        def allow(url):
+            return (False, "Private IP") if "169.254.169.254" in url else (True, None)
+
+        with patch("products.mcp_store.backend.proxy.is_url_allowed", side_effect=allow):
+            response = self.client.post(
+                self._proxy_url(installation.id),
+                data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                format="json",
+            )
+
+        assert response.status_code == 400
+        assert "Redirect target not allowed" in response.content.decode()
+        # We never re-issue to the blocked target.
+        assert mock_client.send.call_count == 1
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_proxy_streams_sse_response_in_chunks(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},

@@ -17,7 +17,7 @@ from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
-from .proxy import build_upstream_auth_headers
+from .proxy import build_upstream_auth_headers, validated_redirect_target
 
 logger = structlog.get_logger(__name__)
 
@@ -80,26 +80,52 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
 
     try:
         with httpx.Client(timeout=HANDSHAKE_TIMEOUT) as client:
-            session_id = _mcp_initialize(client, installation.url, base_headers)
+            # initialize resolves any trailing-slash redirect (e.g. /mcp -> /mcp/);
+            # reuse the canonical URL for the rest of the handshake so each step
+            # doesn't redirect again.
+            session_id, resolved_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
             if session_id:
                 session_headers["Mcp-Session-Id"] = session_id
 
-            _mcp_send_initialized(client, installation.url, session_headers)
+            _mcp_send_initialized(client, resolved_url, session_headers)
             try:
-                return _mcp_list_tools(client, installation.url, session_headers)
+                return _mcp_list_tools(client, resolved_url, session_headers)
             finally:
                 # Best-effort cleanup so we don't leak sessions upstream. Failures
                 # here are purely janitorial and must not mask real errors above.
                 if session_id:
-                    _mcp_terminate_session(client, installation.url, session_headers)
+                    _mcp_terminate_session(client, resolved_url, session_headers)
     except httpx.ConnectError as exc:
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolsFetchError("Upstream MCP server timed out") from exc
 
 
-def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> str | None:
+def _post_following_redirect(
+    client: httpx.Client, url: str, *, content: bytes, headers: dict[str, str]
+) -> tuple[httpx.Response, str]:
+    """POST to ``url``, following a single SSRF-validated redirect.
+
+    MCP servers commonly 307 a slash-less endpoint to its canonical form
+    (e.g. ``/mcp`` -> ``/mcp/``). httpx doesn't follow redirects by default and
+    we keep it that way so the SSRF guard runs on the ``Location`` target; here
+    we re-validate and retry once. Returns the final response and the URL it was
+    served from, so the caller can reuse the canonical URL for later steps.
+    """
+    response = client.post(url, content=content, headers=headers)
+    target, reason = validated_redirect_target(url, response)
+    if reason:
+        raise ToolsFetchError(f"Upstream redirect target not allowed: {reason}")
+    if not target:
+        return response, url
+    response = client.post(target, content=content, headers=headers)
+    if response.is_redirect:
+        raise ToolsFetchError(f"Upstream redirected more than once (last target {target!r})")
+    return response, target
+
+
+def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> tuple[str | None, str]:
     body = json.dumps(
         {
             "jsonrpc": "2.0",
@@ -113,11 +139,11 @@ def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> 
         }
     ).encode()
 
-    response = client.post(url, content=body, headers=headers)
+    response, resolved_url = _post_following_redirect(client, url, content=body, headers=headers)
     if response.status_code >= 400:
         logger.warning(
             "initialize request returned error",
-            url=url,
+            url=resolved_url,
             status_code=response.status_code,
             body=response.text[:500],
         )
@@ -131,7 +157,7 @@ def _mcp_initialize(client: httpx.Client, url: str, headers: dict[str, str]) -> 
 
     # Session id is optional per the spec — servers that don't need one still
     # work with tools/list, so treat a missing header as "no session needed".
-    return response.headers.get("mcp-session-id")
+    return response.headers.get("mcp-session-id"), resolved_url
 
 
 def _mcp_send_initialized(client: httpx.Client, url: str, headers: dict[str, str]) -> None:

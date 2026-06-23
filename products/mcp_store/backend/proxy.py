@@ -30,6 +30,29 @@ BATCH_REJECTED_CODE = -32000
 METHOD_NOT_FOUND_CODE = -32601
 
 
+def validated_redirect_target(request_url: str, response: httpx.Response) -> tuple[str | None, str | None]:
+    """Resolve an HTTP redirect to an SSRF-validated absolute URL.
+
+    Returns ``(target, None)`` when ``response`` is a redirect to an allowed URL,
+    ``(None, None)`` when it isn't a redirect, or ``(None, reason)`` when the
+    target is rejected by the SSRF guard. We deliberately keep httpx's
+    ``follow_redirects`` off and re-validate here instead — letting httpx chase
+    the ``Location`` itself would skip the guard and could be steered into the
+    internal network. MCP servers routinely 307 ``/mcp`` to ``/mcp/``, so we
+    honor a single redirect safely rather than failing the handshake.
+    """
+    if not response.is_redirect:
+        return None, None
+    location = response.headers.get("location")
+    if not location:
+        return None, None
+    target = str(httpx.URL(request_url).join(location))
+    allowed, reason = is_url_allowed(target)
+    if not allowed:
+        return None, reason or "redirect target blocked by SSRF guard"
+    return target, None
+
+
 def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
     sensitive = installation.sensitive_configuration or {}
 
@@ -300,6 +323,24 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
             headers=headers,
         )
         upstream_response = client.send(upstream_request, stream=True)
+        # Follow a single trailing-slash-style redirect (e.g. /mcp -> /mcp/),
+        # re-running the SSRF guard on the target rather than letting httpx chase it.
+        redirect_target, redirect_reason = validated_redirect_target(installation.url, upstream_response)
+        if redirect_reason:
+            upstream_response.close()
+            client.close()
+            logger.warning("SSRF: blocked proxy redirect", url=installation.url, reason=redirect_reason)
+            return HttpResponse(
+                json.dumps({"error": f"Redirect target not allowed: {redirect_reason}"}),
+                content_type="application/json",
+                status=400,
+            )
+        if redirect_target:
+            upstream_response.close()
+            upstream_response = client.send(
+                client.build_request("POST", redirect_target, content=body, headers=headers),
+                stream=True,
+            )
     except httpx.ConnectError:
         client.close()
         logger.warning("Upstream MCP server unreachable", url=installation.url)

@@ -19,19 +19,27 @@ from products.mcp_store.backend.tools import (
 
 
 def _build_response(
-    *, status: int = 200, body: str = "", content_type: str = "application/json", session_id: str | None = None
+    *,
+    status: int = 200,
+    body: str = "",
+    content_type: str = "application/json",
+    session_id: str | None = None,
+    location: str | None = None,
 ) -> MagicMock:
     """Build a MagicMock that looks enough like an httpx.Response for our code.
 
-    Our parser reads ``status_code``, ``text``, and ``headers`` — so we set those
-    explicitly rather than relying on MagicMock auto-spec.
+    Our parser reads ``status_code``, ``text``, ``headers``, and ``is_redirect`` —
+    so we set those explicitly rather than relying on MagicMock auto-spec.
     """
     response = MagicMock()
     response.status_code = status
     response.text = body
+    response.is_redirect = status in (301, 302, 303, 307, 308)
     headers: dict[str, str] = {"content-type": content_type}
     if session_id is not None:
         headers["mcp-session-id"] = session_id
+    if location is not None:
+        headers["location"] = location
     response.headers = headers
     return response
 
@@ -119,6 +127,53 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         # DELETE cleans up the session afterwards.
         assert client.delete.called
         assert client.delete.call_args.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
+
+    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_fetch_upstream_tools_follows_trailing_slash_redirect(self, mock_client_cls, _allow, _allow_redirect):
+        # mem0 and other servers 307 a slash-less /mcp to /mcp/. We must follow it
+        # and run the rest of the handshake against the canonical URL.
+        installation = self._installation(url="https://mcp.example.com/mcp")
+        redirect = _build_response(status=307, location="/mcp/")
+        initialize_ok = _build_response(body=json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}), session_id="sess-1")
+        notify = _build_response(status=202)
+        tools_list = _build_response(
+            body=json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}})
+        )
+        client = MagicMock()
+        client.post.side_effect = [redirect, initialize_ok, notify, tools_list]
+        client.delete.return_value = _build_response(status=200)
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        tools = fetch_upstream_tools(installation)
+        assert [t["name"] for t in tools] == ["alpha"]
+
+        # First POST hits the slash-less URL; the retry and every later step use /mcp/.
+        urls = [call.args[0] for call in client.post.call_args_list]
+        assert urls == [
+            "https://mcp.example.com/mcp",
+            "https://mcp.example.com/mcp/",
+            "https://mcp.example.com/mcp/",
+            "https://mcp.example.com/mcp/",
+        ]
+        assert client.delete.call_args.args[0] == "https://mcp.example.com/mcp/"
+
+    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(False, "Private IP"))
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_fetch_upstream_tools_rejects_redirect_to_blocked_host(self, mock_client_cls, _allow, _block_redirect):
+        # A malicious server could 307 to an internal host; the SSRF guard must run
+        # on the redirect target rather than letting httpx chase it.
+        installation = self._installation(url="https://mcp.example.com/mcp")
+        client = MagicMock()
+        client.post.return_value = _build_response(status=307, location="http://169.254.169.254/")
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        with pytest.raises(ToolsFetchError, match="redirect target not allowed"):
+            fetch_upstream_tools(installation)
+        # We never re-POST to the blocked target.
+        assert client.post.call_count == 1
 
     @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.tools.httpx.Client")
