@@ -64,8 +64,8 @@ Typical usage:
 """
 
 # ruff: noqa: T201 (this is a CLI script — print is the output channel)
-# ruff: noqa: E402 (django.setup() must run between import django and the
-#                   project-app imports below)
+# ruff: noqa: E402 (DJANGO_SETTINGS_MODULE must be set before the project-app
+#                   imports below)
 
 from __future__ import annotations
 
@@ -77,10 +77,12 @@ import traceback
 from collections import Counter
 from typing import Any
 
-import django
-
+# The parser core reads `settings.TEST` (in posthog/hogql/parser.py) but never
+# touches the app registry, so configuring the settings module is enough — we
+# deliberately skip `django.setup()`. Calling it would run every app's `ready()`
+# hook (DB queries, redis, self-capture token init) just to fuzz a parser, which
+# fails noisily when Postgres/redis are down and adds startup latency for nothing.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from hypothesis import (
     assume,
