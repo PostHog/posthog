@@ -21,14 +21,14 @@ export function ReplayCaptureDiagnosticsModalButton({
                 size="small"
                 icon={<IconVideoCamera />}
                 onClick={() => setIsOpen(true)}
-                data-attr="check-why-session-didnt-record"
+                data-attr="check-session-recording-status"
             >
-                Check why this session didn't record
+                Check session recording status
             </LemonButton>
             <LemonModal
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
-                title="Why didn't this session record?"
+                title="Session recording diagnosis"
                 width={600}
             >
                 <ReplayCaptureDiagnosticsPanel eventProperties={eventProperties} />
