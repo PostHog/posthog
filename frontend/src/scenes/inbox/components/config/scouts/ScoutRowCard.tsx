@@ -50,14 +50,12 @@ export function ScoutRowCard({
             )}
         >
             <div className="flex items-center gap-4">
-                {/* overflow-hidden clips the name group so a long name + badges never spill
-                    onto the cadence/emitted column or the sparkline — the name truncates first. */}
-                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
                     {asHeader ? (
                         // min-w keeps the name from being squeezed to zero width by the
                         // trailing metadata (badges, cadence, emitted count) — truncate
                         // should clip to an ellipsis, never vanish entirely.
-                        <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
+                        <span className="truncate font-medium text-sm min-w-[6rem] flex-1">{displayName}</span>
                     ) : (
                         <Tooltip title={`${config.skill_name} · view scout`}>
                             <Link
@@ -66,26 +64,30 @@ export function ScoutRowCard({
                                 // (hidden) list subtree — close it so it doesn't cover the detail page.
                                 onClick={() => closeSetupModal()}
                                 subtle
-                                className="truncate font-medium text-sm min-w-[6rem]"
+                                className="truncate font-medium text-sm min-w-[6rem] flex-1"
                             >
                                 {displayName}
                             </Link>
                         </Tooltip>
                     )}
-                    <Tooltip title={`${config.skill_name} · open skill`}>
-                        <Link
-                            to={urls.skill(config.skill_name)}
-                            target="_blank"
-                            targetBlankIcon={false}
-                            subtle
-                            className="shrink-0 text-muted"
-                            aria-label={`Open the ${config.skill_name} skill`}
-                        >
-                            <IconArrowUpRight className="size-3.5" />
-                        </Link>
-                    </Tooltip>
-                    <ScoutOriginBadge skillName={config.skill_name} />
-                    <DryRunBadge config={config} />
+                    {/* Icon + badges never shrink: the name (flex-1) absorbs width pressure and
+                        truncates, so the Custom/Canonical pill is never sliced mid-badge. */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Tooltip title={`${config.skill_name} · open skill`}>
+                            <Link
+                                to={urls.skill(config.skill_name)}
+                                target="_blank"
+                                targetBlankIcon={false}
+                                subtle
+                                className="text-muted"
+                                aria-label={`Open the ${config.skill_name} skill`}
+                            >
+                                <IconArrowUpRight className="size-3.5" />
+                            </Link>
+                        </Tooltip>
+                        <ScoutOriginBadge skillName={config.skill_name} />
+                        <DryRunBadge config={config} />
+                    </div>
                 </div>
                 {/* Cadence + emitted count get their own non-shrinking column so they can't
                     overlap the sparkline (the name group absorbs any width pressure). */}
@@ -95,7 +97,9 @@ export function ScoutRowCard({
                         <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                     ) : null}
                 </div>
-                <div className="shrink-0">
+                {/* The sparkline is the flexible region: it shrinks and clips the oldest runs
+                    off the left so it can never push the controls column off the row. */}
+                <div className="flex min-w-0 overflow-hidden">
                     <ScoutRunBoxes runs={rollup?.runs ?? []} />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
