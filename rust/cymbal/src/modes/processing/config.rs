@@ -107,6 +107,39 @@ pub struct ProcessingConfig {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
+    // ----------------------------------------------------------------------
+    // Error-tracking rate limiting (per-issue + per-project token buckets).
+    //
+    // Additive and default-off: Node.js remains the enforcer. When enabled,
+    // cymbal first runs in reporting mode (computes + emits metrics, drops
+    // nothing) against its own Redis keyspace so it never double-charges the
+    // buckets Node is enforcing on. See the migration plan for rollout.
+    // ----------------------------------------------------------------------
+    #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_ENABLED", default = "false")]
+    pub error_tracking_rate_limiter_enabled: bool,
+
+    #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE", default = "true")]
+    pub error_tracking_rate_limiter_reporting_mode: bool,
+
+    /// Connection string for the dedicated rate-limiter Redis. When empty,
+    /// falls back to `ISSUE_BUCKETS_REDIS_URL` (convenient for local dev).
+    #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_REDIS_URL", default = "")]
+    pub error_tracking_rate_limiter_redis_url: String,
+
+    /// Key prefix for the token buckets. Kept distinct from Node's prefix so
+    /// the shadow phase can't interfere with Node's live buckets.
+    #[envconfig(
+        from = "ERROR_TRACKING_RATE_LIMITER_KEY_PREFIX",
+        default = "@posthog/et-rate-limiter"
+    )]
+    pub error_tracking_rate_limiter_key_prefix: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_RATE_LIMITER_BUCKET_TTL_SECONDS",
+        default = "86400"
+    )]
+    pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]

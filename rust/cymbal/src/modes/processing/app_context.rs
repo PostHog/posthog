@@ -15,6 +15,7 @@ use crate::{
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
     signals::{MaybeSignalClient, SignalClient},
+    stages::rate_limiting::{RateLimiter, RedisRateLimiter},
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
@@ -46,6 +47,9 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    // Error-tracking rate limiter. `None` when disabled (the default), in which
+    // case `RateLimitingStage` is a pass-through no-op.
+    pub rate_limiter: Option<Arc<dyn RateLimiter>>,
     pub signal_client: MaybeSignalClient,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
@@ -165,6 +169,8 @@ impl AppContext {
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
+        let rate_limiter = build_rate_limiter(config).await?;
+
         Ok(Self {
             health_registry,
             immediate_producer,
@@ -176,6 +182,7 @@ impl AppContext {
             process_request_limiter,
             team_manager,
             issue_buckets_redis_client,
+            rate_limiter,
             signal_client,
             symbol_resolver,
             issue_cache,
@@ -183,6 +190,50 @@ impl AppContext {
             remote_resolution_refresh_task,
         })
     }
+}
+
+async fn build_rate_limiter(
+    config: &ProcessingConfig,
+) -> Result<Option<Arc<dyn RateLimiter>>, UnhandledError> {
+    if !config.error_tracking_rate_limiter_enabled {
+        return Ok(None);
+    }
+
+    // Dedicated connection to the rate-limiter Redis. Falls back to the
+    // issue-buckets Redis when no URL is set (handy for local dev).
+    let url = if config.error_tracking_rate_limiter_redis_url.is_empty() {
+        config.issue_buckets_redis_url.clone()
+    } else {
+        config.error_tracking_rate_limiter_redis_url.clone()
+    };
+
+    let client = RedisClient::with_config(
+        url,
+        common_redis::CompressionConfig::disabled(),
+        common_redis::RedisValueFormat::Utf8,
+        if config.redis_response_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(config.redis_response_timeout_ms))
+        },
+        if config.redis_connection_timeout_ms == 0 {
+            None
+        } else {
+            Some(Duration::from_millis(config.redis_connection_timeout_ms))
+        },
+    )
+    .await?;
+
+    info!(
+        reporting_mode = config.error_tracking_rate_limiter_reporting_mode,
+        "Error-tracking rate limiter enabled"
+    );
+
+    Ok(Some(Arc::new(RedisRateLimiter::new(
+        Arc::new(client),
+        config.error_tracking_rate_limiter_key_prefix.clone(),
+        config.error_tracking_rate_limiter_bucket_ttl_seconds,
+    ))))
 }
 
 async fn build_remote_resolution(
