@@ -1,11 +1,13 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
+import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,7 +30,6 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -49,11 +50,9 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
-
-    // resultCustomizations keys are action-based and identical for all 4 lifecycle statuses
-    // (they share the same action.order), so we track visibility locally by status instead.
-    const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<string>>(new Set())
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
 
     const {
         indexedResults,
@@ -70,52 +69,24 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showValuesOnSeries,
         showPercentagesOnSeries,
         showLegend,
+        legendPosition,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
-    // Map series key (String(r.id)) → lifecycle status for the toggle handler.
-    const idToStatus = useMemo(() => {
-        const m = new Map<string, string>()
-        ;(indexedResults ?? []).forEach((r) => {
-            if (r.status) {
-                m.set(String(r.id), r.status)
-            }
-        })
-        return m
-    }, [indexedResults])
-
-    const lifecycleHiddenKeys = useMemo(
-        () => (indexedResults ?? []).filter((r) => r.status && hiddenStatuses.has(r.status)).map((r) => String(r.id)),
-        [indexedResults, hiddenStatuses]
-    )
-
-    const onToggleLifecycleSeries = useCallback(
-        (key: string) => {
-            const status = idToStatus.get(key)
-            if (!status) {
-                return
-            }
-            setHiddenStatuses((prev) => {
-                const next = new Set(prev)
-                if (next.has(status)) {
-                    next.delete(status)
-                } else {
-                    next.add(status)
-                }
-                return next
-            })
-        },
-        [idToStatus]
-    )
-
-    const legendConfig = useTrendsLegendConfig({
-        insightProps,
-        inSharedMode,
-        hiddenKeys: lifecycleHiddenKeys,
-        onToggleSeries: onToggleLifecycleSeries,
-    })
-    const quillLegendEnabled = !!legendConfig
+    // The quill chart manages toggle state internally (uncontrolled) — no hiddenKeys or
+    // onToggleSeries needed. Lifecycle statuses all share the same action.order so the
+    // resultCustomizations key is identical for all four rows; the chart's own state avoids that.
+    const legendConfig = useMemo<ChartLegendConfig | undefined>(() => {
+        if (!quillLegendEnabled) {
+            return undefined
+        }
+        return {
+            show: !!showLegend,
+            position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
+            interactive: canEditInsight && !inSharedMode,
+        }
+    }, [quillLegendEnabled, showLegend, legendPosition, canEditInsight, inSharedMode])
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
