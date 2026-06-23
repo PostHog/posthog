@@ -144,7 +144,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
         ):
             response = self.admin.deprovision_view(request, str(server.pk))
 
-        assert response.url == reverse("admin:posthog_duckgresserver_change", args=[server.pk])
+        assert response["Location"] == reverse("admin:posthog_duckgresserver_change", args=[server.pk])
         assert any("Failed (status 409): still running" in message for message in _messages(request))
         mock_warning.assert_called_once_with(
             "admin_managed_warehouse_action_failed",
