@@ -27,6 +27,7 @@ from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
@@ -95,6 +96,21 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_get_feature_flag_redacts_encrypted_payloads(self):
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-key",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/encrypted-key"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
 
     def test_get_feature_flag_filters_inaccessible_teams(self):
         """Test that flags from teams the user cannot access are not returned."""
@@ -201,6 +217,22 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         keys = [row["key"] for row in response.json()["results"]]
         self.assertNotIn("deleted", keys)
         self.assertCountEqual(keys, ["shared", "only-in-2"])
+
+    def test_keys_redacts_encrypted_payloads(self):
+        # Session reads must never receive encrypted remote-config ciphertext.
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="secret-config",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+
+        row = next(r for r in response.json()["results"] if r["key"] == "secret-config")
+        self.assertEqual(row["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+        self.assertNotIn("ciphertext-blob", str(row["filters"]))
 
     def test_keys_representative_prefers_earlier_team_in_order(self):
         # team_2 listed first -> the shared row should be represented by team_2's flag.

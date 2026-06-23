@@ -22,7 +22,10 @@ from posthog.user_permissions import UserPermissions
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payloads
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    get_decrypted_flag_payloads,
+    get_decrypted_flag_payloads_protected,
+)
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -101,6 +104,17 @@ class OrganizationFeatureFlagView(
 
     lookup_field = "feature_flag_key"
 
+    @staticmethod
+    def _redact_encrypted_payloads(request, flag: FeatureFlag) -> None:
+        """Replace encrypted remote-config payload ciphertext with a redacted placeholder, in place.
+
+        Mirrors the project-scoped flag read paths: only requests authenticated with a personal API
+        key get decrypted values; everyone else (session, OAuth) sees the redacted placeholder, so the
+        ciphertext is never returned over the org-wide endpoints.
+        """
+        if flag.has_encrypted_payloads:
+            flag.filters["payloads"] = get_decrypted_flag_payloads_protected(request, flag.filters.get("payloads", {}))
+
     @extend_schema(
         operation_id="org_feature_flags_retrieve",
         parameters=[OpenApiParameter("feature_flag_key", OpenApiTypes.STR, OpenApiParameter.PATH)],
@@ -120,6 +134,8 @@ class OrganizationFeatureFlagView(
         )
         flags_qs = self._filter_flags_by_rbac(flags_qs, team_ids)
         flags = list(flags_qs)
+        for flag in flags:
+            self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
             cast(str, feature_flag_key), [flag.team_id for flag in flags]
@@ -208,12 +224,14 @@ class OrganizationFeatureFlagView(
         # and let Postgres do the per-key dedup (DISTINCT ON key, ordered by team rank) so we load
         # one row per key instead of every team's copy. Ordering by key matches page_keys' order.
         rank_whens = [When(team_id=team_id, then=Value(rank)) for rank, team_id in enumerate(ordered_team_ids)]
-        representatives = (
+        representatives = list(
             flags_qs.filter(key__in=page_keys)
             .annotate(_rank=Case(*rank_whens, output_field=IntegerField()))
             .order_by("key", "_rank")
             .distinct("key")
         )
+        for flag in representatives:
+            self._redact_encrypted_payloads(request, flag)
         # OrganizationFeatureFlagRowSerializer is the single source of truth for the row shape.
         results = OrganizationFeatureFlagRowSerializer(representatives, many=True).data
 
