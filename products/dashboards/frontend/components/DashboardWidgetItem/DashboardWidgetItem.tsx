@@ -208,7 +208,7 @@ function DashboardWidgetItemContent({
     // stays off public/export dashboards, and hidden while the tile is loading (refresh stays reachable
     // via the always-present "⋯" menu for touch/keyboard). CardMeta's CSS handles the hover reveal.
     const showHoverRefresh =
-        !!onRefresh && !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
+        !!showEditingControls && !isUnknownWidgetType && headerLayout === 'dashboard_tile' && !loading
     const refreshControl = showHoverRefresh ? (
         <CardMetaRefreshButton onRefresh={onRefresh} lastRefresh={lastFetchedAt} dataAttr="dashboard-widget-refresh" />
     ) : null
