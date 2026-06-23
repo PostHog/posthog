@@ -7,8 +7,9 @@
  *
  *   - agentDb (AGENT_DB_URL): the queue / runtime database, owns
  *     agent_session, agent_user, agent_sandbox_instance. Schema is
- *     managed by @posthog/agent-migrations; this entry applies any
- *     pending migrations on boot (idempotent).
+ *     Django-owned (migrations in products/agent_platform/backend/migrations/,
+ *     applied in prod by the migrate_product_databases job); the runner
+ *     is a pure client and never migrates.
  *
  * In dev / CI both env vars can point at the same Postgres; production
  * deploys them separately so high-churn runtime writes don't pressure the

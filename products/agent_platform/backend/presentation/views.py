@@ -2780,7 +2780,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
     All three endpoints proxy the janitor (which owns the runtime DB). Used
-    by the agent-console "fleet" overview to render the cards on the agents
+    by the "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 

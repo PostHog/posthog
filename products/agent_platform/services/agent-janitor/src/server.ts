@@ -432,7 +432,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     /* ─────────────────────────── fleet stats ─────────────────────────── */
     //
-    // Rollups that power the agent-console overview tiles. Kept on the
+    // Rollups that power the fleet overview tiles. Kept on the
     // janitor (rather than agent-ingress) because (a) Django already
     // proxies through here for read-only authoring data, (b) these are
     // not in the hot per-request path so SELECT-on-jsonb is fine.

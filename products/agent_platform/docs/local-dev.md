@@ -51,10 +51,11 @@ etc.) live in [products/agent_platform/services/agent-tools](../../../products/a
 
 - **POSTHOG_DB** — Django-owned. Tables: `agent_application`,
   `agent_revision`. Written by Django; read by ingress + runner.
-- **AGENT_DB** — node-owned. Tables: `agent_session`, `agent_user`,
-  `agent_sandbox_instance`, `agent_tool_approval_request`. Schema is
-  managed by [@posthog/agent-migrations](../../../products/agent_platform/services/agent-migrations/);
-  the runner applies pending migrations on boot (idempotent).
+- **AGENT_DB** — the queue / runtime database. Tables: `agent_session`,
+  `agent_user`, `agent_sandbox_instance`, `agent_tool_approval_request`.
+  Schema is Django-owned ([products/agent_platform/backend/migrations/](../backend/migrations/)),
+  applied by the main `migrate` process (`migrate_product_databases`); the
+  node services are pure clients that connect and run raw SQL, never DDL.
 
 In dev they're the same Postgres (`postgres://posthog:posthog@localhost:5432`),
 just two databases: `posthog` and `agent_runtime_queue`. In prod they're
@@ -70,7 +71,6 @@ dev:setup` and `hogli start` (or `./bin/start`) gives you:
 agent-ingress     → http://localhost:3030     (PORT=AGENT_INGRESS_PORT)
 agent-janitor     → http://localhost:3031     (PORT=AGENT_JANITOR_PORT)
 agent-runner      → no HTTP, watches the queue
-migrate-agent-runtime → applies AGENT_DB migrations once on boot
 ```
 
 Standalone (without phrocs) if you only want the agent services:
