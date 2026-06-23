@@ -559,7 +559,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 sessionId: session.id,
                                 requestId: reqId,
                                 toolName: id,
-                                logger: { warn: (meta, msg) => log('warn', msg, meta) },
+                                logger: {
+                                    warn: (meta, msg) => log('warn', msg, meta),
+                                    info: (meta, msg) => log('info', msg, meta),
+                                },
                             }).catch(() => {})
                         }
                         return queued

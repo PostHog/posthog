@@ -338,6 +338,13 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         slack_user_id: clickerId,
         agent_user_id: await resolveSlackUserId(deps, session.team_id, session.application_id, workspaceId, clickerId),
     }
+    // TODO(slack-elevation): the Grant/Decline + error replies below send their
+    // feedback in the synchronous res.json body, which Slack IGNORES for Block
+    // Kit `block_actions` — so the message never updates and the "owner only" /
+    // "already decided" ephemerals never render. Same bug already fixed for the
+    // approval buttons: ack with a bare 200, then POST feedback to
+    // `payload.response_url` via `respondViaResponseUrl` (see
+    // handleApprovalDecisionAction). Left as a follow-up — separate feature.
     const authz = authorizeGrant(session, requestId, clickerPrincipal)
     if (!authz.ok) {
         if (authz.reason === 'not_session_owner') {

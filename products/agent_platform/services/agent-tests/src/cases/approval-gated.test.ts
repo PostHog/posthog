@@ -217,7 +217,9 @@ describe('approval-gated tools: real e2e', () => {
         expect(queued).not.toBeNull()
         expect(queued!.request_id).toMatch(/^[0-9a-f-]+$/)
         expect(queued!.approval_url).toMatch(/\/approvals\?request=/)
-        expect(queued!.approver_hint).toMatch(/admin/i)
+        // Default policy is `principal`, so the hint points at the session's own
+        // principal (not an owner/admin — that's the `agent` type).
+        expect(queued!.approver_hint).toMatch(/person who started this session/i)
 
         // The approval is queryable via janitor.
         const approvals = await listApprovals(application.id, 'queued')

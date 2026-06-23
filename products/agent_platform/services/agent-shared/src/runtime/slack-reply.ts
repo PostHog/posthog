@@ -261,6 +261,24 @@ export async function postSlackApprovalButtons(http: HttpFetcher, opts: PostAppr
             ],
         },
     ]
+    // Visibility for debugging the approval round-trip: log exactly what routing
+    // data we put in the buttons. Slack echoes these opaque `value`s back on
+    // click and the ingress interactivity handler decodes them to find the
+    // approval — so a mis-encoded session/request id shows up here at send time.
+    // NB: the callback *URL* (where Slack POSTs the click) is the Slack app's
+    // interactivity request_url from the manifest, not anything we send here.
+    opts.logger?.info?.(
+        {
+            session_id: opts.sessionId,
+            request_id: opts.requestId,
+            channel: opts.channel,
+            thread_ts: opts.thread_ts,
+            tool_name: opts.toolName,
+            approve_value: value('approve'),
+            reject_value: value('reject'),
+        },
+        'slack_approval_buttons_post'
+    )
     try {
         const res = await http.fetch('https://slack.com/api/chat.postMessage', {
             method: 'POST',
