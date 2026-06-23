@@ -44,6 +44,7 @@ class TestProviderRouting(SimpleTestCase):
             ("together_ai",),
             ("openrouter",),
             ("fireworks",),
+            ("deepseek",),
         ]
     )
     def test_get_provider_returns_correct_adapter(self, provider_name):
