@@ -303,6 +303,8 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    github: GitHubIntegrationBase | None = None,
+    candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
     signal_report_id: str | None = None,
     sandbox_environment_id: str | None = None,
@@ -315,18 +317,24 @@ async def select_repository(
     `context` is a pre-rendered string describing the request — callers must serialize their
     domain types (SignalData, Slack thread messages, etc.) before invoking.
 
+    Callers that have already resolved the integration and candidate list (e.g. to run their
+    own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
+    fetches; otherwise they're resolved here.
+
     Raises `RepoSelectionRejectedError` when the LLM returns a repository that isn't in the
     candidate list (hallucination). Callers that need to distinguish that failure mode from
     a legitimate "no plausible candidate" decision (`RepoSelectionResult(repository=None, ...)`)
     should catch the exception.
     """
-    github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
+    if github is None:
+        github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
     if github is None:
         return RepoSelectionResult(
             repository=None,
             reason="No GitHub repositories connected to this team.",
         )
-    candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
+    if candidate_repos is None:
+        candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(
             repository=None,

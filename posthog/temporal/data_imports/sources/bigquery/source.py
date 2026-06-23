@@ -50,6 +50,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
             "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            # Raised from `bigquery_client` when `service_account.Credentials.from_service_account_info`
+            # parses the uploaded key file's `private_key`. A truncated or corrupted PEM body (wrong
+            # padding, stray characters, copy-paste damage) makes the `cryptography` backend reject it
+            # as a `ValueError: Unable to load PEM file. ... InvalidData(InvalidPadding)`. The key can't
+            # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
+            # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
+            "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -96,6 +103,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised from `bq_client.get_table(...)` in `_build_source_response` when the table being
+            # synced no longer exists at sync time — it was deleted or renamed in BigQuery (common with
+            # dbt-managed datasets) after schema discovery selected it. The google exception stringifies
+            # as "... Not found: Table <project>:<dataset>.<table>", which the "was not found in
+            # location" key (dataset-region 404s) doesn't cover, so it slips through and retries forever.
+            # Retrying within the sync's window can't recover a missing table; the user must restore or
+            # rename it back, or remove it from the sync. Matched on the stable "Not found: Table"
+            # wording rather than the volatile table id.
+            "Not found: Table": "BigQuery couldn't find a table this source is syncing — it was deleted or renamed after the source was set up. Restore or rename the table in BigQuery, or remove it from this source's synced tables, then re-enable the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then

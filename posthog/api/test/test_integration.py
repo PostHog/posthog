@@ -3675,8 +3675,9 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/integrations/request_access/"
 
+    @patch("posthog.api.integration.report_user_action")
     @patch("posthog.api.integration.send_integration_access_request")
-    def test_member_can_request_access(self, mock_task):
+    def test_member_can_request_access(self, mock_task, mock_report):
         response = self.client.post(self._url(), {"kind": "slack", "reason": "We need Slack alerts"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -3687,6 +3688,16 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
             kind="slack",
             reason="We need Slack alerts",
         )
+        mock_report.assert_called_once_with(
+            self.user,
+            "integration access requested",
+            {
+                "integration_kind": "slack",
+                "requester_level": OrganizationMembership.Level.MEMBER,
+                "reason_length": len("We need Slack alerts"),
+            },
+            team=self.team,
+        )
 
     @parameterized.expand(
         [
@@ -3694,8 +3705,9 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
             ("owner", OrganizationMembership.Level.OWNER),
         ]
     )
+    @patch("posthog.api.integration.report_user_action")
     @patch("posthog.api.integration.send_integration_access_request")
-    def test_admins_cannot_request_access(self, _name, level, mock_task):
+    def test_admins_cannot_request_access(self, _name, level, mock_task, mock_report):
         self.organization_membership.level = level
         self.organization_membership.save()
 
@@ -3705,6 +3717,7 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         mock_task.delay.assert_not_called()
+        mock_report.assert_not_called()
 
     @parameterized.expand(
         [
@@ -3714,9 +3727,11 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
             ("invalid_kind", {"kind": "not-a-real-kind", "reason": "We need it"}),
         ]
     )
+    @patch("posthog.api.integration.report_user_action")
     @patch("posthog.api.integration.send_integration_access_request")
-    def test_invalid_payload_is_rejected(self, _name, payload, mock_task):
+    def test_invalid_payload_is_rejected(self, _name, payload, mock_task, mock_report):
         response = self.client.post(self._url(), payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
+        mock_report.assert_not_called()

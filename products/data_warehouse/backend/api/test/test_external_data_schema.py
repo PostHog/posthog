@@ -497,6 +497,84 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config["incremental_field_lookback_seconds"] is None
 
+    def test_update_incremental_field_without_sync_type_persists(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": "timestamp",
+                "incremental_field_last_value": "2026-06-14T15:33:31.802833",
+            },
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            # A bare incremental_field edit — no sync_type re-sent — must actually persist, not just
+            # echo the submitted value back in the response.
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "updated_at"},
+            )
+
+            assert response.status_code == 200, response.json()
+            assert response.json()["incremental_field"] == "updated_at"
+            schema.refresh_from_db()
+            assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_update_incremental_field_on_non_incremental_schema_errors(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            # Seed leftover config so the post-request assertion catches a regression that writes the
+            # value rather than leaving it untouched (a missing key would pass trivially).
+            sync_type_config={"incremental_field": "old_value", "primary_key_columns": ["id"]},
+        )
+
+        # Setting incremental_field on a full_refresh schema without switching sync_type can't be
+        # applied — it must fail loudly instead of returning 200 and dropping the change.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"incremental_field": "updated_at"},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("incremental_field") == "old_value"
+
+        # primary_key_columns is dropped the same way on a non-incremental schema, so it errors too.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"primary_key_columns": ["other_id"]},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -984,6 +1062,74 @@ class TestExternalDataSchema(APIBaseTest):
         if expected_status == 400:
             assert "1-minute" in str(response.json()).lower() or "cdc" in str(response.json()).lower()
 
+    def test_update_schema_to_xmin_forces_full_resync(self):
+        # Switching to xmin from another strategy adds the `_ph_xmin` control column to the physical
+        # schema, so the existing Delta table must be rebuilt — force a full resync.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+            table=table,
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with (
+            get_schemas_patch,
+            flag_patch,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
+    def test_update_schema_from_xmin_forces_full_resync(self):
+        # Leaving xmin for another strategy must also rebuild the table — the lingering `_ph_xmin`
+        # column would otherwise break the incremental write.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={"primary_key_columns": ["id"], "xmin_last_value": 123},
+            table=table,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "incremental", "incremental_field": "id", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
     @parameterized.expand(
         [
             ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
@@ -1034,9 +1180,10 @@ class TestExternalDataSchema(APIBaseTest):
             # Rejected before the interval is persisted.
             assert schema.sync_frequency_interval != timedelta(minutes=1)
 
-    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
-        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
-        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+    def test_update_schema_one_minute_clamps_on_switch_away_from_cdc(self):
+        # A CDC schema on a 1-minute schedule switched to a non-CDC sync type without re-sending
+        # sync_frequency would otherwise dead-end (1-minute is CDC-only). Instead of rejecting the
+        # switch, clamp the inherited cadence to the non-CDC floor so the switch goes through.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -1053,16 +1200,23 @@ class TestExternalDataSchema(APIBaseTest):
             sync_frequency_interval=timedelta(minutes=1),
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "incremental"},
-        )
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
 
-        assert response.status_code == 400, response.content
-        assert "cdc" in str(response.json()).lower()
+        assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_frequency_interval == timedelta(minutes=1)
-        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_frequency_interval == timedelta(minutes=5)
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
         # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency

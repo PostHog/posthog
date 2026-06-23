@@ -25,7 +25,11 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import {
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '../config/redis-pools'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
@@ -155,6 +159,17 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
+                // Dedicated $feature_flag_called dedup Redis, so its claim keys don't compete
+                // with ingestion's overflow-redirect keys under eviction. Falls back to the
+                // ingestion connection until the dedup host is configured.
+                .add(
+                    'featureFlagCalledDedupRedisPool',
+                    new RedisPoolComponent({
+                        connection: createFeatureFlagCalledDedupRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
                 .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
@@ -245,6 +260,7 @@ export class IngestionGeneralServer implements NodeServer {
         const ingestionDeps: IngestionConsumerDeps = {
             postgres: this.postgres,
             redisPool: this.redisPool,
+            featureFlagCalledDedupRedisPool: sharedServices.container.featureFlagCalledDedupRedisPool,
             outputs: ingestionOutputs,
             teamManager,
             groupTypeManager,

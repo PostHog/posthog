@@ -5,7 +5,7 @@ description: >
   team's project and emits findings into the Signals inbox. Sibling signals-scout-*
   specialists each watch a single product surface in depth; this scout looks for
   cross-product correlations and explores the surfaces no specialist covers. Each
-  scout runs on its own schedule (default every 3 hours), so general fires independently
+  scout runs on its own schedule (default every 24 hours), so general fires independently
   of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
@@ -24,31 +24,59 @@ a real outcome — re-emitting a known issue is worse than emitting nothing.
 
 ## Orient
 
-Three cheap reads cold-start a run:
+Cheap reads cold-start a run:
 
 - `signals-scout-project-profile-get` — deterministic snapshot of products in use,
   recent activity, integrations, top events with reach + burst metrics, inbox
-  report counts.
-- `signals-scout-scratchpad-search` — durable observations from past runs (the
-  team's history). Search with `text=<keyword>` (ILIKE on key + content).
+  report counts. A fast hint, not the whole truth: it leans toward configured
+  entities (dashboards, flags, experiments, pipelines…) and lags products that
+  shipped recently, so treat it as a starting point, not a complete map.
+- `signals-scout-scratchpad-search` — durable observations from past runs. Read
+  `pattern:general:coverage-map` first (see "Map the project") — it's your running
+  inventory of which products actually have live data on this team. Search with
+  `text=<keyword>` (ILIKE on key + content).
 - `signals-scout-runs-list` — recent summaries from this scout and siblings. Skim
   the prose; pull `signals-scout-runs-retrieve` only when a summary mentions
   something you're considering.
 
+## Map the project
+
+The profile and `top_events` only see so much — they're blind to whole products
+(session replay, logs, tracing, revenue, the _state_ of error tracking) whose data
+the profile doesn't enumerate, and they lag products that shipped recently. Don't
+trust them to be complete. Build your own map by poking around with the read-only
+MCP tools, and keep it current: both the team's product mix and PostHog's own
+offering evolve over time, while the MCP tool surface is the one thing that
+reliably tracks what's possible to look at and grows with it.
+
+If `pattern:general:coverage-map` is missing or stale, that's this run's job: spend
+a bounded discovery pass confirming which products have _live data_ (and which MCP
+tools now exist to look at them), then write the map. `references/discovery.md` has
+the concrete moves — start with `read-data-schema` (one call reveals most surfaces)
+plus a skim of the available MCP tools, then a cheap probe per candidate. Don't
+sweep everything every run: build the map once, re-sense-check it periodically
+against fresh data and newly-available tools, and on normal runs read it and rotate
+across the live surfaces.
+
+If `signals-scout-runs-list` shows no sibling specialists running, you are the only
+scout on this project — the map should cover every live product, not just the gaps
+between specialists.
+
 ## Explore
 
-Pick what looks interesting and follow it. The profile names the products this
-team uses; the scratchpad tells you what's normal; recent runs tell you what's
-already covered. Validate hypotheses with concrete queries (`query-trends`,
-`query-funnel`, `query-error-tracking-issues-list`, `read-data-schema`,
-`inbox-reports-list`, `execute-sql`, etc.) before emitting.
+Pick what looks interesting and follow it. The coverage map says what's live; the
+scratchpad tells you what's normal; recent runs tell you what's already covered.
+Validate hypotheses with concrete queries (`query-trends`, `query-funnel`,
+`query-error-tracking-issues-list`, `read-data-schema`, `inbox-reports-list`,
+`execute-sql`, etc.) before emitting.
 
-If a sibling specialist already covers a surface in depth, leave the deep dive to it
-on a future tick — the `skill_name`s on recent runs in `signals-scout-runs-list` show
-the live roster (specialists exist for most product surfaces: error tracking, logs, AI
-observability, experiments, feature flags, session replay, web analytics, surveys, and
-more). Spend your time on **cross-product correlations** or on **surfaces no
-specialist covers**.
+When sibling specialists are running, leave a surface they cover in depth to them on
+a future tick — the `skill_name`s on recent runs in `signals-scout-runs-list` show
+the live roster (specialists exist for most product surfaces: error tracking, logs,
+AI observability, experiments, feature flags, session replay, web analytics, surveys,
+and more) — and spend your time on **cross-product correlations** or **surfaces no
+specialist covers**. When no specialists are running, the whole coverage map is your
+beat: work across it instead of narrowing to one corner.
 
 ## Decide
 

@@ -52,6 +52,38 @@ export function createPosthogRedisConnectionConfig(
 }
 
 /**
+ * Build the connection config for the $feature_flag_called dedup Redis pool.
+ *
+ * Falls back to the ingestion Redis connection (not REDIS_URL) when no dedicated
+ * host is set, so dedup claims keep landing on the instance they use today until
+ * INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST points at the dedicated instance.
+ */
+export function createFeatureFlagCalledDedupRedisConnectionConfig(
+    config: Pick<
+        IngestionConsumerConfig,
+        'INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST' | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT'
+    > &
+        Pick<
+            CommonConfig,
+            | 'INGESTION_REDIS_HOST'
+            | 'INGESTION_REDIS_PORT'
+            | 'POSTHOG_REDIS_HOST'
+            | 'POSTHOG_REDIS_PORT'
+            | 'POSTHOG_REDIS_PASSWORD'
+            | 'REDIS_URL'
+        >
+): RedisConnectionConfig {
+    if (config.INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST) {
+        return {
+            url: config.INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST,
+            options: { port: config.INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT ?? 6379 },
+            name: 'ff-called-dedup-redis',
+        }
+    }
+    return { ...createIngestionRedisConnectionConfig(config), name: 'ff-called-dedup-redis' }
+}
+
+/**
  * Build the connection config for the cookieless Redis pool.
  * Fallback chain: COOKIELESS_REDIS_HOST → REDIS_URL
  */
