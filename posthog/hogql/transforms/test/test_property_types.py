@@ -495,6 +495,17 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             assert "pmat_$browser" in printed, f"Expected pmat_$browser in output, got: {printed}"
             assert "JSONExtractString" not in printed, f"Expected no JSONExtractString, got: {printed}"
 
+    def test_jsonextractstring_not_rewritten_on_lazy_persons_table(self):
+        # The lazy `persons` table expands into an argMax subquery, so its field_type is a LazyTableType, not a
+        # TableType, and the rewrite declines (a pmat_ reference here would be stranded outside the subquery). The
+        # materialized column is pulled in by the lazy-table machinery instead. Pins that boundary.
+        with materialized("person", "$browser"):
+            printed = self._print_select("select JSONExtractString(properties, '$browser') from persons")
+            assert "JSONExtractString" in printed, (
+                f"Expected the lazy persons read to stay a JSON extract, got: {printed}"
+            )
+            assert "pmat_$browser" not in printed, f"Did not expect a bare pmat_ column, got: {printed}"
+
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
         with materialized("events", "$browser"), materialized("events", "$os"):
             printed = self._print_select(
