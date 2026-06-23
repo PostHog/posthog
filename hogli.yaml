@@ -364,6 +364,12 @@ start:
             - postgresql
             - redis
         hidden: true
+    start:agent-proxy:
+        cmd: pnpm --filter @posthog/agent-proxy dev
+        description: Run the agent-proxy Node service for task-run live streaming with auto-reload
+        services:
+            - redis
+        hidden: true
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
@@ -1090,4 +1096,8 @@ environment:
     migrate:agent:test:db:
         bin_script: migrate-agent-test-db
         description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
+        hidden: true
+    docker:agent:proxy:
+        cmd: node dist/agent-proxy-server.mjs
+        description: 'Production entrypoint: run the agent-proxy Node service'
         hidden: true
