@@ -3905,6 +3905,39 @@ class TestGetPrimaryKeys:
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
 
+    def test_reraises_connection_drop_during_child_partition_fallback(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        # Primary PK query returns no rows, so the child-partition fallback runs.
+        cursor.fetchall.return_value = []
+        # The fallback query then hits a transient connection drop. It must propagate to the setup
+        # retry loop (stays retryable), not be swallowed as "no primary key" + captured as noise.
+        cursor.execute.side_effect = [None, psycopg.OperationalError("the connection is lost")]
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}._explain_query"),
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(psycopg.OperationalError, match="the connection is lost"):
+                _get_primary_keys(cast(Any, cursor), "public", "events", logger)
+        mock_capture.assert_not_called()
+
+    def test_captures_and_degrades_on_non_connection_error_in_child_partition_fallback(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        # A genuine query-incompatibility error in the best-effort fallback still degrades to
+        # "no primary key" and is captured — only transient drops are re-raised.
+        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn("boom")]
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}._explain_query"),
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            result = _get_primary_keys(cast(Any, cursor), "public", "events", logger)
+        assert result is None
+        mock_capture.assert_called_once()
+
 
 class TestGetLeadingIndexColumns:
     """Unit tests for the leading-index-column helper used to flag unindexed

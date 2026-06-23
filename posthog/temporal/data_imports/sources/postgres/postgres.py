@@ -1759,6 +1759,13 @@ def _get_primary_keys(
         cursor.execute(child_partition_pk_query)
         child_pk_rows = cursor.fetchall()
     except Exception as e:
+        # A transient connection drop here means the fallback never ran — swallowing it would
+        # capture noise and wrongly report "no primary key" off a dead cursor. Re-raise so the
+        # setup retry loop reconnects (mirrors the unwrapped primary query above and the
+        # duplicate-PK probe). Genuine query-incompatibility errors (e.g. an engine that can't
+        # bind this pg_catalog query) still degrade to best-effort.
+        if _is_connection_dropped_error(e):
+            raise
         capture_exception(e)
         logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")
     if len(child_pk_rows) > 0:
