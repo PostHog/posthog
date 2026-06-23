@@ -9,11 +9,33 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
+import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType, UserType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
 
 const PAGINATION_LIMIT = 200
+
+function meAsMember(user: UserType): OrganizationMemberType {
+    return {
+        id: user.uuid,
+        user: {
+            uuid: user.uuid,
+            distinct_id: user.distinct_id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            email: user.email,
+            id: user.id,
+            is_email_verified: user.is_email_verified,
+            role_at_organization: user.role_at_organization,
+        },
+        level: user.organization?.membership_level ?? OrganizationMembershipLevel.Member,
+        last_login: null,
+        joined_at: '',
+        updated_at: '',
+        is_2fa_enabled: user.is_2fa_enabled,
+        has_social_auth: user.has_social_auth,
+    }
+}
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
@@ -144,7 +166,8 @@ export const membersLogic = kea<membersLogicType>([
         meFirstMembers: [
             (s) => [s.sortedMembers, s.user],
             (members, user): OrganizationMemberType[] => {
-                const me = user && members?.find((member) => member.user.uuid === user.uuid)
+                const realMe = user && members?.find((member) => member.user.uuid === user.uuid)
+                const me = realMe || (user && !members ? meAsMember(user) : null)
                 const result: OrganizationMemberType[] = me ? [me] : []
                 for (const member of members ?? []) {
                     if (!user || member.user.uuid !== user.uuid) {
