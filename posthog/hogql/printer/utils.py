@@ -159,7 +159,7 @@ def prepare_ast_for_printing(
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
     # property access and re-resolves, so the resolver assigns types rather than us building them.
     # Must run after type resolution and before lazy-table resolution.
-    if has_rewritable_json_extract(node, context):
+    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
         with context.timings.measure("rewrite_json_extract_to_property"):
             node = rewrite_json_extract_to_property(node, context)
         with context.timings.measure("resolve_types_after_json_pushdown"):
