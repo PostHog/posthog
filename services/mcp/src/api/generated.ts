@@ -17161,6 +17161,30 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `slack` - Slack
+     */
+    export type DeliveryTargetTypeEnum = typeof DeliveryTargetTypeEnum[keyof typeof DeliveryTargetTypeEnum];
+
+
+    export const DeliveryTargetTypeEnum = {
+      Slack: 'slack',
+    } as const;
+
+    /**
+     * A single delivery destination. MVP supports Slack only.
+     */
+    export interface DeliveryTarget {
+      /** Destination channel type. MVP supports 'slack' only.
+       *
+       * * `slack` - Slack */
+      type: DeliveryTargetTypeEnum;
+      /** ID of the Slack Integration on this team used to deliver the summary. */
+      integration_id: number;
+      /** Slack channel ID or name the summary is posted to. */
+      channel: string;
+    }
+
     export interface DependentFlag {
       /** Feature flag ID */
       id: number;
@@ -33651,6 +33675,133 @@ export namespace Schemas {
       results: ViewLink[];
     }
 
+    /**
+     * * `schedule` - Schedule
+     * * `threshold` - Threshold
+     */
+    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
+
+
+    export const TriggerTypeEnum = {
+      Schedule: 'schedule',
+      Threshold: 'threshold',
+    } as const;
+
+    /**
+     * * `group_summary` - Group summary
+     * * `per_observation` - Per observation
+     */
+    export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
+
+
+    export const VisionActionModeEnum = {
+      GroupSummary: 'group_summary',
+      PerObservation: 'per_observation',
+    } as const;
+
+    /**
+     * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
+     */
+    export interface TriggerConfig {
+      /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
+      rrule?: string;
+      /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
+      timezone?: string;
+    }
+
+    /**
+     * Observation filter applied at synthesis time. All keys optional; this typed shape is the
+     * allowlist, so unknown input keys are dropped rather than persisted.
+     */
+    export interface Selection {
+      /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
+      scanner_type?: string;
+      /** Restrict to observations produced by these scanner IDs. */
+      scanner_ids?: string[];
+      /** Filter to observations with this monitor verdict. */
+      verdict?: string;
+      /** Filter to observations carrying any of these classifier tags. */
+      tags?: string[];
+      /** Lower bound (inclusive) on scorer score. */
+      min_score?: number;
+      /** Upper bound (inclusive) on scorer score. */
+      max_score?: number;
+      /** Filter to observations with this processing status. */
+      status?: string;
+      /** Lookback window in days for the observations gathered at synthesis time. */
+      window_days?: number;
+    }
+
+    /**
+     * Options for the group-summary synthesis step.
+     */
+    export interface SynthesisConfig {
+      /**
+         * Free-form guidance steering how the group summary is written.
+         * @maxLength 500
+         */
+      prompt_guide?: string;
+    }
+
+    export interface VisionAction {
+      readonly id: string;
+      /**
+         * Human-readable action name. Unique within the team.
+         * @maxLength 255
+         */
+      name: string;
+      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      scanner: string;
+      /** When false, the scheduler skips this action. */
+      enabled?: boolean;
+      /** What fires the action. MVP supports 'schedule' only.
+       *
+       * * `schedule` - Schedule
+       * * `threshold` - Threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** What the action produces. MVP supports 'group_summary' only.
+       *
+       * * `group_summary` - Group summary
+       * * `per_observation` - Per observation */
+      mode?: VisionActionModeEnum;
+      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+      trigger_config?: TriggerConfig;
+      /** Observation filter applied at synthesis time. */
+      selection?: Selection;
+      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+      synthesis_config?: SynthesisConfig;
+      /** List of delivery destinations the synthesized summary is sent to. */
+      delivery_config?: DeliveryTarget[];
+      /**
+         * Computed next fire time for schedule triggers; the scheduler scans this.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Timestamp of the most recent run, or null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+         * @nullable
+         */
+      readonly hog_flow_id: string | null;
+      readonly created_at: string;
+      /** User who created the action. */
+      readonly created_by: UserBasic | null;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedVisionActionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAction[];
+    }
+
     export interface WarehouseColumnAnnotation {
       readonly id: string;
       /** ID of the data warehouse table this annotation describes. */
@@ -40543,6 +40694,56 @@ export namespace Schemas {
       /** @maxLength 400 */
       field_name?: string;
       configuration?: unknown;
+    }
+
+    export interface PatchedVisionAction {
+      readonly id?: string;
+      /**
+         * Human-readable action name. Unique within the team.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      scanner?: string;
+      /** When false, the scheduler skips this action. */
+      enabled?: boolean;
+      /** What fires the action. MVP supports 'schedule' only.
+       *
+       * * `schedule` - Schedule
+       * * `threshold` - Threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** What the action produces. MVP supports 'group_summary' only.
+       *
+       * * `group_summary` - Group summary
+       * * `per_observation` - Per observation */
+      mode?: VisionActionModeEnum;
+      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+      trigger_config?: TriggerConfig;
+      /** Observation filter applied at synthesis time. */
+      selection?: Selection;
+      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+      synthesis_config?: SynthesisConfig;
+      /** List of delivery destinations the synthesized summary is sent to. */
+      delivery_config?: DeliveryTarget[];
+      /**
+         * Computed next fire time for schedule triggers; the scheduler scans this.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      /**
+         * Timestamp of the most recent run, or null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /**
+         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+         * @nullable
+         */
+      readonly hog_flow_id?: string | null;
+      readonly created_at?: string;
+      /** User who created the action. */
+      readonly created_by?: UserBasic | null;
+      readonly updated_at?: string;
     }
 
     export interface PatchedWarehouseColumnAnnotation {
@@ -62765,6 +62966,17 @@ export namespace Schemas {
     };
 
     export type UserProductListListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisionActionsListParams = {
     /**
      * Number of results to return per page.
      */
