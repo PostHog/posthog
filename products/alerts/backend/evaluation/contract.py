@@ -3,6 +3,7 @@ from typing import Any, Protocol
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
+from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -92,12 +93,12 @@ class SimulationContext:
     kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
     ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
 
-    team: Any
-    detector_config: dict
+    team: Team
+    detector_config: dict[str, Any]
     user: User | None = None
     series_index: int = 0
     date_from: str | None = None
-    config: dict | None = None
+    config: dict[str, Any] | None = None
 
 
 class Extractor(Protocol):

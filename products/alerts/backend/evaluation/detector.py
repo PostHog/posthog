@@ -8,6 +8,7 @@ from posthog.schema import IntervalType, TrendsAlertConfig, TrendsQuery
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
@@ -216,7 +217,7 @@ class TrendsDetectorExtractor:
 
 def simulate_detector_on_insight(
     insight: Insight,
-    team: Any,
+    team: Team,
     detector_config: dict[str, Any],
     series_index: int = 0,
     date_from: str | None = None,
