@@ -54,11 +54,13 @@ class DeltaBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         return await BatchQueue.get_unprocessed_and_lock(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
+            exclude_keys=exclude_keys,
         )
 
     async def unlock(

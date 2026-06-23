@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -45,6 +46,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
+
+_s3fs_cache_lock = threading.Lock()
 
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
@@ -195,7 +198,8 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     """
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
-    s3fs.S3FileSystem.clear_instance_cache()
+    with _s3fs_cache_lock:
+        s3fs.S3FileSystem.clear_instance_cache()
 
     async def _run() -> None:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
@@ -350,7 +354,8 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
-    s3fs.S3FileSystem.clear_instance_cache()
+    with _s3fs_cache_lock:
+        s3fs.S3FileSystem.clear_instance_cache()
 
     try:
         team_id_str = str(export_signal.team_id)
@@ -642,3 +647,5 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             },
         )
         raise
+    finally:
+        close_old_connections()

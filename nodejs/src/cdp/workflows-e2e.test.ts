@@ -40,6 +40,7 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
@@ -64,6 +65,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
+    let dwhConsumer: CdpDatawarehouseEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let hogflowQueue: JobQueue
 
@@ -146,6 +148,12 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             hogQueue: kafkaQueue,
             hogflowQueue,
         })
+        // Drives the data-warehouse-table trigger path. We call processBatch() directly, so the
+        // Kafka consumer is never connected — the shared queues below are the only producers.
+        dwhConsumer = new CdpDatawarehouseEventsConsumer(hub, deps, {
+            hogQueue: kafkaQueue,
+            hogflowQueue,
+        })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
         // Start hogflow worker (consumer side — polls from the mode's backend)
@@ -162,6 +170,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     afterEach(async () => {
+        // dwhConsumer shares the already-stopped queues with eventsConsumer, so it has nothing to stop.
         await Promise.all([eventsConsumer?.stop() ?? Promise.resolve(), hogflowWorker?.stop() ?? Promise.resolve()])
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -203,6 +212,33 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     /** Send an event through the events consumer and wait for it to be queued to v2 */
     async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
+        await backgroundTask
+    }
+
+    /**
+     * Build the row-scoped globals the DWH consumer produces for a synced warehouse row: a synthetic
+     * event named `$warehouse_source_row` with no real person, and the source table on
+     * `event.properties.$source_table` so the consumer's eligibilityFn matches warehouse-table triggers.
+     */
+    function createDwhGlobals(
+        tableName: string,
+        rowProperties: Record<string, any> = {}
+    ): HogFunctionInvocationGlobals {
+        return createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: new UUIDT().toString(),
+                event: '$warehouse_source_row',
+                distinct_id: '',
+                properties: { ...rowProperties, $source_table: tableName },
+                timestamp: '2024-09-03T09:00:00Z',
+            } as any,
+        })
+    }
+
+    /** Send a synced warehouse row through the DWH consumer and wait for it to be queued */
+    async function triggerDwhWorkflow(rowGlobals: HogFunctionInvocationGlobals): Promise<void> {
+        const { backgroundTask } = await dwhConsumer.processBatch([rowGlobals])
         await backgroundTask
     }
 
@@ -1287,6 +1323,76 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 5000)
 
             expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('data warehouse table trigger workflow', () => {
+        const TABLE_NAME = 'postgres.orders'
+
+        // Row-scoped trigger that always matches (return-true bytecode), so the row payload alone
+        // decides whether the flow fires.
+        const dwhTrigger = (tableName: string) =>
+            ({
+                type: 'trigger' as const,
+                config: {
+                    type: 'data-warehouse-table',
+                    table_name: tableName,
+                    filters: { properties: [], bytecode: ['_h', 29] },
+                },
+            }) as any
+
+        beforeEach(async () => {
+            await createWorkflow({
+                actions: {
+                    trigger: dwhTrigger(TABLE_NAME),
+                    function_1: fetchAction('https://example.com/warehouse-row'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        })
+
+        it('runs the workflow end-to-end when a row syncs into the matching table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 42 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/warehouse-row',
+                expect.objectContaining({ method: 'POST' })
+            )
+        })
+
+        it('does not run the workflow when the synced row belongs to a different table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals('postgres.other_table', { order_id: 1 }))
+
+            // Give the worker a chance to (not) pick anything up before asserting it stayed idle.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs).toHaveLength(0)
+            }, 3000)
+
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not look up a person for warehouse rows (no synthetic distinct_id resolution)', async () => {
+            // Regression guard: warehouse rows carry a made-up event.distinct_id that evals truthy.
+            // The worker must skip the person lookup for data-warehouse-table triggers so we don't
+            // pay a person round-trip (or accidentally resolve a bogus person) per synced row.
+            const personSpy = jest.spyOn((hogflowWorker as any).personsManager, 'getCyclotronPerson')
+
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 7 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(personSpy).not.toHaveBeenCalled()
         })
     })
 

@@ -2483,8 +2483,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 : current.filter((k: string) => k !== variantKey)
 
             try {
+                // excluded_variants is the canonical column; the backend mirrors it into the
+                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+                // backend validates exclusions against the linked flag. The column updates
+                // atomically, so we just send the new list.
                 await asyncActions.updateExperiment({
-                    parameters: { ...values.experiment.parameters, excluded_variants: next },
+                    excluded_variants: next,
                 })
                 lemonToast.success(
                     excluded
@@ -2728,7 +2732,10 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [(s) => [s.experiment], (experiment): MultivariateFlagVariant[] => getExperimentVariants(experiment)],
         excludedVariants: [
             (s) => [s.experiment],
-            (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],
+            // Canonical home is the excluded_variants column; fall back to the legacy parameters
+            // mirror during the deprecation window. `??` honors an explicit empty list.
+            (experiment: Experiment): string[] =>
+                experiment?.excluded_variants ?? experiment?.parameters?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],

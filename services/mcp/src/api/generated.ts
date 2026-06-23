@@ -15747,6 +15747,7 @@ export namespace Schemas {
      * * `Tile38` - Tile38
      * * `Chatwoot` - Chatwoot
      * * `Sanity` - Sanity
+     * * `Metronome` - Metronome
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16386,6 +16387,7 @@ export namespace Schemas {
       Tile38: 'Tile38',
       Chatwoot: 'Chatwoot',
       Sanity: 'Sanity',
+      Metronome: 'Metronome',
     } as const;
 
     /**
@@ -17031,7 +17033,8 @@ export namespace Schemas {
        * * `Custom` - Custom
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity */
+       * * `Sanity` - Sanity
+       * * `Metronome` - Metronome */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -20675,6 +20678,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -20779,6 +20787,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       /** Whether the experiment is archived. */
       archived?: boolean;
       /** @nullable */
@@ -22111,7 +22124,8 @@ export namespace Schemas {
        * * `Custom` - Custom
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity */
+       * * `Sanity` - Sanity
+       * * `Metronome` - Metronome */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -35717,6 +35731,11 @@ export namespace Schemas {
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
@@ -47197,7 +47216,8 @@ export namespace Schemas {
        * * `Custom` - Custom
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity */
+       * * `Sanity` - Sanity
+       * * `Metronome` - Metronome */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -47869,7 +47889,8 @@ export namespace Schemas {
        * * `Custom` - Custom
        * * `Tile38` - Tile38
        * * `Chatwoot` - Chatwoot
-       * * `Sanity` - Sanity */
+       * * `Sanity` - Sanity
+       * * `Metronome` - Metronome */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;

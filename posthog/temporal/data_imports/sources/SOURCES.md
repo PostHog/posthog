@@ -475,6 +475,7 @@ doesn't conflict with concurrent PRs.
 - merge
 - metabase
 - metricool
+- metronome
 - microsoft_dataverse
 - microsoft_entra_id
 - microsoft_lists

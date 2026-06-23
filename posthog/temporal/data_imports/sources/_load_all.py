@@ -337,6 +337,7 @@ from .merge.source import MergeSource
 from .meta_ads.source import MetaAdsSource
 from .metabase.source import MetabaseSource
 from .metricool.source import MetricoolSource
+from .metronome.source import MetronomeSource
 from .microsoft_dataverse.source import MicrosoftDataverseSource
 from .microsoft_entra_id.source import MicrosoftEntraIdSource
 from .microsoft_lists.source import MicrosoftListsSource
