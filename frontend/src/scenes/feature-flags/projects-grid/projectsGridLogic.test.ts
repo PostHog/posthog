@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -189,6 +191,58 @@ describe('projectsGridLogic', () => {
             const teamId = logic.values.currentTeamId
             expect(logic.values.pickedTeamIds).toEqual([])
             expect(localStorage.getItem(`ff-projects-grid.picked-teams.${teamId}`)).toBeNull()
+        })
+
+        it('reloads rows when pickedTeamIds changes', async () => {
+            logic = projectsGridLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.setPickedTeamIds([3, 4])).toDispatchActions([
+                'loadFlagsPage',
+                'loadFlagsPageSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.resetPickedTeamIds()).toDispatchActions([
+                'loadFlagsPage',
+                'loadFlagsPageSuccess',
+            ])
+        })
+    })
+
+    describe('afterMount hydration', () => {
+        let keysCalls: number
+
+        beforeEach(() => {
+            localStorage.clear()
+            keysCalls = 0
+            useMocks({
+                get: {
+                    '/api/organizations/:org/feature_flags/keys/': () => {
+                        keysCalls += 1
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                    '/api/organizations/:org/feature_flags/:key/': [],
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            if (logic.cache.mounted) {
+                logic.unmount()
+            }
+        })
+
+        it('loads rows exactly once on mount when picked teams are hydrated', async () => {
+            localStorage.setItem(`ff-projects-grid.picked-teams.${MOCK_TEAM_ID}`, JSON.stringify([3, 4]))
+
+            logic = projectsGridLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Hydrating via setPickedTeamIds triggers the load; the afterMount return prevents a second one.
+            expect(logic.values.pickedTeamIds).toEqual([3, 4])
+            expect(keysCalls).toBe(1)
         })
     })
 })

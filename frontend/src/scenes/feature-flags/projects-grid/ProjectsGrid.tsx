@@ -7,6 +7,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
@@ -105,7 +106,7 @@ export function ProjectsGrid(): JSX.Element {
             width: columnWidth,
             render: (_, flag) => (
                 <LemonTableLink
-                    to={`/project/${flag.team_id}/feature_flags/${flag.id}`}
+                    to={urls.project(flag.team_id, urls.featureFlag(flag.id))}
                     title={flag.name || flag.key}
                     description={flag.key}
                 />

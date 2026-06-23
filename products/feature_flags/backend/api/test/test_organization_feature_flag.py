@@ -211,12 +211,14 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         self.assertEqual(first.json()["count"], 3)
         self.assertEqual(len(first.json()["results"]), 2)
         self.assertIsNotNone(first.json()["next"])
+        self.assertIsNone(first.json()["previous"])
 
         second = self.client.get(
             self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=2"
         )
         self.assertEqual(len(second.json()["results"]), 1)
         self.assertIsNone(second.json()["next"])
+        self.assertIsNotNone(second.json()["previous"])
 
     def test_keys_accepts_comma_separated_team_ids(self):
         response = self.client.get(self._keys_url(team_ids=f"{self.team_1.id},{self.team_2.id}"))
@@ -241,6 +243,7 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         # The team is not in this org, so it falls back to all accessible teams in the org.
         keys = [row["key"] for row in response.json()["results"]]
         self.assertNotIn("other-org-flag", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
 
     def test_keys_unauthorized(self):
         self.client.logout()

@@ -15,7 +15,6 @@ export const PAGE_SIZE = 25
 export interface LoadFlagsResult {
     offset: number
     search: string
-    count: number
     next: string | null
     results: OrganizationFeatureFlagRow[]
 }
@@ -48,6 +47,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 loadFlagsPageSuccess: (state, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset === 0 ? flagsPage.results : [...state, ...flagsPage.results],
                 setSearch: () => [],
+                setPickedTeamIds: () => [],
+                resetPickedTeamIds: () => [],
             },
         ],
         flagsOffset: [
@@ -56,6 +57,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) =>
                     flagsPage.offset + flagsPage.results.length,
                 setSearch: () => 0,
+                setPickedTeamIds: () => 0,
+                resetPickedTeamIds: () => 0,
             },
         ],
         flagsHasMore: [
@@ -63,6 +66,8 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
             {
                 loadFlagsPageSuccess: (_, { flagsPage }: { flagsPage: LoadFlagsResult }) => flagsPage.next !== null,
                 setSearch: () => true,
+                setPickedTeamIds: () => true,
+                resetPickedTeamIds: () => true,
             },
         ],
         siblingsByFlagKey: [
@@ -103,10 +108,10 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         flagsPage: [
             null as LoadFlagsResult | null,
             {
-                loadFlagsPage: async ({ offset, search }: { offset: number; search: string }) => {
+                loadFlagsPage: async ({ offset, search }: { offset: number; search: string }, breakpoint) => {
                     const orgId = values.currentOrganization?.id
                     if (!orgId) {
-                        return { offset, search, count: 0, next: null, results: [] }
+                        return { offset, search, next: null, results: [] }
                     }
                     const response = await api.organizationFeatureFlags.keys(orgId, {
                         team_ids: values.visibleColumns,
@@ -114,7 +119,9 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                         limit: PAGE_SIZE,
                         offset,
                     })
-                    return { offset, search, count: response.count, next: response.next, results: response.results }
+                    // Abort if a newer load (e.g. from a project-picker change) superseded this one.
+                    breakpoint()
+                    return { offset, search, next: response.next, results: response.results }
                 },
             },
         ],

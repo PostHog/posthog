@@ -1,7 +1,7 @@
 import copy
 from typing import cast
 
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -202,13 +202,18 @@ class OrganizationFeatureFlagView(
         page_keys = list(distinct_keys_qs[offset : offset + limit])
 
         # Choose one representative flag per key, preferring earlier teams in the requested order.
-        # Select from the search-filtered queryset so the representative always matches the search.
-        team_rank = {team_id: rank for rank, team_id in enumerate(ordered_team_ids)}
-        representative_by_key: dict[str, FeatureFlag] = {}
-        for flag in flags_qs.filter(key__in=page_keys).select_related("created_by"):
-            current = representative_by_key.get(flag.key)
-            if current is None or team_rank[flag.team_id] < team_rank[current.team_id]:
-                representative_by_key[flag.key] = flag
+        # Select from the search-filtered queryset so the representative always matches the search,
+        # and let Postgres do the per-key dedup (DISTINCT ON key, ordered by team rank) so we load
+        # one row per key instead of every team's copy.
+        rank_whens = [When(team_id=team_id, then=Value(rank)) for rank, team_id in enumerate(ordered_team_ids)]
+        representatives = (
+            flags_qs.filter(key__in=page_keys)
+            .annotate(_rank=Case(*rank_whens, output_field=IntegerField()))
+            .select_related("created_by")
+            .order_by("key", "_rank")
+            .distinct("key")
+        )
+        representative_by_key: dict[str, FeatureFlag] = {flag.key: flag for flag in representatives}
 
         results = [
             {
