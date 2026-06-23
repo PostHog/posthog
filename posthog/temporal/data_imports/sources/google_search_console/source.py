@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     google_search_console_source,
     list_sites,
     normalize_site_url,
+    suggest_registered_site,
 )
 from posthog.temporal.data_imports.sources.google_search_console.settings import (
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
@@ -152,6 +153,14 @@ class GoogleSearchConsoleSource(
         normalized = {site.get("siteUrl"): site.get("permissionLevel") for site in sites}
         site_url = normalize_site_url(config.site_url)
         if site_url not in normalized:
+            suggestion = suggest_registered_site(site_url, normalized.keys())
+            if suggestion is not None:
+                return (
+                    False,
+                    f"'{site_url}' isn't a Search Console property, but the connected account has "
+                    f"'{suggestion}'. Enter the property exactly as Search Console lists it — '{suggestion}' — "
+                    f"and try again.",
+                )
             return (
                 False,
                 f"Site '{site_url}' is not visible to the connected Google account. Verify the property URL "
