@@ -87,7 +87,7 @@ describe('StickinessLineChart', () => {
     })
 
     describe('click → persons modal', () => {
-        it('opens the modal with a "Stickiness on {interval} {day}" title', async () => {
+        it('opens the modal with a "stickiness on {interval} {day}" title', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             await chart.clickAtIndex(2)
@@ -96,8 +96,9 @@ describe('StickinessLineChart', () => {
                 expect(personsModal.get()).toBeInTheDocument()
             })
             // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
-            expect(personsModal.title()).toMatch(/Stickiness on day 3/)
-            expect(personsModal.title()).toMatch(/Pageview/i)
+            expect(personsModal.title()).toMatch(/stickiness on day 3/)
+            // Case-sensitive: the core event must be humanized ("Pageview"), not the raw "$pageview".
+            expect(personsModal.title()).toMatch(/Pageview/)
         })
 
         it('fires context.onDataPointClick with the integer day instead of opening the modal', async () => {

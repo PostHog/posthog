@@ -7,7 +7,7 @@
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",
-        "posthog-js": "*",
+        "posthog-js": "catalog:",
         "tailwind-merge": "*"
     },
     "devDependencies": {

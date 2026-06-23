@@ -183,6 +183,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'user:write',
     'user_interview:read',
     'user_interview:write',
+    'vision_action:read',
+    'vision_action:write',
     'visual_review:read',
     'visual_review:write',
     'warehouse_objects:read',
