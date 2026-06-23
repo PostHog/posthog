@@ -1649,6 +1649,13 @@
             width: var(--billing-gauge-item-width) !important;
         }
 
+        // Entrance animations with an opacity:0 base that fade in via forwards fill.
+        .InsightQuickStart__card,
+        .QuestionInput__SuggestionsList,
+        .QuestionInput__QuestionSuggestion {
+            opacity: 1 !important;
+        }
+
         // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
         // makes it inherently non-deterministic, CSS animation overrides don't help
         .Hogfetti {
