@@ -274,7 +274,7 @@ class BytecodeCompiler(Visitor):
             return None
 
         if operation == Operation.IN:
-            comparisons = [
+            comparisons: list[ast.Expr] = [
                 ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=node.left, right=element)
                 for element in elements
             ]
