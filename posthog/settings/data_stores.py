@@ -559,10 +559,11 @@ if not CDP_API_URL:
     )  # localhost is correct — plugin server runs on host in dev
 
 # Shared secret for internal API authentication between Django and Node.js services.
-# Defaults to the public dev secret only in DEBUG/TEST; elsewhere it must be set explicitly, so a
-# forgotten production config is empty and fails check_internal_api_secret at startup rather than
-# silently running on a known-public value. Normalized (stripped) at load so a trailing newline from
-# a mounted secret can't cause a spurious mismatch; get_list already strips the fallbacks.
+# Only the services that make/serve internal calls get this injected, so a missing value must not
+# block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
+# internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
+# running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
+# cause a spurious mismatch; get_list already strips the fallbacks.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env(
     "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
