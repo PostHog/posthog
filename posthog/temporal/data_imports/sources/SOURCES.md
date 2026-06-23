@@ -151,6 +151,7 @@ the row lists both.
 | pinterest_ads     | HTTP                        | requests                                                        | ✅                          |
 | pipedrive         | HTTP                        | requests                                                        | ✅                          |
 | plain             | HTTP                        | requests                                                        | ✅                          |
+| plausible         | HTTP                        | requests                                                        | ✅                          |
 | polar             | HTTP                        | requests                                                        | ✅                          |
 | plaid             | HTTP                        | requests                                                        | ✅                          |
 | postgres          | DB protocol                 | psycopg                                                         | ➖                          |
@@ -553,7 +554,6 @@ doesn't conflict with concurrent PRs.
 - piwik
 - planetscale
 - planhat
-- plausible
 - pocket
 - polygon
 - poplar
