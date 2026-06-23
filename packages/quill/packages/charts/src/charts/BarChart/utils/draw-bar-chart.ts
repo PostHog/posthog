@@ -118,14 +118,14 @@ export function drawBarChartStatic(
         labels: drawLabels,
     }
 
+    // Grid sits behind the bars; the L-axis is drawn after them (below) so a bar doesn't paint over
+    // the baseline where it meets the axis.
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
             categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
-    } else if (showAxisLines) {
-        drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
     }
 
     const seriesBars = buildBarLayers({
@@ -174,6 +174,10 @@ export function drawBarChartStatic(
             ctx.restore()
         }
     })
+
+    if (!showGrid && showAxisLines) {
+        drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+    }
 }
 
 export interface DrawBarHoverArgs {

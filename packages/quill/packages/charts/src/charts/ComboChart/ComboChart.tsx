@@ -89,7 +89,9 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -181,6 +183,8 @@ function ComboChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
+            // nor lines paint over the baseline where they meet the axis.
             if (showGrid) {
                 const categoryTicks = computeVisibleXLabels(
                     drawLabels,
@@ -188,8 +192,6 @@ function ComboChartInner<Meta = unknown>({
                     xTickFormatter
                 ).map((entry) => entry.x)
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -221,7 +223,12 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
             })
+
+            if (!showGrid && showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+            }
         },
         [
             seriesTypeOf,
@@ -232,6 +239,7 @@ function ComboChartInner<Meta = unknown>({
             barStackedData,
             topStackedKeyByAxis,
             barCornerRadius,
+            smooth,
         ]
     )
 

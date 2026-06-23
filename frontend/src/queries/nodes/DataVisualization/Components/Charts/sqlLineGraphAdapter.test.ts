@@ -564,9 +564,17 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.yAxis).toMatchObject({ label: 'Count', scale: 'log', showGrid: false, hide: true })
         })
 
-        it('defaults to a linear scale with grid shown', () => {
+        it('defaults to a linear scale with the grid off and clean axis lines drawn', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
-            expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
+            expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: false })
+            expect(config.showAxisLines).toBe(true)
+            expect(config.showTickMarks).toBe(true)
+        })
+
+        it('shows the grid when the user explicitly enables grid lines', () => {
+            const chartSettings: ChartSettings = { leftYAxisSettings: { showGridLines: true } }
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC' })
+            expect(config.yAxis).toMatchObject({ showGrid: true })
         })
 
         it('keeps a single-object yAxis when no series targets the right axis', () => {
@@ -584,7 +592,8 @@ describe('sqlLineGraphAdapter', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC', ySeriesData })
             expect(config.yAxis).toEqual([
                 // Left is logarithmic, so startAtZero is omitted (no zero baseline on a log scale).
-                { id: 'left', position: 'left', label: 'Left', scale: 'log', showGrid: true, hide: false },
+                // Grid defaults off on the line path (no explicit showGridLines on the left axis).
+                { id: 'left', position: 'left', label: 'Left', scale: 'log', showGrid: false, hide: false },
                 {
                     id: 'right',
                     position: 'right',
