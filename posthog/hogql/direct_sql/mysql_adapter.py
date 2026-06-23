@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
     from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
+    from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -116,9 +117,7 @@ class MySQLAdapter:
     engine = "mysql"
     dialect: HogQLDialect | None = "mysql"
 
-    def validate_source_config(
-        self, source: "ExternalDataSource", team: "Team"
-    ) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+    def _resolve_source(self, source: "ExternalDataSource", team: "Team") -> tuple["MySQLSource", "MySQLSourceConfig"]:
         from posthog.temporal.data_imports.sources import SourceRegistry
         from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 
@@ -140,7 +139,17 @@ class MySQLAdapter:
         if not valid_host:
             raise ExposedHogQLError(host_errors or "Invalid MySQL host.")
 
+        return mysql_source, config
+
+    def validate_source_config(
+        self, source: "ExternalDataSource", team: "Team"
+    ) -> tuple["MySQLImplementation", "MySQLSourceConfig"]:
+        mysql_source, config = self._resolve_source(source, team)
         return mysql_source.get_implementation, config
+
+    def fetch_connection_metadata(self, source: "ExternalDataSource", team: "Team") -> dict[str, object] | None:
+        mysql_source, config = self._resolve_source(source, team)
+        return mysql_source.get_connection_metadata(config, team.pk)
 
     def prepare_raw_sql(self, sql: str) -> str:
         return ensure_read_only_raw_mysql_statement(sql)

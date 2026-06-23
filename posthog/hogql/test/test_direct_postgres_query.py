@@ -12,8 +12,10 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
+from posthog.hogql.direct_sql.connection_metadata import hydrate_and_persist_connection_metadata
 from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
+    PostgresAdapter,
     direct_postgres_session_setup_sql,
     get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
@@ -1729,3 +1731,120 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
         self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+
+
+class TestDirectConnectionMetadataHydration(APIBaseTest):
+    """A5 is forward-looking plumbing: synced sources hydrate metadata on their first direct query,
+    while pure-direct sources (populated at creation) are a no-op. Synced sources only reach the
+    adapter once A6 wires their virtual tables, so the synced path is exercised here with a mocked
+    adapter."""
+
+    def _source(self, *, access_method: str, connection_metadata: dict) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=access_method,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata=connection_metadata,
+        )
+
+    def test_synced_source_hydrates_and_persists_when_metadata_is_empty(self):
+        source = self._source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, connection_metadata={})
+        adapter = MagicMock()
+        adapter.fetch_connection_metadata.return_value = {"engine": "postgres", "available_functions": ["date_bin"]}
+
+        hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        adapter.fetch_connection_metadata.assert_called_once_with(source, self.team)
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {"engine": "postgres", "available_functions": ["date_bin"]})
+
+    def test_pure_direct_source_is_skipped(self):
+        # Pure-direct sources get metadata at creation, so they never hydrate at query time —
+        # even with empty metadata (which would otherwise open a redundant connection).
+        source = self._source(access_method=ExternalDataSource.AccessMethod.DIRECT, connection_metadata={})
+        adapter = MagicMock()
+
+        hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        adapter.fetch_connection_metadata.assert_not_called()
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {})
+
+    def test_does_not_fetch_or_persist_when_metadata_already_present(self):
+        source = self._source(
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE, connection_metadata={"engine": "postgres"}
+        )
+        adapter = MagicMock()
+
+        hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        adapter.fetch_connection_metadata.assert_not_called()
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {"engine": "postgres"})
+
+    @parameterized.expand([("none", None), ("empty_dict", {})])
+    def test_does_not_persist_when_fetch_returns_nothing(self, _name: str, fetched: dict | None):
+        source = self._source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, connection_metadata={})
+        adapter = MagicMock()
+        adapter.fetch_connection_metadata.return_value = fetched
+
+        hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {})
+
+    @patch("posthog.hogql.direct_sql.connection_metadata.capture_exception")
+    def test_swallows_fetch_errors_without_persisting(self, mock_capture_exception: MagicMock):
+        source = self._source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, connection_metadata={})
+        adapter = MagicMock()
+        adapter.fetch_connection_metadata.side_effect = RuntimeError("boom")
+
+        hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        mock_capture_exception.assert_called_once()
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {})
+
+    @patch.object(PostgresAdapter, "fetch_connection_metadata")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_pure_direct_query_does_not_hydrate(self, mock_connect: MagicMock, mock_fetch: MagicMock):
+        source = self._source(access_method=ExternalDataSource.AccessMethod.DIRECT, connection_metadata={})
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        mocked_cursor = MagicMock()
+        mocked_cursor.fetchall.return_value = [(1,)]
+        column = MagicMock(type_code=23)
+        column.name = "id"
+        mocked_cursor.description = [column]
+        mocked_connection = MagicMock()
+        mocked_connection.cursor.return_value.__enter__.return_value = mocked_cursor
+        mock_connect.return_value.__enter__.return_value = mocked_connection
+
+        HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        ).execute()
+
+        mock_fetch.assert_not_called()
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {})

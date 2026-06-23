@@ -223,6 +223,13 @@ class PostgresAdapter:
     def prepare_raw_sql(self, sql: str) -> str:
         return ensure_single_direct_statement(sql)
 
+    def fetch_connection_metadata(self, source: "ExternalDataSource", team: "Team") -> dict[str, object] | None:
+        from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
+
+        postgres_source, config = self.validate_source_config(source, team)
+        require_ssl = source_requires_ssl(source, config)
+        return postgres_source.get_connection_metadata(config, team.pk, require_ssl=require_ssl)
+
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 

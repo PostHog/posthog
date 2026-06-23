@@ -1,5 +1,6 @@
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, DirectSQLAdapter
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
+from posthog.hogql.direct_sql.connection_metadata import hydrate_and_persist_connection_metadata
 from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
 from posthog.hogql.direct_sql.postgres_adapter import PostgresAdapter
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
@@ -16,6 +17,7 @@ __all__ = [
     "MySQLAdapter",
     "direct_capable_source_types",
     "is_direct_capable",
+    "hydrate_and_persist_connection_metadata",
     "ensure_single_direct_statement",
     "get_adapter",
     "register_adapter",

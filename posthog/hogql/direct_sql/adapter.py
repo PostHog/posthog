@@ -52,3 +52,11 @@ class DirectSQLAdapter(Protocol):
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         """Connect, enforce read-only + timeout, run the SQL, and map results/types back."""
         ...
+
+    def fetch_connection_metadata(self, source: "ExternalDataSource", team: "Team") -> dict[str, object] | None:
+        """Discover the metadata (engine, available functions) to cache on a source's first direct query.
+
+        Validates host/SSRF + SSH tunnel before connecting, like ``execute``. Returns the dict to
+        persist, or ``None`` when the engine has nothing to cache (raw-only engines).
+        """
+        ...

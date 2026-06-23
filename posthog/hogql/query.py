@@ -34,7 +34,12 @@ from posthog.hogql.direct_connection import (
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
 )
-from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
+from posthog.hogql.direct_sql import (
+    DirectQueryRequest,
+    ensure_single_direct_statement,
+    get_adapter,
+    hydrate_and_persist_connection_metadata,
+)
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -447,6 +452,9 @@ class HogQLQueryExecutor:
         self.error = result.error
         if result.print_columns and not self.print_columns:
             self.print_columns = result.print_columns
+
+        if not result.error:
+            hydrate_and_persist_connection_metadata(source, adapter, self.team)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
