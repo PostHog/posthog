@@ -525,6 +525,57 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         literal_shape = self._print_select("select JSONExtractString(properties, '$browser') from persons")
         assert literal_shape.split(" FROM ", 1)[1] == chain.split(" FROM ", 1)[1]
 
+    # --- property-chain access (`properties.foo`), the canonical form the literal JSONExtract normalizes into ---
+
+    @snapshot_clickhouse_queries
+    def test_event_property_chain_access_uses_mat_column(self):
+        _create_event(team=self.team, distinct_id="u1", event="pageview", properties={"$browser": "Chrome"})
+        flush_persons_and_events()
+        with materialized("events", "$browser"):
+            results, sql = self._execute("select properties.$browser from events")
+        assert results == [("Chrome",)], results
+        assert "mat_$browser" in sql, sql
+        assert "JSONExtract" not in sql, sql
+
+    @snapshot_clickhouse_queries
+    def test_person_on_events_chain_access_uses_mat_column(self):
+        # person.properties.foo in person-on-events mode reads the events table's person_properties column.
+        _create_event(team=self.team, distinct_id="u1", event="pageview", person_properties={"$browser": "Chrome"})
+        flush_persons_and_events()
+        with materialized("events", "$browser", table_column="person_properties"):
+            results, sql = self._execute(
+                "select person.properties.$browser from events",
+                HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            )
+        assert results == [("Chrome",)], results
+        assert "mat_pp_$browser" in sql, sql
+        assert "JSONExtract" not in sql, sql
+
+    @snapshot_clickhouse_queries
+    def test_person_chain_access_joined_uses_mat_column(self):
+        # Non-PoE (joined) mode: person.properties.foo joins from the persons table, reading its materialized column
+        # inside the argMax subquery.
+        _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
+        _create_event(team=self.team, distinct_id="u1", event="pageview")
+        flush_persons_and_events()
+        with materialized("person", "$browser"):
+            results, sql = self._execute(
+                "select person.properties.$browser from events",
+                HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            )
+        assert results == [("Chrome",)], results
+        assert "pmat_$browser" in sql, sql
+        assert "JSONExtract" not in sql, sql
+
+    @snapshot_clickhouse_queries
+    def test_persons_table_chain_access_uses_mat_column(self):
+        _create_person(team=self.team, distinct_ids=["u1"], properties={"$browser": "Chrome"}, immediate=True)
+        with materialized("person", "$browser"):
+            results, sql = self._execute("select properties.$browser from persons")
+        assert results == [("Chrome",)], results
+        assert "pmat_$browser" in sql, sql
+        assert "JSONExtract" not in sql, sql
+
     def test_jsonextractstring_rewrites_all_calls_in_same_query(self):
         with materialized("events", "$browser"), materialized("events", "$os"):
             printed = self._print_select(
