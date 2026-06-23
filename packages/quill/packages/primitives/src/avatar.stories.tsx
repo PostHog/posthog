@@ -136,8 +136,9 @@ export const GroupStackedReverse: Story = {
     ),
 } satisfies Story
 
-// A stacked group led by an overflow count (styled fallback). It sits first, so it
-// reads behind the faces; on hover the whole pile spreads.
+// A stacked group led by an overflow count (styled fallback). It sits first, so —
+// with the default leftmost-on-top stacking — it reads in front of the faces; on
+// hover the whole pile spreads.
 export const GroupStackedWithCount: Story = {
     render: () => (
         <AvatarGroup stacked>
