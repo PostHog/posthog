@@ -94,3 +94,15 @@ def test_rust_error_is_swallowed():
         session.get.side_effect = RuntimeError("boom")
         shadow.shadow_compare_remote_config(_request(), Response("v"), project_id=1, key="f")
         counter.labels.assert_called_once_with(result="error")
+
+
+def test_non_json_rust_body_is_a_mismatch_not_a_false_match():
+    rust = _rust_response(200, b"<html>502 Bad Gateway</html>")
+    rust.json.side_effect = ValueError("not json")
+    with (
+        patch.object(shadow, "_SHADOW_SESSION") as session,
+        patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS") as counter,
+    ):
+        session.get.return_value = rust
+        shadow.shadow_compare_remote_config(_request(), Response(None, status=200), project_id=1, key="f")
+        counter.labels.assert_called_once_with(result="mismatch")

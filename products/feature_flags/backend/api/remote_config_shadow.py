@@ -76,6 +76,11 @@ def _responses_match(django_response: Response, rust_response: Any) -> bool:
     return django_response.data == _rust_body(rust_response)
 
 
+# Sentinel for a non-empty body that isn't valid JSON. Distinct from None so a garbage Rust body
+# can't compare equal to Django's empty Response(None).data and get miscounted as a match.
+_UNPARSEABLE = object()
+
+
 def _rust_body(rust_response: Any) -> Any:
     # Both sides render a falsy/null payload as an empty 200 body; treat empty as None so it
     # equals Django's Response(None).data.
@@ -84,4 +89,4 @@ def _rust_body(rust_response: Any) -> Any:
     try:
         return rust_response.json()
     except ValueError:
-        return None
+        return _UNPARSEABLE
