@@ -154,7 +154,7 @@ class TestTakeOverStaleLock:
         assert self._run() is True
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.RUNNING)
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.RUNNING, None))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_holder_workflow_running(
@@ -162,7 +162,7 @@ class TestTakeOverStaleLock:
     ) -> None:
         assert self._run() is False
 
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=None)
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(None, None))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_fails_closed_when_describe_fails(
@@ -172,8 +172,7 @@ class TestTakeOverStaleLock:
 
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.release_v3_pipeline_lock")
-    @patch(f"{MODULE}.ExternalDataJob")
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=(WorkflowExecutionStatus.COMPLETED, None))
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_takes_over_when_no_job_row(
@@ -181,11 +180,9 @@ class TestTakeOverStaleLock:
         _holder: MagicMock,
         _close: MagicMock,
         _describe: MagicMock,
-        mock_job_model: MagicMock,
         mock_release: MagicMock,
         mock_acquire: MagicMock,
     ) -> None:
-        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
         assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
 
@@ -196,47 +193,41 @@ class TestTakeOverStaleLock:
     )
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.release_v3_pipeline_lock")
-    @patch(f"{MODULE}.ExternalDataJob")
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_takes_over_when_holder_job_terminal(
         self,
         _holder: MagicMock,
         _close: MagicMock,
-        _describe: MagicMock,
-        mock_job_model: MagicMock,
         mock_release: MagicMock,
         mock_acquire: MagicMock,
         holder_status: str,
     ) -> None:
         holder_job = MagicMock()
         holder_job.status = holder_status
-        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
-            holder_job
-        )
-        assert self._run() is True
+        with patch(
+            f"{MODULE}._describe_holder_workflow",
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+        ):
+            assert self._run() is True
         mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
 
     @patch(f"{MODULE}._take_over_stale_running_job", return_value=False)
-    @patch(f"{MODULE}.ExternalDataJob")
-    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
     def test_delegates_to_queue_db_when_job_running(
         self,
         _holder: MagicMock,
         _close: MagicMock,
-        _describe: MagicMock,
-        mock_job_model: MagicMock,
         mock_stale: MagicMock,
     ) -> None:
         holder_job = MagicMock()
         holder_job.status = "Running"
-        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
-            holder_job
-        )
-        assert self._run() is False
+        with patch(
+            f"{MODULE}._describe_holder_workflow",
+            return_value=(WorkflowExecutionStatus.COMPLETED, holder_job),
+        ):
+            assert self._run() is False
         mock_stale.assert_called_once()
 
 
@@ -284,6 +275,7 @@ class TestTakeOverStaleRunningJob:
             has_batches=True, has_non_terminal=True, is_stale=True
         )
         assert self._run() is True
+        mock_update.assert_called_once()
 
     @patch(f"{MODULE}.BatchQueue")
     @patch(f"{MODULE}.psycopg.Connection")
