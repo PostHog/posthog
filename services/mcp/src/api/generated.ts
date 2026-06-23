@@ -8513,6 +8513,7 @@ export namespace Schemas {
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
+      p99_duration_nano: number;
       service_name: string;
       total_duration_nano: number;
     }
