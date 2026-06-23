@@ -21,9 +21,10 @@ Goals:
   `*` defaults.
 - Per-rule capture limit enforced via Redis `INCR` so multiple workers
   share the same counter.
-- All response keys preserved — values pass through `scrubadub`. Known
-  auth headers are dropped wholesale; auth-bearing query params are
-  scrubbed by `url_utils.scrub_url`.
+- Response values pass through `scrubadub`; auth-bearing JSON keys
+  (`access_token`, `client_secret`, …) are dropped wholesale by name.
+  Known auth headers are dropped wholesale; auth-bearing query params
+  are scrubbed by `url_utils.scrub_url`.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ import time
 import uuid
 import logging
 import threading
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qsl, urlencode
 
@@ -42,7 +42,18 @@ from django.conf import settings
 from posthog.redis import get_client
 from posthog.storage import object_storage
 from posthog.temporal.data_imports.sources.common.http.context import JobContext
-from posthog.temporal.data_imports.sources.common.http.url_utils import _REDACT_PARAM_NAMES, scrub_url
+from posthog.temporal.data_imports.sources.common.http.url_utils import (
+    _REDACT_PARAM_NAMES,
+    redact_literal_values,
+    scrub_url,
+)
+from posthog.temporal.data_imports.sources.common.sample_scrub import (
+    REDACT_FIELD_NAMES,
+    CaptureConfig,
+    CaptureRule,
+    scrub_string as _scrub_string,
+    scrub_value as _scrub_value,
+)
 
 if TYPE_CHECKING:
     from requests import PreparedRequest, Response
@@ -56,85 +67,23 @@ CAPTURE_COUNTER_KEY_PREFIX = "data_imports:http_sample_capture:counter"
 S3_PREFIX = "warehouse-sources-http-samples"
 CONFIG_CACHE_TTL_SECONDS = 30
 MAX_CONFIG_TTL_SECONDS = 24 * 60 * 60
-WILDCARD = "*"
 
 _REDACTED_HEADER = "REDACTED"
 _REDACTED_FORM_VALUE = "REDACTED"
-_REDACTED_SCRUB_FAILURE = "<scrub_failed>"
 _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
-    {"authorization", "x-api-key", "x-auth-token", "cookie", "set-cookie", "proxy-authorization"}
+    {
+        "authorization",
+        "x-api-key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "ob-token-v1",
+        "cookie",
+        "set-cookie",
+        "proxy-authorization",
+    }
 )
 
-
-@dataclass(frozen=True)
-class CaptureRule:
-    source_type: str = WILDCARD
-    response_code: str = WILDCARD
-    team_id: str = WILDCARD
-    schema_id: str = WILDCARD
-    limit: int = 0
-
-    def matches(self, *, source_type: str, status_code: int | None, team_id: int, schema_id: str) -> bool:
-        if self.source_type != WILDCARD and self.source_type != source_type:
-            return False
-        if self.team_id != WILDCARD and self.team_id != str(team_id):
-            return False
-        if self.schema_id != WILDCARD and self.schema_id != str(schema_id):
-            return False
-        return _matches_status(self.response_code, status_code)
-
-    @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> CaptureRule:
-        return cls(
-            source_type=str(raw.get("source_type") or WILDCARD),
-            response_code=str(raw.get("response_code") or WILDCARD),
-            team_id=str(raw.get("team_id") or WILDCARD),
-            schema_id=str(raw.get("schema_id") or WILDCARD),
-            limit=int(raw.get("limit") or 0),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "source_type": self.source_type,
-            "response_code": self.response_code,
-            "team_id": self.team_id,
-            "schema_id": self.schema_id,
-            "limit": self.limit,
-        }
-
-
-@dataclass(frozen=True)
-class CaptureConfig:
-    capture_id: str
-    rules: tuple[CaptureRule, ...] = field(default_factory=tuple)
-
-    @classmethod
-    def from_json(cls, raw: bytes | str) -> CaptureConfig | None:
-        try:
-            data = json.loads(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            logger.warning("Failed to decode capture config JSON")
-            return None
-
-        capture_id = data.get("capture_id")
-        if not capture_id:
-            return None
-        rules_raw = data.get("rules") or []
-        rules = tuple(CaptureRule.from_dict(r) for r in rules_raw if isinstance(r, dict))
-        return cls(capture_id=str(capture_id), rules=rules)
-
-    def to_json(self) -> str:
-        return json.dumps({"capture_id": self.capture_id, "rules": [r.to_dict() for r in self.rules]})
-
-
-def _matches_status(rule_value: str, status_code: int | None) -> bool:
-    if rule_value == WILDCARD:
-        return True
-    if status_code is None:
-        return False
-    if rule_value.endswith("xx") and len(rule_value) == 3 and rule_value[0].isdigit():
-        return str(status_code).startswith(rule_value[0])
-    return rule_value == str(status_code)
+__all__ = ["CaptureConfig", "CaptureRule", "maybe_capture"]
 
 
 # In-process cache of the parsed Redis config. Thread-safe because the
@@ -216,8 +165,13 @@ def maybe_capture(
     response: Response | None,
     record: RequestRecord,
     ctx: JobContext,
+    redact_values: tuple[str, ...] = (),
 ) -> None:
-    """Entry point used by the observer. No-op when no rule matches."""
+    """Entry point used by the observer. No-op when no rule matches.
+
+    `redact_values` are credential strings masked from the captured sample on
+    top of the name-based header/URL/body scrubbers.
+    """
     if response is None:
         return
 
@@ -240,6 +194,11 @@ def maybe_capture(
         return
 
     payload = _build_sample_payload(request=request, response=response, record=record, ctx=ctx)
+    if redact_values:
+        # Final value-based pass over the fully serialized sample: catches the
+        # credential wherever it landed (query param, custom header, cookie,
+        # body) regardless of the name-based scrubbers above.
+        payload = redact_literal_values(payload, redact_values)
     sequence = _next_sequence(config.capture_id, ctx.source_type)
     key = _sample_object_key(config.capture_id, ctx.source_type, sequence)
     bucket = settings.OBJECT_STORAGE_BUCKET
@@ -337,7 +296,10 @@ def _scrub_body(body: Any) -> Any:
     if isinstance(body, str):
         parsed = _try_json(body)
         if parsed is not None:
-            return _scrub_value(parsed)
+            # Drop auth-bearing keys (e.g. an OAuth token-exchange response's
+            # `access_token`) before scrubadub, which can't recognise opaque
+            # tokens by value alone.
+            return _scrub_value(_redact_field_keys(parsed))
         # OAuth token-exchange / refresh / authorization-code flows post
         # `application/x-www-form-urlencoded` bodies like
         # `grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...`.
@@ -349,6 +311,19 @@ def _scrub_body(body: Any) -> Any:
             return form
         return _scrub_string(body)
     return _scrub_value(body)
+
+
+def _redact_field_keys(value: Any) -> Any:
+    """Recursively replace auth-bearing dict values (matched by key name against
+    `REDACT_FIELD_NAMES`) with a placeholder — mirrors the gRPC sample path."""
+    if isinstance(value, dict):
+        return {
+            k: (_REDACTED_FORM_VALUE if str(k).lower() in REDACT_FIELD_NAMES else _redact_field_keys(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_field_keys(item) for item in value]
+    return value
 
 
 def _try_json(text: str) -> Any | None:
@@ -383,46 +358,3 @@ def _try_form_urlencoded(text: str) -> str | None:
         for name, value in pairs
     ]
     return urlencode(scrubbed, doseq=False)
-
-
-def _scrub_value(value: Any) -> Any:
-    """Walk a JSON-shaped value, scrubbing string leaves but preserving keys."""
-    if isinstance(value, dict):
-        return {k: _scrub_value(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_scrub_value(item) for item in value]
-    if isinstance(value, str):
-        return _scrub_string(value)
-    return value
-
-
-# scrubadub's default Scrubber is constructed lazily; the import is heavy.
-_scrubber_lock = threading.Lock()
-_scrubber: Any | None = None
-
-
-def _get_scrubber() -> Any:
-    global _scrubber
-    if _scrubber is not None:
-        return _scrubber
-    with _scrubber_lock:
-        if _scrubber is None:
-            import scrubadub
-
-            _scrubber = scrubadub.Scrubber()
-        return _scrubber
-
-
-def _scrub_string(value: str) -> str:
-    if not value:
-        return value
-    try:
-        return _get_scrubber().clean(value)
-    except Exception:
-        # Fail closed: a scrubadub failure on a value we couldn't otherwise
-        # categorise must not leak the raw, potentially sensitive content
-        # into the captured sample. Replace with a placeholder so the
-        # surrounding structure (header dict, body shape) is preserved
-        # for fixture use, but the unredacted value never lands in S3.
-        logger.debug("scrubadub failed; replacing value with placeholder", exc_info=True)
-        return _REDACTED_SCRUB_FAILURE

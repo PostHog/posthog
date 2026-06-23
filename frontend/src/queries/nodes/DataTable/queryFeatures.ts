@@ -1,5 +1,6 @@
 import { Node } from '~/queries/schema/schema-general'
 import {
+    isAccountsQuery,
     isActorsQuery,
     isEndpointsUsageTableQuery,
     isEventsQuery,
@@ -158,6 +159,13 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.hideLoadNextButton)
+    }
+
+    if (isAccountsQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
     }
 
     return features

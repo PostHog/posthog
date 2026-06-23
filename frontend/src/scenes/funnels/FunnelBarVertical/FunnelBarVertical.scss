@@ -212,6 +212,10 @@
 .FunnelTooltip {
     width: 20rem;
 
+    .LemonRow__content {
+        overflow-wrap: anywhere;
+    }
+
     table {
         width: 100%;
         border-spacing: 0;

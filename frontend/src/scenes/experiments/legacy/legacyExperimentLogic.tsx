@@ -24,7 +24,6 @@ import type { legacyExperimentLogicType } from './legacyExperimentLogicType'
 
 export interface LegacyExperimentLogicProps {
     experiment: Experiment
-    tabId: string
 }
 
 export type LegacyExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
@@ -328,7 +327,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     props({} as LegacyExperimentLogicProps),
     key((props) => {
         const baseKey = props.experiment.id ?? 'new'
-        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}-legacy`
+        return `${baseKey}-legacy`
     }),
     path((key) => ['scenes', 'experiments', 'legacy', 'legacyExperimentLogic', key]),
     connect(() => ({
@@ -337,7 +336,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     })),
     actions({
         // Experiment mutations
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         endExperiment: true,
         endExperimentWithoutShipping: true,
         finishExperiment: ({ selectedVariantKey }: { selectedVariantKey: string }) => ({ selectedVariantKey }),
@@ -452,10 +451,11 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                 return
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))

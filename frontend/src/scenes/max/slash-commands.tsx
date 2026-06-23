@@ -32,7 +32,7 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     },
     {
         name: SlashCommandName.SlashUsage,
-        description: 'View AI credit usage for this conversation',
+        description: 'View AI credit usage for this conversation and billing period',
         icon: <IconActivity />,
     },
     {

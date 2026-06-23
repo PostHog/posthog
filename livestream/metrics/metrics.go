@@ -25,6 +25,10 @@ var (
 		Name: "livestream_ph_events_total",
 		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
+	EventsDroppedNoToken = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_events_dropped_no_token_total",
+		Help: "Events dropped after parsing because no token could be extracted",
+	})
 	NotificationErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "livestream_notification_errors_total",

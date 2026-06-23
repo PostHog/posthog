@@ -35,6 +35,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
@@ -96,6 +97,7 @@ export class CdpApi {
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
@@ -128,12 +130,16 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
-            services.recipientsManager
+            services.capturedEventsService,
+            services.teamWorkflowsConfigService,
+            services.recipientsManager,
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -419,6 +425,7 @@ export class CdpApi {
                         logs,
                         sensitiveValues
                     )
+                    options.sendEmailsInline = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -538,6 +545,17 @@ export class CdpApi {
                 team_id: team.id,
             }
 
+            // Mirror real execution: resolve groups server-side from the event's $groups so test-run
+            // conditionals branch on group properties. Only resolve when the caller didn't supply
+            // groups, so hand-edited test payloads are respected.
+            if (!globals.groups || Object.keys(globals.groups).length === 0) {
+                globals.groups = await this.groupsManager.getGroupsForEvent(
+                    team.id,
+                    globals.event.properties,
+                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+                )
+            }
+
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
@@ -565,6 +583,7 @@ export class CdpApi {
 
             const logs: MinimalLogEntry[] = []
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({

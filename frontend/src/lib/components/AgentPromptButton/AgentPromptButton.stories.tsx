@@ -72,3 +72,35 @@ export const SingleAction: Story = {
         storageKey: 'story-agent-single',
     },
 }
+
+export const SizeVariants: Story = {
+    args: { actions: ERROR_ACTIONS },
+    render: (): JSX.Element => (
+        <div className="flex flex-col items-start gap-2">
+            {(['xs', 'sm', 'default', 'lg'] as const).map((size) => (
+                <AgentPromptButton
+                    key={size}
+                    actions={ERROR_ACTIONS}
+                    storageKey={`story-agent-size-${size}`}
+                    size={size}
+                />
+            ))}
+        </div>
+    ),
+}
+
+export const IntentVariants: Story = {
+    args: { actions: ERROR_ACTIONS },
+    render: (): JSX.Element => (
+        <div className="flex flex-col items-start gap-2">
+            {(['default', 'primary', 'outline', 'destructive', 'link-muted'] as const).map((variant) => (
+                <AgentPromptButton
+                    key={variant}
+                    actions={ERROR_ACTIONS}
+                    storageKey={`story-agent-variant-${variant}`}
+                    variant={variant}
+                />
+            ))}
+        </div>
+    ),
+}

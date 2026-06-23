@@ -11,8 +11,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { DataPipelinesNewSceneKind } from 'scenes/data-pipelines/DataPipelinesNewScene'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import {
@@ -155,6 +156,27 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     key: Scene.HogFunction,
                     name: configuration?.name || '(Untitled)',
                     iconType: 'data_pipeline',
+                }
+
+                const firstEventId = configuration?.filters?.events?.[0]?.id
+                const isLogsAlert = typeof firstEventId === 'string' && firstEventId.startsWith('$logs_alert_')
+
+                if (type === 'internal_destination' && isLogsAlert && alertId) {
+                    return [
+                        {
+                            key: Scene.Logs,
+                            name: 'Logs',
+                            path: `${urls.logs()}?activeTab=alerts`,
+                            iconType: 'logs',
+                        },
+                        {
+                            key: Scene.LogsAlertDetail,
+                            name: 'Alert',
+                            path: returnTo ?? urls.logsAlertDetail(alertId, 'notifications'),
+                            iconType: 'logs',
+                        },
+                        finalCrumb,
+                    ]
                 }
 
                 if (type === 'internal_destination' && alertId) {
@@ -423,7 +445,14 @@ export function HogFunctionScene(): JSX.Element {
 
         supportsBackfills && featureFlags[FEATURE_FLAGS.BACKFILL_WORKFLOWS_DESTINATION]
             ? {
-                  label: 'Backfills',
+                  label: (
+                      <div className="flex flex-row">
+                          <div>Backfills</div>
+                          <LemonTag className="ml-2 uppercase" type="primary">
+                              New
+                          </LemonTag>
+                      </div>
+                  ),
                   key: 'backfills',
                   content: <HogFunctionBackfills id={id} />,
               }

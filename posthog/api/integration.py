@@ -10,13 +10,11 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import stripe
 import structlog
-from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,8 +29,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.helpers.fuzzy_search import fuzzy_filter
+from posthog.models import OrganizationMembership, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -60,11 +60,13 @@ from posthog.models.integration import (
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
+    PostgreSQLIntegration,
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
 )
+from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -74,10 +76,17 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.email import send_integration_access_request
+
+from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
+GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -105,6 +114,9 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     """
     if not install_signature or not settings.STRIPE_SIGNING_SECRET:
         return False
+
+    import stripe  # noqa: PLC0415
+
     payload = json.dumps(
         {"state": state, "user_id": user_id, "account_id": account_id},
         separators=(",", ":"),
@@ -147,6 +159,9 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
     mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_email(self, value: str) -> str:
+        return value.lower()
 
 
 class GitHubRepoSerializer(serializers.Serializer):
@@ -291,6 +306,44 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
+    siteUrl = serializers.CharField(
+        help_text=(
+            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
+            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
+        )
+    )
+    permissionLevel = serializers.CharField(
+        help_text=(
+            "The connected user's permission level for this site. One of `siteOwner`, "
+            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
+        )
+    )
+
+
+class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
+    sites = GoogleSearchConsoleSiteSerializer(many=True)
+
+
+class IntegrationAccessRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=Integration.IntegrationKind.choices,
+        help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
+    )
+    reason = serializers.CharField(
+        max_length=2000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Explanation from the requester of why this integration is needed. Shown to admins in the notification email.",
+    )
+
+
+class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the project admins were notified."
+    )
+
+
 @extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
@@ -301,6 +354,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         model = Integration
         fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
         read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+
+    def validate_kind(self, value: str) -> str:
+        if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
+            raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        return value
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
@@ -498,6 +556,57 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "postgresql":
+            config = validated_data.get("config", {})
+            host = config.get("host")
+            port = config.get("port", 5432)
+            user = config.get("user")
+            password = config.get("password")
+            ssl_mode = config.get("ssl_mode", "require")
+            ssl_root_cert = config.get("ssl_root_cert")
+
+            if not (host and port and user and password):
+                raise ValidationError("Host, port, user, and password must be provided")
+
+            if not all(isinstance(value, str) for value in (host, user, password)):
+                raise ValidationError("Host, user, and password must be strings")
+
+            from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+
+            try:
+                resolve_and_validate_host(host)
+            except ValueError:
+                raise ValidationError(f"Invalid host: '{host}'")
+
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                raise ValidationError("Port must be an integer")
+
+            if port < 0 or port > 65535:
+                raise ValidationError("Port must be between 0 and 65535")
+
+            if ssl_mode not in ("require", "verify-ca", "verify-full"):
+                raise ValidationError("SSL mode must be one of: require, verify-ca, verify-full")
+
+            if ssl_mode in ("verify-ca", "verify-full"):
+                if not ssl_root_cert:
+                    raise ValidationError("Root certificate must be provided when verifying server certificates")
+                if not isinstance(ssl_root_cert, str):
+                    raise ValidationError("Root certificate must be a string")
+
+            instance = PostgreSQLIntegration.integration_from_config(
+                team_id=team_id,
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                ssl_mode=ssl_mode,
+                ssl_root_cert=ssl_root_cert,
+                created_by=request.user,
+            )
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -563,7 +672,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -593,6 +702,11 @@ class IntegrationViewSet(
         "refresh_github_repos",
         "github_link_existing",
         "github_oauth_authorize",
+        # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
+        "request_access",
+        # Enumerates every Search Console property on the connected Google account — gate behind
+        # manage access so read-only members can't discover unrelated domains (info disclosure).
+        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -609,6 +723,14 @@ class IntegrationViewSet(
                 TeamMemberAccessPermission(),
                 TeamMemberLightManagementPermission(),
             ]
+        # Any project member may ask an admin to connect an integration — connecting still requires admin.
+        if self.action == "request_access":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+            ]
         raise NotImplementedError()
 
     def get_throttles(self):
@@ -617,12 +739,64 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
+        flows_using_integration = get_active_hog_flows_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        functions_using_integration = get_enabled_hog_functions_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        used_by = []
+        if flows_using_integration:
+            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            used_by.append(f"active workflows: {flow_names}")
+        if functions_using_integration:
+            function_names = ", ".join(
+                sorted(function.name or str(function.id) for function in functions_using_integration)
+            )
+            used_by.append(f"enabled data pipelines: {function_names}")
+        if used_by:
+            raise ValidationError(
+                f"This integration is used by {' and '.join(used_by)}. "
+                "Update them to use a different integration before disconnecting it."
+            )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
+        elif instance.kind == "email" and instance.config.get("provider") == "ses":
+            domain = instance.config.get("domain")
+            if (
+                domain
+                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
+            ):
+                try:
+                    EmailIntegration(instance).ses_provider.delete_identity(domain)
+                except Exception as e:
+                    capture_exception(e)
+
+        if instance.kind == "github" and instance.integration_id:
+            # Team integrations own the installation; personal ones are subordinate. When the
+            # last team integration for an installation is removed, tear it down everywhere:
+            # uninstall the App on GitHub and delete the now-orphaned personal integrations.
+            # Other teams still sharing the same GitHub account keep it installed.
+            is_last_team_reference = (
+                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
+                .exclude(id=instance.id)
+                .exists()
+            )
+            if is_last_team_reference:
+                try:
+                    GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                except Exception as e:
+                    capture_exception(e)
+                # Separate try so a DB error deleting personal rows isn't masked by the GitHub call.
+                try:
+                    UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
+                except Exception as e:
+                    capture_exception(e)
 
         super().perform_destroy(instance)
 
@@ -630,12 +804,11 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
-        is_sandbox = request.GET.get("is_sandbox", "").lower() in ("true", "1", "yes")
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, is_sandbox=is_sandbox)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -672,10 +845,16 @@ class IntegrationViewSet(
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
-        query = search.strip().lower()
+        query = search.strip()
         if not query:
             return visible
-        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+        # Fuzzy-rank by name, then union in any channel whose id contains the query so pasting an id still resolves.
+        ranked = fuzzy_filter(query, visible, key=lambda channel: channel["name"])
+        ranked_ids = {channel["id"] for channel in ranked}
+        id_matches = [
+            channel for channel in visible if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
+        ]
+        return ranked + id_matches
 
     @extend_schema(
         parameters=[SlackChannelsQuerySerializer],
@@ -810,6 +989,35 @@ class IntegrationViewSet(
         cache.set(key, response_data, 60)
         return Response(response_data)
 
+    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
+    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the Search Console properties the connected Google account has access to."""
+        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
+        # import path, mirroring how other ad-platform endpoints stay self-contained.
+        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            google_search_console_session,
+            list_sites,
+        )
+
+        instance = self.get_object()
+        if instance.kind != "google-search-console":
+            raise ValidationError(
+                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
+            )
+        _ensure_oauth_token_valid(instance)
+
+        cache_key = f"google_search_console/{instance.id}/sites"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        session = google_search_console_session(instance.id, instance.team_id)
+        sites = list_sites(session)
+        response_data = {"sites": sites}
+        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
+        return Response(response_data)
+
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -933,6 +1141,13 @@ class IntegrationViewSet(
         return self._anthropic_managed_list_response(request, resource="vaults")
 
     def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         instance = self._get_anthropic_integration_or_400()
 
         try:
@@ -1067,6 +1282,39 @@ class IntegrationViewSet(
             else None,
         )
         return Response({"oauth_url": oauth_url})
+
+    @extend_schema(
+        request=IntegrationAccessRequestSerializer,
+        responses={200: IntegrationAccessRequestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="request_access")
+    def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Notify project admins that a member is requesting an integration be connected."""
+        # Members only — admins can connect integrations themselves, so there's nobody to ask.
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level >= OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only members can request access; admins can connect integrations directly.")
+
+        serializer = IntegrationAccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        send_integration_access_request.delay(
+            team_id=self.team_id,
+            requesting_user_id=cast(User, request.user).id,
+            kind=serializer.validated_data["kind"],
+            reason=serializer.validated_data["reason"],
+        )
+        # Keep the free-text reason out of properties (PII + cardinality); a length signal is enough.
+        report_user_action(
+            cast(User, request.user),
+            "integration access requested",
+            {
+                "integration_kind": serializer.validated_data["kind"],
+                "requester_level": requesting_level,
+                "reason_length": len(serializer.validated_data["reason"]),
+            },
+            team=self.team,
+        )
+        return Response({"success": True})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")

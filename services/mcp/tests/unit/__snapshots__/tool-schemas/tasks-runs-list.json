@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "default": 50,
+            "description": "Number of results to return per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "The initial index from which to return the results.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["task_id"],
+    "type": "object"
+}

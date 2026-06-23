@@ -1,6 +1,7 @@
 import json
 import uuid
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -14,6 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
+    AccessMethod,
     Feature,
     HogQLFeatures,
     Product,
@@ -25,7 +27,9 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
     reset_query_tags,
+    tag_contains_user_hogql,
     tag_queries,
     tags_context,
     update_tags,
@@ -292,6 +296,47 @@ def test_get_caller_source_skips_infrastructure():
         assert prefix.startswith(_PROJECT_ROOT_PREFIX)
 
 
+def test_tag_contains_user_hogql_sets_flag():
+    reset_query_tags()
+    assert get_query_tag_value("contains_user_hogql") is None
+    tag_contains_user_hogql()
+    assert get_query_tag_value("contains_user_hogql") is True
+
+
+def test_tag_contains_user_hogql_is_idempotent():
+    reset_query_tags()
+    tag_contains_user_hogql()
+    tag_contains_user_hogql()
+    assert get_query_tag_value("contains_user_hogql") is True
+
+
+def test_tag_contains_user_hogql_short_circuits_after_first_call():
+    # Repeated calls (recursive property_to_expr, breakdown loops, @property accessors)
+    # must skip the model_copy(deep=True) inside tag_queries after the first call.
+    reset_query_tags()
+    tag_contains_user_hogql()
+    first_tags = get_query_tags()
+    tag_contains_user_hogql()
+    tag_contains_user_hogql()
+    # Same object — no fresh copy was set by the no-op calls
+    assert get_query_tags() is first_tags
+
+
+def test_contains_user_hogql_excluded_from_json_when_none():
+    qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
+    assert "contains_user_hogql" not in qt.to_json()
+
+
+def test_contains_user_hogql_included_in_json_when_set():
+    qt = QueryTags(
+        contains_user_hogql=True,
+        git_commit="test",
+        container_hostname="test",
+        service_name="test",
+    )
+    assert '"contains_user_hogql":true' in qt.to_json()
+
+
 def test_source_file_excluded_from_json_when_none():
     qt = QueryTags(git_commit="test", container_hostname="test", service_name="test")
     data = qt.to_json()
@@ -439,6 +484,30 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["hogql_features"] == {"tables": ["events"], "events": []}
         assert comment["product"] == Product.PRODUCT_ANALYTICS.value
+
+    def test_hogql_query_runner_marks_contains_user_hogql(self):
+        from posthog.schema import HogQLQuery
+
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+
+        runner = HogQLQueryRunner(query=HogQLQuery(query=f"SELECT '{marker}'"), team=self.team)  # noqa: S608
+        runner._calculate()
+
+        comment = self._get_log_comment(marker)
+        assert comment.get("contains_user_hogql") is True
+
+    def test_platform_query_does_not_mark_contains_user_hogql(self):
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query", product=Product.INTERNAL)
+        sync_execute(f"SELECT '{marker}'")  # noqa: S608
+
+        comment = self._get_log_comment(marker)
+        assert "contains_user_hogql" not in comment
 
     def test_execute_hogql_query_with_mcp_source_still_attributes_via_features(self):
         # Pulling MCP traffic apart by what it actually does is the whole point
@@ -627,3 +696,79 @@ class TestAddFallbackQueryTags(BaseTest):
         )
         add_fallback_query_tags(tags)
         assert tags.product == Product.MCP
+
+    # --- query-structure fallback: wrapper / drill-down queries inherit the wrapped product ---
+
+    @parameterized.expand(
+        [("RetentionQuery",), ("TrendsQuery",), ("FunnelsQuery",), ("StickinessQuery",), ("LifecycleQuery",)]
+    )
+    def test_query_structure_resolves_actors_drilldowns(self, inner_kind):
+        # "Open as new insight" from an actors modal posts a DataTableNode wrapping an
+        # ActorsQuery → InsightActorsQuery → <insight>. Every outer kind maps to None, so the
+        # product is inherited from the wrapped insight via the query-structure walk.
+        query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "ActorsQuery", "source": {"kind": "InsightActorsQuery", "source": {"kind": inner_kind}}},
+        }
+        tags = QueryTags(query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+    def test_query_structure_resolves_marketing_analytics_snakecase_query_type(self):
+        # Marketing analytics runners pass a non-NodeKind query_type label ("marketing_analytics_table_query"),
+        # so the query_type fallback can't map it — but tags.query carries the canonical kind.
+        tags = QueryTags(
+            query_type="marketing_analytics_table_query",
+            query={"kind": "MarketingAnalyticsTableQuery"},
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MARKETING_ANALYTICS
+
+    def test_query_structure_does_not_override_set_product(self):
+        query = {"kind": "ActorsQuery", "source": {"kind": "InsightActorsQuery", "source": {"kind": "RetentionQuery"}}}
+        tags = QueryTags(product=Product.MCP, query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP
+
+    def test_query_type_kind_takes_precedence_over_query_structure(self):
+        # query_type maps directly (LogsQuery → logs); the structure walk must not override it.
+        tags = QueryTags(query_type="LogsQuery", query={"kind": "TrendsQuery"})
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.LOGS
+
+    def test_query_structure_leaves_product_none_when_no_inner_kind_maps(self):
+        # A bare ActorsQuery (raw persons drill-down) has no wrapped insight to inherit from.
+        tags = QueryTags(query_type="ActorsQuery", query={"kind": "ActorsQuery", "source": None})
+        add_fallback_query_tags(tags)
+        assert tags.product is None
+
+    def test_query_structure_accepts_pydantic_like_objects(self):
+        # tags.query is usually the raw posted dict, but the walk also reads `.kind` / `.source` attributes.
+        query = SimpleNamespace(
+            kind="ActorsQuery",
+            source=SimpleNamespace(
+                kind="InsightActorsQuery", source=SimpleNamespace(kind="RetentionQuery", source=None)
+            ),
+        )
+        tags = QueryTags(query_type="ActorsQuery", query=query)
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+
+@pytest.mark.parametrize(
+    "access_method,expected",
+    [
+        # Programmatic key auth routes ClickHouse queries to the offline cluster as the API user
+        # (see sync_execute); user-facing auth stays online.
+        (AccessMethod.PERSONAL_API_KEY, True),
+        (AccessMethod.PROJECT_SECRET_API_KEY, True),
+        (AccessMethod.TEAM_SECRET_TOKEN, True),
+        (AccessMethod.OAUTH, False),
+        (AccessMethod.SHARING_TOKEN, False),
+        (AccessMethod.ID_JAG, False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_api_key_access_method(access_method, expected):
+    assert is_api_key_access_method(access_method) is expected

@@ -5,9 +5,8 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
+import { DashboardType, InsightShortId } from '~/types'
 
-import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
@@ -37,35 +36,27 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            width={600}
+            width={720}
             simple
             title=""
             inline={inline}
             data-attr={dataAttr}
         >
-            <PayGateMini
-                feature={AvailableFeature.SUBSCRIPTIONS}
-                handleSubmit={closeModal}
-                background={false}
-                className="py-8 flex-1 min-h-0 flex flex-col"
-                docsLink="https://posthog.com/docs/user-guides/subscriptions"
-            >
-                {!subscriptionId ? (
-                    <ManageSubscriptions
-                        {...baseProps}
-                        onCancel={closeModal}
-                        onSelect={(id) => push(urlForSubscription(id, baseProps))}
-                    />
-                ) : (
-                    <EditSubscription
-                        id={subscriptionId}
-                        insightShortId={insightShortId}
-                        dashboard={dashboard}
-                        onCancel={() => push(urlForSubscriptions(baseProps))}
-                        onDelete={() => push(urlForSubscriptions(baseProps))}
-                    />
-                )}
-            </PayGateMini>
+            {!subscriptionId ? (
+                <ManageSubscriptions
+                    {...baseProps}
+                    onCancel={closeModal}
+                    onSelect={(id) => push(urlForSubscription(id, baseProps))}
+                />
+            ) : (
+                <EditSubscription
+                    id={subscriptionId}
+                    insightShortId={insightShortId}
+                    dashboard={dashboard}
+                    onCancel={() => push(urlForSubscriptions(baseProps))}
+                    onDelete={() => push(urlForSubscriptions(baseProps))}
+                />
+            )}
         </LemonModal>
     )
 }

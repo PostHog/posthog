@@ -24,6 +24,30 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import (
     build_incremental_fields,
     initial_value_for_incremental_type,
 )
+from posthog.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+    sql_schema_metadata,
+)
+from posthog.temporal.data_imports.sources.common.sql.predicates import (
+    ColumnTypeCategory,
+    RowFilter,
+    RowFilterValidationError,
+    ValidatedRowFilter,
+    classify_column_type,
+    is_multi_value_operator,
+    normalize_operator,
+    render_named_conditions,
+    render_positional_conditions,
+    validate_and_coerce_row_filters,
+)
+from posthog.temporal.data_imports.sources.common.sql.projection import (
+    compute_projected_columns,
+    filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns,
+    format_projected_select_clause,
+    project_arrow_columns,
+    prune_enabled_columns,
+)
 from posthog.temporal.data_imports.sources.common.sql.query_builder import ParamStyle, SafeSQL, SelectQueryBuilder
 from posthog.temporal.data_imports.sources.common.sql.types import (
     Column,
@@ -41,10 +65,13 @@ __all__ = [
     "BracketIdentifierQuoter",
     "Column",
     "ColumnType",
+    "ColumnTypeCategory",
     "IdentifierQuoter",
     "IncrementalFieldFilter",
     "InvalidIdentifierError",
     "ParamStyle",
+    "RowFilter",
+    "RowFilterValidationError",
     "SafeSQL",
     "SelectQueryBuilder",
     "Table",
@@ -52,7 +79,22 @@ __all__ = [
     "TableReference",
     "TableSchemas",
     "TableStats",
+    "ValidatedRowFilter",
     "build_incremental_fields",
+    "classify_column_type",
+    "compute_projected_columns",
+    "extract_available_column_names",
+    "filter_columns_by_enabled_columns",
+    "filter_dwh_columns_by_enabled_columns",
+    "format_projected_select_clause",
     "initial_value_for_incremental_type",
+    "is_multi_value_operator",
+    "normalize_operator",
+    "project_arrow_columns",
+    "prune_enabled_columns",
+    "render_named_conditions",
+    "render_positional_conditions",
     "resolve_detected_primary_keys",
+    "sql_schema_metadata",
+    "validate_and_coerce_row_filters",
 ]

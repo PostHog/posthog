@@ -32,24 +32,12 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-
-            - name: Install dependencies
-              env:
-                  HUSKY: 0
-              run: |
-                  cd nodejs
-                  pnpm install --frozen-lockfile --ignore-scripts
+                  working-directory: nodejs
+                  # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts
 
             - name: Update AI costs
               run: |
@@ -161,8 +149,7 @@ jobs:
                   )" \
                     --base master \
                     --head chore/llma-update-ai-costs \
-                    --label "automated" --label "llm-analytics" \
-                    --reviewer "PostHog/team-ai-observability" \
+                    --label "automated" \
                     --reviewer "PostHog/team-ai-gateway")
                   echo "Created $new_pr_url"
 

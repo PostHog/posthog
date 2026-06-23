@@ -6,6 +6,7 @@ import {
     beforeUnmount,
     connect,
     kea,
+    key,
     listeners,
     path,
     props,
@@ -14,12 +15,13 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+import { Suspense, lazy } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, Spinner, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -27,12 +29,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, slugify } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
@@ -46,7 +47,6 @@ import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -367,10 +367,38 @@ export function activeTabMatchesUrlTarget(
     return !activeTab?.draft && !activeTab?.view && !activeTab?.insight
 }
 
+// The Monaco model URI string for a tab's editor content. QueryWindow binds the editor to
+// this `path` and createTab creates the model at it — they must agree, so both derive it here.
+export function tabModelPath(tabId: string): string {
+    return `tab-${tabId}`
+}
+
+// Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
+// kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
+// full undo history survives — pushEditOperations adds one more undoable step rather than
+// wiping the stack. This also keeps the editor content in sync after accepting/rejecting a
+// suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
+// the `value` prop, so the content has to be written onto the model directly. No-ops when the
+// editor isn't mounted yet or the content already matches.
+function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
+    if (!monaco || !uri) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model || model.getValue() === text) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null)
+    model.pushStackElement()
+}
+
+const LazyQuery = lazy(() => import('~/queries/Query/Query').then((m) => ({ default: m.Query<DataVisualizationNode> })))
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
             dataWarehouseViewsLogic,
@@ -912,48 +940,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
                 values.suggestionPayload?.onAccept(!!shouldRunQuery, actions, values, props)
 
-                // Re-create the model to prevent it from being purged
-                if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.suggestedQueryInput,
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
+                // Write the accepted query onto the tab's persistent model as one undoable
+                // edit. The model survives the diff <-> editor swap (keepCurrentModel), so its
+                // existing undo history is preserved and cmd+z walks back through the accepted
+                // query to the pre-AI query and the rest of the edit history.
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.suggestedQueryInput,
-                                language: 'hogQL',
-                            })
-                        )
-
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
-                }
                 posthog.capture('sql-editor-accepted-suggestion', {
                     source: values.suggestedSource,
                 })
@@ -962,47 +954,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)
 
-                // Re-create the model to prevent it from being purged
-                if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.queryInput ?? '',
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.queryInput ?? '',
-                                language: 'hogQL',
-                            })
-                        )
+                // Keep the persistent model's content in sync with the reverted query (the
+                // suggestion was shown in a throwaway diff model, not this one). This is a
+                // no-op when the model already matches, so rejecting adds no undo step.
+                applyUndoableModelEdit(props.monaco, values.activeTab?.uri, values.queryInput ?? '')
 
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
-                        }
-                    }
-                }
                 posthog.capture('sql-editor-rejected-suggestion', {
                     source: values.suggestedSource,
                 })
@@ -1024,7 +980,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     : undefined
 
                 if (props.monaco) {
-                    const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
+                    const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -1239,7 +1195,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
-                tryShowMCPHint('sql.execute')
+                const compactQuery = query.replace(/\s+/g, ' ').trim()
+                const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
+                tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]
@@ -1555,18 +1513,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             >
                                 {(query) => (
                                     <div className="bg-bg-light max-h-[60vh] overflow-auto">
-                                        <Query
-                                            readOnly
-                                            embedded
-                                            query={{
-                                                ...currentVisualizationQuery,
-                                                source: {
-                                                    ...currentVisualizationQuery.source,
-                                                    query,
-                                                },
-                                                display: defaultDisplay,
-                                            }}
-                                        />
+                                        <Suspense fallback={<Spinner />}>
+                                            <LazyQuery
+                                                readOnly
+                                                embedded
+                                                query={{
+                                                    ...currentVisualizationQuery,
+                                                    source: {
+                                                        ...currentVisualizationQuery.source,
+                                                        query,
+                                                    },
+                                                    display: defaultDisplay,
+                                                }}
+                                            />
+                                        </Suspense>
                                     </div>
                                 )}
                             </SaveTargetCycler>
@@ -1607,6 +1567,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: sourceQueryToSave,
                     saved: true,
+                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -1724,6 +1685,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
+                // When saving from a dashboard flow, attach the tile server-side without
+                // dropping the insight's existing dashboard links.
+                const dashboardId = values.dashboardId
+                if (dashboardId) {
+                    const existingDashboardIds = [
+                        ...(values.editingInsight.dashboard_tiles?.map((tile) => tile.dashboard_id) ?? []),
+                        ...(values.editingInsight.dashboards ?? []),
+                    ]
+                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
+                }
+
                 let savedInsight: QueryBasedInsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1756,7 +1728,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                const dashboardId = values.dashboardId
                 if (dashboardId) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
@@ -2133,7 +2104,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
                 return
@@ -2153,7 +2124,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
@@ -2400,8 +2371,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(searchParams.open_query))
                     tabAdded = true
                 } else if (
                     hashParams.q &&
@@ -2410,9 +2381,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     !insightShortIdFromUrl &&
                     (values.queryInput === null ||
                         !activeTabMatchesUrlTarget(values.activeTab, {}) ||
-                        values.queryInput !== hashParams.q)
+                        values.queryInput !== String(hashParams.q))
                 ) {
-                    actions.createTab(hashParams.q)
+                    // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
+                    actions.createTab(String(hashParams.q))
                     tabAdded = true
                 } else if (values.queryInput === null) {
                     actions.createTab('')
@@ -2573,7 +2545,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // to the whole SELECT when there is no nested subquery).
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
-                actions.setActiveQueryText(singleQuery?.query ?? null, 0)
+                // Offset must be the statement's start in the full text, not 0 — otherwise leading
+                // whitespace/newlines desync the metadata markers (squiggles) by that many characters.
+                actions.setActiveQueryText(singleQuery?.query ?? null, singleQuery?.start ?? 0)
 
                 if (!singleQuery) {
                     if (isStale()) {

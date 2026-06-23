@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -62,7 +62,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    get_view_or_table_by_name,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +131,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(team_id=team_id)
+            database = Database.create_for(
+                team_id=team_id,
+                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+            )
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -203,7 +210,7 @@ class DataWarehouseSavedQuerySerializer(
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     query = QueryDefinitionField(
-        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}',
+        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}',
     )
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
@@ -605,8 +612,10 @@ class DataWarehouseSavedQuerySerializer(
             if self.instance.name == name:
                 return name
 
-        name_exists_in_hogql_database = self.context["database"].has_table(name)
-        if name_exists_in_hogql_database:
+        # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
+        # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+        # Otherwise a user with denied table could create another one with colliding name.
+        if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
             raise serializers.ValidationError("A table with this name already exists.")
 
         return name
@@ -646,7 +655,6 @@ class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, 
         return normalized_name
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
@@ -698,7 +706,6 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -720,7 +727,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id)
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
 
     def get_serializer_class(self):
@@ -811,12 +818,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
+        name = instance.name
         try:
             delete_saved_query(instance)
         except HasDependentsError:
             raise serializers.ValidationError(
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="DataWarehouseSavedQuery",
+            activity="deleted",
+            detail=Detail(name=name),
+        )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

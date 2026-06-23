@@ -9,7 +9,7 @@ use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use metrics::counter;
-use tracing::{instrument, warn, Span};
+use tracing::{info, instrument, Span};
 
 use crate::{
     api::CaptureError,
@@ -99,7 +99,7 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, event_count=?events.len(), "hydrated events");
 
     if events.is_empty() {
-        warn!("rejected empty recording batch");
+        info!(metadata = ?metadata, "rejected empty recording batch");
         return Err(CaptureError::EmptyBatch);
     }
 

@@ -49,7 +49,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models.event.util import format_clickhouse_timestamp
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
@@ -64,7 +63,7 @@ from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.postgres.postgres import XminBounds
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -95,6 +94,7 @@ from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
 from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
@@ -633,8 +633,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         if _current_pipeline_mode == "v3":
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=True,
                 )
             )
@@ -648,8 +647,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         else:
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=False,
                 )
             )
@@ -3539,7 +3537,11 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     if pipeline_mode == "non_dlt":
         expected_properties["_ph_partition_key"] = "2023-w14"
 
-    assert call_kwargs["data"] == {
+    # The producer derives a deterministic event id per row per job. Its value depends on the
+    # dynamic job id, so assert it is a valid UUID and compare the rest of the payload.
+    data = call_kwargs["data"]
+    assert str(uuid.UUID(data["event_id"])) == data["event_id"]
+    assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "properties": expected_properties,
     }
@@ -3691,11 +3693,8 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert len(files.get("Contents", [])) == 1
 
-    # Run the pipeline again with webhook feature flag enabled
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # Run the pipeline again to ingest the webhook parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -3885,11 +3884,8 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # Verify offsets were committed
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
-    # 6. Run the import pipeline with webhook feature flag enabled to ingest the parquet
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # 6. Run the import pipeline to ingest the parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4141,3 +4137,185 @@ async def test_mysql_decimal_and_unsigned_types(team, mysql_config, mysql_connec
     assert str(rows[0][1]) == "123.45"
     # Unsigned BIGINT > signed-int64 max — must come back intact.
     assert int(rows[0][2]) == 9_000_000_000_000_000_000
+
+
+def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str]]:
+    return {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
+    """End-to-end xmin replication: initial snapshot, incremental delta on insert/update,
+    persisted ceiling state, and hard-delete invisibility."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_table (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Initial snapshot captures the committed row (`_run` asserts exactly one row landed).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="xmin_table",
+        table_name="postgres_xmin_table",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_ceiling is not None
+    assert schema.xmin_num_wraparound is not None
+    first_ceiling = schema.xmin_last_value
+
+    # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
+    await postgres_connection.execute(
+        "UPDATE {schema}.xmin_table SET name = 'a2' WHERE id = 1".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # Only the delta is read, upserted by primary key: row 1 reflects the update, row 2 is new.
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+    # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_last_value > first_ceiling
+
+    # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
+    await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres_connection):
+    """The single-wrap `>= lower OR < upper` predicate executes against real Postgres and reads rows.
+    A mocked ceiling forces the wraparound branch (the exact SQL is covered by unit tests)."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_wrap (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_wrap (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Force the OR-range branch with a huge `upper` so the `< upper` side matches every real
+    # (small) tuple xmin — exercising the wraparound predicate end-to-end.
+    wraparound_bounds = XminBounds(
+        lower=4_000_000_000,
+        upper=4_294_967_295,
+        ceiling_xid8=(1 << 32) | 4_294_967_295,
+        num_wraparound=1,
+        wraparound_or_range=True,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.postgres.postgres._capture_xmin_ceiling",
+        return_value=wraparound_bounds,
+    ) as mock_capture:
+        await _run(
+            team=team,
+            schema_name="xmin_wrap",
+            table_name="postgres_xmin_wrap",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={},
+        )
+
+    mock_capture.assert_called_once()
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, postgres_connection):
+    """Switching an already-synced table to xmin rebuilds the Delta table. Without the resync the
+    write fails: the old physical schema lacks the non-nullable `_ph_xmin` control column."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.switch_tbl (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # First sync as incremental — the Delta table is created without `_ph_xmin`.
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="switch_tbl",
+        table_name="postgres_switch_tbl",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
+    await sync_to_async(schema.save)()
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
+    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
+    )
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a"), (2, "b")]
+    assert all(r[2] is not None for r in res.results)
+
+    # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.sync_type_config.get("reset_pipeline") is None
+    assert schema.xmin_last_value is not None

@@ -32,18 +32,19 @@ import { validateVariants } from './variantsPanelValidation'
 
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-const draftStorageKey = (tabId: string): string => `experiment-draft-${tabId}`
+// Scope the draft key per project so a draft started in one project can't prefill or be submitted in another within the same browser session.
+export const DRAFT_STORAGE_KEY = `experiment-draft-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
 type ExperimentDraft = {
     experiment: Experiment
     timestamp: number
 }
 
-const readDraftFromStorage = (tabId?: string): Experiment | null => {
-    if (!tabId || typeof sessionStorage === 'undefined') {
+const readDraftFromStorage = (): Experiment | null => {
+    if (typeof sessionStorage === 'undefined') {
         return null
     }
-    const raw = sessionStorage.getItem(draftStorageKey(tabId))
+    const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
     if (!raw) {
         return null
     }
@@ -52,7 +53,7 @@ const readDraftFromStorage = (tabId?: string): Experiment | null => {
         if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
             const { experiment, timestamp } = parsed as ExperimentDraft
             if (Date.now() - timestamp > DRAFT_TTL_MS) {
-                sessionStorage.removeItem(draftStorageKey(tabId))
+                sessionStorage.removeItem(DRAFT_STORAGE_KEY)
                 return null
             }
             return experiment
@@ -63,32 +64,30 @@ const readDraftFromStorage = (tabId?: string): Experiment | null => {
     }
 }
 
-const writeDraftToStorage = (tabId: string | undefined, experiment: Experiment): void => {
-    if (!tabId || typeof sessionStorage === 'undefined') {
+const writeDraftToStorage = (experiment: Experiment): void => {
+    if (typeof sessionStorage === 'undefined') {
         return
     }
     const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
-    sessionStorage.setItem(draftStorageKey(tabId), JSON.stringify(draft))
+    sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
 }
 
-const clearDraftStorage = (tabId?: string): void => {
-    if (!tabId || typeof sessionStorage === 'undefined') {
+const clearDraftStorage = (): void => {
+    if (typeof sessionStorage === 'undefined') {
         return
     }
-    sessionStorage.removeItem(draftStorageKey(tabId))
+    sessionStorage.removeItem(DRAFT_STORAGE_KEY)
 }
 
-export interface CreateExperimentLogicProps {
-    tabId?: string
-}
+export interface CreateExperimentLogicProps {}
 
 export const createExperimentLogic = kea<createExperimentLogicType>([
     props({} as CreateExperimentLogicProps),
-    key((props) => `${props.tabId ?? 'global'}-create-experiment`),
+    key(() => 'create-experiment'),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
-    connect((props: CreateExperimentLogicProps) => ({
+    connect(() => ({
         values: [
-            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
+            variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }),
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
             projectLogic,
             ['currentProjectId'],
@@ -188,7 +187,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         canSubmitExperiment: [
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
@@ -226,12 +225,11 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         mode: [
             (s) => [s.experiment],
             (): 'create' | 'link' => {
-                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId })
-                    .values.mode
+                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false }).values.mode
             },
         ],
     })),
-    events(({ actions, values, props }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
             if (values.experiment.id !== 'new') {
                 return
@@ -260,7 +258,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 // Continue to draft fallback
             }
 
-            const draft = readDraftFromStorage(props.tabId)
+            const draft = readDraftFromStorage()
             if (draft) {
                 actions.setExperiment(draft)
             }
@@ -270,17 +268,16 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 return
             }
             // Use cases covered:
-            // - switching in-app tabs to avoid side effects while having multiple experiment forms open
             // - navigating away from the form without saving
-            writeDraftToStorage(props.tabId, values.experiment)
+            writeDraftToStorage(values.experiment)
         },
     })),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         cancelForm: () => {
             if (values.experiment.id !== 'new') {
                 return
             }
-            clearDraftStorage(props.tabId)
+            clearDraftStorage()
         },
         setExperiment: () => {},
         setExperimentValue: () => {},
@@ -383,14 +380,16 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                     lemonToast.success('Experiment created successfully!')
-                    tryShowMCPHint('experiments.create')
+                    tryShowMCPHint('experiments.create', {
+                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
+                    })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()
-                    clearDraftStorage(props.tabId)
+                    clearDraftStorage()
 
-                    if (props.tabId) {
-                        const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })
+                    const sceneLogicInstance = experimentSceneLogic.findMounted()
+                    if (sceneLogicInstance) {
                         sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
                         const logicRef = sceneLogicInstance.values.experimentLogicRef
 
@@ -399,7 +398,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         } else {
                             experimentLogic({
                                 experimentId: response.id,
-                                tabId: props.tabId,
                             }).actions.loadExperimentSuccess(response)
                         }
                     } else {

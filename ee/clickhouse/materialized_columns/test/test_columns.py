@@ -252,14 +252,23 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         columns = [
             materialize("events", "myprop", create_minmax_index=True),
             materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True),
+            materialize(
+                "events",
+                "myprop_float",
+                create_minmax_index=True,
+                is_nullable=True,
+                column_type="Nullable(Float64)",
+            ),
         ]
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
+        expr_float = "JSONExtract(properties, 'myprop_float', 'Nullable(Float64)')"
 
         backfill_materialized_columns("events", columns, timedelta(days=50))
         assert self._get_column_types("mat_myprop") == ("String", "DEFAULT", expr_nonnullable)
         assert self._get_column_types("mat_myprop_nullable") == ("Nullable(String)", "DEFAULT", expr_nullable)
+        assert self._get_column_types("mat_myprop_float") == ("Nullable(Float64)", "DEFAULT", expr_float)
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -322,6 +331,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -334,6 +344,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=True),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 
@@ -346,6 +357,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
                 has_minmax_index=True,
             )
 

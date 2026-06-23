@@ -131,3 +131,49 @@ class TestCreateUserInterviewTopicTool(BaseTest):
         assert topic.interviewee_emails == ["alex@example.com"]
         assert topic.interviewee_distinct_ids == ["user_1"]
         assert topic.questions == ["A real question?"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_persists_safe_invite_fields(self):
+        tool = self._tool()
+
+        content, artifact = await tool._arun_impl(
+            topic="Some topic",
+            interviewee_emails=["alex@example.com"],
+            questions=["A real question?"],
+            invite_subject="Got a sec to chat?",
+            invite_message="Hi Alex,\nWe'd love your thoughts.",
+        )
+
+        assert "Created interview topic" in content
+        topic = await sync_to_async(lambda: UserInterviewTopic.objects.get(team=self.team, id=artifact["topic_id"]))()
+        assert topic.invite_subject == "Got a sec to chat?"
+        assert topic.invite_message == "Hi Alex,\nWe'd love your thoughts."
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @parameterized.expand(
+        [
+            ("subject_with_url", {"invite_subject": "see http://evil.com"}),
+            ("subject_with_brackets", {"invite_subject": "<b>hi</b>"}),
+            ("subject_with_newline", {"invite_subject": "line one\nline two"}),
+            ("message_with_www", {"invite_message": "go to www.evil.com"}),
+            ("message_with_bare_domain", {"invite_message": "head to acme.com to learn more"}),
+            ("subject_with_bare_domain", {"invite_subject": "thoughts on acme.com?"}),
+            ("message_with_javascript", {"invite_message": "click javascript:alert(1)"}),
+            ("message_with_brackets", {"invite_message": "<script>alert(1)</script>"}),
+        ]
+    )
+    async def test_arun_impl_rejects_unsafe_invite_fields(self, _name, invite_kwargs):
+        tool = self._tool()
+
+        content, artifact = await tool._arun_impl(
+            topic="Some topic",
+            interviewee_emails=["alex@example.com"],
+            questions=["A real question?"],
+            **invite_kwargs,
+        )
+
+        assert artifact["error"] == "validation_failed"
+        assert "invite" in content.lower()
+        assert not await sync_to_async(UserInterviewTopic.objects.filter(team=self.team).exists)()

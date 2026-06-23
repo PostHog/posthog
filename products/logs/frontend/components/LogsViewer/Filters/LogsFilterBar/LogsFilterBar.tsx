@@ -48,6 +48,8 @@ const taxonomicGroupTypes = [
 
 export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    // When the facet rail is on, Level + Service live in the rail instead of this bar.
+    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
     const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
     const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
@@ -60,8 +62,16 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
             <div className="flex flex-col gap-2 w-full bg-primary">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={utcDateRange} />
+                        {!showFacetRail && (
+                            <>
+                                <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
+                                <ServiceFilter
+                                    value={serviceNames}
+                                    onChange={setServiceNames}
+                                    dateRange={utcDateRange}
+                                />
+                            </>
+                        )}
                         <div className="min-w-[300px] max-w-[350px] w-full">
                             <LogsFilterSearch />
                         </div>
@@ -126,13 +136,17 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
+    // Taxonomic value suggestions should respect any active scope (e.g. the person-tab
+    // distinct_id pin), so pass the combined query view rather than the user-editable
+    // filterGroup. The UniversalFilters `group` prop stays on the editable filterGroup
+    // so chips reflect what the user can actually edit.
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: queryFilterGroup,
         serviceNames,
     }
 
@@ -153,7 +167,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
 const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: logsFilters } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -170,7 +184,7 @@ const LogsFilterSearch = (): JSX.Element => {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: logsFilters.filterGroup,
+            filterGroup: queryFilterGroup,
             serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {

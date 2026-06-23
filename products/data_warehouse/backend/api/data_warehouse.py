@@ -2,14 +2,11 @@ from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from django.conf import settings as django_settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncHour
 
-import requests as http_requests
 import structlog
-import posthoganalytics
 from dateutil import parser
 from drf_spectacular.utils import extend_schema, inline_serializer
 from opentelemetry import trace
@@ -24,17 +21,18 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.api import managed_warehouse
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -56,6 +54,23 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # write actions (see required_scopes below) require editor access.
     scope_object = "warehouse_view"
     serializer_class = _FallbackSerializer
+
+    def _require_organization_admin(self, request: Request, action: str) -> Response | None:
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": f"Only organization admins can {action} the managed warehouse"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        membership = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user=request.user
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            return Response(
+                {"error": f"Only organization admins can {action} the managed warehouse"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
@@ -551,7 +566,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:read", "external_data_source:read"])
     def data_health_issues(self, request: Request, **kwargs) -> Response:
         """
         Returns failed/disabled data pipeline items for the Pipeline status side panel.
@@ -798,94 +813,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         first_dashboard = config.overview_dashboards.order_by("id").first()
         return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
 
-    # --- Managed warehouse provisioning (proxied to duckgres) ---
-
-    def _is_managed_warehouse_enabled(self) -> bool:
-        try:
-            return posthoganalytics.feature_enabled(
-                "provision-managed-warehouse-beta",
-                str(self.team.uuid),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(self.team.organization_id),
-                    },
-                    "project": {
-                        "id": str(self.team.id),
-                    },
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.warning("Failed to evaluate managed warehouse feature flag", team_id=self.team_id)
-            return False
-
-    def _provisioning_request(
-        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None, timeout: int = 30
-    ) -> Response:
-        """Proxy a request to the duckgres provisioning API."""
-        if not self._is_managed_warehouse_enabled():
-            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
-
-        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
-        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
-
-        if not base_url:
-            logger.warning("Provisioning request rejected: DUCKGRES_API_URL not configured", team_id=self.team_id)
-            return Response(
-                {"error": "Managed warehouse provisioning is not configured"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
-            )
-
-        # Use the PostHog team_id as the duckgres org identifier.
-        # Paths starting with / are org-scoped, otherwise treated as absolute API paths.
-        team_id = str(self.team_id)
-        if path.startswith("/"):
-            url = f"{base_url.rstrip('/')}/api/v1/orgs/{team_id}{path}"
-        else:
-            url = f"{base_url.rstrip('/')}/api/v1/{path}"
-        headers = {}
-        if token:
-            headers["X-Duckgres-Internal-Secret"] = token
-
-        try:
-            resp = _internal_requests.request(
-                method, url, json=json_body, params=params, headers=headers, timeout=timeout
-            )
-        except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
-            return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
-        except http_requests.ConnectionError:
-            logger.warning("Provisioning API connection refused", method=method, path=path, team_id=team_id)
-            return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
-        except Exception:
-            logger.exception("Provisioning API unexpected error", method=method, path=path, team_id=team_id)
-            return Response(
-                {"error": "An error occurred contacting the provisioning service"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        if resp.status_code >= 400:
-            logger.warning(
-                "Provisioning API returned error",
-                method=method,
-                path=path,
-                team_id=team_id,
-                status_code=resp.status_code,
-                response_body=resp.text[:500],
-            )
-        else:
-            logger.info("Provisioning API request succeeded", method=method, path=path, team_id=team_id)
-
-        try:
-            body = resp.json()
-        except ValueError:
-            body = {"error": resp.text[:500]}
-        return Response(body, status=resp.status_code)
+    # --- Managed warehouse provisioning (proxied to duckgres, see managed_warehouse.py) ---
 
     @extend_schema(
         request=inline_serializer(
@@ -893,58 +821,84 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             fields={"database_name": serializers.CharField(help_text="Name for the new database")},
         ),
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "ProvisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(
+                        help_text="Provisioning lifecycle message, e.g. 'provisioning started'"
+                    ),
+                    "org": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
+                    "username": serializers.CharField(help_text="Root database username"),
+                    "password": serializers.CharField(
+                        help_text="Root database password — returned only here at provision time and on reset-password"
+                    ),
                 },
             )
         },
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
-        """Start provisioning a managed warehouse for this team."""
-        database_name = request.data.get("database_name")
-        if not database_name:
-            return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        return self._provisioning_request(
-            "POST",
-            "/provision",
-            json_body={
-                "database_name": database_name,
-                "metadata_store": {"type": "aurora", "aurora": {"min_acu": 0.5, "max_acu": 2}},
-            },
-        )
+        """Start provisioning a managed warehouse for this organization (shared by all its teams)."""
+        admin_error = self._require_organization_admin(request, "provision")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"))
 
     @extend_schema(
         responses={
-            200: inline_serializer(
+            202: inline_serializer(
                 "DeprovisionWarehouseResponse",
                 fields={
-                    "status": serializers.CharField(),
-                    "team": serializers.CharField(),
+                    "status": serializers.CharField(
+                        help_text="Deprovisioning lifecycle message, e.g. 'deprovisioning started'"
+                    ),
+                    "org": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
                 },
             )
         },
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def deprovision(self, request: Request, **kwargs) -> Response:
-        """Start deprovisioning the managed warehouse for this team."""
-        return self._provisioning_request("POST", "/deprovision")
+        """Start deprovisioning the organization's managed warehouse. Restricted to organization admins."""
+        admin_error = self._require_organization_admin(request, "deprovision")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.deprovision(self.team.organization_id)
 
     @extend_schema(
         responses={
             200: inline_serializer(
                 "WarehouseStatusResponse",
                 fields={
-                    "team_name": serializers.CharField(),
+                    "org_id": serializers.CharField(help_text="duckgres org identifier (the PostHog organization id)"),
                     "state": serializers.ChoiceField(
-                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"]
+                        choices=["pending", "provisioning", "ready", "failed", "deleting", "deleted"],
+                        help_text="Overall provisioning lifecycle state",
                     ),
-                    "status_message": serializers.CharField(),
-                    "ready_at": serializers.DateTimeField(allow_null=True),
-                    "failed_at": serializers.DateTimeField(allow_null=True),
+                    "status_message": serializers.CharField(help_text="Human-readable detail for the current state"),
+                    "s3_state": serializers.CharField(help_text="Object-store sub-resource provisioning state"),
+                    "metadata_store_state": serializers.CharField(
+                        help_text="Metadata-store sub-resource provisioning state"
+                    ),
+                    "identity_state": serializers.CharField(
+                        help_text="Worker identity sub-resource provisioning state"
+                    ),
+                    "secrets_state": serializers.CharField(help_text="Credentials sub-resource provisioning state"),
+                    "ready_at": serializers.DateTimeField(allow_null=True, help_text="When the warehouse became ready"),
+                    "failed_at": serializers.DateTimeField(allow_null=True, help_text="When provisioning failed"),
+                    "connection": inline_serializer(
+                        "WarehouseConnection",
+                        fields={
+                            "host": serializers.CharField(
+                                help_text="Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
+                            ),
+                            "port": serializers.IntegerField(help_text="Postgres wire-protocol port"),
+                            "database": serializers.CharField(help_text="Database to connect to — always 'ducklake'"),
+                            "username": serializers.CharField(help_text="Root database username"),
+                        },
+                        required=False,
+                        allow_null=True,
+                    ),
                 },
             )
         },
@@ -952,15 +906,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
-        resp = self._provisioning_request("GET", "/warehouse/status")
-        # Override connection host/port with the public-facing duckgres PG endpoint
-        if resp.status_code == 200 and isinstance(resp.data, dict) and resp.data.get("connection"):
-            pg_url = getattr(django_settings, "DUCKGRES_PG_URL", None)
-            pg_port = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
-            if pg_url:
-                resp.data["connection"]["host"] = pg_url
-                resp.data["connection"]["port"] = pg_port
-        return resp
+        return managed_warehouse.status_for(self.team.organization_id)
 
     @extend_schema(
         responses={
@@ -976,7 +922,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
-        return self._provisioning_request("POST", "/reset-password")
+        admin_error = self._require_organization_admin(request, "reset the root password for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.reset_password(self.team.organization_id)
 
     @extend_schema(
         parameters=[
@@ -998,8 +947,4 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
-        name = request.query_params.get("name")
-        if not name:
-            return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return self._provisioning_request("GET", "database-name/check", params={"name": name}, timeout=10)
+        return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))

@@ -8,8 +8,7 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
-import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
+import { WizardProgressFab } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/WizardProgressFab'
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
@@ -26,7 +25,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
-    useMountedLogic(postOnboardingModalLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -40,9 +38,9 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <GlobalModals />
                 <GlobalShortcuts />
                 <Command />
-                <PostOnboardingModal />
                 <ImpersonationNotice />
                 <SelfReadOnlyNotice />
+                <WizardProgressFab />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}

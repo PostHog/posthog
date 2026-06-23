@@ -3,7 +3,7 @@ import { BindLogic } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { mswDecorator } from '~/mocks/browser'

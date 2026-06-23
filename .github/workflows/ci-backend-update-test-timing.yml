@@ -1,9 +1,6 @@
 name: Backend & Dagster CI - Update test timing
 
 on:
-    pull_request:
-        paths:
-            - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
         inputs:
             backend_run_id:
@@ -15,8 +12,14 @@ on:
                 required: false
                 type: string
     schedule:
-        # Run weekly on Sunday at 3am UTC
-        - cron: '0 3 * * 0'
+        # Daily: merge the latest CI timing artifacts and refresh the Actions cache that
+        # ci-backend / ci-dagster restore for sharding. This is the day-to-day freshness.
+        - cron: '0 3 * * *'
+        # Monthly (1st): same merge, but this run also commits the .test_durations fallback
+        # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
+        # need a daily commit. Distinguished from the daily run via github.event.schedule
+        # below — keep this string in sync with the should_commit check.
+        - cron: '0 4 1 * *'
 
 permissions:
     contents: write
@@ -26,7 +29,7 @@ permissions:
 jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 10
         steps:
             - name: Get app token
@@ -150,6 +153,15 @@ jobs:
                       --pattern "timing_data-Products-*" \
                       --dir timing_artifacts
 
+                  # JUnit artifacts power precise per-shard carrier detection.
+                  # Without these, optimize_test_durations.py silently takes the
+                  # statistical fallback and the JUnit-arg becomes a no-op.
+                  gh run download "$BACKEND_RUN_ID" \
+                      --pattern "junit-results-backend-core-*" \
+                      --pattern "junit-results-backend-temporal-*" \
+                      --dir junit_artifacts || \
+                      echo "::warning::No JUnit artifacts found — falling back to statistical carrier detection"
+
                   # Download dagster timing artifacts if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
                       gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
@@ -162,11 +174,13 @@ jobs:
               env:
                   DAGSTER_RUN_ID: ${{ steps.find-dagster-run.outputs.run_id }}
               run: |
-                  # Process each segment separately, then merge
+                  # Process each segment separately with migration tax correction, then merge.
+                  # Core/Temporal use JUnit for precise carrier detection.
+                  # Products lack JUnit artifacts, so use statistical detection (--shard-count).
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core
+                      --segment Core --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal
+                      --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products
 
@@ -177,20 +191,91 @@ jobs:
                       echo "Processed Dagster timing data"
                   fi
 
-                  # Merge into single file (Core → Temporal → Products → Dagster, later segments overwrite overlaps)
-                  python3 -c "
-                  import json
-                  durations = {}
-                  for path in ['/tmp/core_durations', '/tmp/temporal_durations', '/tmp/products_durations', '/tmp/dagster_durations']:
-                      try:
-                          with open(path) as f: durations.update(json.load(f))
-                      except FileNotFoundError: pass
-                  with open('.test_durations', 'w') as f:
-                      json.dump(durations, f, indent=4, sort_keys=True)
-                      f.write('\n')
-                  print(f'Merged {len(durations)} tests')
-                  "
-                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+                  # Outlier-merge across per-segment outputs. Single implementation
+                  # in optimize_test_durations.py (outlier_merge_durations) is shared
+                  # with per-segment artifact processing and covered by tests next
+                  # to the script — see test_optimize_test_durations.py.
+                  uv run .github/scripts/optimize_test_durations.py .test_durations \
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+
+                  # Additionally emit nodeid-clean per-segment files for
+                  # --split-granularity=file. The shared .test_durations above is a union
+                  # across every CI job, so a Core file-mode plan scoped to it budgets weight
+                  # for tests that never run in Core (other segments' param variants,
+                  # product-routed files) — that mis-scoping is the imbalance file-mode hit.
+                  # --scope-to-junit trims each file to exactly the nodeids that segment's
+                  # JUnit saw run; the run-set is already in the artifacts, so this adds no
+                  # collection. The union above is untouched (item-mode + turbo-discover still
+                  # read it); these are purely additive, cached per-segment below.
+                  # Non-fatal: --scope-to-junit hard-exits if a segment's JUnit is missing,
+                  # but the union .test_durations above is already built and MUST still be
+                  # cached/committed below. A JUnit miss just skips that segment's per-segment
+                  # file for the day; ci-backend then falls back to scoping the union.
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.core \
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Core per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts .test_durations.temporal \
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit \
+                      || echo "::warning::Temporal per-segment durations skipped (no JUnit?) — file-mode falls back to union scoping"
+
+                  # Also drop junit_artifacts — ghcommit-action defaults file_pattern
+                  # to "." and chokes on leftover download dirs ("read junit_artifacts/:
+                  # is a directory"). The commit steps below also pin file_pattern as a
+                  # belt-and-braces guard.
+                  rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+
+            - name: Compute cache key and monthly-commit flag
+              id: durations-meta
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  REF: ${{ github.ref }}
+                  SCHEDULE: ${{ github.event.schedule }}
+              run: |
+                  # Per-day cache key → one new entry per day. Restores match by prefix and only
+                  # ever touch the newest entry, so each prior day's entry ages out 7 days after
+                  # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
+                  # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
+                  TODAY=$(date -u +%F)
+                  echo "date=$TODAY" >> "$GITHUB_OUTPUT"
+                  echo "cache_key=posthog-test-durations-$TODAY" >> "$GITHUB_OUTPUT"
+                  # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
+                  # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
+                  # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
+                  # entry under `on.schedule`. Gated to master so a workflow_dispatch on another
+                  # branch can't reset chore/update-test-timings to a non-master SHA and open a PR
+                  # full of unrelated diffs (the cache still saves on any branch).
+                  if [ "$REF" = "refs/heads/master" ] && { [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$SCHEDULE" = "0 4 1 * *" ]; }; then
+                      echo "should_commit=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "should_commit=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Save test durations to Actions cache
+              # The merged file is the source of truth for PR + master sharding (ci-backend and
+              # ci-dagster restore it by the posthog-test-durations- prefix). Scheduled/dispatch
+              # runs are on master, so the cache is readable from every branch. Saved every run;
+              # a same-day key is an immutable no-op.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: .test_durations
+                  key: ${{ steps.durations-meta.outputs.cache_key }}
+
+            - name: Save per-segment durations to Actions cache
+              # Nodeid-clean per-segment files for --split-granularity=file, restored by
+              # ci-backend via the posthog-segment-durations- prefix. The prefix MUST NOT
+              # start with posthog-test-durations- : the union restores match that prefix and
+              # take the newest entry, so a shared prefix would shadow the union .test_durations
+              # across every backend + dagster shard. Same per-day key shape as the union; a
+              # miss makes file-mode fall back to scoping the union (still correct, just the
+              # pre-fix balance). continue-on-error so a cache hiccup never fails the merge.
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}
 
             - name: Check for changes
               id: check-changes
@@ -212,12 +297,14 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
-            # On schedule/dispatch: clean up stale branch if no changes
+            # On schedule/dispatch: clean up stale branch if no changes. Gated to the monthly
+            # commit window so a mid-month "no diff" day can't close the open monthly PR.
             - name: Clean up stale branch
-              if: steps.check-changes.outputs.changed == 'false' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'false' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -234,7 +321,7 @@ jobs:
               # matches workspace HEAD — otherwise a merge to master during the run could
               # leave ghcommit-action with a parent mismatch and the same
               # "Expected branch to point to X but it did not" failure mode.
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   TARGET_SHA: ${{ github.sha }}
@@ -250,17 +337,18 @@ jobs:
 
             # On schedule/dispatch: commit to a branch and create a PR
             - name: Commit via GitHub API (signed)
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: chore/update-test-timings
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Create pull request
-              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request' && steps.durations-meta.outputs.should_commit == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}

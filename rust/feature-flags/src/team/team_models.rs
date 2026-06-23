@@ -10,6 +10,11 @@ pub struct Team {
     pub api_token: String,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
+    // The project (environment parent) this team belongs to. Django writes it into the team
+    // metadata cache payload; `#[serde(default)]` keeps cache entries written before the
+    // field existed deserializing (they get `None`, and the handler falls back to a query).
+    #[serde(default)]
+    pub project_id: Option<i64>,
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
     pub autocapture_web_vitals_opt_in: Option<bool>,

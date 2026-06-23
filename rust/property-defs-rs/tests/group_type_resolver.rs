@@ -7,7 +7,7 @@ use personhog_proto::personhog::{
     types::v1::*,
 };
 use tokio::net::TcpListener;
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status};
 
 use property_defs_rs::{
     group_type_resolver::GroupTypeResolver,
@@ -18,7 +18,9 @@ use property_defs_rs::{
 
 struct MockPersonHogService {
     mappings_by_team: Vec<GroupTypeMappingsByKey>,
-    fail: bool,
+    /// Number of calls that should fail before succeeding. usize::MAX = always fail.
+    fail_remaining: AtomicUsize,
+    fail_code: Code,
     call_count: Arc<AtomicUsize>,
 }
 
@@ -26,7 +28,8 @@ impl MockPersonHogService {
     fn with_mappings(mappings_by_team: Vec<GroupTypeMappingsByKey>) -> Self {
         Self {
             mappings_by_team,
-            fail: false,
+            fail_remaining: AtomicUsize::new(0),
+            fail_code: Code::Internal,
             call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -37,7 +40,8 @@ impl MockPersonHogService {
     ) -> Self {
         Self {
             mappings_by_team,
-            fail: false,
+            fail_remaining: AtomicUsize::new(0),
+            fail_code: Code::Internal,
             call_count,
         }
     }
@@ -45,8 +49,32 @@ impl MockPersonHogService {
     fn failing() -> Self {
         Self {
             mappings_by_team: vec![],
-            fail: true,
+            fail_remaining: AtomicUsize::new(usize::MAX),
+            fail_code: Code::InvalidArgument,
             call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn transient_then_ok(
+        mappings_by_team: Vec<GroupTypeMappingsByKey>,
+        fail_count: usize,
+        fail_code: Code,
+        call_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            mappings_by_team,
+            fail_remaining: AtomicUsize::new(fail_count),
+            fail_code,
+            call_count,
+        }
+    }
+
+    fn always_failing(fail_code: Code, call_count: Arc<AtomicUsize>) -> Self {
+        Self {
+            mappings_by_team: vec![],
+            fail_remaining: AtomicUsize::new(usize::MAX),
+            fail_code,
+            call_count,
         }
     }
 }
@@ -58,9 +86,19 @@ impl PersonHogService for MockPersonHogService {
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        if self.fail {
-            return Err(Status::internal("mock failure"));
+
+        // Decrement fail_remaining; if it was > 0 before the decrement, fail this call.
+        // Uses saturating to avoid wrapping usize::MAX (always-fail case).
+        let prev = self
+            .fail_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .unwrap();
+        if prev > 0 {
+            return Err(Status::new(self.fail_code, "mock failure"));
         }
+
         Ok(Response::new(GroupTypeMappingsBatchResponse {
             results: self.mappings_by_team.clone(),
         }))
@@ -237,10 +275,22 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,
     ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn count_group_type_mappings(
+        &self,
+        _: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
         Err(Status::unimplemented(""))
     }
     async fn create_group(
@@ -279,6 +329,24 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn split_person(
+        &self,
+        _: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn set_person_version_floor(
+        &self,
+        _: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------
@@ -307,6 +375,9 @@ fn make_config(addr: &str) -> property_defs_rs::config::Config {
     let mut config = property_defs_rs::config::Config::init_with_defaults().unwrap();
     config.personhog_addr = addr.to_string();
     config.personhog_timeout_ms = 5000;
+    config.personhog_max_retries = 2;
+    config.personhog_initial_backoff_ms = 1;
+    config.personhog_max_backoff_ms = 10;
     config.skip_writes = true;
     config.skip_reads = false;
     config
@@ -519,4 +590,118 @@ async fn test_no_personhog_client_returns_error() {
     let result = resolver.resolve(&mut updates).await;
 
     assert!(result.is_err());
+}
+
+// -- retry tests --------------------------------------------------------
+
+fn org_mapping() -> Vec<GroupTypeMappingsByKey> {
+    vec![GroupTypeMappingsByKey {
+        key: 1,
+        mappings: vec![GroupTypeMapping {
+            id: 1,
+            team_id: 1,
+            project_id: 1,
+            group_type: "organization".to_string(),
+            group_type_index: 0,
+            name_singular: None,
+            name_plural: None,
+            default_columns: None,
+            detail_dashboard_id: None,
+            created_at: None,
+        }],
+    }]
+}
+
+#[tokio::test]
+async fn test_retries_transient_error_then_succeeds() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::transient_then_ok(
+        org_mapping(),
+        2,
+        Code::Unavailable,
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}"));
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "organization")];
+    resolver.resolve(&mut updates).await.unwrap();
+
+    assert_eq!(get_resolved_index(&updates[0]), Some(0));
+    // 2 transient failures + 1 success = 3 total calls
+    assert_eq!(call_count.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn test_retries_deadline_exceeded_then_succeeds() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::transient_then_ok(
+        org_mapping(),
+        1,
+        Code::DeadlineExceeded,
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}"));
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "organization")];
+    resolver.resolve(&mut updates).await.unwrap();
+
+    assert_eq!(get_resolved_index(&updates[0]), Some(0));
+    assert_eq!(call_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn test_does_not_retry_non_retryable_error() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::always_failing(Code::InvalidArgument, call_count.clone());
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}"));
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "organization")];
+    let result = resolver.resolve(&mut updates).await;
+
+    assert!(result.is_err());
+    // Non-retryable error: only 1 attempt, no retries
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_exhausts_retries_on_persistent_transient_error() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::always_failing(Code::Unavailable, call_count.clone());
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}"));
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "organization")];
+    let result = resolver.resolve(&mut updates).await;
+
+    assert!(result.is_err());
+    // 1 initial + 2 retries = 3 total attempts (max_retries=2)
+    assert_eq!(call_count.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn test_no_retries_when_max_retries_is_zero() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::always_failing(Code::Unavailable, call_count.clone());
+
+    let addr = start_mock_server(mock).await;
+    let mut config = make_config(&format!("http://{addr}"));
+    config.personhog_max_retries = 0;
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "organization")];
+    let result = resolver.resolve(&mut updates).await;
+
+    assert!(result.is_err());
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 }

@@ -199,3 +199,40 @@ class TestHealthIssue(BaseTest):
     def test_bulk_resolve_no_active_issues_returns_empty_list(self):
         resolved = HealthIssue.bulk_resolve("test_kind", {self.team.id})
         self.assertEqual(resolved, [])
+
+    def test_bulk_upsert_skips_deleted_team_and_persists_remaining(self):
+        # Reproduces the FK violation that previously rolled back the entire
+        # batch when a team_id snapshotted at workflow start was deleted before
+        # bulk_upsert ran.
+        missing_team_id = self.team.id + 999_999
+        result = HealthIssue.bulk_upsert(
+            "test_kind",
+            [
+                self._bulk_payload("good"),
+                {
+                    "team_id": missing_team_id,
+                    "severity": "warning",
+                    "payload": {"detail": "orphan"},
+                    "unique_hash": "orphan",
+                },
+            ],
+        )
+        self.assertEqual({i.unique_hash for i in result}, {"good"})
+        self.assertTrue(HealthIssue.objects.filter(team=self.team, kind="test_kind", unique_hash="good").exists())
+        self.assertFalse(HealthIssue.objects.filter(unique_hash="orphan").exists())
+
+    def test_bulk_upsert_all_teams_missing_returns_empty(self):
+        missing_team_id = self.team.id + 999_999
+        result = HealthIssue.bulk_upsert(
+            "test_kind",
+            [
+                {
+                    "team_id": missing_team_id,
+                    "severity": "warning",
+                    "payload": {"detail": "orphan"},
+                    "unique_hash": "orphan",
+                }
+            ],
+        )
+        self.assertEqual(result, [])
+        self.assertFalse(HealthIssue.objects.filter(unique_hash="orphan").exists())

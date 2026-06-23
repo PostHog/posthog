@@ -89,6 +89,25 @@ def _is_private_ip_literal(host: str) -> bool:
     )
 
 
+def has_authority_bypass_chars(url: str) -> bool:
+    """
+    Detect characters that produce a parser-vs-client disagreement on the URL authority.
+
+    ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
+    returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
+    interpret ``\\`` as the end of the authority (a path separator) and connect to
+    the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
+
+    URLs containing these characters cannot be safely validated by host, because
+    the validated host differs from the host the client will actually connect to.
+    """
+    if "\\" in url:
+        return True
+    if "%5c" in url.lower():
+        return True
+    return False
+
+
 def _dev_bypass_enabled() -> bool:
     """
     Dev mode short-circuits is_url_allowed unless POSTHOG_FORCE_URL_VALIDATION is set.
@@ -142,6 +161,8 @@ def _validate_url_with_ips(
         logger.warning("url_validation.blocked", reason=reason, **log_kwargs)
         return False, reason, empty
 
+    if has_authority_bypass_chars(raw_url):
+        return _blocked("Invalid URL: ambiguous authority")
     try:
         u = urlparse.urlparse(raw_url)
     except Exception:

@@ -1,96 +1,11 @@
 {
     "products": [
         {
-            "path": "Web scripts",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": ["site_apps"]
-        },
-        {
-            "path": "Support",
-            "category": "Behavior",
-            "iconType": "conversations",
-            "type": "conversations",
-            "intents": ["conversations"]
-        },
-        {
-            "path": "Customer analytics",
-            "category": "Analytics",
-            "iconType": "cohort",
-            "type": null,
-            "intents": ["customer_analytics"]
-        },
-        {
-            "path": "Dashboards",
-            "category": "Analytics",
-            "iconType": "dashboard",
-            "type": "dashboard",
-            "intents": ["product_analytics"]
-        },
-        {
-            "path": "SQL editor",
-            "category": "Analytics",
-            "iconType": "sql_editor",
-            "type": "sql",
-            "intents": ["data_warehouse_saved_queries", "data_warehouse"]
-        },
-        {
-            "path": "Data warehouse",
-            "category": "Unreleased",
-            "iconType": "data_warehouse",
-            "type": null,
-            "intents": ["data_warehouse", "data_warehouse_saved_queries"]
-        },
-        {
-            "path": "Deployments",
-            "category": "Tools",
+            "path": "AI gateway",
+            "category": "AI engineering",
             "iconType": null,
-            "type": "deployments",
-            "intents": ["deployments"]
-        },
-        {
-            "path": "Early access features",
-            "category": "Features",
-            "iconType": null,
-            "type": "early_access_feature",
-            "intents": ["early_access_features"]
-        },
-        {
-            "path": "Endpoints",
-            "category": "Tools",
-            "iconType": "endpoints",
-            "type": "endpoints",
-            "intents": ["endpoints"]
-        },
-        {
-            "path": "Error tracking",
-            "category": "App monitoring",
-            "iconType": null,
-            "type": "error_tracking",
-            "intents": ["error_tracking"]
-        },
-        {
-            "path": "Experiments",
-            "category": "Features",
-            "iconType": "experiment",
-            "type": "experiment",
-            "intents": ["experiments"]
-        },
-        {
-            "path": "Feature flags",
-            "category": "Features",
-            "iconType": null,
-            "type": "feature_flag",
-            "intents": ["feature_flags", "experiments", "early_access_features"]
-        },
-        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
-        {
-            "path": "Live Debugger",
-            "category": "Unreleased",
-            "iconType": "live_debugger",
-            "type": "live_debugger",
-            "intents": ["live_debugger"]
+            "type": "ai_gateway",
+            "intents": ["ai_gateway"]
         },
         {
             "path": "LLM analytics",
@@ -142,11 +57,110 @@
             "intents": ["llm_prompts"]
         },
         {
-            "path": "Skills",
+            "path": "Business knowledge",
             "category": "AI engineering",
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
+        },
+        {
+            "path": "Web scripts",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": "hog_function",
+            "intents": ["site_apps"]
+        },
+        {
+            "path": "Support",
+            "category": "Behavior",
+            "iconType": "conversations",
+            "type": "conversations",
+            "intents": ["conversations"]
+        },
+        {
+            "path": "Customer analytics",
+            "category": "Analytics",
+            "iconType": "cohort",
+            "type": null,
+            "intents": ["customer_analytics"]
+        },
+        {
+            "path": "Dashboards",
+            "category": "Analytics",
+            "iconType": "dashboard",
+            "type": "dashboard",
+            "intents": ["product_analytics"]
+        },
+        {
+            "path": "SQL editor",
+            "category": "Analytics",
+            "iconType": "sql_editor",
+            "type": "sql",
+            "intents": ["data_warehouse_saved_queries", "data_warehouse"]
+        },
+        {
+            "path": "Data warehouse",
+            "category": "Unreleased",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": ["data_warehouse", "data_warehouse_saved_queries"]
+        },
+        {
+            "path": "Early access features",
+            "category": "Features",
             "iconType": null,
-            "type": "llm_skills",
-            "intents": ["llm_prompts"]
+            "type": "early_access_feature",
+            "intents": ["early_access_features"]
+        },
+        {
+            "path": "Endpoints",
+            "category": "Tools",
+            "iconType": "endpoints",
+            "type": "endpoints",
+            "intents": ["endpoints"]
+        },
+        {
+            "path": "CI analytics",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": "engineering_analytics",
+            "intents": ["engineering_analytics"]
+        },
+        {
+            "path": "Error tracking",
+            "category": "App monitoring",
+            "iconType": null,
+            "type": "error_tracking",
+            "intents": ["error_tracking"]
+        },
+        {
+            "path": "Experiments",
+            "category": "Features",
+            "iconType": "experiment",
+            "type": "experiment",
+            "intents": ["experiments"]
+        },
+        {
+            "path": "Feature flags",
+            "category": "Features",
+            "iconType": null,
+            "type": "feature_flag",
+            "intents": ["feature_flags", "experiments", "early_access_features"]
+        },
+        {
+            "path": "Identity matching",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["marketing_analytics"]
+        },
+        { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
+        {
+            "path": "Live Debugger",
+            "category": "Unreleased",
+            "iconType": "live_debugger",
+            "type": "live_debugger",
+            "intents": ["live_debugger"]
         },
         { "path": "Logs", "category": "App monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
@@ -207,6 +221,7 @@
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {
@@ -295,6 +310,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",

@@ -224,6 +224,9 @@ class ResourceTransferViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if visitor.is_immutable():
             raise exceptions.ValidationError(f"Cannot search for immutable resource kind: {data['resource_kind']}")
 
+        if not visitor.user_facing:
+            raise exceptions.ValidationError(f"Cannot search for resource kind: {data['resource_kind']}")
+
         model = visitor.get_model()
 
         # model_to_resource accepts both instances and classes at runtime via _meta

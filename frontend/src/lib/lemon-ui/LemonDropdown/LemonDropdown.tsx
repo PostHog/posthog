@@ -78,7 +78,13 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     onClickInside?.(e)
                 }}
                 onMouseLeaveInside={(e) => {
-                    if (trigger === 'hover' && !referenceRef.current?.contains(e.relatedTarget as Node)) {
+                    // relatedTarget is null when leaving the window and isn't always a Node, so
+                    // Node.contains() would throw — treat anything that isn't a contained Node as "left".
+                    const relatedTarget = e.relatedTarget
+                    if (
+                        trigger === 'hover' &&
+                        !(relatedTarget instanceof Node && referenceRef.current?.contains(relatedTarget))
+                    ) {
                         setVisible(false)
                     }
                     onMouseLeaveInside?.(e)
@@ -102,7 +108,11 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                         }
                     },
                     onMouseLeave: (e: React.MouseEvent): void => {
-                        if (trigger === 'hover' && !floatingRef.current?.contains(e.relatedTarget as Node)) {
+                        const relatedTarget = e.relatedTarget
+                        if (
+                            trigger === 'hover' &&
+                            !(relatedTarget instanceof Node && floatingRef.current?.contains(relatedTarget))
+                        ) {
                             setVisible(false)
                         }
                     },

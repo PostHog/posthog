@@ -8,6 +8,7 @@ export const visualReviewPreferencesLogic = kea<visualReviewPreferencesLogicType
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewPreferencesLogic']),
     actions({
         setComparisonMode: (mode: ComparisonMode) => ({ mode }),
+        setAddImagesToComment: (enabled: boolean) => ({ enabled }),
     }),
     reducers({
         comparisonMode: [
@@ -15,6 +16,13 @@ export const visualReviewPreferencesLogic = kea<visualReviewPreferencesLogicType
             { persist: true, prefix: 'visual_review_' },
             {
                 setComparisonMode: (_, { mode }) => mode,
+            },
+        ],
+        addImagesToComment: [
+            false,
+            { persist: true, prefix: 'visual_review_' },
+            {
+                setAddImagesToComment: (_, { enabled }) => enabled,
             },
         ],
     }),

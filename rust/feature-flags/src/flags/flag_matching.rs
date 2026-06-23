@@ -12,7 +12,7 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     calculate_hash, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
-    populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
+    populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
@@ -1025,6 +1025,7 @@ impl FeatureFlagMatcher {
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        Some(&self.flag_evaluation_state.flag_evaluation_results),
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1292,6 +1293,7 @@ impl FeatureFlagMatcher {
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
+        let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1411,6 +1413,22 @@ impl FeatureFlagMatcher {
                 hash_key_overrides,
                 request_hash_key_override,
             )?;
+
+            // OutOfRolloutBound means the condition's property filters (if any) already
+            // matched and only the rollout check failed, so re-evaluating later groups
+            // can't change the outcome.
+            if early_exit_enabled
+                && !is_match
+                && reason == FeatureFlagMatchReason::OutOfRolloutBound
+            {
+                return Ok(FeatureFlagMatch {
+                    matches: false,
+                    variant: None,
+                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                    condition_index: Some(index),
+                    payload: None,
+                });
+            }
 
             // Update highest_match and highest_index
             let (new_highest_match, new_highest_index) = self
@@ -1677,6 +1695,11 @@ impl FeatureFlagMatcher {
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
+
+        // Mirror $os <-> $os_name so a condition keyed on either matches when the
+        // person row carries only one of them (web reports $os, mobile $os_name).
+        // Runs before initial-property population so an aliased $os can backfill $initial_os.
+        populate_os_aliases(&mut merged_properties);
 
         // Populate missing $initial_ properties from their non-initial counterparts.
         // DB $initial_ values are preserved; this only fills in missing ones from

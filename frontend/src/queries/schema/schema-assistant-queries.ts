@@ -476,6 +476,7 @@ export interface AssistantTrendsFilter {
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -509,6 +510,7 @@ export interface AssistantTrendsFilter {
 
     /**
      * Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.
+     * Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.
      */
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
 
@@ -558,6 +560,60 @@ export interface AssistantTrendsFilter {
      * @default false
      */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+
+    /**
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
+     * @default true
+     */
+    metricShowChange?: boolean
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when
+     * the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.
+     */
+    metricChangeIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when
+     * the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.
+     */
+    metricChangeDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Color the sparkline under the big number by whether
+     * the metric increased or decreased over the period (using the increase/decrease line colors).
+     * @default false
+     */
+    metricColorByDirection?: boolean
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a
+     * "lower is better" metric.
+     */
+    metricLineIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a
+     * "lower is better" metric.
+     */
+    metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -875,7 +931,10 @@ export interface AssistantRetentionFilter {
      * The time window mode to use for retention calculations.
      */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
-    /** Custom brackets for retention calculations. */
+    /**
+     * Custom brackets for retention calculations.
+     * @maxItems 31
+     */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.
@@ -1143,6 +1202,28 @@ export interface AssistantPathsFilter {
      * Filters out high-traffic paths to focus on less common journeys.
      */
     maxEdgeWeight?: integer
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **departed from** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`.
+     * Take the value verbatim from a `source` field of a `query-paths` result row. Combine with
+     * `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the
+     * path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.
+     */
+    pathStartKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific
+     * node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`.
+     * Take the value verbatim from a `target` field of a `query-paths` result row. Combine with
+     * `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by
+     * non-actors paths queries.
+     */
+    pathEndKey?: string
+    /**
+     * Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific
+     * node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with
+     * `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.
+     */
+    pathDropoffKey?: string
 }
 
 export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
@@ -1291,6 +1372,93 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+}
+
+/**
+ * Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`,
+ * `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * There are no per-cell selectors like `day` or `series` — everything is configured on the `source`
+ * paths query. Two modes:
+ * - Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,
+ *   property filters) to return every actor on that path.
+ * - Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed
+ *   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).
+ *   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's
+ *   `target` / `source`.
+ */
+export interface AssistantPathsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source paths insight query whose actors we are listing. */
+    source: AssistantPathsQuery
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
+/**
+ * Drills into a retention insight to list the persons in one acquisition cohort and show, for each,
+ * which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`,
+ * followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`,
+ * … for a daily insight). Each interval column is `1` when the actor was active in that interval and
+ * `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how
+ * many intervals each actor returned in (most-retained first).
+ *
+ * The number and name of the interval columns are derived from the source — `retentionFilter.period`
+ * sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when
+ * custom brackets are set) sets the count.
+ *
+ * Retention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings
+ * column — its persons output is appearance-based.
+ */
+export interface AssistantRetentionActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: AssistantRetentionQuery
+
+    /**
+     * Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every
+     * actor who entered the cohort); `1` is the cohort that entered one interval later, and so on.
+     * Defaults to `0` when omitted.
+     */
+    interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
 }
 
 /**
@@ -1475,6 +1643,7 @@ export interface AssistantInsightVizNode {
  * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
  * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
  * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
@@ -1484,6 +1653,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.BoldNumber
     | ChartDisplayType.ActionsLineGraph
     | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsPie
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
@@ -1491,11 +1661,42 @@ export type AssistantDataVisualizationDisplayType =
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
     yAxisPosition?: 'left' | 'right'
+    /**
+     * Override how this individual series is rendered, independent of the chart-level `display` type.
+     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
+     * `auto` follows the chart-level display type.
+     */
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
+    trendLine?: boolean
+    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    label?: string
+    /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
+    color?: string
+}
+
+export interface AssistantDataVisualizationAxisFormatting {
+    /** Text prepended to each value (e.g. `$`). */
+    prefix?: string
+    /** Text appended to each value (e.g. `%` or ` ms`). */
+    suffix?: string
+    /**
+     * Number formatting style.
+     * - `none` — no formatting.
+     * - `number` — thousands separators (e.g. `1,234`).
+     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
+     * - `percent` — render the value as a percentage.
+     */
+    style?: 'none' | 'number' | 'short' | 'percent'
+    /** Number of decimal places to display. */
+    decimalPlaces?: number
 }
 
 export interface AssistantDataVisualizationAxisSettings {
     /** Display settings for a plotted Y series. */
     display?: AssistantDataVisualizationAxisDisplaySettings
+    /** Number-formatting settings for the values on this axis or series. */
+    formatting?: AssistantDataVisualizationAxisFormatting
 }
 
 export interface AssistantDataVisualizationAxis {
@@ -1547,6 +1748,8 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Render each data point's value as a label directly on the series. */
+    showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
 }
@@ -1580,6 +1783,7 @@ export interface AssistantDataVisualizationNode {
      * Guidance:
      * - Single-value result (one numeric column, one row) → `BoldNumber`.
      * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical proportions → `ActionsPie`.
      * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
      * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
      * - Otherwise → `ActionsTable`.

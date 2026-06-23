@@ -15,7 +15,9 @@ import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../t
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { EmailService } from '../../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -49,8 +51,10 @@ describe('HogFunctionHandler', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         mockHogFunctionExecutor = new HogExecutorService(
@@ -60,6 +64,8 @@ describe('HogFunctionHandler', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -188,6 +194,53 @@ describe('HogFunctionHandler', () => {
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
+    })
+
+    describe('with groups', () => {
+        beforeEach(() => {
+            invocation.groups = {
+                organization: {
+                    id: 'org_key',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: { owner_name: 'Chris McNeill' },
+                },
+            }
+        })
+
+        it('should forward groups to the hog function invocation globals', async () => {
+            const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            const passedGlobals = buildHogFunctionInvocationSpy.mock.calls[0][2]
+            expect(passedGlobals.groups).toEqual(invocation.groups)
+        })
+
+        it('should render a group property referenced in a function input template', async () => {
+            // {groups.organization.properties.owner_name} compiled to hog bytecode
+            action.config.inputs.name = {
+                value: '{groups.organization.properties.owner_name}',
+                templating: 'hog',
+                bytecode: ['_H', 1, 32, 'owner_name', 32, 'properties', 32, 'organization', 32, 'groups', 1, 4],
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            expect(handlerResult.error).toBeUndefined()
+            expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+        })
     })
 
     it('should throw an error if template is not found', async () => {
@@ -372,5 +425,62 @@ describe('HogFunctionHandler', () => {
         // Verify the function was still marked as finished with the right log
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('Recipient has opted out')
+    })
+
+    describe('non_failure_status_codes propagation', () => {
+        it('propagates non_failure_status_codes from action.config.inputs into the synthetic hog function', async () => {
+            const templateWithNonFailure = await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-test-hogflow-non-failure-status',
+                name: 'Test Template With Non-Failure Codes',
+                code: `fetch('http://localhost/test', { 'method': 'POST', 'body': {} })`,
+                inputs_schema: [
+                    {
+                        key: 'non_failure_status_codes',
+                        type: 'non_failure_status_codes',
+                        required: false,
+                    },
+                ],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        function: {
+                            type: 'function',
+                            config: {
+                                template_id: templateWithNonFailure.template_id,
+                                inputs: {
+                                    non_failure_status_codes: {
+                                        value: ['4xx', 500],
+                                    },
+                                },
+                            },
+                        },
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [{ from: 'function', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            const flowAction = findActionByType(hogFlow, 'function')!
+
+            const builtHogFunction = await mockHogFlowFunctionsService.buildHogFunction(hogFlow, flowAction.config)
+
+            expect(builtHogFunction.inputs_schema).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'non_failure_status_codes',
+                        type: 'non_failure_status_codes',
+                    }),
+                ])
+            )
+            expect(builtHogFunction.inputs?.non_failure_status_codes).toEqual({
+                value: ['4xx', 500],
+            })
+        })
     })
 })

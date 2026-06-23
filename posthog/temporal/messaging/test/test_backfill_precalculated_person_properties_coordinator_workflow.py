@@ -1,10 +1,16 @@
+from types import TracebackType
+
 import pytest
 from unittest.mock import Mock, patch
+
+from posthog.hogql import ast
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
     BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
     BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
+    PersonIdRangesPageInputs,
     PersonIdRangesPageResult,
+    get_person_id_ranges_page_activity,
 )
 
 
@@ -177,3 +183,133 @@ class TestBackfillPrecalculatedPersonPropertiesCoordinatorWorkflow:
 
             log_calls = [str(call) for call in mock_logger.info.call_args_list]
             assert any("completed successfully" in call for call in log_calls)
+
+
+def aiter(iterable):
+    """Wrap a plain iterable as an async iterator for use in tests."""
+
+    async def _aiter():
+        for item in iterable:
+            yield item
+
+    return _aiter()
+
+
+class _AsyncClientContextManager:
+    def __init__(self, client: Mock) -> None:
+        self.client = client
+
+    async def __aenter__(self) -> Mock:
+        return self.client
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class TestGetPersonIdRangesPageActivity:
+    """Tests for get_person_id_ranges_page_activity's HogQL AST construction."""
+
+    @pytest.mark.asyncio
+    async def test_where_is_none_with_no_filters(self):
+        captured: dict[str, object] = {}
+
+        async def fake_compile(node, *, team_id):
+            captured["node"] = node
+            return "SELECT 1 FORMAT JSONEachRow", {}
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter([])
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.compile_hogql_for_streaming",
+                side_effect=fake_compile,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch("temporalio.activity.heartbeat"),
+        ):
+            await get_person_id_ranges_page_activity(
+                PersonIdRangesPageInputs(team_id=1, batch_size=10, page_size=5, after_person_id=None)
+            )
+
+        assert "node" in captured
+        node = captured["node"]
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is None
+
+    @pytest.mark.asyncio
+    async def test_where_is_single_expr_with_only_after_person_id(self):
+        captured: dict[str, object] = {}
+
+        async def fake_compile(node, *, team_id):
+            captured["node"] = node
+            return "SELECT 1 FORMAT JSONEachRow", {}
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter([])
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.compile_hogql_for_streaming",
+                side_effect=fake_compile,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch("temporalio.activity.heartbeat"),
+        ):
+            await get_person_id_ranges_page_activity(
+                PersonIdRangesPageInputs(team_id=1, batch_size=10, page_size=5, after_person_id="abc-123")
+            )
+
+        assert "node" in captured
+        node = captured["node"]
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.where, ast.CompareOperation)
+        assert node.where.op == ast.CompareOperationOp.Gt
+
+    @pytest.mark.asyncio
+    async def test_where_is_and_with_both_filters(self):
+        captured: dict[str, object] = {}
+
+        async def fake_compile(node, *, team_id):
+            captured["node"] = node
+            return "SELECT 1 FORMAT JSONEachRow", {}
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter([])
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.compile_hogql_for_streaming",
+                side_effect=fake_compile,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch("temporalio.activity.heartbeat"),
+        ):
+            await get_person_id_ranges_page_activity(
+                PersonIdRangesPageInputs(
+                    team_id=1, batch_size=10, page_size=5, after_person_id="abc-123", person_id="def-456"
+                )
+            )
+
+        assert "node" in captured
+        node = captured["node"]
+        assert isinstance(node, ast.SelectQuery)
+        assert isinstance(node.where, ast.And)
+        assert len(node.where.exprs) == 2
+        ops = {e.op for e in node.where.exprs if isinstance(e, ast.CompareOperation)}
+        assert ast.CompareOperationOp.Gt in ops
+        assert ast.CompareOperationOp.Eq in ops

@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
-def _is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
+def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     except Team.DoesNotExist:
@@ -78,6 +78,7 @@ class CreateExternalDataJobModelActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
+    is_v3: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -124,7 +125,7 @@ def create_external_data_job_model_activity(
         source: ExternalDataSource = schema.source
 
         pipeline_version = ExternalDataJob.PipelineVersion.V2
-        if _is_pipeline_v3_enabled(inputs.team_id, source.source_type):
+        if inputs.is_v3:
             pipeline_version = ExternalDataJob.PipelineVersion.V3
 
         job = ExternalDataJob.objects.create(

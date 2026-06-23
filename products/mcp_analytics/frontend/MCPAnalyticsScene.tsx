@@ -13,7 +13,7 @@ import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
-import { MCPSessionsTable } from './sessions/MCPSessionsTable'
+import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -37,7 +37,7 @@ export function MCPAnalyticsScene(): JSX.Element {
         {
             key: 'sessions',
             label: 'Sessions',
-            content: <MCPSessionsTable />,
+            content: <MCPSessionsPlaylist />,
             link: combineUrl(urls.mcpAnalyticsSessions(), searchParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
         },

@@ -22,11 +22,12 @@ from posthog.schema import (
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Element, Person
+from posthog.models import Element, Person
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
 

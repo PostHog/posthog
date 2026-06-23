@@ -3,15 +3,11 @@ import { describe, expect, it } from 'vitest'
 
 // HTTP-layer integration tests for the Cloudflare Workers entry point.
 //
-// Why this suite is narrower than the Hono one (`tests/hono/mcp-protocol.test.ts`):
-// the McpAgent framework wraps session init in `blockConcurrencyWhile()` on a
-// Durable Object. The workerd test runtime imposes a ~30s ceiling on that
-// primitive, and the full init flow (tool registration, region detect,
-// dual-region API fan-out) trips it under workerd's higher per-call overhead.
-// The Hono harness exercises the full SDK-client → MCP-server protocol loop
-// over the same shared suite, and the existing `tests/workers/*.test.ts` files
-// cover the DO internals via `runInDurableObject`. That leaves the entry-point
-// HTTP behavior as the gap this file fills.
+// The Worker is a stateless edge router: it terminates OAuth, validates tokens,
+// and proxies `/mcp` to the Hono runtime. This suite covers that entry-point
+// HTTP behavior (OAuth metadata, auth challenges, redirects) — the full MCP
+// protocol loop is exercised against the Hono runtime in
+// `tests/hono/mcp-protocol.test.ts`.
 describe('MCP HTTP entry point (Cloudflare Workers)', () => {
     describe('OAuth Protected Resource Metadata (RFC 9728)', () => {
         it('returns metadata advertising scopes_supported for /mcp', async () => {
@@ -55,6 +51,42 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
 
             expect(response.status).toBe(401)
             expect(await response.text()).toContain('Invalid token')
+        })
+
+        it('returns 401 for JWTs without typ: at+jwt (not an ID-JAG token)', async () => {
+            const headerB64 = btoa('{"typ":"JWT","alg":"HS256"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${headerB64}.eyJzdWIiOiJ4In0.sig` },
+            })
+
+            expect(response.status).toBe(401)
+            expect(await response.text()).toContain('Invalid token')
+        })
+
+        it('passes the gate for ID-JAG access tokens (typ: at+jwt)', async () => {
+            // The MCP gate only checks the header. Signature verification happens
+            // downstream against the PostHog API (`IDJagAccessTokenAuthentication`).
+            // Here we assert the response is NOT the gate's "Invalid token" 401 —
+            // anything else (init failure against a missing PostHog API, etc.) is
+            // acceptable since this test exercises only the gate.
+            const headerB64 = btoa('{"typ":"at+jwt","alg":"RS256"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const payloadB64 = btoa('{"sub":"example.com:user@example.com"}')
+                .replace(/=+$/, '')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${headerB64}.${payloadB64}.sig` },
+            })
+
+            expect(await response.text()).not.toContain('Invalid token')
         })
     })
 

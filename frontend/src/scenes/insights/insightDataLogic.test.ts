@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     FunnelsQuery,
@@ -20,7 +21,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightShortId } from '~/types'
+import { FunnelVizType, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 
@@ -125,6 +126,40 @@ describe('insightDataLogic', () => {
             insightDataLogic({ ...adHocProps, query: { ...stepsQuery } })
 
             await expectLogic(adHocLogic).toNotHaveDispatchedActions(['syncQueryFromProps'])
+        })
+    })
+
+    describe('queryChanged', () => {
+        const tracesQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TracesQuery },
+        } as unknown as InsightVizNode
+
+        const doubleWrappedDataVisualizationQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+            },
+        } as unknown as InsightVizNode
+
+        it.each([
+            ['TracesQuery', tracesQuery],
+            ['DataVisualizationNode', doubleWrappedDataVisualizationQuery],
+        ])('treats an InsightVizNode wrapping an unsupported %s source as changed', async (_, query) => {
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(query)
+            }).toMatchValues({ queryChanged: true })
+        })
+
+        it('treats the default query of a supported source kind as unchanged', async () => {
+            const defaultTrendsQuery = getDefaultQuery(
+                InsightType.TRENDS,
+                theInsightDataLogic.values.filterTestAccountsDefault
+            )
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightDataLogic.actions.setQuery(defaultTrendsQuery)
+            }).toMatchValues({ queryChanged: false })
         })
     })
 

@@ -33,7 +33,7 @@ import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
-import { sqlEditorLogic } from './sqlEditorLogic'
+import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -48,6 +48,8 @@ interface QueryWindowProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
+    /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
+    autoFocusQueryPane?: boolean
 }
 
 export function QueryWindow({
@@ -63,6 +65,7 @@ export function QueryWindow({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
+    autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -253,6 +256,12 @@ export function QueryWindow({
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
+                        autoFocus: autoFocusQueryPane ?? true,
+                        // Bind the editor to the tab's persistent Monaco model and keep it
+                        // alive across the diff <-> editor swap, so undo history survives an
+                        // accepted AI suggestion. Shares the URI with the model createTab makes.
+                        path: tabModelPath(tabId),
+                        keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
                         onChange: (v) => {

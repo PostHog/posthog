@@ -23,6 +23,8 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 TEST_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 
+pytestmark = pytest.mark.xfail(strict=False, reason="Anthropic may be rate-limited or temporarily unavailable")
+
 
 @dataclass
 class SDKTestConfig:

@@ -1,5 +1,6 @@
 from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.models import Cohort
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from .models import SpikeGPTPerson
 
@@ -47,7 +48,7 @@ class SpikeGPTMatrix(Matrix):
             ],
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
         team.test_account_filters = [

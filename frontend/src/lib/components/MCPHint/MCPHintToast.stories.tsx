@@ -26,6 +26,10 @@ export const FeatureFlagsCreate: Story = {
     args: { surfaceKey: 'feature_flags.create' },
 }
 
+export const FeatureFlagsUpdateWithDerivedPrompt: Story = {
+    args: { surfaceKey: 'feature_flags.update', derivedPrompt: '"Bump rollout for new-checkout to 50%"' },
+}
+
 export const DashboardsCreate: Story = {
     args: { surfaceKey: 'dashboards.create' },
 }

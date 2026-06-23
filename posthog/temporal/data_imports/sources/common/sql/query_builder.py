@@ -30,6 +30,11 @@ from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_operator,
 )
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
+from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter, is_multi_value_operator
+from posthog.temporal.data_imports.sources.common.sql.projection import (
+    compute_projected_columns,
+    format_projected_select_clause,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -78,8 +83,11 @@ class SelectQueryBuilder:
         incremental_last_value: Any | None = None,
         extra_table_hint: str | None = None,
         order_by_incremental: bool = True,
+        enabled_columns: list[str] | None = None,
+        primary_keys: list[str] | None = None,
+        row_filters: list[ValidatedRowFilter] | None = None,
     ) -> SafeSQL:
-        """Build a full `SELECT * FROM schema.table` with optional incremental predicate.
+        """Build a `SELECT … FROM schema.table` with optional incremental predicate.
 
         When `incremental_field` is provided, appends
         `WHERE <incremental_field> <op> :last_value [ORDER BY <incremental_field> ASC]`.
@@ -87,6 +95,13 @@ class SelectQueryBuilder:
         every other type — same semantics as `incremental_type_to_operator`.
         `incremental_last_value` falls back to the type's initial value so
         the semantics match today's `_build_query` implementations.
+
+        `enabled_columns=None` (default) emits `SELECT *`. Otherwise projects to listed columns;
+        PKs + active incremental field always retained. See `compute_projected_columns`.
+
+        `row_filters` are ANDed onto the `WHERE` clause as `<col> <op> <value>`
+        conditions. The value is always emitted as a bound parameter, never
+        interpolated. Filters compose with the incremental predicate (both ANDed).
 
         `extra_table_hint` is appended verbatim after the table reference
         (e.g. MySQL `FORCE INDEX (...)`). Callers who use it must have
@@ -96,24 +111,43 @@ class SelectQueryBuilder:
         table_ref = self.quoter.quote_qualified(schema, table_name)
         hint = f" {extra_table_hint}" if extra_table_hint else ""
 
-        if incremental_field is None:
-            return SafeSQL(sql=f"SELECT * FROM {table_ref}{hint}", params=self._empty_params())
+        projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+        select_clause = format_projected_select_clause(projected, self.quoter)
 
-        if incremental_field_type is None:
-            raise ValueError("incremental_field_type is required when incremental_field is set")
+        params = self._empty_params()
+        conditions: list[str] = []
+        quoted_incremental_field: str | None = None
 
-        value = (
-            incremental_last_value
-            if incremental_last_value is not None
-            else incremental_type_to_initial_value(incremental_field_type)
-        )
-        quoted_field = self.quoter.quote(incremental_field)
-        placeholder, params = self._single_param("incremental_value", value)
-        operator = incremental_type_to_operator(incremental_field_type)
+        if incremental_field is not None:
+            if incremental_field_type is None:
+                raise ValueError("incremental_field_type is required when incremental_field is set")
+            value = (
+                incremental_last_value
+                if incremental_last_value is not None
+                else incremental_type_to_initial_value(incremental_field_type)
+            )
+            quoted_incremental_field = self.quoter.quote(incremental_field)
+            placeholder = self._append_param("incremental_value", value, params)
+            operator = incremental_type_to_operator(incremental_field_type)
+            conditions.append(f"{quoted_incremental_field} {operator} {placeholder}")
 
-        parts = [f"SELECT * FROM {table_ref}{hint}", f"WHERE {quoted_field} {operator} {placeholder}"]
-        if order_by_incremental:
-            parts.append(f"ORDER BY {quoted_field} ASC")
+        for index, row_filter in enumerate(row_filters or []):
+            quoted_column = self.quoter.quote(row_filter.column)
+            if is_multi_value_operator(row_filter.operator):
+                placeholders = [
+                    self._append_param(f"row_filter_{index}_{position}", element, params)
+                    for position, element in enumerate(row_filter.value)
+                ]
+                conditions.append(f"{quoted_column} {row_filter.operator} ({', '.join(placeholders)})")
+            else:
+                placeholder = self._append_param(f"row_filter_{index}", row_filter.value, params)
+                conditions.append(f"{quoted_column} {row_filter.operator} {placeholder}")
+
+        parts = [f"SELECT {select_clause} FROM {table_ref}{hint}"]
+        if conditions:
+            parts.append("WHERE " + " AND ".join(conditions))
+        if quoted_incremental_field is not None and order_by_incremental:
+            parts.append(f"ORDER BY {quoted_incremental_field} ASC")
 
         return SafeSQL(sql=" ".join(parts), params=params)
 
@@ -122,13 +156,26 @@ class SelectQueryBuilder:
             return {}
         return []
 
-    def _single_param(self, name: str, value: Any) -> tuple[str, dict[str, Any] | list[Any]]:
+    def _append_param(self, name: str, value: Any, params: dict[str, Any] | list[Any]) -> str:
+        """Add a value to `params` and return the placeholder that references it.
+
+        Positional styles (`QMARK`, `NUMERIC`) index by current list length, so
+        callers must add params in the same order the placeholders appear in the SQL.
+        """
         if self.param_style == ParamStyle.PYFORMAT_NAMED:
-            return f"%({name})s", {name: value}
+            assert isinstance(params, dict)
+            params[name] = value
+            return f"%({name})s"
         if self.param_style == ParamStyle.NAMED:
-            return f":{name}", {name: value}
+            assert isinstance(params, dict)
+            params[name] = value
+            return f":{name}"
         if self.param_style == ParamStyle.QMARK:
-            return "?", [value]
+            assert isinstance(params, list)
+            params.append(value)
+            return "?"
         if self.param_style == ParamStyle.NUMERIC:
-            return ":1", [value]
+            assert isinstance(params, list)
+            params.append(value)
+            return f":{len(params)}"
         raise ValueError(f"Unsupported param style: {self.param_style}")

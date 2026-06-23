@@ -11,7 +11,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -127,7 +127,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy'],
         ],
@@ -286,7 +286,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                         },
@@ -314,7 +314,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             after: values.nextCursor,
@@ -342,7 +342,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             orderBy: values.orderBy,
                             dateRange: values.utcDateRange,
                             searchTerm: values.filters.searchTerm,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
@@ -481,6 +481,26 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline],
             (sparkline): number => sparkline?.reduce((sum: number, item: any) => sum + item.count, 0) ?? 0,
         ],
+        // Per-severity totals for the facet rail's Level counts, summed from the already-loaded
+        // sparkline. Only available when the sparkline is broken down by severity (the default);
+        // returns null otherwise so the Level facet just omits counts rather than showing wrong ones.
+        severityTotals: [
+            (s) => [s.sparkline, s.sparklineBreakdownBy],
+            (
+                sparkline: any[] | null,
+                sparklineBreakdownBy: LogsSparklineBreakdownBy
+            ): Record<string, number> | null => {
+                if (!sparkline || sparklineBreakdownBy !== 'severity') {
+                    return null
+                }
+                return sparkline.reduce((acc: Record<string, number>, row: any) => {
+                    if (row.severity) {
+                        acc[row.severity] = (acc[row.severity] ?? 0) + row.count
+                    }
+                    return acc
+                }, {})
+            },
+        ],
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],
             (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,
@@ -488,7 +508,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        filterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
+        // Subscribe to the combined query view rather than the user-editable filterGroup
+        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_key`
+        // resolves after mount), not just when the user edits filters.
+        queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
             if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
                 return
             }
@@ -644,7 +667,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         orderBy: values.orderBy,
                         dateRange: values.utcDateRange,
                         searchTerm: values.filters.searchTerm,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         severityLevels: values.filters.severityLevels,
                         serviceNames: values.filters.serviceNames,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,

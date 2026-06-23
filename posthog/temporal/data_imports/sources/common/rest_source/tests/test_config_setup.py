@@ -2,7 +2,12 @@ from typing import Any, cast
 
 import pytest
 
-from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
+from posthog.temporal.data_imports.sources.common.rest_source.auth import (
+    APIKeyAuth,
+    BearerTokenAuth,
+    HttpBasicAuth,
+    auth_secret_values,
+)
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import (
     Incremental,
     IncrementalParam,
@@ -155,3 +160,19 @@ class TestMergeResourceEndpoints:
         endpoint = cast(Endpoint, merged["endpoint"])
         assert endpoint["params"] == {"limit": 100, "since": "x"}
         assert endpoint["json"] == {"a": 1, "b": 2}
+
+
+class TestAuthSecretValues:
+    @pytest.mark.parametrize(
+        "auth,expected",
+        [
+            (None, ()),
+            (BearerTokenAuth(token="ya29.secret"), ("ya29.secret",)),
+            (APIKeyAuth(api_key="sk_live_x", name="key", location="query"), ("sk_live_x",)),
+            (HttpBasicAuth(username="alice", password="hunter2"), ("hunter2",)),
+            (BearerTokenAuth(), ()),
+            (APIKeyAuth(name="key", location="query"), ()),
+        ],
+    )
+    def test_extracts_secret_strings(self, auth: Any, expected: tuple[str, ...]) -> None:
+        assert auth_secret_values(auth) == expected

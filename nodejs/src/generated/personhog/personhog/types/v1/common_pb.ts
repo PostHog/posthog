@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc } from '@bufbuild/protobuf/codegenv2'
 export const file_personhog_types_v1_common: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29tbW9uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiSAoLUmVhZE9wdGlvbnMSOQoLY29uc2lzdGVuY3kYASABKA4yJC5wZXJzb25ob2cudHlwZXMudjEuQ29uc2lzdGVuY3lMZXZlbCI2Cg5UZWFtRGlzdGluY3RJZBIPCgd0ZWFtX2lkGAEgASgDEhMKC2Rpc3RpbmN0X2lkGAIgASgJIkgKCEdyb3VwS2V5Eg8KB3RlYW1faWQYASABKAMSGAoQZ3JvdXBfdHlwZV9pbmRleBgCIAEoBRIRCglncm91cF9rZXkYAyABKAkiPgoPR3JvdXBJZGVudGlmaWVyEhgKEGdyb3VwX3R5cGVfaW5kZXgYASABKAUSEQoJZ3JvdXBfa2V5GAIgASgJKnMKEENvbnNpc3RlbmN5TGV2ZWwSIQodQ09OU0lTVEVOQ1lfTEVWRUxfVU5TUEVDSUZJRUQQABIeChpDT05TSVNURU5DWV9MRVZFTF9FVkVOVFVBTBABEhwKGENPTlNJU1RFTkNZX0xFVkVMX1NUUk9ORxACYgZwcm90bzM'
+        'Ch9wZXJzb25ob2cvdHlwZXMvdjEvY29tbW9uLnByb3RvEhJwZXJzb25ob2cudHlwZXMudjEiXAoLUmVhZE9wdGlvbnMSOQoLY29uc2lzdGVuY3kYASABKA4yJC5wZXJzb25ob2cudHlwZXMudjEuQ29uc2lzdGVuY3lMZXZlbBISCgpmaWVsZF9tYXNrGAIgAygJIjYKDlRlYW1EaXN0aW5jdElkEg8KB3RlYW1faWQYASABKAMSEwoLZGlzdGluY3RfaWQYAiABKAkiSAoIR3JvdXBLZXkSDwoHdGVhbV9pZBgBIAEoAxIYChBncm91cF90eXBlX2luZGV4GAIgASgFEhEKCWdyb3VwX2tleRgDIAEoCSI+Cg9Hcm91cElkZW50aWZpZXISGAoQZ3JvdXBfdHlwZV9pbmRleBgBIAEoBRIRCglncm91cF9rZXkYAiABKAkqcwoQQ29uc2lzdGVuY3lMZXZlbBIhCh1DT05TSVNURU5DWV9MRVZFTF9VTlNQRUNJRklFRBAAEh4KGkNPTlNJU1RFTkNZX0xFVkVMX0VWRU5UVUFMEAESHAoYQ09OU0lTVEVOQ1lfTEVWRUxfU1RST05HEAJiBnByb3RvMw'
     )
 
 /**
@@ -23,6 +23,27 @@ export type ReadOptions = Message<'personhog.types.v1.ReadOptions'> & {
      * @generated from field: personhog.types.v1.ConsistencyLevel consistency = 1;
      */
     consistency: ConsistencyLevel
+
+    /**
+     * Top-level proto field names to include in response entities (Person, Group).
+     * Empty means all fields are returned (backward-compatible default).
+     * Unknown field names are silently ignored.
+     *
+     * Honored by batch/list RPCs only: GetPersons, GetPersonsByUuids,
+     * GetPersonsByDistinctIdsInTeam, GetPersonsByDistinctIds, GetGroups,
+     * GetGroupsBatch, ListGroups.
+     * Single-entity RPCs (GetPerson, GetPersonByUuid, GetPersonByDistinctId,
+     * GetGroup) always return all fields regardless of this mask.
+     *
+     * When the properties-related fields ("properties"/"group_properties",
+     * "properties_last_updated_at", "properties_last_operation") are all excluded,
+     * the server skips fetching them in SELECT clauses. Note: ListGroups with a
+     * non-empty `search` still reads group_properties in the WHERE filter even
+     * when these fields are excluded from the mask.
+     *
+     * @generated from field: repeated string field_mask = 2;
+     */
+    fieldMask: string[]
 }
 
 /**

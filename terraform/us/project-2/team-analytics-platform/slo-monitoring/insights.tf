@@ -25,8 +25,18 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    ai_subscription_prompt_generation = {
+      name    = "AI report generation"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     alert_check = {
       name    = "Alert checks"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
+    dashboard_widget_delivery = {
+      name    = "Dashboard widget delivery"
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }

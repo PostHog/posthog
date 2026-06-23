@@ -1,40 +1,61 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, type LemonSelectProps } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { LabelIndicator, StatusIndicator } from '../Indicators'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 
-type Option = ErrorTrackingIssue['status'] | 'all' | null
+export type ErrorTrackingStatusSelectValue = ErrorTrackingIssue['status'] | 'all'
 
+const STATUS_OPTIONS: ErrorTrackingStatusSelectValue[] = ['all', 'active', 'resolved', 'suppressed']
+
+function statusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Element {
+    if (key === 'all') {
+        return <LabelIndicator intent="muted" label="All" size="small" />
+    }
+    return <StatusIndicator status={key} size="small" withTooltip="right" />
+}
+
+type ErrorTrackingStatusSelectProps = {
+    value: ErrorTrackingStatusSelectValue
+    onChange: (value: ErrorTrackingStatusSelectValue) => void
+} & Pick<LemonSelectProps<ErrorTrackingStatusSelectValue>, 'fullWidth' | 'size' | 'disabled' | 'disabledReason'>
+
+export function ErrorTrackingStatusSelect({
+    value,
+    onChange,
+    fullWidth,
+    size = 'small',
+    disabled,
+    disabledReason,
+}: ErrorTrackingStatusSelectProps): JSX.Element {
+    return (
+        <LemonSelect
+            fullWidth={fullWidth}
+            size={size}
+            disabled={disabled}
+            disabledReason={disabledReason}
+            value={value}
+            onChange={(next) => {
+                if (next) {
+                    onChange(next)
+                }
+            }}
+            placeholder="Select status"
+            options={STATUS_OPTIONS.map((key) => ({
+                value: key,
+                label: statusOptionLabel(key),
+            }))}
+        />
+    )
+}
+
+/** Issues tab filter bar — wires shared select to issueQueryOptionsLogic. */
 export const StatusFilter = (): JSX.Element => {
     const { status } = useValues(issueQueryOptionsLogic)
     const { setStatus } = useActions(issueQueryOptionsLogic)
 
-    const label = (key: Option) => {
-        switch (key) {
-            case 'all':
-            case null:
-                return <LabelIndicator intent="muted" label="All" size="small" />
-            default:
-                return <StatusIndicator status={key} size="small" withTooltip="right" />
-        }
-    }
-
-    const options: Option[] = ['all', 'active', 'resolved', 'suppressed']
-
-    return (
-        <LemonSelect
-            onChange={(value) => setStatus(value || undefined)}
-            value={status || null}
-            placeholder="Select status"
-            options={options.map((key) => ({
-                value: key,
-                label: label(key),
-            }))}
-            size="small"
-        />
-    )
+    return <ErrorTrackingStatusSelect value={status ?? 'active'} onChange={(value) => setStatus(value)} />
 }

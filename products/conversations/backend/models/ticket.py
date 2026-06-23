@@ -81,6 +81,8 @@ class Ticket(UUIDTModel):
     teams_conversation_id = models.CharField(max_length=256, null=True, blank=True)  # Reply chain / thread ID
     teams_service_url = models.URLField(max_length=512, null=True, blank=True)  # Bot Connector endpoint for replies
     teams_tenant_id = models.CharField(max_length=64, null=True, blank=True)
+    # Shared-channel thread reply poller watermark (Graph createdDateTime of last ingested reply).
+    teams_thread_replies_synced_at = models.DateTimeField(null=True, blank=True)
 
     # GitHub channel fields (only set for channel_source="github")
     github_repo = models.CharField(max_length=256, null=True, blank=True)  # owner/repo

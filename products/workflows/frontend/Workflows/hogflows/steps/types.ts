@@ -71,6 +71,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'posthog_assignee',
         'posthog_ticket_tags',
         'posthog_business_hours',
+        'non_failure_status_codes',
     ]),
     key: z.string(),
     label: z.string(),
@@ -198,6 +199,14 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: ActionFiltersSchema.optional().nullable(),
                 name: z.string().optional(), // Custom name for the condition
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: ActionFiltersSchema.optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),

@@ -1,3 +1,3 @@
-from .views import KnowledgeSourceViewSet
+from .views import KnowledgeDocumentViewSet, KnowledgeSourceViewSet
 
-__all__ = ["KnowledgeSourceViewSet"]
+__all__ = ["KnowledgeDocumentViewSet", "KnowledgeSourceViewSet"]

@@ -26,7 +26,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # A pre-PR warehouse Postgres source had `schema=public` on the source config and
         # `ExternalDataSchema.name="auth_group"` (no schema prefix). After this PR, discovery
         # returns the qualified `public.auth_group`. `consolidate_postgres_legacy_rows` qualifies
-        # the legacy row in place and stores `dwh_storage_key="auth_group"` so the next sync
+        # the legacy row in place and stores `s3_folder_name="auth_group"` so the next sync
         # writes to the original Delta path — no orphaned data, but the row picks up the new
         # qualified naming so tables from other schemas can coexist without a name collision.
         mock_get_source.return_value.parse_config.return_value = None
@@ -77,8 +77,8 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         legacy_table.refresh_from_db()
         # Row gets the qualified name so multi-schema discovery doesn't collide later.
         assert legacy_schema.name == "public.auth_group"
-        # dwh_storage_key locks the Delta path to the legacy folder so existing data is preserved.
-        assert legacy_schema.sync_type_config.get("dwh_storage_key") == "auth_group"
+        # s3_folder_name locks the Delta path to the legacy folder so existing data is preserved.
+        assert legacy_schema.s3_folder_name == "auth_group"
         # schema_metadata pinned so source_for_pipeline knows the canonical (schema, table) tuple.
         metadata = legacy_schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
@@ -146,7 +146,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         metadata = schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
         assert metadata.get("source_table_name") == "auth_group"
-        assert schema.sync_type_config.get("dwh_storage_key") == "auth_group"
+        assert schema.s3_folder_name == "auth_group"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
@@ -270,13 +270,13 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # `rename_postgres_schemas_to_match_source_schemas` matches the legacy unqualified
         # row by location to the discovered `public.example_table` (legacy falls back to "public"
         # when no default schema is set), then `consolidate_postgres_legacy_rows` qualifies the
-        # legacy row in place using the pinned `source_schema`. `dwh_storage_key="example_table"`
+        # legacy row in place using the pinned `source_schema`. `s3_folder_name="example_table"`
         # keeps the Delta path anchored to the legacy folder so no data is orphaned.
         legacy = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="public.example_table")
         legacy_metadata = legacy.sync_type_config.get("schema_metadata") or {}
         assert legacy_metadata.get("source_schema") == "public"
         assert legacy_metadata.get("source_table_name") == "example_table"
-        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        assert legacy.s3_folder_name == "example_table"
         # The unqualified row is gone — it was renamed in place.
         assert not ExternalDataSchema.objects.filter(
             team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
@@ -365,9 +365,9 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             f"legacy row pinned to wrong schema: {metadata.get('source_schema')!r}"
         )
         assert metadata.get("source_table_name") == "example_table"
-        # dwh_storage_key pins the Delta path to the legacy "example_table" key so existing data
+        # s3_folder_name pins the Delta path to the legacy "example_table" folder so existing data
         # stays in place — no rewrite, no orphan.
-        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        assert legacy.s3_folder_name == "example_table"
         # The original unqualified row is gone (it was renamed in place).
         assert not ExternalDataSchema.objects.filter(
             team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
@@ -457,7 +457,94 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         live.refresh_from_db()
         assert live.name == "poblic.example_table"
         assert live.table_id == live_table.id
-        assert (live.sync_type_config or {}).get("dwh_storage_key") == "example_table"
+        assert live.s3_folder_name == "example_table"
         # The orphan duplicate is soft-deleted.
         orphan.refresh_from_db()
         assert orphan.deleted is True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_persists_detected_primary_key_for_cdc(self, mock_get_source):
+        # A table added after source creation is discovered via refresh. Its detected primary key
+        # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
+        # CDC (which requires a PK) — otherwise the toggle fails with "refresh to pick one up".
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.cdc_test_orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("customer", "text", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="cdc_test_orders",
+                detected_primary_keys=["id"],
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="public.cdc_test_orders",
+            should_sync=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+        assert schema.primary_key_columns == ["id"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_does_not_clobber_existing_primary_key(self, mock_get_source):
+        # A user-set / previously-stored PK must survive refresh even if discovery detects a
+        # different one — the explicit choice wins.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("order_key", "text", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="orders",
+                detected_primary_keys=["id"],
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="public.orders",
+            should_sync=False,
+            sync_type_config={"primary_key_columns": ["order_key"]},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["order_key"]

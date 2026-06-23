@@ -70,6 +70,11 @@ const shopifyShorthandCSSFix =
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
     insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
+    // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
+    // recorded content escape the sandbox into the app origin. Canvas is replayed via
+    // CanvasReplayerPlugin instead, which needs no in-frame scripting.
+    UNSAFE_replayCanvas: false,
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'

@@ -1,12 +1,11 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +39,6 @@ export const PEOPLE_LIST_DEFAULT_QUERY = buildDefaultQuery(false)
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
-    tabAwareScene(),
 
     connect({ values: [teamLogic, ['currentTeam']] }),
 
@@ -101,7 +99,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     }),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.persons(),
             {},
@@ -110,7 +108,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 if (!queryParam) {

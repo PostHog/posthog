@@ -42,6 +42,12 @@ class Command(BaseCommand):
             help="Comma separated list of team IDs to migrate",
         )
         parser.add_argument(
+            "--start-after-team-id",
+            default=None,
+            type=int,
+            help="Resume after this team ID (exclusive), following the team_id ordering used by this command",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -56,6 +62,8 @@ class Command(BaseCommand):
             except ValueError:
                 raise CommandError("team_ids must be a comma separated list of team IDs")
             dags = dags.filter(team_id__in=team_ids)
+        if options.get("start_after_team_id") is not None:
+            dags = dags.filter(team_id__gt=options["start_after_team_id"])
         dags = dags.order_by("team_id")
         total = dags.count()
         if total == 0:
