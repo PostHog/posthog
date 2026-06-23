@@ -57,7 +57,7 @@ export function handleStickinessChartClick(seriesKey: string, dataIndex: number,
     const label = dataset.label ?? ''
     const title = (
         <>
-            <PropertyKeyInfo value={label} disablePopover type={TaxonomicFilterGroupType.Events} /> Stickiness on{' '}
+            <PropertyKeyInfo value={label} disablePopover type={TaxonomicFilterGroupType.Events} /> stickiness on{' '}
             {deps.interval || 'day'} {day}
         </>
     )
