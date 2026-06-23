@@ -261,6 +261,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
+        case NodeKind.MCP_HARNESS_BREAKDOWN_QUERY:
+            return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own
             NodeKind.HOG_QL_QUERY
