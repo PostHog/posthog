@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProfilePicture } from '../ProfilePicture'
 import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'

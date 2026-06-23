@@ -11,7 +11,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
-from .evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
+from .evaluation_configs import (
+    EVALUATION_CONFIG_MODELS,
+    EvaluationType,
+    OutputType,
+    evaluation_configs_allow_empty,
+    evaluation_uses_model_configuration,
+    validate_evaluation_configs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +33,7 @@ class EvaluationStatusReason(models.TextChoices):
     TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
     MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
+    NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -155,8 +163,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
         self._coerce_status_and_enabled()
 
-        # Validate evaluation and output configs
-        if self.evaluation_config or self.output_config:
+        if not evaluation_uses_model_configuration(self.evaluation_type) and self.model_configuration_id:
+            raise ValidationError({"model_configuration": "This evaluation type does not use model configuration."})
+
+        if (self.evaluation_type, self.output_type) not in EVALUATION_CONFIG_MODELS:
+            raise ValidationError(f"Unsupported combination: {self.evaluation_type} + {self.output_type}")
+
+        # Validate configs when callers provide them, or when the selected config models can supply every default.
+        if (
+            evaluation_configs_allow_empty(self.evaluation_type, self.output_type)
+            or self.evaluation_config
+            or self.output_config
+        ):
             try:
                 self.evaluation_config, self.output_config = validate_evaluation_configs(
                     self.evaluation_type, self.output_type, self.evaluation_config, self.output_config
@@ -193,6 +211,11 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 @receiver(post_save, sender=Evaluation)
 def evaluation_saved(sender, instance, created, **kwargs):
     from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
+
+    from .evaluation_reports import EvaluationReport
+
+    if instance.deleted:
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps

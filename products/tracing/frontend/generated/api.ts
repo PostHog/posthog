@@ -13,8 +13,11 @@ import type {
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
     _HasSpansResponseApi,
+    _SymbolStatsRequestApi,
+    _SymbolStatsResponseApi,
     _TracingAggregationRequestApi,
     _TracingAttributeBreakdownRequestApi,
+    _TracingAttributesResponseApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
@@ -80,8 +83,8 @@ export const tracingSpansAttributesRetrieve = async (
     projectId: string,
     params?: TracingSpansAttributesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
+): Promise<_TracingAttributesResponseApi> => {
+    return apiMutator<_TracingAttributesResponseApi>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -196,6 +199,23 @@ export const tracingSpansSparklineCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingTimeseriesRequestApi),
+    })
+}
+
+export const getTracingSpansSymbolStatsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/symbol-stats/`
+}
+
+export const tracingSpansSymbolStatsCreate = async (
+    projectId: string,
+    _symbolStatsRequestApi: _SymbolStatsRequestApi,
+    options?: RequestInit
+): Promise<_SymbolStatsResponseApi> => {
+    return apiMutator<_SymbolStatsResponseApi>(getTracingSpansSymbolStatsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_symbolStatsRequestApi),
     })
 }
 

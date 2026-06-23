@@ -26,11 +26,10 @@ def _normalize_order_clause(raw: str) -> str:
     return stripped
 
 
-ROLE_FIELDS = {
-    "csm": "csm",
-    "accountExecutive": "account_executive",
-    "accountOwner": "account_owner",
-}
+# Account-properties JSON keys for the three assignable roles. The
+# `allRolesUnassigned` filter ("Unassigned only") requires every one of these to
+# be empty.
+ROLE_JSON_KEYS = ("csm", "account_executive", "account_owner")
 
 # Roles that count as "assigned" for the `assignedToUserIds` filter — an account
 # is assigned to a user if they are its CSM or account executive.
@@ -114,14 +113,8 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         if self.query.tagNames:
             where_exprs.append(self._tag_filter_expr(self.query.tagNames))
 
-        for query_field, json_key in ROLE_FIELDS.items():
-            role_value = getattr(self.query, query_field, None)
-            role_expr = self._role_filter_expr(json_key, role_value)
-            if role_expr is not None:
-                where_exprs.append(role_expr)
-
         if self.query.allRolesUnassigned:
-            for json_key in ROLE_FIELDS.values():
+            for json_key in ROLE_JSON_KEYS:
                 where_exprs.append(self._role_id_isnull(json_key))
 
         if self.query.assignedToUserIds:
@@ -200,10 +193,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
 
     def _assigned_to_users_expr(self, user_ids: list[int]) -> ast.Expr:
-        # OR over the CSM/AE roles, reusing the same IN-list shape as the
-        # per-role filters: an account is "assigned to" a user if they hold
-        # either role. Explicit ids (not the requester) so a shared URL filtered
-        # by "my accounts" resolves to the same accounts for every viewer.
+        # OR over the CSM/AE roles: an account is "assigned to" a user if they
+        # hold either role. Explicit ids (not the requester) so a shared URL
+        # filtered by "my accounts" resolves to the same accounts for every viewer.
         role_exprs: list[ast.Expr] = []
         for json_key in ASSIGNED_ROLE_KEYS:
             role_expr = self._role_filter_expr(json_key, user_ids)

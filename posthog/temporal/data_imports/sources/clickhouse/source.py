@@ -181,6 +181,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `_get_table` when `system.columns` returns no columns for the
+            # configured table — the table no longer exists in the source database at sync
+            # time. It was dropped or renamed, or (commonly) the schema points at a
+            # materialized view's auto-generated `.inner_id.<uuid>` inner table whose UUID
+            # changed when the view was recreated. Either way the table is gone and retrying
+            # replays the identical failure, so stop and tell the customer to fix the schema.
+            # We match the stable suffix, not the volatile `<database>.<table>` prefix.
+            "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
         }
 
     def get_schemas(

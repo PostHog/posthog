@@ -38,6 +38,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_posthog_ai_access_request,
     send_provisioning_welcome,
     should_send_pipeline_error_notification,
 )
@@ -652,6 +653,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == expected_emails
         assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
         assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
+        # group_properties must be passed so project/organization release conditions can match.
+        assert mock_flag.call_args.kwargs["group_properties"]["project"]["id"] == str(self.team.pk)
+        assert mock_flag.call_args.kwargs["group_properties"]["organization"]["id"] == str(self.team.organization_id)
+        # Network fallback stays on, and the high-frequency gate must not emit $feature_flag_called events.
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is False
+        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
 
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1628,6 +1635,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
         assert "Test Customer" in mocked_email_messages[0].html_body
         assert "Hello, I need help with something" in mocked_email_messages[0].html_body
+
+    def test_send_posthog_ai_access_request(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, _owner = create_org_team_and_user("2022-01-02 00:00:00", "ai-owner@posthog.com")
+        team = org.teams.first()
+        assert team is not None
+        member = User.objects.create_and_join(
+            organization=org,
+            email="ai-member@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=member.id)
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.template_name == "posthog_ai_access_requested"
+        # The owner who can enable PostHog AI is notified, not the requesting member.
+        recipient_emails = {dest["raw_email"] for dest in message.to}
+        assert recipient_emails == {"ai-owner@posthog.com"}
+        assert message.properties["organization_name"] == org.name
+        assert (
+            message.properties["posthog_ai_url"]
+            == f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+        )
+        assert message.html_body
+
+    def test_send_posthog_ai_access_request_no_admins_is_noop(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        org, owner = create_org_team_and_user("2022-01-02 00:00:00", "solo-member@posthog.com")
+        # Drop the only admin to a member so there's nobody who could enable PostHog AI.
+        membership = OrganizationMembership.objects.get(organization=org, user=owner)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        send_posthog_ai_access_request(organization_id=str(org.id), requesting_user_id=owner.id)
+
+        assert len(mocked_email_messages) == 0
 
     def test_send_new_ticket_notification_no_recipients(self, MockEmailMessage: MagicMock) -> None:
         from products.conversations.backend.models import Ticket

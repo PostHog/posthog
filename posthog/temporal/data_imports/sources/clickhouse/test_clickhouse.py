@@ -6,12 +6,17 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
+from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
+    _MAX_CONNECT_ATTEMPTS,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
+    ClickHouseConnectionError,
     _build_query,
+    _get_client,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _is_transient_connect_drop,
     _parse_mv_target,
     _quote_identifier,
     _strip_type_modifiers,
@@ -531,6 +536,10 @@ class TestClickHouseSourceNonRetryableErrors:
             # MEMORY_LIMIT_EXCEEDED (code 241) — per-query `max_memory_usage` budget
             "Code: 241. DB::Exception: Query memory limit exceeded: would use 3.73 GiB "
             "(attempt to allocate chunk of 4.60 MiB), maximum: 3.73 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            # Source table no longer exists at sync time — dropped/renamed, or a materialized
+            # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
+            "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
+            "Table default.some_dropped_table not found or has no columns",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -553,6 +562,75 @@ class TestClickHouseSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable)
         assert not is_non_retryable, f"Transient error should be retryable: {error_msg}"
+
+
+class TestIsTransientConnectDrop:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The exact wrapped message that reached error tracking from ClickHouse Cloud.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred "
+            "in violation of protocol (_ssl.c:1032)'))) executing HTTP request attempt 1",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+            "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+        ],
+    )
+    def test_matches_transient_drops(self, message):
+        assert _is_transient_connect_drop(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "certificate verify failed",
+            "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
+            "Code: 516. DB::Exception: Authentication failed",
+            "HTTPDriver for https://host:8443 returned response code 404",
+        ],
+    )
+    def test_does_not_match_deterministic_failures(self, message):
+        assert not _is_transient_connect_drop(message)
+
+
+class TestGetClientTransientRetry:
+    """`_get_client` retries a transient connection drop during connect in-process."""
+
+    def _connect(self):
+        return _get_client(
+            host="h", port=8443, database="default", user="default", password=None, secure=True, verify=True
+        )
+
+    def test_retries_transient_drop_then_succeeds(self):
+        client = MagicMock()
+        ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[ssl_eof, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+
+    def test_gives_up_after_max_attempts(self):
+        ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=ssl_eof) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_deterministic_failure(self):
+        cert_error = ClickHouseError("certificate verify failed")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=cert_error) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
 
 
 class TestTranslateError:

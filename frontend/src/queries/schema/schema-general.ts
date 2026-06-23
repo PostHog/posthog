@@ -115,6 +115,7 @@ export enum NodeKind {
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
+    TraceSpansSymbolStatsQuery = 'TraceSpansSymbolStatsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -191,6 +192,9 @@ export enum NodeKind {
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
+    // MCP analytics
+    MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
 }
@@ -254,6 +258,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPHarnessBreakdownQuery
 
 /**
  * @discriminator kind
@@ -363,6 +368,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // MCP analytics
+    | MCPHarnessBreakdownQuery
 
     // Property values
     | PropertyValuesQuery
@@ -588,6 +596,7 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -1423,6 +1432,9 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1492,6 +1504,26 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the period-over-period change pill on the Metric display.
+     * @default true */
+    metricShowChange?: boolean
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
+    /** Metric display: which summary the resting headline shows — the period total, the average,
+     * or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives
+     * the change pill: total/average compare against the previous period when "compare to previous"
+     * is on; latest compares first→last of the series.
+     * @default total */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export type CalendarHeatmapFilter = {
@@ -1510,6 +1542,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'formula',
     'display',
     'showLegend',
+    'legendPosition',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',
@@ -1524,6 +1557,13 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
+    'metricColorByDirection',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
+    'metricSummary',
 ])
 
 export interface BoxPlotDatum {
@@ -2328,12 +2368,6 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    /** Match accounts whose CSM is any of these user ids (OR semantics). */
-    csm?: integer[]
-    /** Match accounts whose account executive is any of these user ids (OR semantics). */
-    accountExecutive?: integer[]
-    /** Match accounts whose account owner is any of these user ids (OR semantics). */
-    accountOwner?: integer[]
     /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
@@ -2442,8 +2476,16 @@ export interface WebAnalyticsItemBase<T> {
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
-export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
-    usedPreAggregatedTables?: boolean
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {}
+
+/** Which read path served a web analytics response. */
+export enum WebAnalyticsPreComputeStrategy {
+    /** Served from the v2 continuously-maintained pre-aggregated tables. */
+    PreAggregated = 'pre_aggregated',
+    /** Served from the on-demand lazy precompute tables. */
+    LazyPrecompute = 'lazy_precompute',
+    /** Computed live from raw events (no precompute). */
+    Live = 'live',
 }
 
 export interface SamplingRate {
@@ -2456,11 +2498,34 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
+export interface MCPHarnessBreakdownItem {
+    /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
+    harness: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    sessions: integer
+}
+
+export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPHarnessBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events. */
+export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
+    kind: NodeKind.MCPHarnessBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -2510,8 +2575,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2548,10 +2612,7 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2600,7 +2661,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -3152,6 +3213,8 @@ export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogValueResult {
     id: string
     name: string
+    /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+    count?: integer
 }
 
 export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3382,6 +3445,138 @@ export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQuer
 export type CachedTraceSpansAttributeBreakdownQueryResponse =
     CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
 
+/**
+ * A source symbol (typically a function) the client wants production latency for, identified by its
+ * declaration line range. The client supplies these from its own AST/LSP — the server does not infer
+ * function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a
+ * call site inside the body rather than the declaration line).
+ */
+export interface SourceSymbol {
+    /** Opaque identifier (e.g. the function name) echoed back on the matching result row. */
+    name?: string
+    /** First line of the symbol's range, inclusive (1-based). */
+    startLine: positive_integer
+    /** Last line of the symbol's range, inclusive (1-based). */
+    endLine: positive_integer
+}
+
+/** Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison. */
+export interface SymbolStatsPeriod {
+    /** Number of spans attributed to this symbol in the period. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+/**
+ * Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location
+ * attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The
+ * flat fields are the current period; `previous` is the immediately-preceding equal-length window. One
+ * row per bucket with spans in either period.
+ */
+export interface SymbolStatsRow {
+    /** The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode. */
+    line: integer
+    /** Echoed `name` from the requested symbol. Symbol mode only. */
+    name?: string
+    /** `endLine` of the matched symbol's range. Symbol mode only. */
+    end_line?: integer
+    /** Number of spans attributed to this bucket. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in this symbol, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: SymbolStatsPeriod
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline
+     * (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p50_duration_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p95_duration_pct_change: number | null
+    /**
+     * Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p99_duration_pct_change: number | null
+    /**
+     * Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when
+     * the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a
+     * 0→N new-error spike, which surfaces as null rather than a delta.
+     */
+    error_rate_pct_change: number | null
+}
+
+export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
+    kind: NodeKind.TraceSpansSymbolStatsQuery
+    dateRange: DateRange
+    /**
+     * Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`).
+     * Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a
+     * recorded path carrying an extra crate/workspace prefix still matches.
+     */
+    filePath: string
+    /**
+     * Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed
+     * to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an
+     * empty list), spans are aggregated per source line (one row per instrumented line) — pass a single
+     * whole-file range for a file-level total.
+     */
+    symbols?: SourceSymbol[]
+}
+
+/** Bucketing applied to a symbol-stats result: per source line, or per requested symbol range. */
+export type SymbolStatsGranularity = 'line' | 'symbol'
+
+export interface TraceSpansSymbolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** One row per bucket, ordered by line ascending. */
+    results: SymbolStatsRow[]
+    /** Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise. */
+    granularity: SymbolStatsGranularity
+}
+
+export type CachedTraceSpansSymbolStatsQueryResponse = CachedQueryResponse<TraceSpansSymbolStatsQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3419,6 +3614,7 @@ export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
+    | 'ai_gateway'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
@@ -3755,6 +3951,9 @@ export interface ExperimentApiMetric {
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
+     *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -3791,6 +3990,8 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
 /** Exposure estimate settings for the experiment running-time calculator. */
@@ -3899,6 +4100,9 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
         source: ExperimentMetricSource
+        /** When set, reports the percentage of users whose per-user summed/counted value
+         *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+        threshold?: number
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
@@ -4661,6 +4865,28 @@ export interface TrendsAlertConfig {
     series_index: integer
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
+}
+
+/** How a SQL alert reads the query result.
+ * `last_row` = the query is ordered oldest→newest and the last row is the current value;
+ * `first_row` = the query is ordered newest→oldest and the first row is the current value
+ * (this mode bounds the fetch with a LIMIT since only the head is read);
+ * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
+export type HogQLAlertEvaluation = 'last_row' | 'first_row' | 'any_row'
+
+/** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+    /** Name of the result column to evaluate. When unset, the single numeric column is used
+     * (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluation
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row`
+     * mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first
+     * non-evaluated column is used, falling back to the row number (any_row) or the value column
+     * name (last_row/first_row). */
+    label_column?: string | null
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -5426,6 +5652,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
     results: PageURL[]
     hasMore?: boolean
     limit?: integer
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
@@ -5448,7 +5675,7 @@ export interface WebNotableChangeItem {
 export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
     results: WebNotableChangeItem[]
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
@@ -6673,7 +6900,21 @@ export const externalDataSources = [
     'WikipediaPageviews',
     'YahooFinance',
     'Clarifai',
+    'Adapty',
+    'Braintrust',
+    'StreamElements',
+    'Streamlabs',
+    'Datorama',
+    'Ahrefs',
+    'Lightfield',
+    'Appstack',
+    'Razorpay',
+    'Neon',
+    'NewRelic',
     'Custom',
+    'Tile38',
+    'Chatwoot',
+    'Sanity',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7177,6 +7418,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_GATEWAY = 'ai_gateway',
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',

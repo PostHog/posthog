@@ -5,7 +5,7 @@ import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-u
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { IconKey } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { connectedAppsLogic, ConnectedApp } from './connectedAppsLogic'
 

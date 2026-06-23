@@ -39,12 +39,14 @@ export const Default: Story = {
 export const Sizes: Story = {
     render: () => (
         <div className="flex flex-col gap-4 max-w-sm">
-            <Card size='sm'>
+            <Card size="sm">
                 <CardHeader>
                     <CardTitle>Small size</CardTitle>
                     <CardDescription>Card Description</CardDescription>
                     <CardAction>
-                        <Button size="icon"><MoreVertical /></Button>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
                     </CardAction>
                 </CardHeader>
                 <CardFooter className="flex-col gap-2">
@@ -56,12 +58,14 @@ export const Sizes: Story = {
                     </Button>
                 </CardFooter>
             </Card>
-            <Card size='sm'>
+            <Card size="sm">
                 <CardHeader>
                     <CardTitle>Small size</CardTitle>
                     <CardDescription>Card Description</CardDescription>
                     <CardAction>
-                        <Button size="icon"><MoreVertical /></Button>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
                     </CardAction>
                 </CardHeader>
                 <CardContent>
@@ -81,7 +85,9 @@ export const Sizes: Story = {
                     <CardTitle>Default size</CardTitle>
                     <CardDescription>Card Description</CardDescription>
                     <CardAction>
-                        <Button size="icon"><MoreVertical /></Button>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
                     </CardAction>
                 </CardHeader>
                 <CardFooter className="flex-col gap-2">
@@ -98,7 +104,9 @@ export const Sizes: Story = {
                     <CardTitle>Default size</CardTitle>
                     <CardDescription>Card Description</CardDescription>
                     <CardAction>
-                        <Button size="icon"><MoreVertical /></Button>
+                        <Button size="icon">
+                            <MoreVertical />
+                        </Button>
                     </CardAction>
                 </CardHeader>
                 <CardContent>
@@ -114,6 +122,25 @@ export const Sizes: Story = {
                 </CardFooter>
             </Card>
         </div>
+    ),
+} satisfies Story
+
+// `flush` lets a full-bleed child (here a tinted block standing in for a Table or
+// chart) run to the card's rounded edges: the card drops its section gap + bottom
+// padding and the CardContent its inline padding, while the header keeps its own.
+export const Flush: Story = {
+    render: () => (
+        <Card flush className="max-w-sm">
+            <CardHeader>
+                <CardTitle>Revenue</CardTitle>
+                <CardDescription>Last 30 days</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="flex h-40 items-center justify-center bg-muted text-muted-foreground">
+                    Full-bleed content (Table / chart)
+                </div>
+            </CardContent>
+        </Card>
     ),
 } satisfies Story
 
@@ -168,38 +195,38 @@ export const CardWithItems: Story = {
                 <CardTitle>Team members</CardTitle>
             </CardHeader>
             <CardContent className="py-0">
-                    <ItemGroup>
-                        <Item
-                            variant="pressable"
-                            render={
-                                // eslint-disable-next-line react/forbid-elements
-                                <a href="#">
-                                    <ItemMedia variant="icon">
-                                        <UserIcon />
-                                    </ItemMedia>
-                                    <ItemContent>
-                                        <ItemTitle>Alice</ItemTitle>
-                                        <ItemDescription>Admin</ItemDescription>
-                                    </ItemContent>
-                                </a>
-                            }
-                        />
-                        <Item
-                            variant="pressable"
-                            render={
-                                // eslint-disable-next-line react/forbid-elements
-                                <a href="#">
-                                    <ItemMedia variant="icon">
-                                        <UserIcon />
-                                    </ItemMedia>
-                                    <ItemContent>
-                                        <ItemTitle>Bob</ItemTitle>
-                                        <ItemDescription>Member</ItemDescription>
-                                    </ItemContent>
-                                </a>
-                            }
-                        />
-                    </ItemGroup>
+                <ItemGroup>
+                    <Item
+                        variant="pressable"
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <UserIcon />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>Alice</ItemTitle>
+                                    <ItemDescription>Admin</ItemDescription>
+                                </ItemContent>
+                            </a>
+                        }
+                    />
+                    <Item
+                        variant="pressable"
+                        render={
+                            // eslint-disable-next-line react/forbid-elements
+                            <a href="#">
+                                <ItemMedia variant="icon">
+                                    <UserIcon />
+                                </ItemMedia>
+                                <ItemContent>
+                                    <ItemTitle>Bob</ItemTitle>
+                                    <ItemDescription>Member</ItemDescription>
+                                </ItemContent>
+                            </a>
+                        }
+                    />
+                </ItemGroup>
             </CardContent>
         </Card>
     ),

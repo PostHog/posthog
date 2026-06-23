@@ -1,8 +1,8 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
-import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
-import { debounce } from 'lib/utils'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
+import { debounce } from 'lib/utils/async'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'

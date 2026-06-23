@@ -15,9 +15,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
-from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
+from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation, retry_on_transient_connection_error
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -55,7 +56,28 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # same login can never succeed. Match the stable message text, not the object/database
             # names that follow it.
             "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
+            # SQL Server error 208 — the SELECT we run during the sync references an object the
+            # server can't resolve. Either the table/view we're syncing was dropped or renamed
+            # after schema discovery, or (as seen in practice) the view we select from has a body
+            # that references another object the login can't reach (a cross-database table, or one
+            # the login lost permission to). Our query is built from validated identifiers
+            # discovered via information_schema, so this is the customer's schema/permissions, not
+            # a momentary blip — retrying replays the identical 208. Match the stable error text,
+            # not the volatile object name / procedure / line number in the rest of the message.
+            "Invalid object name": "One of the tables or views you're syncing references a database object that no longer exists or that this login can't access (SQL Server error 208). Check that the object still exists and that the connection user has permission to read it (including any tables a view depends on), then re-sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # SQL Server error 207, the column-level counterpart of 208: the `SELECT` references a
+            # column that doesn't exist — a column dropped or renamed at the source, or a view
+            # whose definition selects a column that's no longer present. Fixed source-data shape,
+            # so retrying won't help.
+            "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
+            # SQL Server error 245 — an implicit type conversion fails on a specific row's value
+            # (e.g. converting the varchar 'SFDR' to int). Our SELECT does no casts and the
+            # incremental predicate only ever compares like types, so this conversion lives in the
+            # view body or a computed column we're reading from. It's fixed by the source data +
+            # view definition, so retrying replays the identical 245. Match the stable error text,
+            # not the volatile value / data type that follow it.
+            "Conversion failed when converting": "A value in one of the tables or views you're syncing can't be converted to the type its query expects (SQL Server error 245) — for example a text value where a number is required. This usually comes from a view definition or computed column that casts or compares mismatched types. Fix the conversion at the source (correct the data or the view), then re-enable the sync.",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
             # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
@@ -76,6 +98,26 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def get_schemas(
+        self,
+        config: MSSQLSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        # Schema discovery opens a fresh connection on its own periodic cadence. A transient TDS
+        # connection death mid-fetch (DB-Lib 20047, "DBPROCESS is dead or not enabled") recovers on
+        # a fresh connection, so retry the whole connect-and-discover cycle in-process rather than
+        # failing the discovery activity — and surfacing captured error-tracking noise — on the
+        # first blip.
+        def discover() -> list[SourceSchema]:
+            return super(MSSQLSource, self).get_schemas(
+                config, team_id, with_counts=with_counts, names=names, force_refresh=force_refresh
+            )
+
+        return retry_on_transient_connection_error(discover)
 
     @property
     def get_source_config(self) -> SourceConfig:

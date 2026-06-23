@@ -48,6 +48,10 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
 )
+from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    EnrichTableSemanticsInputs,
+    EnrichTableSemanticsWorkflow,
+)
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -71,6 +75,15 @@ LOGGER = get_logger(__name__)
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
+    # can't be parsed, or password auth is missing a username/password. Shared by every
+    # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
+    # so retrying just replays the same invalid credentials; stop and tell the customer to fix it.
+    "SSHTunnel auth is not valid": (
+        "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+        "(private key, passphrase, or username and password) on the source's SSH tunnel "
+        "configuration, then re-enable the sync."
+    ),
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
     "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
@@ -346,6 +359,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
+                enrichment_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -353,6 +367,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
+                enrichment_enabled = create_job_result.enrichment_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -472,6 +487,25 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
+                )
+
+            # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
+            # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
+            # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
+            # idempotent. Fire-and-forget child on the data-warehouse queue; ABANDON means it never
+            # blocks or fails the import.
+            if enrichment_enabled:
+                await workflow.start_child_workflow(
+                    EnrichTableSemanticsWorkflow.run,
+                    EnrichTableSemanticsInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    id=f"enrich-warehouse-table-semantics-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(minutes=30),
                 )
 
             # Create source templates

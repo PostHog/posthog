@@ -360,8 +360,13 @@ def _module_dotted(name: str, rel: Path) -> str:
 
     ``api/heatmaps_api.py`` -> ``products.<name>.backend.api.heatmaps_api`` — the
     intermediate package matters, so derive from the full relative path, not the stem.
+
+    ``rel`` may also be a directory (the package containing a file). A backend-root
+    file has parent ``Path('.')``, whose ``with_suffix`` raises on an empty name —
+    that case is just the backend package itself.
     """
-    return ".".join((f"products.{name}.backend", *rel.with_suffix("").parts))
+    parts = rel.with_suffix("").parts if rel != Path(".") else ()
+    return ".".join((f"products.{name}.backend", *parts))
 
 
 @dataclass

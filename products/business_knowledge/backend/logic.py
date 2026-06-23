@@ -60,6 +60,7 @@ from .constants import (
     DEFAULT_MAX_PAGES,
     EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
+    MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
@@ -396,6 +397,7 @@ def create_text_source(
     created_by_id: int | None,
     name: str,
     text: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create source + 1 document + N chunks synchronously.
@@ -413,6 +415,7 @@ def create_text_source(
         name=name,
         source_type=SourceType.TEXT,
         status=SourceStatus.PROCESSING,
+        always_include=always_include,
     )
 
     # One text source == one document. Stable_id is the document's own UUID,
@@ -460,6 +463,7 @@ def update_text_source(
     team_id: int,
     name: str | None,
     text: str | None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Edit path.
@@ -479,6 +483,9 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    if always_include is not None:
+        source.always_include = always_include
+
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
             raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes.")
@@ -494,6 +501,8 @@ def update_text_source(
         if name is not None:
             source.name = name
             update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
@@ -518,9 +527,14 @@ def update_text_source(
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
         source.status = SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
-    elif name is not None:
-        source.name = name
-        source.save(update_fields=["name", "updated_at"])
+    elif name is not None or always_include is not None:
+        update_fields = ["updated_at"]
+        if name is not None:
+            source.name = name
+            update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
+        source.save(update_fields=update_fields)
 
     return get_for_team(source.id, team_id) or source
 
@@ -535,6 +549,7 @@ def update_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Update a URL source's metadata and optionally re-crawl.
@@ -562,6 +577,10 @@ def update_url_source(
     if refresh_interval is not None and refresh_interval != source.refresh_interval:
         source.refresh_interval = refresh_interval
         update_fields.append("refresh_interval")
+
+    if always_include is not None and always_include != source.always_include:
+        source.always_include = always_include
+        update_fields.append("always_include")
 
     if url is not None and url != source.source_url:
         normalized = _validate_url(url)
@@ -623,6 +642,7 @@ def create_file_source(
     name: str,
     file_data: bytes,
     original_filename: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Detect type → parse → chunk. Inline, not Temporal.
@@ -658,6 +678,7 @@ def create_file_source(
             original_filename=file_parse.sanitize_filename(original_filename),
             file_content_type=parsed.content_type,
             file_size_bytes=len(file_data),
+            always_include=always_include,
         )
 
         if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
@@ -835,6 +856,7 @@ def claim_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create the PROCESSING claim row for a URL/crawl source *without* fetching.
@@ -859,6 +881,7 @@ def claim_url_source(
             crawl_mode=crawl_mode or CrawlMode.SINGLE,
             crawl_config=crawl_config or {},
             refresh_interval=refresh_interval or RefreshInterval.MANUAL,
+            always_include=always_include,
         )
     return source
 
@@ -1546,6 +1569,57 @@ def has_ready_sources(team_id: int) -> bool:
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
 
 
+@with_team_scope(canonical=True)
+def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
+    """Return all SAFE/READY chunks from always_include sources, hard-capped by chars.
+
+    Same safety gate as search — fails closed for UNKNOWN/unsafe/tombstoned/non-READY.
+    Output is truncated to MAX_ALWAYS_ON_CONTEXT_CHARS worth of chunk content so
+    always-on injection can't blow the prompt budget.
+    """
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(source__always_include=True)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("source_id", "document_id", "ordinal")
+    )
+
+    results: list[KnowledgeSearchResult] = []
+    total_chars = 0
+    for c in chunks:
+        # Account for the "\n\n" separator the caller joins chunks with, so the
+        # assembled text honors the cap precisely (no mid-sentence slice downstream).
+        separator = 2 if results else 0
+        if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
+            break
+        total_chars += separator + len(c.content)
+        results.append(
+            KnowledgeSearchResult(
+                chunk_id=c.id,
+                source_id=c.source_id,
+                source_name=c.source.name,
+                source_type=c.source.source_type,
+                document_id=c.document_id,
+                document_title=c.document.title,
+                heading_path=c.heading_path,
+                ordinal=c.ordinal,
+                content=c.content,
+            )
+        )
+    return results
+
+
 def has_feature_flag(team: Team) -> bool:
     """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
     check — `ee/hogai/utils/feature_flags.py` delegates here."""
@@ -2021,6 +2095,55 @@ def get_document_window(
             content=c.content,
         )
         for c in chunks
+    ]
+
+
+@with_team_scope(canonical=True)
+def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSearchResult]:
+    """
+    Rehydrate full chunk content + source context for a set of chunk ids,
+    preserving the order of ``chunk_ids`` and dropping any id that no longer
+    resolves (unsafe/tombstoned/deleted). Applies the same safety filters as
+    ``search_knowledge``.
+
+    Lets callers pass chunk ids across a process/serialization boundary (e.g.
+    between Temporal activities) and re-fetch content on demand — deterministic
+    retrieval — instead of shipping the content itself through workflow history.
+    """
+    if not chunk_ids:
+        return []
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(id__in=chunk_ids)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+    )
+    by_id = {c.id: c for c in chunks}
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for chunk_id in chunk_ids
+        if (c := by_id.get(chunk_id)) is not None
     ]
 
 
