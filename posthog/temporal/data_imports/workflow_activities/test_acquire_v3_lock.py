@@ -3,6 +3,9 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+from temporalio.client import WorkflowExecutionStatus
+
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import RunActivitySummary
 from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -151,63 +154,158 @@ class TestTakeOverStaleLock:
         assert self._run() is True
         mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
 
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.RUNNING)
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
+    def test_fails_closed_when_holder_workflow_running(
+        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock
+    ) -> None:
+        assert self._run() is False
+
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=None)
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
+    def test_fails_closed_when_describe_fails(
+        self, _holder: MagicMock, _close: MagicMock, _describe: MagicMock
+    ) -> None:
+        assert self._run() is False
+
+    @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
+    @patch(f"{MODULE}.release_v3_pipeline_lock")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
+    def test_takes_over_when_no_job_row(
+        self,
+        _holder: MagicMock,
+        _close: MagicMock,
+        _describe: MagicMock,
+        mock_job_model: MagicMock,
+        mock_release: MagicMock,
+        mock_acquire: MagicMock,
+    ) -> None:
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
+        assert self._run() is True
+        mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
+
     @pytest.mark.parametrize(
-        "holder_status, expect_taken",
-        [
-            ("Completed", True),
-            ("Failed", True),
-            ("Running", False),
-        ],
-        ids=["holder_completed", "holder_failed", "holder_still_running"],
+        "holder_status",
+        ["Completed", "Failed"],
+        ids=["holder_completed", "holder_failed"],
     )
     @patch(f"{MODULE}.acquire_v3_pipeline_lock", return_value=True)
     @patch(f"{MODULE}.release_v3_pipeline_lock")
     @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
-    def test_takes_over_only_when_holder_job_terminal(
+    def test_takes_over_when_holder_job_terminal(
         self,
         _holder: MagicMock,
         _close: MagicMock,
+        _describe: MagicMock,
         mock_job_model: MagicMock,
         mock_release: MagicMock,
         mock_acquire: MagicMock,
         holder_status: str,
-        expect_taken: bool,
     ) -> None:
         holder_job = MagicMock()
         holder_job.status = holder_status
         mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
             holder_job
         )
+        assert self._run() is True
+        mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
 
-        assert self._run() is expect_taken
-        if expect_taken:
-            mock_release.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), self.HOLDER_TOKEN)
-            mock_acquire.assert_called_once_with(TEAM_ID, str(SCHEMA_ID), WORKFLOW_RUN_ID)
-        else:
-            mock_release.assert_not_called()
-            mock_acquire.assert_not_called()
-
-    @patch(f"{MODULE}.acquire_v3_pipeline_lock")
-    @patch(f"{MODULE}.release_v3_pipeline_lock")
+    @patch(f"{MODULE}._take_over_stale_running_job", return_value=False)
     @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}._describe_holder_workflow", return_value=WorkflowExecutionStatus.COMPLETED)
     @patch(f"{MODULE}.close_old_connections")
     @patch(f"{MODULE}.get_v3_pipeline_lock_holder", return_value=HOLDER_TOKEN)
-    def test_fails_closed_when_holder_has_no_job_yet(
+    def test_delegates_to_queue_db_when_job_running(
         self,
         _holder: MagicMock,
         _close: MagicMock,
+        _describe: MagicMock,
         mock_job_model: MagicMock,
-        mock_release: MagicMock,
-        mock_acquire: MagicMock,
+        mock_stale: MagicMock,
     ) -> None:
-        # The holder may be between lock acquisition and job creation — don't steal.
-        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = None
-
+        holder_job = MagicMock()
+        holder_job.status = "Running"
+        mock_job_model.objects.filter.return_value.order_by.return_value.only.return_value.first.return_value = (
+            holder_job
+        )
         assert self._run() is False
-        mock_release.assert_not_called()
-        mock_acquire.assert_not_called()
+        mock_stale.assert_called_once()
+
+
+class TestTakeOverStaleRunningJob:
+    HOLDER_TOKEN = "stale-run-999"
+
+    def _run(self) -> bool:
+        from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import _take_over_stale_running_job
+
+        inputs = AcquireV3LockActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID)
+        holder_job = MagicMock()
+        holder_job.id = "job-123"
+        holder_job.status = "Running"
+        return _take_over_stale_running_job(inputs, self.HOLDER_TOKEN, WORKFLOW_RUN_ID, holder_job, MagicMock())
+
+    @patch(f"{MODULE}._release_and_acquire", return_value=True)
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_takes_over_when_no_batches(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=False, has_non_terminal=False, is_stale=True
+        )
+        assert self._run() is True
+        mock_update.assert_called_once()
+
+    @patch(f"{MODULE}._release_and_acquire", return_value=True)
+    @patch(f"{MODULE}.update_external_job_status")
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_takes_over_when_stale_batches(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+        mock_update: MagicMock,
+        mock_release: MagicMock,
+    ) -> None:
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=True, has_non_terminal=True, is_stale=True
+        )
+        assert self._run() is True
+
+    @patch(f"{MODULE}.BatchQueue")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_fails_closed_when_active_consumer(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_queue: MagicMock,
+    ) -> None:
+        mock_queue.get_run_activity_summary.return_value = RunActivitySummary(
+            has_batches=True, has_non_terminal=True, is_stale=False
+        )
+        assert self._run() is False
+
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.psycopg.Connection")
+    def test_fails_closed_when_queue_db_unreachable(
+        self,
+        mock_conn_cls: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
+        assert self._run() is False
 
 
 class TestReleaseV3PipelineLockActivity:
