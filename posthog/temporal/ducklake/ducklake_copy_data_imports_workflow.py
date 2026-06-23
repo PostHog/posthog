@@ -161,7 +161,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     # same posthog_data_imports_team_{id} tables with zero coordination, so a
     # team must never have both enabled. The sink wins.
     try:
-        if posthoganalytics.feature_enabled(
+        if feature_enabled_or_false(
             DUCKGRES_BATCH_SINK_FLAG,
             str(team.uuid),
             groups={
