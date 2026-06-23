@@ -78,7 +78,7 @@ export function MemberMultiSelect({
         }
     }, [value?.length]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const showMe = !!me && !excludedMembers.includes(me.user.id) && !search.trim()
+    const meToShow = me && !excludedMembers.includes(me.user.id) && !search.trim() ? me : null
     const selectableOthers = otherMembers.filter((m) => !excludedMembers.includes(m.user.id))
 
     const selectedCount = value?.length || 0
@@ -113,27 +113,27 @@ export function MemberMultiSelect({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {showMe && (
+                        {meToShow && (
                             <li>
                                 <LemonButton
                                     fullWidth
                                     role="menuitemcheckbox"
-                                    aria-checked={value?.includes(me.user.id) || false}
+                                    aria-checked={value?.includes(meToShow.user.id) || false}
                                     size="small"
-                                    icon={<ProfilePicture size="md" user={me.user} />}
-                                    onClick={() => handleMemberToggle(me.user.id)}
+                                    icon={<ProfilePicture size="md" user={meToShow.user} />}
+                                    onClick={() => handleMemberToggle(meToShow.user.id)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span className="flex items-center gap-2 max-w-full">
                                             <input
                                                 type="checkbox"
                                                 className="cursor-pointer"
-                                                checked={value?.includes(me.user.id) || false}
+                                                checked={value?.includes(meToShow.user.id) || false}
                                                 readOnly
                                                 tabIndex={-1}
                                                 aria-hidden
                                             />
-                                            <span>{fullName(me.user)}</span>
+                                            <span>{fullName(meToShow.user)}</span>
                                         </span>
                                         <span className="text-secondary">(you)</span>
                                     </span>
@@ -170,7 +170,7 @@ export function MemberMultiSelect({
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : !showMe && selectableOthers.length === 0 ? (
+                        ) : !meToShow && selectableOthers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

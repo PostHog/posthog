@@ -63,7 +63,7 @@ export function MemberSelect({
 
     const isExcluded = (member: { user: UserBasicType }): boolean =>
         excludedMembers.includes(member.user[propToCompare])
-    const showMe = !!me && !isExcluded(me) && !search.trim()
+    const meToShow = me && !isExcluded(me) && !search.trim() ? me : null
     const selectableOthers = otherMembers.filter((m) => !isExcluded(m))
 
     return (
@@ -93,17 +93,17 @@ export function MemberSelect({
                             </li>
                         )}
 
-                        {showMe && (
+                        {meToShow && (
                             <li>
                                 <LemonButton
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={<ProfilePicture size="md" user={me.user} />}
-                                    onClick={() => _onChange(me.user)}
+                                    icon={<ProfilePicture size="md" user={meToShow.user} />}
+                                    onClick={() => _onChange(meToShow.user)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{fullName(me.user)}</span>
+                                        <span>{fullName(meToShow.user)}</span>
                                         <span className="text-secondary">(you)</span>
                                     </span>
                                 </LemonButton>
@@ -128,7 +128,7 @@ export function MemberSelect({
 
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : !showMe && selectableOthers.length === 0 ? (
+                        ) : !meToShow && selectableOthers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>

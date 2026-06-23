@@ -35,7 +35,7 @@ export function MemberSelectMultiplePopover({
 
     const hasSelection = value.length > 0
     const currentUserId = me?.user.id
-    const showMe = !!me && !search.trim()
+    const meToShow = me && !search.trim() ? me : null
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === currentUserId
 
     const toggleMember = (userId: number): void => {
@@ -71,24 +71,24 @@ export function MemberSelectMultiplePopover({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-px">
-                        {showMe && (
+                        {meToShow && (
                             <li>
                                 <LemonButton
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={<ProfilePicture size="md" user={me.user} />}
-                                    onClick={() => toggleMember(me.user.id)}
+                                    icon={<ProfilePicture size="md" user={meToShow.user} />}
+                                    onClick={() => toggleMember(meToShow.user.id)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span className="flex items-center gap-2 max-w-full">
                                             <input
                                                 type="checkbox"
                                                 className="cursor-pointer"
-                                                checked={value.includes(me.user.id)}
+                                                checked={value.includes(meToShow.user.id)}
                                                 readOnly
                                             />
-                                            <span>{fullName(me.user)}</span>
+                                            <span>{fullName(meToShow.user)}</span>
                                         </span>
                                         <span className="text-secondary">(you)</span>
                                     </span>
@@ -120,7 +120,7 @@ export function MemberSelectMultiplePopover({
                         ))}
                         {membersLoading ? (
                             <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : !showMe && otherMembers.length === 0 ? (
+                        ) : !meToShow && otherMembers.length === 0 ? (
                             <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
