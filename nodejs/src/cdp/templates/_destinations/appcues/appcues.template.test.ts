@@ -180,23 +180,79 @@ describe('appcues template', () => {
         })
     })
 
-    describe('error handling', () => {
-        it('throws on API failure', async () => {
-            let response = await tester.invokeMapping(
+    describe('include all properties', () => {
+        it('merges non-$ event properties into track attributes', async () => {
+            const response = await tester.invokeMapping(
                 'Track Calls',
-                baseInputs,
+                { ...baseInputs, include_all_properties: true },
                 {
                     event: {
                         event: 'Product Viewed',
                         distinct_id: 'user-123',
                         timestamp: '2024-01-01T00:00:00Z',
-                        properties: {},
+                        properties: { product_id: 'widget-123', $browser: 'Chrome' },
                     },
                 },
                 {
                     eventName: 'Product Viewed',
-                    attributes: {},
+                    attributes: { source: 'web' },
                 }
+            )
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.attributes).toEqual({ product_id: 'widget-123', source: 'web' })
+            expect(body.attributes.$browser).toBeUndefined()
+        })
+
+        it('merges non-$ person properties into the identify profile', async () => {
+            const response = await tester.invokeMapping(
+                'Identify Calls',
+                { ...baseInputs, include_all_properties: true },
+                {
+                    event: {
+                        event: '$identify',
+                        distinct_id: 'user-123',
+                        timestamp: '2024-01-01T00:00:00Z',
+                        properties: {},
+                    },
+                    person: {
+                        properties: { email: 'test@example.com', company: 'Acme', $initial_referrer: 'google' },
+                    },
+                },
+                {
+                    profileProperties: { plan: 'enterprise' },
+                }
+            )
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body).toEqual({ email: 'test@example.com', company: 'Acme', plan: 'enterprise' })
+            expect(body.$initial_referrer).toBeUndefined()
+        })
+    })
+
+    describe('error handling', () => {
+        const cases = [
+            {
+                mapping: 'Track Calls',
+                event: { event: 'Product Viewed', properties: {} },
+                mappingInputs: { eventName: 'Product Viewed', attributes: {} },
+            },
+            {
+                mapping: 'Identify Calls',
+                event: { event: '$identify', properties: {} },
+                mappingInputs: { profileProperties: { email: 'test@example.com' } },
+            },
+        ]
+
+        it.each(cases)('throws on API failure for $mapping', async ({ mapping, event, mappingInputs }) => {
+            let response = await tester.invokeMapping(
+                mapping,
+                baseInputs,
+                {
+                    event: { ...event, distinct_id: 'user-123', timestamp: '2024-01-01T00:00:00Z' },
+                    person: { properties: { email: 'test@example.com' } },
+                },
+                mappingInputs
             )
 
             response = await tester.invokeFetchResponse(response.invocation, {
@@ -207,22 +263,15 @@ describe('appcues template', () => {
             expect(response.error).toMatch(/Error from Appcues API \(status 401\)/)
         })
 
-        it('finishes on a successful response', async () => {
+        it.each(cases)('finishes on a successful response for $mapping', async ({ mapping, event, mappingInputs }) => {
             let response = await tester.invokeMapping(
-                'Track Calls',
+                mapping,
                 baseInputs,
                 {
-                    event: {
-                        event: 'Product Viewed',
-                        distinct_id: 'user-123',
-                        timestamp: '2024-01-01T00:00:00Z',
-                        properties: {},
-                    },
+                    event: { ...event, distinct_id: 'user-123', timestamp: '2024-01-01T00:00:00Z' },
+                    person: { properties: { email: 'test@example.com' } },
                 },
-                {
-                    eventName: 'Product Viewed',
-                    attributes: {},
-                }
+                mappingInputs
             )
 
             response = await tester.invokeFetchResponse(response.invocation, {
