@@ -135,6 +135,7 @@ the row lists both.
 | monday            | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb           | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql             | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
+| mux               | HTTP                        | requests                                                        | ✅                          |
 | mysql             | DB protocol                 | pymysql                                                         | ➖                          |
 | okta              | HTTP                        | requests                                                        | ✅                          |
 | notion            | HTTP                        | requests                                                        | ✅                          |
@@ -487,7 +488,6 @@ doesn't conflict with concurrent PRs.
 - missive
 - mixmax
 - mode
-- mux
 - my_hours
 - n8n
 - nasa

@@ -1,0 +1,140 @@
+from typing import Any
+
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
+
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import MuxSourceConfig
+from posthog.temporal.data_imports.sources.mux import source as source_module
+from posthog.temporal.data_imports.sources.mux.mux import MuxResumeConfig
+from posthog.temporal.data_imports.sources.mux.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.mux.source import MuxSource
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+def _config() -> MuxSourceConfig:
+    return MuxSourceConfig(access_token_id="my-token-id", secret_key="my-secret")
+
+
+class TestMuxSourceConfig:
+    def test_source_type(self) -> None:
+        assert MuxSource().source_type == ExternalDataSourceType.MUX
+
+    def test_source_config_fields(self) -> None:
+        config = MuxSource().get_source_config
+        assert config.name.value == "Mux"
+        field_names = {f.name for f in config.fields}  # type: ignore[union-attr]
+        assert field_names == {"access_token_id", "secret_key"}
+
+    def test_secret_key_is_marked_secret(self) -> None:
+        fields = {f.name: f for f in MuxSource().get_source_config.fields}  # type: ignore[union-attr]
+        assert fields["secret_key"].secret is True
+        assert fields["access_token_id"].secret is False
+
+
+class TestMuxSchemas:
+    def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
+        schemas = MuxSource().get_schemas(_config(), team_id=1)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
+        for schema in schemas:
+            assert schema.supports_incremental is False
+            assert schema.supports_append is False
+            assert schema.incremental_fields == []
+
+    def test_get_schemas_filters_by_names(self) -> None:
+        schemas = MuxSource().get_schemas(_config(), team_id=1, names=["assets"])
+        assert [s.name for s in schemas] == ["assets"]
+
+
+class TestMuxValidateCredentials:
+    def test_validate_credentials(self, monkeypatch: Any) -> None:
+        cases = [
+            (200, None, True),
+            (200, "assets", True),
+            (401, None, False),
+            (401, "assets", False),
+            # 403 at source-create is accepted (token genuine, scope intentionally narrow)...
+            (403, None, True),
+            # ...but rejected when validating a specific schema the user picked.
+            (403, "assets", False),
+            (None, None, False),
+        ]
+        for status, schema_name, expected_ok in cases:
+            monkeypatch.setattr(source_module, "get_validation_status", lambda *a, _s=status, **k: _s)
+            ok, _msg = MuxSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+            assert ok is expected_ok, f"status={status}, schema={schema_name}"
+
+    def test_validate_credentials_uses_endpoint_path_for_known_schema(self, monkeypatch: Any) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_status(access_token_id: str, secret_key: str, path: str) -> int:
+            captured["path"] = path
+            return 200
+
+        monkeypatch.setattr(source_module, "get_validation_status", fake_status)
+        MuxSource().validate_credentials(_config(), team_id=1, schema_name="signing_keys")
+        assert captured["path"] == "/system/v1/signing-keys"
+
+
+class TestMuxNonRetryableErrors:
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.mux.com/video/v1/assets?limit=100"),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.mux.com/system/v1/signing-keys?limit=100"),
+        ]
+    )
+    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable = MuxSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.mux.com/video/v1/assets"),
+            ("read_timeout", "HTTPSConnectionPool(host='api.mux.com', port=443): Read timed out."),
+        ]
+    )
+    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
+        non_retryable = MuxSource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable)
+
+
+class TestMuxResumableWiring:
+    def test_get_resumable_source_manager_binds_to_resume_config(self) -> None:
+        inputs = MagicMock()
+        inputs.logger = MagicMock()
+        manager = MuxSource().get_resumable_source_manager(inputs)
+        assert isinstance(manager, ResumableSourceManager)
+        assert manager._data_class is MuxResumeConfig
+
+    def test_source_for_pipeline_plumbs_config_and_schema(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_mux_source(**kwargs: Any) -> str:
+            captured.update(kwargs)
+            return "SOURCE_RESPONSE"
+
+        monkeypatch.setattr(source_module, "mux_source", fake_mux_source)
+
+        inputs = MagicMock()
+        inputs.schema_name = "assets"
+        manager = MagicMock()
+        result = MuxSource().source_for_pipeline(_config(), manager, inputs)
+
+        assert result == "SOURCE_RESPONSE"
+        assert captured["access_token_id"] == "my-token-id"
+        assert captured["secret_key"] == "my-secret"
+        assert captured["endpoint"] == "assets"
+        assert captured["resumable_source_manager"] is manager
+
+
+class TestMuxCanonicalDescriptions:
+    def test_canonical_descriptions_cover_declared_endpoints(self) -> None:
+        descriptions = MuxSource().get_canonical_descriptions()
+        # Every endpoint we expose should have a curated description so the warehouse can describe it
+        # deterministically rather than paying an LLM per team.
+        assert set(descriptions.keys()) == set(ENDPOINTS)
+        for endpoint, entry in descriptions.items():
+            assert entry.get("description")
+            assert entry.get("columns", {}).get("id"), f"{endpoint} missing id column description"
