@@ -108,9 +108,11 @@ def _build_query(config: PlausibleEndpointConfig, site_id: str, start: date, end
 def _normalize_row(config: PlausibleEndpointConfig, result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a Stats API result ({dimensions: [...], metrics: [...]}) into a named-column dict."""
     row: dict[str, Any] = {}
-    for name, value in zip(config.column_names, result.get("dimensions", [])):
+    # Direct access (not .get) so a malformed response missing dimensions — and therefore the `date`
+    # primary key — fails fast instead of ingesting unkeyed rows.
+    for name, value in zip(config.column_names, result["dimensions"]):
         row[name] = value
-    for name, value in zip(config.metrics, result.get("metrics", [])):
+    for name, value in zip(config.metrics, result["metrics"]):
         row[name] = value
     return row
 

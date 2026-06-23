@@ -102,18 +102,19 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
+        def _build_schema(endpoint: str) -> SourceSchema:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
+            return SourceSchema(
                 name=endpoint,
                 # date_range is a genuine server-side filter, so every report supports incremental
                 # syncing by sliding the window forward.
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=incremental_fields is not None,
+                supports_append=incremental_fields is not None,
+                incremental_fields=incremental_fields or [],
                 should_sync_default=PLAUSIBLE_ENDPOINTS[endpoint].should_sync_default,
             )
-            for endpoint in ENDPOINTS
-        ]
+
+        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
 
         if names is not None:
             names_set = set(names)
