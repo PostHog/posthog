@@ -6,7 +6,7 @@ import { BarChart, TooltipSurface, type TooltipContext } from '@posthog/quill-ch
 
 import {
     buildFunnelStepsBarConfig,
-    buildFunnelStepsBars,
+    buildSingleSeriesFunnelStepsBars,
     type FunnelStepsBarRow,
 } from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
@@ -46,7 +46,14 @@ function renderTooltip(rows: FunnelStepsBarRow[]) {
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
     const theme = useMcpChartTheme()
     const steps = normalizeFunnelSteps(results)
-    const { series, labels, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+    const { series, labels, rows, overall } = buildSingleSeriesFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+
+    // Labels are 1-based step indices (the shared builder keys the band by index so duplicate step names
+    // don't collapse onto one slot); map each tick back to its step name for the compact axis.
+    const config: typeof CHART_CONFIG = {
+        ...CHART_CONFIG,
+        xTickFormatter: (_value, index) => rows[index]?.name ?? '',
+    }
 
     if (steps.length === 0) {
         return (
@@ -70,7 +77,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
                     series={series}
                     labels={labels}
                     theme={theme}
-                    config={CHART_CONFIG}
+                    config={config}
                     tooltip={renderTooltip(rows)}
                     onError={NOOP}
                 />

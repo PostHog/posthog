@@ -2757,6 +2757,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+ "zstd",
 ]
 
 [[package]]
@@ -4978,8 +4979,11 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "common-alloc",
+ "dashmap 6.1.0",
  "envconfig",
  "futures",
+ "k8s-openapi",
+ "kube",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",

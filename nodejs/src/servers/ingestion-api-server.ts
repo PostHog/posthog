@@ -2,6 +2,36 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { createIngestionProducerRegistry } from '~/ingestion/common/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    ProducerName,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/producers'
+import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -13,42 +43,24 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from '../ingestion/analytics/joined-ingestion-pipeline'
-import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '../config/redis-pools'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
     IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
-import { createOkContext } from '../ingestion/pipelines/helpers'
-import { TopHog } from '../ingestion/tophog'
+import { createFeatureFlagCalledDedupService } from '../ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'
@@ -69,13 +81,6 @@ import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
-import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type IngestionApiServerConfig = BaseServerConfig &
@@ -154,6 +159,7 @@ export class IngestionApiServer implements NodeServer {
     private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
+    private featureFlagCalledDedupRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
@@ -257,6 +263,14 @@ export class IngestionApiServer implements NodeServer {
         logger.info('👍', 'Cookieless Redis ready')
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+
+        // Dedicated $feature_flag_called dedup Redis; falls back to ingestion until the host is set.
+        this.featureFlagCalledDedupRedisPool = createRedisPoolFromConfig({
+            connection: createFeatureFlagCalledDedupRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
@@ -368,16 +382,23 @@ export class IngestionApiServer implements NodeServer {
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
+        const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.featureFlagCalledDedupRedisPool,
+            this.config
+        )
+
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres),
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService,
             overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService,
             teamManager,
             cookielessManager: this.cookielessManager,
             groupTypeManager,
@@ -517,7 +538,9 @@ export class IngestionApiServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
+            redisPools: [this.redisPool, this.cookielessRedisPool, this.featureFlagCalledDedupRedisPool].filter(
+                Boolean
+            ) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {

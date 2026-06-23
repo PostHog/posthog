@@ -34,6 +34,40 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 _MYSQL_IMPLEMENTATION = MySQLImplementation()
 
+# Create-time-only refinement of the connection error shown when a source fails to
+# validate. pymysql collapses every connect-level failure into error 2003,
+# "Can't connect to MySQL server on '<host>' (<os detail>)", so the generic
+# "check all connection details" message can't tell the user whether the host is
+# wrong, the port is closed, or a firewall is dropping us — unlike the Postgres
+# source, which is granular. We match the OS detail (and the 1049 "Unknown database"
+# server error) to give the same actionable messages. Kept out of
+# get_non_retryable_errors — which the sync path also consults for retry
+# classification — so connection-error retry behaviour is unchanged.
+_VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    (
+        "Name or service not known",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "nodename nor servname provided",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "Connection refused",
+        "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
+    ),
+    ("timed out", "Connection timed out. Does your database have our IP addresses allowed?"),
+    (
+        "No route to host",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    (
+        "Network is unreachable",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    ("Unknown database", "Database does not exist. Check the database name is correct."),
+]
+
 
 @SourceRegistry.register
 class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
@@ -192,6 +226,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # text is translated on non-English servers) so it catches both the raw pymysql string and
             # the Temporal-wrapped `OperationalError: (1054, ...)` form.
             '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
+            # PostHog's connecting host, so the handshake is rejected before any credentials are
+            # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
+            # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
+            # Match the stable tail phrase, not the volatile host in the message prefix.
+            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
         }
 
     def reconcile_schema_metadata(
@@ -239,6 +279,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # message without reporting them to error tracking — only genuinely unexpected
             # failures get captured. Mirrors the Postgres and MSSQL `validate_credentials` handling.
             error_msg = " ".join(str(arg) for arg in e.args) if e.args else str(e)
+            # Refine the generic connect failure into a specific, actionable message first.
+            for hint_pattern, hint_message in _VALIDATE_CONNECTION_HINTS:
+                if hint_pattern in error_msg:
+                    return False, hint_message
             for pattern, friendly_error in self.get_non_retryable_errors().items():
                 if pattern in error_msg:
                     return (

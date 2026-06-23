@@ -36,6 +36,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySour
 from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
+from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema, SSLRequiredError
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
@@ -3126,6 +3127,86 @@ class TestExternalDataSource(APIBaseTest):
         # replication slot + publication on the source for a config we're about to refuse.
         mock_setup_cdc_resources.assert_not_called()
         mock_add_table.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_returns_400_when_pk_detection_connection_fails(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        _mock_is_cdc_enabled_for_team,
+        mock_capture_exception,
+    ):
+        # Credential validation connects with sslmode=prefer (falls back to unencrypted), but the
+        # CDC primary-key detection connection requires SSL. A database that doesn't support SSL
+        # raises SSLRequiredError here — a user/upstream connection problem, not a bug. It must
+        # surface as a clean 400, leave no source row behind, and not be captured as error noise.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="borrower",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="borrower",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.side_effect = SSLRequiredError(
+            "SSL/TLS connection is required but your database does not support it. "
+            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "borrower", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "change data capture" in response.json()["message"].lower()
+        # No source row left behind on a connection failure.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        # CDC slot setup must not run, and the expected connection failure isn't captured as noise.
+        mock_get_primary_key_columns.assert_not_called()
+        mock_setup_cdc_resources.assert_not_called()
+        mock_capture_exception.assert_not_called()
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
@@ -8065,11 +8146,39 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
         assert mock_validate.call_args.kwargs["management_mode"] == "self_managed"
 
-    @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
-        side_effect=psycopg.OperationalError("connection refused"),
+    @parameterized.expand(
+        [
+            (
+                "ssl_required_error",
+                SSLRequiredError("SSL/TLS connection is required but your database does not support it."),
+            ),
+            (
+                "operational_error",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 5434 failed: '
+                    "server does not support SSL, but SSL was required"
+                ),
+            ),
+            ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
+        ]
     )
-    def test_returns_400_on_connection_exception(self, _mock_validate) -> None:
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_connection_failure_returns_400_without_capture(self, _name, exc, mock_capture) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        with patch.object(PostgresCDCAdapter, "validate_prerequisites", side_effect=exc):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+                data={"cdc_management_mode": "posthog"},
+                format="json",
+            )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+        # User/upstream connection failures must not pollute error tracking.
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresCDCAdapter, "validate_prerequisites", side_effect=ValueError("unexpected bug"))
+    def test_unexpected_error_is_still_captured(self, _mock_validate, mock_capture) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
@@ -8077,7 +8186,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
             format="json",
         )
         assert response.status_code == 400
-        assert "Could not connect to source" in response.json()["message"]
+        mock_capture.assert_called_once()
 
 
 class TestCheckCDCPrerequisitesWizard(APIBaseTest):
@@ -8232,12 +8341,41 @@ class TestEnableCDC(APIBaseTest):
         source.refresh_from_db()
         assert (source.job_inputs or {}).get("cdc_enabled") is not True
 
-    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch(
-        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
-        side_effect=psycopg.OperationalError("connection refused"),
+    @parameterized.expand(
+        [
+            (
+                "ssl_required_error",
+                SSLRequiredError("SSL/TLS connection is required but your database does not support it."),
+            ),
+            (
+                "operational_error",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 5434 failed: '
+                    "server does not support SSL, but SSL was required"
+                ),
+            ),
+            ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
+        ]
     )
-    def test_enable_cdc_returns_400_on_prereq_check_exception(self, _check, _flag) -> None:
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_enable_cdc_connection_failure_returns_400_without_capture(self, _name, exc, mock_capture, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        with patch.object(PostgresCDCAdapter, "validate_prerequisites", side_effect=exc):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+                data={"cdc_management_mode": "posthog"},
+                format="json",
+            )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+        # User/upstream connection failures must not pollute error tracking.
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresCDCAdapter, "validate_prerequisites", side_effect=ValueError("unexpected bug"))
+    def test_enable_cdc_unexpected_error_is_still_captured(self, _check, mock_capture, _flag) -> None:
         source = _make_postgres_source(self.team.pk, self.user)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
@@ -8245,7 +8383,7 @@ class TestEnableCDC(APIBaseTest):
             format="json",
         )
         assert response.status_code == 400
-        assert "Could not connect to source" in response.json()["message"]
+        mock_capture.assert_called_once()
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
@@ -9075,6 +9213,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
         assert source.direct_query_enabled is False
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
+        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate

@@ -44,6 +44,10 @@ class ExtractionResult:
     # any-row SQL alerts use this so the notification names all violating rows. Trends breakdowns
     # keep first-breach-only for parity with their historical messages.
     aggregate_breaches: bool = False
+    # Name the (single) series in the breach message even when it isn't a breakdown — single-row SQL
+    # alerts set this so a resolved label column surfaces, e.g. "(Burn rate 24h)". Breakdowns already
+    # name every row via ``is_breakdown``; this covers the one-series case where the name is meaningful.
+    include_series_label: bool = False
 
 
 def zero_sentinel_series() -> ComparableSeries:

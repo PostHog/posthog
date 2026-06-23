@@ -192,6 +192,9 @@ export enum NodeKind {
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
+    // MCP analytics
+    MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
 }
@@ -255,6 +258,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPHarnessBreakdownQuery
 
 /**
  * @discriminator kind
@@ -364,6 +368,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // MCP analytics
+    | MCPHarnessBreakdownQuery
 
     // Property values
     | PropertyValuesQuery
@@ -2496,6 +2503,30 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
 
+/** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
+export interface MCPHarnessBreakdownItem {
+    /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
+    harness: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    sessions: integer
+}
+
+export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPHarnessBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events. */
+export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
+    kind: NodeKind.MCPHarnessBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
@@ -3182,6 +3213,8 @@ export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogValueResult {
     id: string
     name: string
+    /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+    count?: integer
 }
 
 export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3581,6 +3614,7 @@ export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
+    | 'ai_gateway'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
@@ -3956,6 +3990,8 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
 /** Exposure estimate settings for the experiment running-time calculator. */
@@ -4846,8 +4882,10 @@ export interface HogQLAlertConfig {
     column?: string | null
     /** How to read the result rows — an explicit choice, no implicit default. */
     evaluation: HogQLAlertEvaluation
-    /** In `any_row` mode, the column whose value labels each row in breach messages.
-     * When unset, the first non-evaluated column is used, falling back to the row number. */
+    /** Column whose value labels the evaluated row(s) in breach messages: every row in `any_row`
+     * mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first
+     * non-evaluated column is used, falling back to the row number (any_row) or the value column
+     * name (last_row/first_row). */
     label_column?: string | null
 }
 
@@ -6876,6 +6914,8 @@ export const externalDataSources = [
     'Custom',
     'Tile38',
     'Chatwoot',
+    'Sanity',
+    'Metronome',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7379,6 +7419,7 @@ export interface UserProductListItem {
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
+    AI_GATEWAY = 'ai_gateway',
     AI_OBSERVABILITY = 'llm_analytics',
     ALERTS = 'alerts',
     ANNOTATIONS = 'annotations',

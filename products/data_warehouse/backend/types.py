@@ -675,6 +675,17 @@ class ExternalDataSourceType(models.TextChoices):
     CUSTOM = "Custom", "Custom"
     TILE38 = "Tile38", "Tile38"
     CHATWOOT = "Chatwoot", "Chatwoot"
+    SANITY = "Sanity", "Sanity"
+    METRONOME = "Metronome", "Metronome"
+
+
+# Maps a source type to the direct-SQL engine that can query it live. A source type is only
+# direct-query-capable if it appears here AND has an adapter registered in posthog/hogql/direct_sql.
+# Adding an engine = one entry here + one adapter module + one registry call.
+DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
+    ExternalDataSourceType.POSTGRES: "postgres",
+    ExternalDataSourceType.MYSQL: "mysql",
+}
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

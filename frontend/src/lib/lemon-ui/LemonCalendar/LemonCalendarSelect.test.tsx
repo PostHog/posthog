@@ -11,13 +11,13 @@ import {
 
 import { getByDataAttr } from '~/test/byDataAttr'
 
-import { GetLemonButtonTimePropsOpts } from './LemonCalendar'
+import { GetTimeStateOpts } from './LemonCalendar'
 
 const createClickHelpers = (
     container: HTMLElement
 ): {
     clickOnDate: (day: string) => Promise<void>
-    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+    clickOnTime: (props: GetTimeStateOpts) => Promise<void>
 } => ({
     clickOnDate: async (day: string): Promise<void> => {
         const element = container.querySelector('.LemonCalendar__month') as HTMLElement
@@ -26,7 +26,7 @@ const createClickHelpers = (
             await userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
         }
     },
-    clickOnTime: async (props: GetLemonButtonTimePropsOpts): Promise<void> => {
+    clickOnTime: async (props: GetTimeStateOpts): Promise<void> => {
         const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
         if (element) {
             await userEvent.click(element)
@@ -43,7 +43,7 @@ const renderLemonCalendarSelect = (
     onClose: jest.Mock
     onChange: jest.Mock
     clickOnDate: (day: string) => Promise<void>
-    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+    clickOnTime: (props: GetTimeStateOpts) => Promise<void>
 } => {
     const onClose = jest.fn()
     const onChange = jest.fn()

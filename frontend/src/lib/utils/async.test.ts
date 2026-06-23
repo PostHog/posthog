@@ -35,6 +35,28 @@ describe('async utils', () => {
             await jest.advanceTimersByTimeAsync(9000)
             await expect(wrapped).resolves.toBe('slow')
         })
+
+        it('passes a non-aborted signal to the factory while the promise is in flight', async () => {
+            let received: AbortSignal | undefined
+            const wrapped = withTimeout((signal) => {
+                received = signal
+                return Promise.resolve('done')
+            }, 10000)
+            await expect(wrapped).resolves.toBe('done')
+            expect(received?.aborted).toBe(false)
+        })
+
+        it('aborts the factory signal when it times out', async () => {
+            let received: AbortSignal | undefined
+            const wrapped = withTimeout((signal) => {
+                received = signal
+                return new Promise<string>(() => {}) // never settles
+            }, 10000)
+            const assertion = expect(wrapped).rejects.toThrow(PromiseTimeoutError)
+            await jest.advanceTimersByTimeAsync(10000)
+            await assertion
+            expect(received?.aborted).toBe(true)
+        })
     })
 
     describe('retryWithBackoff()', () => {

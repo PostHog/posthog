@@ -563,6 +563,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return {
             "401 Client Error": "The upstream API rejected the request with HTTP 401. Check that the configured auth credentials are correct.",
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
+            # A schema points to a resource the manifest no longer defines (renamed or removed
+            # in an edit while the table's sync stayed scheduled). Permanent until the config is
+            # fixed — match the stable suffix, not the variable resource name in the message.
+            "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:

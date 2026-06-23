@@ -96,6 +96,22 @@ interface SlackCall {
     body: Record<string, unknown>
 }
 
+/** Slack tools send form-encoded bodies; the reply relay sends JSON. Parse
+ *  either into a plain object so assertions can read the fields. */
+function parseSlackBody(body: RequestInit['body']): Record<string, unknown> {
+    if (typeof body !== 'string') {
+        return {}
+    }
+    if (body.trimStart().startsWith('{')) {
+        try {
+            return JSON.parse(body) as Record<string, unknown>
+        } catch {
+            return {}
+        }
+    }
+    return Object.fromEntries(new URLSearchParams(body))
+}
+
 /** A recording `HttpClient` stand-in. The native `@posthog/slack-*` tools
  *  dispatch through `ctx.http.fetch` (NOT `global.fetch`), so the reliable
  *  way to intercept + assert on the Slack calls is to pass this as the
@@ -110,7 +126,7 @@ function buildSlackRecorder(): { http: { fetch: typeof fetch }; calls: SlackCall
                 calls.push({
                     method: url.replace('https://slack.com/api/', ''),
                     auth: headers.Authorization,
-                    body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                    body: parseSlackBody(init?.body),
                 })
             }
             return Promise.resolve({

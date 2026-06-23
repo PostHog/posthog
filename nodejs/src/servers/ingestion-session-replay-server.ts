@@ -1,24 +1,25 @@
-import { initializePrometheusLabels } from '../api/router'
-import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
-} from '../ingestion/common/config'
-import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
+} from '~/ingestion/common/producers'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
     getDefaultSessionReplayOutputsConfig,
-} from '../session-recording/config'
-import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
-import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
-import { createOutputsRegistry } from '../session-recording/outputs/registry'
+} from '~/ingestion/pipelines/sessionreplay/config'
+import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '../session-replay/shared/outputs/producer-config'
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+
+import { initializePrometheusLabels } from '../api/router'
+import { CommonConfig } from '../common/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'

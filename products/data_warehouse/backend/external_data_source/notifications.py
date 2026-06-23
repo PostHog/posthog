@@ -92,7 +92,9 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             )
             items.append(
                 {
-                    "schema_name": schema.name,
+                    # Prefer the human-readable label (e.g. a Slack channel name) over the
+                    # raw identifier in `name` (e.g. a Slack channel id); fall back to name.
+                    "schema_name": schema.label or schema.name,
                     "source_id": str(schema.source_id),
                     "source_type": schema.source.source_type,
                     "source_prefix": (schema.source.prefix or "").rstrip("_"),

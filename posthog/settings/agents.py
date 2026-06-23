@@ -34,7 +34,10 @@ AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")
 # a server-minted globally-unique slug (the slug is a single global namespace —
 # see AgentApplication). This is our escape hatch so first-party agents (e.g.
 # the concierge) keep a stable, human-readable slug across environments.
-# Comma-separated team ids; empty (default) → no team may set an explicit slug.
+# Comma-separated team ids. In local dev (DEBUG) the default project (1) is
+# allowlisted so the example seeder is idempotent and agents get stable,
+# human-readable slugs (e.g. `posthog-ai`) for Slack routing; prod sets it
+# explicitly (empty → no team may set an explicit slug).
 AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS: set[int] = {
-    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", ""))
+    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", "1" if DEBUG else ""))
 }

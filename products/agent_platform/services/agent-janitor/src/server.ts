@@ -53,19 +53,22 @@ import {
     AgentSpecSchema,
     ApprovalRequest,
     ApprovalStore,
+    applyApprovalDecision,
     BundleEntry,
     BundleStore,
     buildSlackManifest,
     buildSystemPrompt,
-    ConversationMessage,
     createLogger,
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
+    handleMetricsRequest,
     instrument,
     INTERNAL_JWT_AUDIENCE,
     InternalJwtVerifyError,
+    isDev,
     lastAssistantTextPreview,
     MemoryStore,
+    PgIdentityAdminStore,
     readTypedBundle,
     RevisionStore,
     SessionQueue,
@@ -73,17 +76,17 @@ import {
     TabularStore,
     verifyInternalJwt,
 } from '@posthog/agent-shared'
-import { listNativeTools } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
 import { buildTypedBundleRouter } from './api/typed-bundle'
-import { buildApprovalDecidedMarker } from './approval-marker'
+import { mountUsersRoutes } from './api/users'
 // compile-custom-tools.ts now exports `compileTypedTool` — wired by the
 // typed PUT /tools/:id handler, not by freeze. Freeze just validates +
 // seals; the compiled.js is already in the bundle by then.
 import { fireCronManually } from './cron-tick'
-import { asyncHandler, errorHandler } from './http-utils'
+import { asyncHandler, errorHandler, httpMetricsMiddleware, requestLogger } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
 import { validateRevisionBundle } from './validate-spec'
 
@@ -111,6 +114,12 @@ export interface JanitorServerOpts {
     /** Read-only tabular store for the console Tables view. */
     tabularStore?: TabularStore
     /**
+     * Keyless admin view over agent_user + agent_identity_credential for the
+     * console "Users" pane. When omitted, /users/* routes return 503. Holds no
+     * decryption key — metadata only.
+     */
+    identityAdmin?: PgIdentityAdminStore
+    /**
      * Shared HMAC signing key — when set, the auth middleware requires
      * `x-internal-secret: <jwt>` with `aud = agent-janitor.rpc` on every
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
@@ -131,6 +140,7 @@ const ListSessionsQuerySchema = z.object({
         .transform((s) => (s ? s.split(',').filter(Boolean) : undefined))
         .pipe(z.array(SessionStateSchema).optional()),
     revision_id: z.string().optional(),
+    agent_user_id: z.string().optional(),
     created_after: z.string().optional(),
     created_before: z.string().optional(),
 })
@@ -218,10 +228,50 @@ async function deriveSpec(args: {
         ...(args.rev.spec as Record<string, unknown>),
         skills: derivedSkills,
         tools: [...preservedTools, ...derivedTools],
+        identity_providers: deriveIdentityProviders(args.rev.spec as Record<string, unknown>, preservedTools),
     }
     return instrument({ key: 'derive.parseSpec', log, context: ctx }, () =>
         Promise.resolve(AgentSpecSchema.parse(mergedSpec))
     )
+}
+
+/**
+ * Auto-wire the managed `posthog` identity provider when a Slack-triggered agent
+ * uses native PostHog tools: a Slack asker has no trigger-edge seed, so the link
+ * flow needs a provisioned OAuthApplication. We add (or scope-union) the provider
+ * with exactly the scopes its tools declare, so promote provisions an app with
+ * the right scopes. Chat/MCP agents resolve `posthog` off the seed and don't need
+ * this. `binding` defaults are applied by `AgentSpecSchema.parse`.
+ */
+export function deriveIdentityProviders(spec: Record<string, unknown>, nativeRefs: unknown[]): unknown[] {
+    const declared = (spec.identity_providers as Record<string, unknown>[] | undefined) ?? []
+    const triggers = (spec.triggers as { type?: string }[] | undefined) ?? []
+    if (!triggers.some((t) => t.type === 'slack')) {
+        return declared
+    }
+    const scopes = new Set<string>()
+    for (const ref of nativeRefs) {
+        const id = (ref as { kind?: string; id?: string }).kind === 'native' ? (ref as { id?: string }).id : undefined
+        if (!id || !hasNativeTool(id)) {
+            continue
+        }
+        const provider = getNativeTool(id).schema.requires.provider
+        if (provider?.id === 'posthog') {
+            for (const s of provider.scopes) {
+                scopes.add(s)
+            }
+        }
+    }
+    const idx = declared.findIndex((p) => p.kind === 'posthog')
+    if (idx === -1 && scopes.size === 0) {
+        return declared
+    }
+    if (idx === -1) {
+        return [...declared, { kind: 'posthog', id: 'posthog', scopes: [...scopes].sort() }]
+    }
+    const existing = declared[idx]
+    const merged = [...new Set([...((existing.scopes as string[] | undefined) ?? []), ...scopes])].sort()
+    return declared.map((p, i) => (i === idx ? { ...existing, scopes: merged } : p))
 }
 
 const BackfillUsageBodySchema = z.object({
@@ -293,6 +343,20 @@ const DecideApprovalBodySchema = z.object({
 
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
+    // Dev only: serve /metrics on the request port (no dedicated scrape server —
+    // three services on one host would collide). First in the chain so scrapes
+    // bypass auth + routing. Prod uses the dedicated port.
+    if (isDev()) {
+        app.use((req, res, next) => {
+            if (!handleMetricsRequest(req, res, log)) {
+                next()
+            }
+        })
+    }
+    // Access log + http metrics before json/auth so they see body-parse 400s,
+    // 401s, and 404s too. Every request now leaves one structured `request` line.
+    app.use(requestLogger(log))
+    app.use(httpMetricsMiddleware())
     // JSON bodies up to 8MB cover any reasonable bundle bulk-push (TS source +
     // a few markdown files). Larger bundles should land an S3 presigned URL
     // path eventually; flagged in the bundle-push action below.
@@ -334,6 +398,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const filter = {
                 states: q.state as AgentSession['state'][] | undefined,
                 revisionId: q.revision_id,
+                agentUserId: q.agent_user_id,
                 createdAfter: q.created_after,
                 createdBefore: q.created_before,
             }
@@ -366,7 +431,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     /* ─────────────────────────── fleet stats ─────────────────────────── */
     //
-    // Rollups that power the agent-console overview tiles. Kept on the
+    // Rollups that power the fleet overview tiles. Kept on the
     // janitor (rather than agent-ingress) because (a) Django already
     // proxies through here for read-only authoring data, (b) these are
     // not in the hot per-request path so SELECT-on-jsonb is fine.
@@ -608,86 +673,29 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const body = DecideApprovalBodySchema.parse(req.body)
-            const existing = await getApprovalScoped(opts.approvals!, req)
-            if (!existing) {
-                res.status(404).json({ error: 'not_found' })
-                return
-            }
-            if (existing.state !== 'queued') {
-                res.status(409).json({ error: 'not_queued', state: existing.state })
-                return
-            }
-
-            // edited_args is only honoured when spec opted in. We surface
-            // a structured 422 so Django can map to a user-facing error
-            // rather than silently dropping the edits.
-            if (body.edited_args !== undefined && !existing.approver_scope.allow_edit) {
-                res.status(422).json({ error: 'edits_not_allowed' })
-                return
-            }
-
-            const decidedAt = new Date().toISOString()
-            if (body.decision === 'approve') {
-                const updated = await opts.approvals!.markApproving(req.params.id, {
-                    decided_by: body.decided_by,
-                    decided_at: decidedAt,
+            // Defence-in-depth tenant scope; Django always supplies it on the
+            // per-app routes. The shared helper runs the decide + wake so the
+            // ingress principal-decision API drives the identical transition.
+            const applicationId = typeof req.query.application_id === 'string' ? req.query.application_id : undefined
+            const result = await applyApprovalDecision(
+                { approvals: opts.approvals!, queue: opts.queue },
+                {
+                    requestId: req.params.id,
+                    applicationId,
+                    decision: body.decision,
+                    decidedBy: body.decided_by,
                     reason: body.reason,
-                    decided_args: body.edited_args,
-                })
-                if (!updated) {
-                    // Lost the race to another decider.
-                    res.status(409).json({ error: 'race_lost' })
-                    return
+                    editedArgs: body.edited_args,
                 }
-                // Wake the session. The runner picks up the marker on its
-                // next turn, dispatches the tool, finalises the row, and
-                // pushes the synthetic approved tool_result into the
-                // conversation. See run-turn.ts marker-processing block.
-                const wake: ConversationMessage = {
-                    role: 'user',
-                    content: [{ type: 'text', text: buildApprovalDecidedMarker(updated.id) }],
-                    timestamp: Date.now(),
-                }
-                await opts.queue.appendPendingInput(existing.session_id, wake)
-                await opts.queue.update(existing.session_id, { state: 'queued' })
-                res.json({ ok: true, state: updated.state })
+            )
+            if (!result.ok) {
+                const status = result.error === 'not_found' ? 404 : result.error === 'edits_not_allowed' ? 422 : 409
+                res.status(status).json(
+                    result.state ? { error: result.error, state: result.state } : { error: result.error }
+                )
                 return
             }
-
-            // reject: terminal-here. Materialise the synthetic rejection
-            // straight into pending_inputs as a `user` message — see the
-            // note in run-turn's marker processor for why this isn't a
-            // toolResult (Anthropic 400s when a tool_result follows a
-            // closing assistant message instead of its matching tool_use).
-            const updated = await opts.approvals!.markRejected(req.params.id, {
-                decided_by: body.decided_by,
-                decided_at: decidedAt,
-                reason: body.reason,
-            })
-            if (!updated) {
-                res.status(409).json({ error: 'race_lost' })
-                return
-            }
-            const rejectedResult: ConversationMessage = {
-                role: 'user',
-                content: [
-                    {
-                        type: 'text',
-                        text: JSON.stringify({
-                            approval: {
-                                request_id: updated.id,
-                                state: 'rejected',
-                                decided_by: updated.decision_by ?? undefined,
-                                reason: updated.decision_reason ?? undefined,
-                            },
-                        }),
-                    },
-                ],
-                timestamp: Date.now(),
-            }
-            await opts.queue.appendPendingInput(existing.session_id, rejectedResult)
-            await opts.queue.update(existing.session_id, { state: 'queued' })
-            res.json({ ok: true, state: updated.state })
+            res.json({ ok: true, state: result.state })
         })
     )
 
@@ -783,7 +791,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const eventsUrl = typeof req.query.events_url === 'string' ? req.query.events_url : null
             const interactivityUrl =
                 typeof req.query.interactivity_url === 'string' ? req.query.interactivity_url : null
-            const scopeByTool = new Map(listNativeTools().map((t) => [t.id, t.schema.requires.scopes]))
+            // Slack scopes only: a tool contributes to the Slack app manifest
+            // iff its single credential provider is the `slack` bot. PostHog /
+            // other identity-provider scopes never leak into the Slack manifest.
+            const scopeByTool = new Map(
+                listNativeTools().map((t) => [
+                    t.id,
+                    t.schema.requires.provider?.id === 'slack' ? t.schema.requires.provider.scopes : [],
+                ])
+            )
             try {
                 const { manifest, notes } = buildSlackManifest({
                     triggers: rev.spec.triggers ?? [],
@@ -1018,6 +1034,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // each exporting `mount*Routes(app, opts, log)` called here.
     mountMemoryRoutes(app, { memoryStore: opts.memoryStore, log })
     mountTableRoutes(app, { tabularStore: opts.tabularStore, log })
+    mountUsersRoutes(app, { identityAdmin: opts.identityAdmin, log })
 
     // Last in the chain. Catches anything the route handlers threw (via
     // asyncHandler), translates ZodError → 400, everything else → 500.
