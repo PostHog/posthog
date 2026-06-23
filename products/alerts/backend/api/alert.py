@@ -685,6 +685,10 @@ class AlertSimulateSerializer(serializers.Serializer):
     detector_config = DetectorConfigField(
         help_text="Detector configuration to simulate.",
     )
+    # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
+    # kind needs a range knob. They stay flat today because date_from is a preview-only range with
+    # no home in the persisted alert config, and trends is the only kind with a range knob — but the
+    # duplication (series_index already lives in TrendsAlertConfig) should be removed at that point.
     series_index = serializers.IntegerField(
         default=0,
         help_text="Zero-based index of the series to analyze (trends insights only).",
