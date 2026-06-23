@@ -124,6 +124,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
+        setResourceScopesUsedFallback: (resourceScopesUsedFallback: boolean) => ({ resourceScopesUsedFallback }),
         loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
         setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
@@ -188,12 +189,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
         },
         loadResourceScopes: async ({ resourceUrl }) => {
-            // Fetch scopes from the OAuth Protected Resource Metadata endpoint
-            // Per RFC 9728, the metadata is at /.well-known/oauth-protected-resource
+            // Last-resort browser fetch when the authorize view could not preload scopes.
+            // RFC 9728: metadata lives at /.well-known/oauth-protected-resource{resource_path}.
             actions.setResourceScopesLoading(true)
+            actions.setResourceScopesUsedFallback(false)
             try {
                 const url = new URL(resourceUrl)
-                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource`
+                const resourcePath = url.pathname === '/' ? '' : url.pathname
+                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource${resourcePath}`
                 const response = await fetch(metadataUrl)
                 if (!response.ok) {
                     throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
@@ -204,12 +207,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     return
                 }
             } catch (e) {
-                // Fall back to hardcoded scopes on any error
                 console.warn('Failed to fetch resource scopes, using fallback:', e)
             } finally {
                 actions.setResourceScopesLoading(false)
             }
-            // Fallback to hardcoded MCP scopes
+            actions.setResourceScopesUsedFallback(true)
             actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
         },
         createNewProject: async ({ name }) => {
@@ -281,6 +283,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setResourceScopesLoading: (_, { loading }) => loading,
+            },
+        ],
+        resourceScopesUsedFallback: [
+            false,
+            {
+                setResourceScopesUsedFallback: (_, { resourceScopesUsedFallback }) => resourceScopesUsedFallback,
             },
         ],
         isCanceling: [
@@ -646,38 +654,36 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const resourceParam = searchParams['resource'] as string | undefined
+            const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
 
-            // Check if this is an MCP server request with no scopes specified
-            // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
-            // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
-            let isMcpResource = false
-            if (resourceParam) {
-                try {
-                    const resourceUrl = new URL(resourceParam)
-                    // Strict hostname check to prevent URL manipulation attacks
-                    isMcpResource = resourceUrl.hostname === 'mcp.posthog.com'
-                } catch {
-                    // Invalid URL, not an MCP resource
-                }
-            }
             const scopesWereDefaulted = requestedScopes.length === 0
 
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
             actions.setScopesWereDefaulted(scopesWereDefaulted)
-            actions.setIsMcpResource(isMcpResource)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
 
-            if (scopesWereDefaulted && isMcpResource && resourceParam) {
-                // Fetch scopes dynamically from the protected resource metadata
-                actions.loadResourceScopes(resourceParam)
+            if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
+                actions.setIsMcpResource(true)
+                if (oauthMcpConsent.scopes?.length) {
+                    actions.setResourceScopesUsedFallback(false)
+                    actions.setScopes(oauthMcpConsent.scopes)
+                } else if (oauthMcpConsent.scopes_fetch_failed && resourceParam) {
+                    actions.setResourceScopesUsedFallback(true)
+                    actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
+                } else if (resourceParam) {
+                    actions.loadResourceScopes(resourceParam)
+                }
             } else if (scopesWereDefaulted) {
-                // Fallback to minimal OIDC scopes for non-MCP clients
+                actions.setIsMcpResource(false)
+                actions.setResourceScopesUsedFallback(false)
                 actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
+                actions.setIsMcpResource(false)
+                actions.setResourceScopesUsedFallback(false)
                 actions.setScopes(requestedScopes)
             }
         }

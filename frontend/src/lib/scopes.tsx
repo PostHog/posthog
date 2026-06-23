@@ -268,6 +268,8 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
+// Fallback when server-side MCP metadata preload fails on the OAuth consent page.
+// Production metadata is ~115 scopes; keep in sync or rely on server preload instead.
 // Scopes required by the PostHog MCP server (https://mcp.posthog.com)
 // These match the scopes_supported in the MCP server's OAuth protected resource metadata
 export const MCP_SERVER_OAUTH_SCOPES = [

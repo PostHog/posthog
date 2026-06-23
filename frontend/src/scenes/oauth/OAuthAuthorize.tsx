@@ -145,6 +145,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         scopesWereDefaulted,
         isMcpResource,
         resourceScopesLoading,
+        resourceScopesUsedFallback,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -286,9 +287,19 @@ export const OAuthAuthorize = (): JSX.Element => {
                 )}
 
                 {scopesWereDefaulted && isMcpResource && (
-                    <LemonBanner type="info" className="mb-4">
-                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
-                        Showing all permissions supported by this resource.
+                    <LemonBanner type={resourceScopesUsedFallback ? 'warning' : 'info'} className="mb-4">
+                        {resourceScopesUsedFallback ? (
+                            <>
+                                <strong>Limited permission list.</strong> This application didn't request specific
+                                permissions, but we couldn't load the full MCP scope catalog. Showing a reduced fallback
+                                set — some tools (e.g. notebooks) may be missing.
+                            </>
+                        ) : (
+                            <>
+                                <strong>No permissions requested.</strong> This application didn't request specific
+                                permissions. Showing all permissions supported by this resource.
+                            </>
+                        )}
                     </LemonBanner>
                 )}
 
