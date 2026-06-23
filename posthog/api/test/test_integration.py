@@ -28,6 +28,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GitHubUserAuthorization,
     Integration,
     SlackIntegration,
     StripeIntegration,
@@ -3736,6 +3737,71 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         mock_task.delay.assert_not_called()
         mock_report.assert_not_called()
+
+
+class TestIntegrationConnectPermissions(APIBaseTest):
+    """Members may connect GitHub (the onboarding wizard runs as the current user), but unlinking it
+    and connecting any other integration kind stay admin-only."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.pk}/integrations/"
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    def test_member_can_connect_github(self, _mock_user_integration, mock_from_install, mock_from_code, mock_verify):
+        state_token = "valid-token-abc123"
+        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+        mock_from_code.return_value = GitHubUserAuthorization(
+            gh_id=42,
+            gh_login="testuser",
+            access_token="ghu_test",
+            refresh_token=None,
+            access_token_expires_in=None,
+            refresh_token_expires_in=None,
+        )
+        mock_verify.return_value = True
+        mock_from_install.return_value = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_test"},
+        )
+
+        response = self.client.post(
+            self._url(),
+            {"kind": "github", "config": {"installation_id": "12345", "state": state_token, "code": "oauth-code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    @parameterized.expand(["slack", "linear", "google-ads"])
+    def test_member_cannot_connect_non_github(self, kind):
+        response = self.client.post(self._url(), {"kind": kind, "config": {}}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_member_cannot_disconnect_github(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"{self._url()}{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
 
 
 class TestGoogleSearchConsoleSitesEndpoint:

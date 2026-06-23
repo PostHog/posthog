@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { integrationConnectMinimumAccessLevel } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
@@ -52,7 +53,7 @@ const OAuthIntegration = ({
 }): JSX.Element => {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: integrationConnectMinimumAccessLevel(kind),
     })
     const authorizationUrl = api.integrations.authorizeUrl({
         next: next ?? urls.settings('environment-integrations'),

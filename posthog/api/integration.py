@@ -716,22 +716,27 @@ class IntegrationViewSet(
     filterset_fields = ["kind"]
 
     def dangerously_get_permissions(self):
-        if self.action == "refresh_github_repos":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberLightManagementPermission(),
-            ]
+        base = [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
+
         # Any project member may ask an admin to connect an integration — connecting still requires admin.
         if self.action == "request_access":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-            ]
+            return base
+
+        # GitHub is the one integration any project member may connect, not just admins: the
+        # onboarding wizard runs as the current user and would otherwise abort for non-admins on a
+        # project with no GitHub connection yet. Light management still keeps unlinking (destroy)
+        # admin-only — members can connect and refresh, but not tear down. All other integration
+        # kinds remain admin-only for both connect and disconnect via the default strict permission.
+        if self.action in ("refresh_github_repos", "github_link_existing", "github_oauth_authorize") or (
+            self.action == "create" and self.request.data.get("kind") == "github"
+        ):
+            return [*base, TeamMemberLightManagementPermission()]
+
         raise NotImplementedError()
 
     def get_throttles(self):
