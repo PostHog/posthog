@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import OperationalError
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -55,6 +56,7 @@ from posthog.scopes import (
     downgrade_scopes_to_read_only,
     effective_ceiling,
     get_oauth_scopes_supported,
+    get_scope_descriptions,
     narrow_scopes_to_ceiling,
     scopes_outside_ceiling,
     scopes_within_ceiling,
@@ -1516,7 +1518,22 @@ class OAuthUserInfoView(UserInfoView):
     pass
 
 
-class OAuthAuthorizationServerMetadataView(APIView):
+class _PublicMetadataView(APIView):
+    """Shared base for the unauthenticated OAuth discovery documents.
+
+    Pins the base URL to SITE_URL rather than the request Host header so a spoofed
+    Host on a permissive-ALLOWED_HOSTS instance cannot steer these discovery
+    documents to an attacker-controlled origin.
+    """
+
+    permission_classes: list = []
+    authentication_classes: list = []
+
+    def base_url(self) -> str:
+        return absolute_uri().rstrip("/")
+
+
+class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
     """
     OAuth 2.0 Authorization Server Metadata (RFC 8414).
 
@@ -1527,15 +1544,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
     is specifically for OAuth-only clients that need DCR support.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Pin to SITE_URL rather than the request Host header so the advertised
-        # endpoints can't be steered to an attacker-controlled origin via Host on
-        # permissive ALLOWED_HOSTS, and so issuer matches the protected resource
-        # metadata's authorization_servers.
-        base_url = absolute_uri().rstrip("/")
+        base_url = self.base_url()
 
         all_scopes = get_oauth_scopes_supported()
 
@@ -1566,6 +1576,19 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "service_documentation": "https://posthog.com/docs/api",
             # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
             "client_id_metadata_document_supported": True,
+            # auth.md agent registration profile (https://workos.com/auth-md).
+            # Only flows that actually exist are advertised: ID-JAG identity
+            # assertions at the identity endpoint. The user-claimed device flow
+            # (claim_endpoint) and revocation receiver (events_endpoint) are not
+            # built yet, so they are deliberately omitted rather than advertised.
+            "agent_auth": {
+                "skill": f"{base_url}/auth.md",
+                "identity_endpoint": f"{base_url}/oauth/token/",
+                "identity_types_supported": ["identity_assertion"],
+                "identity_assertion": {
+                    "assertion_types_supported": ["urn:ietf:params:oauth:token-type:id-jag"],
+                },
+            },
         }
 
         if region_info := get_region_info():
@@ -1574,7 +1597,7 @@ class OAuthAuthorizationServerMetadataView(APIView):
         return JsonResponse(metadata)
 
 
-class OAuthProtectedResourceMetadataView(APIView):
+class OAuthProtectedResourceMetadataView(_PublicMetadataView):
     """
     OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
@@ -1585,14 +1608,8 @@ class OAuthProtectedResourceMetadataView(APIView):
     for this API, which scopes exist, and how to present the token.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Pin to SITE_URL rather than the request Host header: with permissive
-        # ALLOWED_HOSTS an attacker could otherwise steer this discovery document
-        # to an attacker-controlled origin (matches posthog/exceptions.py).
-        base_url = absolute_uri().rstrip("/")
+        base_url = self.base_url()
 
         metadata = {
             # Required by RFC 9728
@@ -1605,3 +1622,37 @@ class OAuthProtectedResourceMetadataView(APIView):
         }
 
         return JsonResponse(metadata)
+
+
+# OIDC scopes have no entry in get_scope_descriptions(), which only covers obj:action scopes.
+_OIDC_SCOPE_DESCRIPTIONS = {
+    "openid": "Sign in and read your user identifier",
+    "profile": "Read your basic profile",
+    "email": "Read your email address",
+}
+
+
+class OAuthClientManifestView(_PublicMetadataView):
+    """
+    auth.md agent-registration manifest (https://workos.com/auth-md).
+
+    A Markdown document agents read to learn how to register and authenticate
+    against PostHog without a human-driven signup. Served at /auth.md, the
+    location the authorization server metadata's `agent_auth.skill` points at.
+    """
+
+    def get(self, request, *args, **kwargs):
+        base_url = self.base_url()
+
+        descriptions = get_scope_descriptions()
+        scopes = [
+            (scope, descriptions[scope] if scope in descriptions else _OIDC_SCOPE_DESCRIPTIONS.get(scope, scope))
+            for scope in get_oauth_scopes_supported()
+        ]
+
+        return render(
+            request,
+            "auth_md.md",
+            {"base_url": base_url, "scopes": scopes},
+            content_type="text/markdown; charset=utf-8",
+        )

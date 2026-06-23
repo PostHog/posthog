@@ -36,6 +36,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
 )
 from posthog.models.team.team import Team
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 
 
@@ -4029,6 +4030,58 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
         self.assertNotIn("posthog_region", metadata)
+
+    def test_metadata_advertises_agent_auth_identity_assertion(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        agent_auth = response.json()["agent_auth"]
+
+        self.assertTrue(agent_auth["skill"].endswith("/auth.md"))
+        self.assertTrue(agent_auth["identity_endpoint"].endswith("/oauth/token/"))
+        self.assertEqual(agent_auth["identity_types_supported"], ["identity_assertion"])
+        self.assertEqual(
+            agent_auth["identity_assertion"]["assertion_types_supported"],
+            ["urn:ietf:params:oauth:token-type:id-jag"],
+        )
+
+    def test_metadata_does_not_advertise_unbuilt_agent_flows(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        # The device-claim and revocation-receiver endpoints do not exist yet.
+        self.assertNotIn("claim_endpoint", metadata["agent_auth"])
+        self.assertNotIn("events_endpoint", metadata["agent_auth"])
+
+
+class TestOAuthClientManifest(APIBaseTest):
+    """Tests for the auth.md agent-registration manifest."""
+
+    def test_returns_markdown(self):
+        response = self.client.get("/auth.md")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/markdown", response["Content-Type"])
+
+    def test_manifest_describes_identity_flow(self):
+        response = self.client.get("/auth.md")
+        body = response.content.decode()
+
+        self.assertIn("# PostHog", body)
+        self.assertIn("/oauth/token/", body)
+        self.assertIn("urn:ietf:params:oauth:token-type:id-jag", body)
+        self.assertIn("/.well-known/oauth-protected-resource", body)
+
+    def test_manifest_lists_scopes(self):
+        response = self.client.get("/auth.md")
+        body = response.content.decode()
+
+        for scope in get_oauth_scopes_supported():
+            with self.subTest(scope=scope):
+                self.assertIn(f"`{scope}`", body)
+
+    def test_manifest_accessible_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/auth.md")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestOAuthProtectedResourceMetadata(APIBaseTest):

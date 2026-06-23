@@ -49,6 +49,14 @@ ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
 ENRICHMENT_MODEL = "claude-haiku-4-5"
 # Keep the prompt and response bounded — wide tables shouldn't blow up the context or the cost.
 MAX_COLUMNS_PER_TABLE = 200
+# The team's core memory is free-form and unbounded; a large dump alone can push the prompt past the
+# model's 200k-token context window. Cap it — a concise company summary is all the enrichment needs.
+MAX_BUSINESS_CONTEXT_CHARS = 20_000
+# Last-resort ceiling on the whole assembled prompt. Stays well under the 200k-token window (English
+# is ~3-4 chars/token, so this is ~100-130k tokens) to leave room for the response. If the prompt
+# still exceeds it after capping the business context, we drop columns from the tail until it fits;
+# enrichment is idempotent, so a later sync fills in whatever this pass skips.
+MAX_PROMPT_CHARS = 400_000
 
 # Product-analytics events — query these to track enrichment volume, LLM call count / token cost,
 # columns attributed, and errors across the pipeline.
@@ -197,6 +205,81 @@ def build_enrichment_prompt(
     return "\n".join(sections)
 
 
+def build_bounded_enrichment_prompt(
+    *,
+    source_name: str,
+    table_name: str,
+    endpoint_name: str,
+    docs_url: str | None,
+    columns: list[dict[str, Any]],
+    foreign_keys: list[dict[str, str]],
+    known_descriptions: dict[str, str],
+    columns_needing_description: list[str],
+    business_context: str,
+) -> str:
+    """Build the prompt, trimming inputs so it can't exceed the model's context window.
+
+    The business context (the team's core memory) is unbounded free text and is the usual culprit
+    behind oversized prompts, so it's capped first. If the assembled prompt is still too long — a
+    pathologically wide table, say — columns are dropped from the tail until it fits. Skipped columns
+    keep their place in the idempotency snapshot, so a later sync enriches them.
+    """
+    business_context = business_context[:MAX_BUSINESS_CONTEXT_CHARS]
+    shown_columns = columns
+    shown_fks = foreign_keys
+    needing = columns_needing_description
+    while True:
+        prompt = build_enrichment_prompt(
+            source_name=source_name,
+            table_name=table_name,
+            endpoint_name=endpoint_name,
+            docs_url=docs_url,
+            columns=shown_columns,
+            foreign_keys=shown_fks,
+            known_descriptions=known_descriptions,
+            columns_needing_description=needing,
+            business_context=business_context,
+        )
+        if len(prompt) <= MAX_PROMPT_CHARS or len(shown_columns) <= 1:
+            return prompt
+        # Drop ~10% of the tail columns and re-measure. Prune the ask list and the foreign keys to the
+        # surviving columns too, so the prompt never references a column it no longer lists.
+        cut = max(1, len(shown_columns) // 10)
+        shown_columns = shown_columns[:-cut]
+        kept_names = {column["name"] for column in shown_columns}
+        needing = [name for name in needing if name in kept_names]
+        shown_fks = [fk for fk in foreign_keys if fk.get("column") in kept_names]
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+
+
+def _extract_json_object(content: str) -> dict[str, Any] | None:
+    """Parse the model's JSON reply, tolerating markdown fences or surrounding prose.
+
+    `response_format={"type": "json_object"}` isn't reliably honoured through the gateway's Anthropic
+    route, so the reply can arrive fenced (```json … ```) or with leading text — a bare `json.loads`
+    then dies on the first non-`{` character. Try the whole string, then a fenced block, then the
+    outermost `{…}` span. Returns the dict, or None if nothing parses to a JSON object.
+    """
+    text = content.strip()
+    candidates = [text]
+    fence = _JSON_FENCE_RE.search(text)
+    if fence:
+        candidates.append(fence.group(1).strip())
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start : end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
 def _generate_descriptions(
     *,
     team_id: int,
@@ -211,7 +294,7 @@ def _generate_descriptions(
     business_context: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM. Returns `(parsed_payload, usage)` — usage carries the model and token counts."""
-    prompt = build_enrichment_prompt(
+    prompt = build_bounded_enrichment_prompt(
         source_name=source_name,
         table_name=table_name,
         endpoint_name=endpoint_name,
@@ -237,10 +320,11 @@ def _generate_descriptions(
         "completion_tokens": getattr(usage_obj, "completion_tokens", None),
         "total_tokens": getattr(usage_obj, "total_tokens", None),
     }
-    content = response.choices[0].message.content or "{}"
-    parsed = json.loads(content)
-    if not isinstance(parsed, dict):
-        return {}, usage
+    parsed = _extract_json_object(response.choices[0].message.content or "")
+    if parsed is None:
+        # Surface as an LLM failure (caught by the caller → "partial") rather than silently
+        # persisting nothing, so the error stays visible in analytics.
+        raise ValueError("model response was not valid JSON")
     return parsed, usage
 
 
