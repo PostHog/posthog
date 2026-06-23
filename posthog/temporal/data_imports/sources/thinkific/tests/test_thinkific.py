@@ -34,7 +34,7 @@ def _mock_response(body: dict[str, Any], status_code: int = 200) -> MagicMock:
     response.json.return_value = body
     response.text = str(body)
     if status_code >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error")
+        response.raise_for_status.side_effect = requests.HTTPError
     return response
 
 

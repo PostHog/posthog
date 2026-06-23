@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import ThinkificSourceConfig
@@ -48,11 +48,14 @@ class TestThinkificSourceConfig:
         cfg = ThinkificSource().get_source_config
         fields = {f.name: f for f in cfg.fields}
         assert set(fields) == {"api_key", "subdomain"}
+        api_key, subdomain = fields["api_key"], fields["subdomain"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(subdomain, SourceFieldInputConfig)
         # The secret must be a password field; the subdomain is a plain text identifier.
-        assert fields["api_key"].type == "password"
-        assert fields["api_key"].secret is True
-        assert fields["subdomain"].type == "text"
-        assert fields["subdomain"].secret is False
+        assert api_key.type == "password"
+        assert api_key.secret is True
+        assert subdomain.type == "text"
+        assert subdomain.secret is False
 
     def test_non_retryable_errors_cover_auth(self) -> None:
         keys = ThinkificSource().get_non_retryable_errors()
