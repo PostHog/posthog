@@ -19,7 +19,6 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalReportTask,
     SignalScoutConfig,
     SignalScoutConfigUpdate,
     SignalScoutEmission,
@@ -1190,10 +1189,6 @@ export class ApiRequest {
 
     public signalReport(id: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
-    }
-
-    public signalReportTasks(reportId: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.signalReport(reportId, teamId).addPathComponent('tasks')
     }
 
     // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
@@ -5139,10 +5134,6 @@ const api = {
         },
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
-        },
-        // SignalReport ↔ Task linkage (read-only list). Backend: SignalReportTaskViewSet.
-        async tasks(reportId: SignalReport['id']): Promise<PaginatedResponse<SignalReportTask>> {
-            return await new ApiRequest().signalReportTasks(reportId).get()
         },
         // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
