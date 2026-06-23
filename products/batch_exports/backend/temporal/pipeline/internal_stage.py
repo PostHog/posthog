@@ -51,6 +51,7 @@ from products.batch_exports.backend.temporal.record_batch_model import resolve_b
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchModel,
     compose_filters_clause,
+    compose_hog_function_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
@@ -370,7 +371,7 @@ async def _get_query(
     data_interval_end: str,
     fields: list[BatchExportField] | None = None,
     destination_default_fields: list[BatchExportField] | None = None,
-    filters: list[dict[str, str | list[str] | None]] | None = None,
+    filters: list[dict[str, str | list[str] | None]] | dict | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
     **parameters,
@@ -386,9 +387,16 @@ async def _get_query(
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
 
     if filters is not None and len(filters) > 0:
-        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-            filters, team_id=team_id, values=extra_query_parameters
-        )
+        if isinstance(filters, dict):
+            # WORKFLOWS exports store the linked hog function's full filters dict and reuse the
+            # realtime filter expression so backfills match what the destination would receive live.
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_hog_function_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters
+            )
+        else:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters
+            )
     else:
         filters_str, extra_query_parameters = "", extra_query_parameters
 

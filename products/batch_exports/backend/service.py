@@ -151,7 +151,9 @@ class BatchExportEventPropertyFilter:
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str] | None]] | None = None
+    # WORKFLOWS exports store the linked hog function's full filters dict; all other models use a
+    # flat list of serialized HogQL property filters.
+    filters: list[dict[str, str | list[str] | None]] | dict | None = None
 
 
 @dataclass

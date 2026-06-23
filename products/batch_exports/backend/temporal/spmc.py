@@ -21,6 +21,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.cdp.filters import CohortInlineError, compile_filters_expr
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -328,7 +329,7 @@ class Producer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str] | None]] | None = None,
+        filters: list[dict[str, str | list[str] | None]] | dict | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         is_workflows: bool = False,
         **parameters,
@@ -342,9 +343,16 @@ class Producer:
         extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
 
         if filters is not None and len(filters) > 0:
-            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=team_id, values=extra_query_parameters
-            )
+            if isinstance(filters, dict):
+                # WORKFLOWS exports store the linked hog function's full filters dict and reuse the
+                # realtime filter expression so backfills match what the destination would receive live.
+                filters_str, extra_query_parameters = await database_sync_to_async(compose_hog_function_filters_clause)(
+                    filters, team_id=team_id, values=extra_query_parameters
+                )
+            else:
+                filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                    filters, team_id=team_id, values=extra_query_parameters
+                )
         else:
             filters_str, extra_query_parameters = "", extra_query_parameters
 
@@ -650,6 +658,57 @@ class InvalidFilterError(Exception):
         super().__init__(msg)
 
 
+def _print_expr_against_events_model(
+    expr: ast.Expr,
+    team: Team,
+    values: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Print a HogQL expression as a ClickHouse WHERE-clause fragment against the events model.
+
+    Used to compile batch export filters into a clause that can be spliced into the `$filters`
+    slot of the events export queries. Shared by the flat-list `compose_filters_clause` and the
+    hog-function `compose_hog_function_filters_clause`.
+    """
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=False,
+        limit_top_select=False,
+        within_non_hogql_query=False,
+        values=values or {},
+        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+    )
+    # Export models are only events/persons/sessions; warehouse tables and views are denied.
+    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
+    context.database = Database.create_for(team=team, modifiers=context.modifiers)
+
+    # This query only supports events at the moment.
+    # TODO: Extend for other models that also wish to implement property filtering.
+    select_query = ast.SelectQuery(
+        select=[
+            parse_expr("properties as properties"),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=expr,
+    )
+    prepared_select_query: ast.SelectQuery = typing.cast(
+        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
+    )
+    prepared_expr = prepare_ast_for_printing(expr, context=context, dialect="clickhouse", stack=[prepared_select_query])
+
+    try:
+        printed = print_prepared_ast(
+            prepared_expr,  # type: ignore
+            context=context,
+            dialect="clickhouse",
+            stack=[prepared_select_query],
+        )
+    except (ExposedHogQLError, InternalHogQLError) as e:
+        raise InvalidFilterError(e) from e
+
+    return printed, context.values
+
+
 def compose_filters_clause(
     filters: list[dict[str, str | list[str] | None]],
     team_id: int,
@@ -670,18 +729,6 @@ def compose_filters_clause(
         of placeholder to values to be used as query parameters.
     """
     team = Team.objects.get(id=team_id)
-    context = HogQLContext(
-        team=team,
-        team_id=team.id,
-        enable_select_queries=False,
-        limit_top_select=False,
-        within_non_hogql_query=False,
-        values=values or {},
-        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
-    )
-    # Export models are only events/persons/sessions; warehouse tables and views are denied.
-    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
-    context.database = Database.create_for(team=team, modifiers=context.modifiers)
     exprs = []
     for filter in filters:
         match filter["type"]:
@@ -713,33 +760,94 @@ def compose_filters_clause(
                 raise TypeError(f"Unknown filter type: '{s}'")
 
     and_expr = ast.And(exprs=exprs)
-    # This query only supports events at the moment.
-    # TODO: Extend for other models that also wish to implement property filtering.
-    select_query = ast.SelectQuery(
-        select=[
-            parse_expr("properties as properties"),
-        ],
-        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        where=and_expr,
-    )
-    prepared_select_query: ast.SelectQuery = typing.cast(
-        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
-    )
-    prepared_and_expr = prepare_ast_for_printing(
-        and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
-    )
+    return _print_expr_against_events_model(and_expr, team, values)
+
+
+class RewriteHogGlobalsToEventsColumns(TraversingVisitor):
+    """Rewrite hog-function filter field chains onto the person-on-events columns.
+
+    Hog function filters reference the realtime-globals chains `person.properties.X` and
+    `group_N.properties.X`. To resolve these against the events table without a join, point them
+    at the `poe` / `goe_N` virtual subtables, which print to the `person_properties` /
+    `groupN_properties` columns. Event properties (`properties.X`) and metadata columns are left
+    untouched.
+    """
+
+    def visit_field(self, node: ast.Field):
+        if not node.chain:
+            return
+        head = node.chain[0]
+        if head == "person":
+            node.chain = ["events", "poe", *node.chain[1:]]
+        elif isinstance(head, str) and head.startswith("group_") and head.removeprefix("group_").isdigit():
+            node.chain = ["events", f"goe_{head.removeprefix('group_')}", *node.chain[1:]]
+
+
+class UnsupportedWorkflowsFilterError(Exception):
+    """Raised when a hog function filter can't be compiled into a batch export WHERE clause.
+
+    Cohort and session filters require a join that the spliced `$filters` clause can't perform,
+    so they are rejected rather than silently widening the set of exported events.
+    """
+
+    def __init__(self, unsupported: set[str]):
+        self.unsupported = unsupported
+        types_str = ", ".join(sorted(unsupported))
+        super().__init__(
+            f"Workflows backfills don't support these filter types yet: {types_str}. "
+            f"They require database joins that batch export queries can't perform."
+        )
+
+
+class _UnsupportedFilterFinder(TraversingVisitor):
+    """Find filter expressions that can't be printed as a standalone events WHERE clause."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.unsupported: set[str] = set()
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.unsupported.add("cohort")
+        super().visit_compare_operation(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and node.chain[0] in ("session", "sessions"):
+            self.unsupported.add("session")
+
+
+def compose_hog_function_filters_clause(
+    filters: dict,
+    team_id: int,
+    values: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Compose a ClickHouse WHERE clause from a hog function's filters for a WORKFLOWS export.
+
+    Reuses the same HogQL expression that realtime hog function filters compile to (via
+    `compile_filters_expr`), then prints it against the events model. Person/group property
+    chains are rewritten onto the person-on-events columns so they resolve without a join.
+
+    Empty / "all events" filters return an empty clause. Filter types that need a join (cohort,
+    session) raise `UnsupportedWorkflowsFilterError`.
+    """
+    team = Team.objects.get(id=team_id)
 
     try:
-        printed = print_prepared_ast(
-            prepared_and_expr,  # type: ignore
-            context=context,
-            dialect="clickhouse",
-            stack=[prepared_select_query],
-        )
-    except (ExposedHogQLError, InternalHogQLError) as e:
-        raise InvalidFilterError(e) from e
+        expr = compile_filters_expr(filters, team)
+    except CohortInlineError as e:
+        raise UnsupportedWorkflowsFilterError({"cohort"}) from e
 
-    return printed, context.values
+    # "All events" / empty filters compile to a constant True — no clause needed.
+    if isinstance(expr, ast.Constant) and expr.value is True:
+        return "", values or {}
+
+    finder = _UnsupportedFilterFinder()
+    finder.visit(expr)
+    if finder.unsupported:
+        raise UnsupportedWorkflowsFilterError(finder.unsupported)
+
+    RewriteHogGlobalsToEventsColumns().visit(expr)
+    return _print_expr_against_events_model(expr, team, values)
 
 
 async def wait_for_delta_past_data_interval_end(

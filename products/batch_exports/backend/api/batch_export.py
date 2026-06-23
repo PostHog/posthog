@@ -950,6 +950,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if filters is None:
             return filters
 
+        # WORKFLOWS exports store the linked hog function's filters as a dict (events/actions/
+        # properties/filter_test_accounts); all other exports use a flat list of property filters.
+        if isinstance(filters, dict):
+            return filters
+
         if not isinstance(filters, list):
             raise serializers.ValidationError("'filters' should be an array of filters")
 

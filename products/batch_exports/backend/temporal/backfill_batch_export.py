@@ -44,7 +44,7 @@ from products.batch_exports.backend.service import (
 )
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import compose_filters_clause
+from products.batch_exports.backend.temporal.spmc import compose_filters_clause, compose_hog_function_filters_clause
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -507,9 +507,15 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
     filters_str = ""
     extra_query_parameters: dict[str, typing.Any] = {}
     if batch_export.filters:
-        filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
-            batch_export.filters, team_id=inputs.team_id
-        )
+        if isinstance(batch_export.filters, dict):
+            # WORKFLOWS exports store the linked hog function's full filters dict.
+            filters_str, extra_query_parameters = await sync_to_async(compose_hog_function_filters_clause)(
+                batch_export.filters, team_id=inputs.team_id
+            )
+        else:
+            filters_str, extra_query_parameters = await sync_to_async(compose_filters_clause)(
+                batch_export.filters, team_id=inputs.team_id
+            )
         if filters_str:
             filters_str = f"AND {filters_str}"
 

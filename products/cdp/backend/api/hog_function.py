@@ -748,6 +748,11 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
         from products.batch_exports.backend.api.batch_export import BatchExportSerializer
+        from products.batch_exports.backend.temporal.spmc import (
+            InvalidFilterError,
+            UnsupportedWorkflowsFilterError,
+            compose_hog_function_filters_clause,
+        )
 
         hog_function = self.get_object()
 
@@ -784,13 +789,31 @@ class HogFunctionViewSet(
         ):
             raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
+        # Freeze the hog function's filters onto the batch export so backfills only deliver events
+        # that match what the realtime destination would receive. Drop the realtime bytecode — the
+        # batch export query recompiles the filters from their definition.
+        filters = hog_function.filters or {}
+        if filters.get("bytecode_error"):
+            return Response(
+                {"error": f"This destination's filters could not be compiled: {filters['bytecode_error']}"},
+                status=400,
+            )
+        export_filters = {k: v for k, v in filters.items() if k not in ("bytecode", "bytecode_error", "transpiled")}
+
+        # Validate the filters translate into a query before creating anything, so we never create a
+        # backfill with filters we can't apply (e.g. cohort or session filters that require a join).
+        try:
+            compose_hog_function_filters_clause(export_filters, team_id=self.team_id)
+        except (UnsupportedWorkflowsFilterError, InvalidFilterError) as e:
+            return Response({"error": str(e)}, status=400)
+
         # Prepare batch export data matching the frontend's structure
         batch_export_data = {
             "name": hog_function.name,
             "paused": True,
             "interval": "hour",
             "model": "events",
-            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
+            "filters": export_filters,
             "destination": {
                 "type": "Workflows",
                 "config": {"hog_function_id": str(hog_function.id)},

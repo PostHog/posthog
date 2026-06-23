@@ -15,6 +15,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 from products.actions.backend.models.action import Action
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.cdp.backend.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -2622,3 +2623,73 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["error"] == "Backfills are only supported for event-sourced destinations."
+
+    @patch("products.batch_exports.backend.api.batch_export.sync_batch_export")
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_stores_full_filters(self, mock_feature_enabled, mock_sync_batch_export):
+        """The full filters dict (minus realtime bytecode) is frozen onto the batch export."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "name": "Backfill Function"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        batch_export = BatchExport.objects.get(id=response.json()["batch_export_id"])
+        assert isinstance(batch_export.filters, dict)
+        # The whole filter definition is preserved, not just the events array ...
+        assert batch_export.filters["events"] == EXAMPLE_FULL["filters"]["events"]
+        assert "actions" in batch_export.filters
+        assert batch_export.filters["filter_test_accounts"] is True
+        # ... but the realtime-only bytecode is dropped (the query recompiles from the definition).
+        assert "bytecode" not in batch_export.filters
+
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_blocked_when_filters_have_bytecode_error(self, mock_feature_enabled):
+        """A hog function whose filters failed to compile to realtime bytecode (e.g. cohorts) can't be backfilled."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "name": "Broken Filters Function"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        # Simulate filters that couldn't compile to realtime bytecode. Update directly to bypass the
+        # save-time recompilation that would otherwise clear the error.
+        hog_function = HogFunction.objects.get(id=function_id)
+        broken_filters = {**hog_function.filters, "bytecode": None, "bytecode_error": "Can't use cohorts in real-time"}
+        HogFunction.objects.filter(id=function_id).update(filters=broken_filters)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "could not be compiled" in response.json()["error"]
+
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_blocked_for_session_filters(self, mock_feature_enabled):
+        """Session filters need a join the batch export query can't perform, so backfills are rejected."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "name": "Session Filter Function",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "$session_duration", "type": "session", "operator": "gt", "value": 60}],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "session" in response.json()["error"].lower()

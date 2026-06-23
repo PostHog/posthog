@@ -7,6 +7,7 @@ from collections.abc import Collection
 import pytest
 
 import pyarrow as pa
+from asgiref.sync import sync_to_async
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
@@ -15,10 +16,13 @@ from products.batch_exports.backend.temporal.spmc import (
     InvalidFilterError,
     Producer,
     RecordBatchQueue,
+    UnsupportedWorkflowsFilterError,
     compose_filters_clause,
+    compose_hog_function_filters_clause,
     slice_record_batch,
     use_distributed_events_recent_table,
 )
+from products.cohorts.backend.models.cohort import Cohort
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -383,3 +387,161 @@ def test_compose_filters_clause_raises(
 ):
     with pytest.raises(InvalidFilterError):
         result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
+
+
+@pytest.mark.parametrize(
+    "filters,expected_substring,expected_values_subset",
+    [
+        # Event name match
+        (
+            {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            "equals(events.event,",
+            {"$pageview"},
+        ),
+        # Global event property
+        (
+            {"properties": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]}]},
+            "JSONExtractRaw(events.properties,",
+            {"$browser", "Chrome"},
+        ),
+        # Feature flag property (subset of event)
+        (
+            {"properties": [{"key": "$feature/my-flag", "operator": "exact", "type": "event", "value": ["true"]}]},
+            "JSONExtractRaw(events.properties,",
+            {"$feature/my-flag", "true"},
+        ),
+        # Global person property is rewritten onto the person-on-events column
+        (
+            {"properties": [{"key": "email", "operator": "exact", "type": "person", "value": ["a@b.com"]}]},
+            "events.person_properties",
+            {"email", "a@b.com"},
+        ),
+        # Global group property is rewritten onto the group-on-events column
+        (
+            {
+                "properties": [
+                    {"key": "name", "operator": "exact", "type": "group", "group_type_index": 0, "value": ["Acme"]}
+                ]
+            },
+            "events.group0_properties",
+            {"name", "Acme"},
+        ),
+        # event_metadata maps to a top-level column
+        (
+            {"properties": [{"key": "distinct_id", "operator": "exact", "type": "event_metadata", "value": ["abc"]}]},
+            "events.distinct_id",
+            {"abc"},
+        ),
+        # Event filter with a per-event property
+        (
+            {
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "properties": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]}],
+                    }
+                ]
+            },
+            "events.event",
+            {"$pageview", "$browser", "Chrome"},
+        ),
+    ],
+    ids=[
+        "event_name",
+        "event_property",
+        "feature",
+        "person_property",
+        "group_property",
+        "event_metadata",
+        "event_with_property",
+    ],
+)
+def test_compose_hog_function_filters_clause(
+    filters: dict[str, typing.Any],
+    expected_substring: str,
+    expected_values_subset: set[str],
+    ateam,
+):
+    result_clause, result_values = compose_hog_function_filters_clause(filters, team_id=ateam.id)
+    assert expected_substring in result_clause
+    assert expected_values_subset.issubset(set(result_values.values()))
+
+
+def test_compose_hog_function_filters_clause_ors_multiple_events(ateam):
+    """Multiple event filters are ORed together, mirroring realtime behavior."""
+    filters = {
+        "events": [
+            {"id": "$pageview", "type": "events", "order": 0},
+            {"id": "$autocapture", "type": "events", "order": 1},
+        ]
+    }
+    result_clause, result_values = compose_hog_function_filters_clause(filters, team_id=ateam.id)
+    assert result_clause.startswith("or(")
+    assert {"$pageview", "$autocapture"}.issubset(set(result_values.values()))
+
+
+def test_compose_hog_function_filters_clause_ands_properties_with_events(ateam):
+    """Global properties are ANDed with the OR of event filters."""
+    filters = {
+        "events": [
+            {"id": "$pageview", "type": "events", "order": 0},
+            {"id": "$autocapture", "type": "events", "order": 1},
+        ],
+        "properties": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]}],
+    }
+    result_clause, _ = compose_hog_function_filters_clause(filters, team_id=ateam.id)
+    assert result_clause.startswith("and(")
+    assert "or(" in result_clause
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {},
+        {"events": [], "actions": [], "properties": []},
+        # "All events" (id=None) matches everything, so no clause is needed
+        {"events": [{"id": None, "type": "events", "order": 0}]},
+        # Bytecode and other realtime-only keys are ignored
+        {"source": "events", "bytecode": ["_H", 1], "events": []},
+    ],
+    ids=["empty_dict", "empty_lists", "all_events", "ignores_bytecode"],
+)
+def test_compose_hog_function_filters_clause_returns_empty_for_all_events(filters: dict[str, typing.Any], ateam):
+    result_clause, _ = compose_hog_function_filters_clause(filters, team_id=ateam.id)
+    assert result_clause == ""
+
+
+async def test_compose_hog_function_filters_clause_includes_test_account_filters(ateam):
+    """When filter_test_accounts is set, the team's test account filters are ANDed in."""
+    ateam.test_account_filters = [
+        {"key": "email", "operator": "not_icontains", "type": "person", "value": "@posthog.com"}
+    ]
+    await sync_to_async(ateam.save)()
+
+    filters = {
+        "events": [{"id": "$pageview", "type": "events", "order": 0}],
+        "filter_test_accounts": True,
+    }
+    result_clause, result_values = await sync_to_async(compose_hog_function_filters_clause)(filters, team_id=ateam.id)
+
+    # Test account person filter resolves onto the person-on-events column, ANDed with the event match.
+    assert "events.person_properties" in result_clause
+    assert "events.event" in result_clause
+    assert any(isinstance(v, str) and "@posthog.com" in v for v in result_values.values())
+
+
+def test_compose_hog_function_filters_clause_rejects_session_filters(ateam):
+    """Session filters need a join the spliced WHERE clause can't carry."""
+    filters = {"properties": [{"key": "$session_duration", "operator": "gt", "type": "session", "value": 60}]}
+    with pytest.raises(UnsupportedWorkflowsFilterError):
+        compose_hog_function_filters_clause(filters, team_id=ateam.id)
+
+
+async def test_compose_hog_function_filters_clause_rejects_cohort_filters(ateam):
+    """Cohort filters need a join the spliced WHERE clause can't carry."""
+    cohort = await sync_to_async(Cohort.objects.create)(team=ateam, name="test cohort")
+    filters = {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}
+    with pytest.raises(UnsupportedWorkflowsFilterError):
+        await sync_to_async(compose_hog_function_filters_clause)(filters, team_id=ateam.id)

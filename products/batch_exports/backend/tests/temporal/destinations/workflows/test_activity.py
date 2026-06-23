@@ -1,3 +1,4 @@
+import json
 import uuid
 import urllib.parse
 
@@ -377,3 +378,74 @@ async def test_insert_into_workflows_activity_from_stage_tolerates_hog_function_
     assert result.error is None
     assert result.records_failed == hog_function_error_count
     assert result.records_completed == len(handler.data) - hog_function_error_count
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        # Event property filter — only events with $browser = Chrome are kept
+        {"properties": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]}]},
+        # Person property filter — exercises the person -> person-on-events column rewrite
+        {"properties": [{"key": "$initial_os", "operator": "exact", "type": "person", "value": ["Linux"]}]},
+    ],
+    ids=["event_property", "person_property"],
+)
+async def test_insert_into_workflows_activity_from_stage_applies_filters(
+    clickhouse_client,
+    activity_environment,
+    exclude_events,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    server,
+    path,
+    handler,
+    hog_function_id,
+    filters,
+):
+    """Only events matching the hog function's filters should be delivered.
+
+    `generate_test_data` creates a batch of events carrying the filtered property/person-property
+    plus a handful of "test-no-prop-*" events that carry neither. The filter must exclude the
+    no-prop events while still delivering the matching ones.
+    """
+    model = BatchExportModel(name="events", schema=None, filters=filters)
+
+    batch_export_id = str(uuid.uuid4())
+    batch_export_inputs = BatchExportInsertInputs(
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        batch_export_id=batch_export_id,
+    )
+    workflows_inputs = WorkflowsInsertInputs(
+        batch_export=batch_export_inputs,
+        url=urllib.parse.urlunsplit((server.scheme, f"{server.host}:{server.port}", "/", "", "")),
+        hog_function_id=hog_function_id,
+    )
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=ateam.pk,
+            batch_export_id=batch_export_id,
+            data_interval_start=workflows_inputs.batch_export.data_interval_start,
+            data_interval_end=workflows_inputs.batch_export.data_interval_end,
+            exclude_events=None,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            is_workflows=True,
+            batch_export_model=model,
+            destination_default_fields=workflows_default_fields(batch_export_id),
+        ),
+    )
+    result = await activity_environment.run(insert_into_workflows_activity_from_stage, workflows_inputs)
+
+    assert result.error is None
+    # Matching events were delivered ...
+    assert len(handler.data) > 0
+    # ... and the no-prop events (which match neither filter) were excluded by the query.
+    delivered_events = [json.loads(request_data.body)["clickhouse_event"]["event"] for request_data in handler.data]
+    assert all(not event.startswith("test-no-prop") for event in delivered_events)
