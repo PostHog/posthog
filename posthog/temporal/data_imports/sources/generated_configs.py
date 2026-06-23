@@ -2260,7 +2260,7 @@ class PaylocitySourceConfig(config.Config):
 
 @config.config
 class PaystackSourceConfig(config.Config):
-    pass
+    secret_api_key: str
 
 
 @config.config
