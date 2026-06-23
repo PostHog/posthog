@@ -404,14 +404,15 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
-    @pytest.mark.parametrize(
-        "query_dict,expected_search",
+    @parameterized.expand(
         [
             (
+                "persons_list",
                 {"kind": "ActorsQuery", "search": "example.com", "select": ["person"]},
                 "example.com",
             ),
             (
+                "insight_modal",
                 {
                     "kind": "ActorsQuery",
                     "search": "example.com",
@@ -419,9 +420,9 @@ class TestCohortUtils(BaseTest):
                 },
                 None,
             ),
-        ],
+        ]
     )
-    def test_sanitize_query_for_cohort_search_handling(self, query_dict, expected_search):
+    def test_sanitize_query_for_cohort_search_handling(self, _name, query_dict, expected_search):
         sanitized = _sanitize_query_for_cohort(query_dict)
         if expected_search is None:
             self.assertNotIn("search", sanitized)
