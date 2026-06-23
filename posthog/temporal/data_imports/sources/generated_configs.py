@@ -1696,7 +1696,7 @@ class LeexiSourceConfig(config.Config):
 
 @config.config
 class LemlistSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
