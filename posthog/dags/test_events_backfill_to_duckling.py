@@ -1358,7 +1358,7 @@ class TestRegisterFilesWithDuckling:
         assert "glob(%s)" in sql
         assert params == ("s3://bkt/x/run1_*.parquet",)
 
-    def test_glob_run_files_empty_day_returns_no_files(self, target=None):
+    def test_glob_run_files_empty_day_returns_no_files(self):
         # A zero-event team-day writes no Parquet, so the glob matches nothing and
         # duckgres returns a command-complete with no result set: fetchall() raises
         # "the last operation didn't produce a result". _glob_run_files must absorb
@@ -1371,7 +1371,7 @@ class TestRegisterFilesWithDuckling:
 
         assert _glob_run_files(conn, "s3://bkt/x/run1_*.parquet") == []
 
-    def test_glob_run_files_propagates_other_programming_errors(self, target=None):
+    def test_glob_run_files_propagates_other_programming_errors(self):
         # A genuine SQL error must not be swallowed as "no files".
         conn = MagicMock()
         cur = MagicMock()
