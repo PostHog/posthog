@@ -76,6 +76,22 @@ MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
 # Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
 TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
 
+# Per-scout holdback denylist. A list of canonical scout skill names a team must NOT get: the
+# scout is never seeded into that team's skill namespace, never config-enabled, and never
+# dispatched to it. The knob for dogfooding an unreleased scout on a single project (e.g. error
+# tracking on project 2) without exposing it fleet-wide.
+#
+# Lives inside the same `team_configs` / `default_team_config` blobs as the run caps, and resolves
+# the same most-specific-first way (`_resolve_withheld_skills`): a fleet-wide default list in
+# `default_team_config.withheld_skills` holds a scout back from EVERY team, and a per-team
+# `team_configs[<id>].withheld_skills` REPLACES that list for one team (set it to `[]` to release
+# the full fleet to a dogfooder). Same replace-not-merge semantics as `enabled_skills`. Absent at
+# both layers → nothing withheld (unchanged behaviour).
+#
+# Unlike `enabled_skills` (a soft seed default a user can still toggle on), this is a HARD gate at
+# the seed + dispatch layer — a withheld scout can't be self-enabled into running.
+TEAM_CONFIG_WITHHELD_SKILLS = "withheld_skills"
+
 # Rolling window the per-team daily budget is counted over.
 DAILY_BUDGET_WINDOW = timedelta(hours=24)
 
@@ -221,6 +237,38 @@ def _resolve_max_runs_per_day(team_id: int, team_configs: dict[int, dict], defau
         if isinstance(override, int) and not isinstance(override, bool) and override > 0:
             return override
     return MAX_RUNS_PER_TEAM_PER_DAY
+
+
+def _resolve_withheld_skills(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> set[str]:
+    """Skill names held back from a team, resolved most-specific layer first.
+
+    `team_configs[team_id].withheld_skills` (per-team override) → `default_team_config.withheld_skills`
+    (fleet-wide default) → none. Replace-not-merge, same as `enabled_skills`: the first layer
+    carrying a valid `list[str]` wins outright, so a team can override the fleet default with its
+    own list — or with `[]` to release the full fleet (withhold nothing). A malformed value at a
+    layer (not a list of strings) falls through to the next, so a typo can't silently un-withhold a
+    scout. Absent at both layers → empty set (nothing withheld, unchanged behaviour).
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        raw = source.get(TEAM_CONFIG_WITHHELD_SKILLS)
+        if isinstance(raw, list) and all(isinstance(name, str) for name in raw):
+            return {name for name in raw if isinstance(name, str)}
+    return set()
+
+
+def withheld_skills_for_team(canonical_team_id: int) -> set[str]:
+    """Resolve the holdback denylist for one (canonical) team in a single flag-payload read.
+
+    The coordinator resolves withholding from a payload it already read for the tick; this is the
+    one-shot equivalent for request-context callers (the on-demand `signals-scout-config-sync`
+    endpoint), so the HTTP path enforces the same holdback as the scheduled path and a held-back
+    scout can't be seeded/enabled by a manual fleet materialization. `canonical_team_id` must be
+    the parent/project id; `team_configs` keys are canonicalized so a child-keyed override still
+    resolves. A missing/unreadable payload yields an empty set (nothing withheld).
+    """
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    return _resolve_withheld_skills(canonical_team_id, team_configs, _default_team_config(payload))
 
 
 def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int, int]:

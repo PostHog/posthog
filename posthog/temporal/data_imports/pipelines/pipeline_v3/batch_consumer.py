@@ -14,14 +14,8 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
-    ACTIVE_GROUPS,
-    BATCH_PROCESSING_DURATION_SECONDS,
-    BATCH_RETRY_TOTAL,
-    BATCHES_PROCESSED_TOTAL,
-    POLL_BATCHES_FETCHED,
-    POLL_DURATION_SECONDS,
-    RECOVERY_SWEEPS_TOTAL,
-    RUNS_FAILED_TOTAL,
+    DELTA_CONSUMER_METRICS,
+    ConsumerMetrics,
 )
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +51,10 @@ class BatchConsumerConfig:
     reconcile_grace_seconds: int = RECONCILE_GRACE_SECONDS
     reconcile_lookback_seconds: int = RECONCILE_LOOKBACK_SECONDS
     reconcile_limit: int = 100
+    # When set, the consumer stops reporting itself healthy once any single batch
+    # has been executing longer than this, so a wedged sink connection turns into
+    # a liveness-probe restart instead of an indefinite, invisible stall.
+    stuck_batch_timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -64,6 +62,15 @@ class BatchConsumerConfig:
 
 
 class BatchConsumerAdapter(Protocol):
+    """Sink-specific queue operations the shared engine drives.
+
+    Contract notes:
+    - ``fail_run`` MUST NOT raise: the engine calls it from error paths that must
+      not crash the consumer. Isolate each internal step (queue write, app-DB
+      write, lock release) and swallow-with-capture failures.
+    - All other methods may raise; the engine isolates them per group/batch.
+    """
+
     log_prefix: str
     executing_state: str
     succeeded_state: str
@@ -140,11 +147,13 @@ class BatchConsumer:
         process_batch: ProcessBatchFn,
         adapter: BatchConsumerAdapter,
         health_reporter: Callable[[], None] | None = None,
+        metrics: ConsumerMetrics | None = None,
     ) -> None:
         self._config = config
         self._process_batch = process_batch
         self._adapter = adapter
         self._health_reporter = health_reporter
+        self._metrics = metrics or DELTA_CONSUMER_METRICS
         self._semaphore = asyncio.Semaphore(config.max_concurrency)
         self._shutdown = asyncio.Event()
         self._conn: psycopg.AsyncConnection[Any] | None = None
@@ -156,6 +165,9 @@ class BatchConsumer:
         self._heartbeat_task: asyncio.Task[None] | None = None
         # Monotonic stamp of the last reconcile sweep; runs inside the recovery loop so both share one connection.
         self._last_reconcile_monotonic = 0.0
+        # batch_id -> monotonic start, for the stuck-batch watchdog.
+        self._inflight_started: dict[str, float] = {}
+        self._last_stuck_log_monotonic = 0.0
 
     async def _connect(self) -> psycopg.AsyncConnection[Any]:
         return await psycopg.AsyncConnection.connect(
@@ -209,8 +221,7 @@ class BatchConsumer:
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             while not self._shutdown.is_set():
-                if self._health_reporter:
-                    self._health_reporter()
+                self._report_health()
 
                 poll_start = time.monotonic()
                 try:
@@ -226,8 +237,8 @@ class BatchConsumer:
                     capture_exception(e)
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
                     continue
-                POLL_DURATION_SECONDS.observe(time.monotonic() - poll_start)
-                POLL_BATCHES_FETCHED.observe(len(batches))
+                self._metrics.poll_duration_seconds.observe(time.monotonic() - poll_start)
+                self._metrics.poll_batches_fetched.observe(len(batches))
 
                 if not batches:
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
@@ -241,13 +252,13 @@ class BatchConsumer:
                     group_count=len(groups),
                 )
 
-                ACTIVE_GROUPS.inc(len(groups))
+                self._metrics.active_groups.inc(len(groups))
                 try:
                     await asyncio.gather(
                         *[self._process_group(key, group_batches) for key, group_batches in groups.items()]
                     )
                 finally:
-                    ACTIVE_GROUPS.dec(len(groups))
+                    self._metrics.active_groups.dec(len(groups))
         finally:
             await self._close()
 
@@ -349,9 +360,11 @@ class BatchConsumer:
             log_source_id=batch.schema_id,
             attempt=attempt,
         )
+        self._inflight_started[batch.id] = time.monotonic()
         try:
             return await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
+            self._inflight_started.pop(batch.id, None)
             # Unbind only the keys we set so ambient context (parent logger, test setup) survives.
             structlog.contextvars.unbind_contextvars(*bound_keys)
 
@@ -366,6 +379,16 @@ class BatchConsumer:
             )
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})")
             return False
+
+        logger.info(
+            self._event("batch_picked_up"),
+            batch_id=batch.id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+            is_final_batch=batch.is_final_batch,
+            attempt=attempt,
+            resource_name=batch.resource_name,
+        )
 
         # Pre-increment: if we OOM here, recovery sees attempt=N+1
         # and knows this attempt was consumed.
@@ -383,8 +406,9 @@ class BatchConsumer:
                 await self._process_batch(batch)
                 await self._adapter.after_batch_processed(await self._ensure_main_conn(), batch=batch)
 
-            BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(
-                time.monotonic() - start
+            duration = time.monotonic() - start
+            self._metrics.batch_processing_duration_seconds.labels(team_id=team_id, schema_id=schema_id).observe(
+                duration
             )
 
             await self._adapter.update_status(
@@ -393,11 +417,19 @@ class BatchConsumer:
                 job_state=self._adapter.succeeded_state,
                 attempt=attempt,
             )
-            BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            logger.info(
+                self._event("batch_processed_ok"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                batch_index=batch.batch_index,
+                is_final_batch=batch.is_final_batch,
+                duration_seconds=round(duration, 3),
+            )
             return True
         except Exception as err:
-            BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
-            BATCH_RETRY_TOTAL.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
+            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
+            self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
             if attempt >= self._config.max_attempts:
                 logger.exception(
@@ -433,8 +465,14 @@ class BatchConsumer:
         """Fail the run via the adapter; the adapter isolates each step so a failure can't crash the consumer."""
         conn = conn or await self._ensure_main_conn()
 
-        await self._adapter.fail_run(conn, batch=batch, reason=reason)
-        RUNS_FAILED_TOTAL.inc()
+        try:
+            await self._adapter.fail_run(conn, batch=batch, reason=reason)
+        except Exception as e:
+            # Adapters are documented no-raise; this is the engine's backstop so a
+            # buggy adapter cannot crash _recovery_sweep or _process_single_inner.
+            logger.exception(self._event("adapter_fail_run_raised"), batch_id=batch.id, run_uuid=batch.run_uuid)
+            capture_exception(e)
+        self._metrics.runs_failed_total.inc()
 
     async def _recovery_loop(self) -> None:
         while not self._shutdown.is_set():
@@ -472,6 +510,32 @@ class BatchConsumer:
             limit=self._config.reconcile_limit,
         )
 
+    def _report_health(self) -> None:
+        """Report liveness, unless the stuck-batch watchdog has tripped.
+
+        Withholding the report makes the health server's timeout fail the liveness
+        probe, so Kubernetes restarts the pod and the recovery sweep reassigns the
+        wedged batch — a sync thread blocked on a dead sink connection cannot be
+        cancelled from the event loop, so a restart is the only real remedy.
+        """
+        if self._health_reporter is None:
+            return
+        timeout = self._config.stuck_batch_timeout_seconds
+        if timeout is not None and self._inflight_started:
+            now = time.monotonic()
+            oldest_id, oldest_started = min(self._inflight_started.items(), key=lambda kv: kv[1])
+            if now - oldest_started > timeout:
+                if now - self._last_stuck_log_monotonic > 60:
+                    self._last_stuck_log_monotonic = now
+                    logger.error(
+                        self._event("stuck_batch_watchdog_tripped"),
+                        batch_id=oldest_id,
+                        running_seconds=round(now - oldest_started, 1),
+                        timeout_seconds=timeout,
+                    )
+                return
+        self._health_reporter()
+
     async def _heartbeat_loop(self) -> None:
         """Report liveness on a fixed cadence, independent of batch processing.
 
@@ -479,8 +543,7 @@ class BatchConsumer:
         compaction), so the main loop's per-poll health report is not enough on its own.
         """
         while not self._shutdown.is_set():
-            if self._health_reporter:
-                self._health_reporter()
+            self._report_health()
             try:
                 await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
             except TimeoutError:
@@ -493,10 +556,10 @@ class BatchConsumer:
         assert grace_seconds is not None
         stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
-            RECOVERY_SWEEPS_TOTAL.labels(outcome="clean").inc()
+            self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
             return
 
-        RECOVERY_SWEEPS_TOTAL.labels(outcome="orphans_found").inc()
+        self._metrics.recovery_sweeps_total.labels(outcome="orphans_found").inc()
         logger.info(self._event("recovery_sweep_found_stale_batches"), count=len(stale))
 
         recovery_bound_keys = (

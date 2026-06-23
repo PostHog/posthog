@@ -43,8 +43,10 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         if self.query.withAggregations is None:
             self.query.withAggregations = True
 
+        # First/last event fetches read every matching event's full properties blob, so they
+        # must be opted into explicitly rather than defaulting on.
         if self.query.withFirstEvent is None:
-            self.query.withFirstEvent = True
+            self.query.withFirstEvent = False
 
         if self.query.withLastEvent is None:
             self.query.withLastEvent = False

@@ -93,7 +93,9 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # authoritative bucket name instead of re-deriving it. Nullable for rows provisioned
     # before this field existed.
     bucket = models.CharField(max_length=255, null=True, blank=True)
-    bucket_region = models.CharField(max_length=50, default="us-east-1")
+    # Region travels with the bucket: set alongside it, left NULL when no bucket is
+    # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
+    bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
 
     class Meta:
         db_table = "posthog_duckgresserver"
