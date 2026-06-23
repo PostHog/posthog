@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -208,7 +209,7 @@ class TestBuildEnrichmentPrompt:
 
 
 class TestBuildBoundedEnrichmentPrompt:
-    def _columns(self, count: int) -> list[dict]:
+    def _columns(self, count: int) -> list[dict[str, Any]]:
         return [{"name": f"col_{i}", "data_type": "String", "is_nullable": False} for i in range(count)]
 
     def test_passes_through_when_within_budget(self):
@@ -250,7 +251,9 @@ class TestBuildBoundedEnrichmentPrompt:
     def test_drops_columns_until_prompt_fits(self):
         # Even after capping the context, a pathologically wide table must be trimmed to fit the window.
         long_name = "n" * 5_000
-        columns = [{"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)]
+        columns: list[dict[str, Any]] = [
+            {"name": f"{long_name}_{i}", "data_type": "String", "is_nullable": False} for i in range(500)
+        ]
         prompt = build_bounded_enrichment_prompt(
             source_name="Postgres",
             table_name="t",
