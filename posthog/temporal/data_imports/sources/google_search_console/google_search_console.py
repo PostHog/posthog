@@ -151,7 +151,7 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     """
     if urlparse(site_url).scheme or site_url.startswith("sc-domain:"):
         return None
-    host = site_url.strip().strip("/")
+    host = site_url.strip().strip("/").lower()
     if not host:
         return None
     registered_set = set(registered)

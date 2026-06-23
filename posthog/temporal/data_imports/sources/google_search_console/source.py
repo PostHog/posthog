@@ -150,7 +150,7 @@ class GoogleSearchConsoleSource(
         except Exception as e:
             return False, f"Failed to list Google Search Console sites: {e}"
 
-        normalized = {site.get("siteUrl"): site.get("permissionLevel") for site in sites}
+        normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)
         if site_url not in normalized:
             suggestion = suggest_registered_site(site_url, normalized.keys())

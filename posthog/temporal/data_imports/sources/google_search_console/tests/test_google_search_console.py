@@ -476,6 +476,9 @@ def test_normalize_site_url(raw, expected):
         ("example.com", ["sc-domain:example.com", "https://example.com/"], "https://example.com/"),
         # A trailing slash on the bare hostname is tolerated.
         ("plotlens.ai/", ["https://plotlens.ai/"], "https://plotlens.ai/"),
+        # An uppercase bare hostname is lowercased to match Google's canonical property names.
+        ("PlotLens.AI", ["https://plotlens.ai/"], "https://plotlens.ai/"),
+        ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
         # Already scheme-qualified or a domain property: not ambiguous, so no suggestion.
