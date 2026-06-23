@@ -25,7 +25,7 @@ import type {
 } from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillLogicType } from './llmSkillLogicType'
-import { exportAndDownloadSkill, llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
+import { errorDetail, exportAndDownloadSkill, llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
 import { SKILL_DESCRIPTION_MAX_LENGTH, validateSkillName } from './skillConstants'
 
 export enum SkillMode {
@@ -456,9 +456,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 router.actions.replace(urls.skill(newName))
             } catch (e) {
                 console.error('Failed to rename skill', e)
-                const detail =
-                    e !== null && typeof e === 'object' && 'detail' in e ? (e as { detail?: string }).detail : undefined
-                lemonToast.error(detail || 'Failed to rename skill')
+                lemonToast.error(errorDetail(e) || 'Failed to rename skill')
             }
         },
 

@@ -41,7 +41,7 @@ export function buildMarketplaceCommand(token: string | null): string {
     return `/plugin marketplace add ${scheme}://x-access-token:${token ?? 'YOUR_PHS_TOKEN'}@${host}/api/projects/${teamId}/llm_skills/marketplace.git`
 }
 
-function errorDetail(error: unknown): string | undefined {
+export function errorDetail(error: unknown): string | undefined {
     return error !== null && typeof error === 'object' && 'detail' in error
         ? (error as { detail?: string }).detail
         : undefined
