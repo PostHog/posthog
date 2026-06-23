@@ -280,7 +280,7 @@ export const httpRequestV1 = defineNativeTool({
         url: Type.String(),
         truncated: Type.Boolean({ description: 'True if the response body was clipped to max_response_bytes.' }),
     }),
-    requires: { integrations: [], scopes: ['web:fetch'] },
+    requires: {},
     cost_hint: 'medium',
     async run(args, ctx) {
         // URL is substituted first so we know the FINAL host; every secret

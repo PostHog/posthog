@@ -119,6 +119,12 @@ export interface ApiConfig {
     oauthClientName?: string | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
+    /**
+     * Sandbox-provisioned task id (from the inbound `x-posthog-task-id` MCP header). Forwarded
+     * to the PostHog API as `X-PostHog-Task-Id` on every call so writes can be attributed to
+     * the agent's task; the API validates it against the token's team.
+     */
+    taskId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -173,6 +179,8 @@ export class ApiClient {
             ...(this.config.mcpConversationId
                 ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
                 : {}),
+            // Forward the sandbox task id so API writes are attributed to the agent's task.
+            ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {
@@ -1253,6 +1261,15 @@ export class ApiClient {
                 const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
                 return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
             },
+
+            // Stickiness drills into one bar (`day` = active-interval count). The runner projects only
+            // `actor_id` with no `matching_events`, so there is no recordings column — same as lifecycle.
+            stickinessActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            // Funnel actors project `actor` (+ `matched_recordings` when `includeRecordings`, handled
+            // by runActorsQuery). The query carries the step/trends-dropoff selectors on the inner
+            // FunnelsActorsQuery; ordering is backend-determined, so orderBy stays empty.
+            funnelActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

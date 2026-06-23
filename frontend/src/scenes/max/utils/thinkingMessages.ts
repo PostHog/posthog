@@ -36,6 +36,9 @@ export const THINKING_MESSAGES = [
     'Swizzling', // techy weirdness
     'Grokking', // deep understanding
     'Hedging', // hedgehog pun
+    'Posthogging', // brand pun
+    'Self-driving', // autonomy pun
+    'Signaling', // signals pun
     'Scheming', // clever planning
     'Unfurling', // opening up ideas
     'Puzzling', // solving something tricky

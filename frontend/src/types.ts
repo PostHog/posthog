@@ -289,6 +289,7 @@ export enum AccessControlResourceType {
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
@@ -4233,6 +4234,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
+    /** Archived flags are hidden from the flag list by default and must be disabled. */
+    archived: boolean
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
@@ -4240,7 +4243,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
-    status: 'ACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    status: 'ACTIVE' | 'STALE' | 'ARCHIVED' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
@@ -4276,6 +4279,7 @@ export type OrganizationFeatureFlags = {
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',
+    ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
 }
@@ -4742,6 +4746,7 @@ export interface Experiment {
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
+        variant_notes?: Record<string, string>
         rollout_percentage?: number
         excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
@@ -5489,6 +5494,7 @@ export interface ExportedAssetType {
     created_at: string
     expires_after?: string
     exception?: string
+    user_access_level?: AccessControlLevel
 }
 
 export enum FeatureFlagReleaseType {
@@ -7271,6 +7277,13 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Runtime the conversation was created on. Stamped at create-time from the `phai-sandbox-mode`
+     * flag and never re-read. Existing rows default to `'langgraph'`.
+     */
+    agent_runtime?: 'langgraph' | 'sandbox'
+    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
+    task?: { id: string; latest_run: string | null } | null
 }
 
 export interface ConversationDetail extends Conversation {
