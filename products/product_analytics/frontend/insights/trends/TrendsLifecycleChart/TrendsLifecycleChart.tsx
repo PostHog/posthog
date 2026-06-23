@@ -1,13 +1,11 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -30,6 +28,7 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -52,6 +51,10 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
+    // resultCustomizations keys are action-based and identical for all 4 lifecycle statuses
+    // (they share the same action.order), so we track visibility locally by status instead.
+    const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<string>>(new Set())
+
     const {
         indexedResults,
         interval,
@@ -67,15 +70,52 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showValuesOnSeries,
         showPercentagesOnSeries,
         showLegend,
-        legendPosition,
+        getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    // The legend has always rendered in-chart here; the flag only adds the configurable placement
-    // (defaulting to bottom to match the other in-chart legends). Without the flag it stays at top.
-    const legendPlacement = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
-        ? ((legendPosition as 'top' | 'bottom' | 'left' | 'right') ?? 'bottom')
-        : 'top'
+
+    // Map series key (String(r.id)) → lifecycle status for the toggle handler.
+    const idToStatus = useMemo(() => {
+        const m = new Map<string, string>()
+        ;(indexedResults ?? []).forEach((r) => {
+            if (r.status) {
+                m.set(String(r.id), r.status)
+            }
+        })
+        return m
+    }, [indexedResults])
+
+    const lifecycleHiddenKeys = useMemo(
+        () => (indexedResults ?? []).filter((r) => r.status && hiddenStatuses.has(r.status)).map((r) => String(r.id)),
+        [indexedResults, hiddenStatuses]
+    )
+
+    const onToggleLifecycleSeries = useCallback(
+        (key: string) => {
+            const status = idToStatus.get(key)
+            if (!status) {
+                return
+            }
+            setHiddenStatuses((prev) => {
+                const next = new Set(prev)
+                if (next.has(status)) {
+                    next.delete(status)
+                } else {
+                    next.add(status)
+                }
+                return next
+            })
+        },
+        [idToStatus]
+    )
+
+    const legendConfig = useTrendsLegendConfig({
+        insightProps,
+        inSharedMode,
+        hiddenKeys: lifecycleHiddenKeys,
+        onToggleSeries: onToggleLifecycleSeries,
+    })
+    const quillLegendEnabled = !!legendConfig
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
@@ -103,6 +143,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
                 buildMeta: buildTrendsSeriesMeta,
+                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
                 isStacked,
                 trendsFilter,
@@ -113,9 +154,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             indexedResults,
+            quillLegendEnabled,
+            getTrendsHidden,
             currentPeriodResult?.labels,
             currentPeriodResult?.days,
             isStacked,
@@ -127,6 +171,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             showValuesOnSeries,
             showPercentagesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
 
@@ -214,28 +259,33 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const showAnnotations = !inSharedMode
     const annotationsDates = currentPeriodResult?.days ?? []
 
-    return (
-        <ChartLegend
-            show={!!showLegend}
-            items={legendItems}
-            position={legendPlacement}
-            legendDataAttr="trend-lifecycle-legend"
+    const chart = (
+        <TimeSeriesBarChart<TrendsSeriesMeta>
+            series={series}
+            labels={labels}
+            config={config}
+            theme={theme}
+            tooltip={renderTooltip}
+            onPointClick={canHandleClick ? onPointClick : undefined}
+            className="BarGraph"
+            dataAttr="trend-lifecycle-graph"
+            onError={handleChartError}
         >
-            <TimeSeriesBarChart<TrendsSeriesMeta>
-                series={series}
-                labels={labels}
-                config={config}
-                theme={theme}
-                tooltip={renderTooltip}
-                onPointClick={canHandleClick ? onPointClick : undefined}
-                className="BarGraph"
-                dataAttr="trend-lifecycle-graph"
-                onError={handleChartError}
-            >
-                {showAnnotations && (
-                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
-                )}
-            </TimeSeriesBarChart>
-        </ChartLegend>
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+        </TimeSeriesBarChart>
     )
+
+    if (legendConfig) {
+        return chart
+    }
+
+    if (showLegend) {
+        return (
+            <ChartLegend show items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
+                {chart}
+            </ChartLegend>
+        )
+    }
+
+    return chart
 }

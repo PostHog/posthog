@@ -39,7 +39,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         trendsFilter,
         hasLegend,
         showLegend,
-        usesInChartLegend,
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
@@ -77,16 +76,22 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !hideContinuousChartOptions
     const showAlertThresholdLinesConfig = isTrends && !hideContinuousChartOptions
     const showAnnotationsConfig = (isTrends && !hideContinuousChartOptions) || isTrendsFunnel
-    const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
+    // Stickiness defaults to its line chart when display is unset, same as trends does — but
+    // isDefaultTrendsLineDisplay only matches TrendsQuery, so we handle the stickiness case here.
+    const isLineDisplay =
+        isDefaultTrendsLineDisplay(display, querySource) ||
+        displayMatches(display, LINE_DISPLAYS) ||
+        (!display && isStickiness)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     // The in-chart quill legend supports placement, so it gets a single "Legend" select (Hide +
-    // position) instead of the legacy show/hide checkbox. `usesInChartLegend` covers
-    // trends/stickiness/lifecycle; funnel trends draw their own in-chart legend too.
-    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
+    // position) instead of the legacy show/hide checkbox.
+    const useQuillLegendOptions =
+        quillLegendEnabled &&
+        ((isTrends && isLineDisplay) || (isStickiness && (isLineDisplay || isBarDisplay)) || isLifecycle)
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle

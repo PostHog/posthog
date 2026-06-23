@@ -16,15 +16,32 @@ import { TrendsLegendItemContextMenu } from './TrendsLegendItemContextMenu'
 interface UseTrendsLegendConfigOptions {
     insightProps: InsightLogicProps
     inSharedMode?: boolean
+    /** Used when the query filter has no saved `legendPosition`. Defaults to `'bottom'`. */
+    defaultPosition?: ChartLegendConfig['position']
+    /**
+     * Override the resultCustomizations-based hidden keys. Use when the default key generation
+     * doesn't produce unique keys per series (e.g. lifecycle — all statuses share the same
+     * action.order, so resultCustomizationKey is identical for all four rows).
+     */
+    hiddenKeys?: string[]
+    /**
+     * Override the default toggleResultHidden action. Provide together with `hiddenKeys`.
+     * When set, the isolation context menu is suppressed (it also uses resultCustomizations).
+     */
+    onToggleSeries?: (key: string) => void
 }
 
 /** Builds the quill in-chart legend config shared by the trends-family charts (line/area/cumulative,
- *  and bar next). Wires toggle persistence + the isolate/show-all context menu through trendsDataLogic
- *  so every trends chart renders one consistent legend. Returns `undefined` when the quill-legend flag
- *  is off, so callers fall back to the legacy side legend and skip pre-stripping hidden series. */
+ *  stickiness, lifecycle, and bar next). Wires toggle persistence + the isolate/show-all context
+ *  menu through trendsDataLogic so every chart renders one consistent legend. Returns `undefined`
+ *  when the quill-legend flag is off, so callers fall back to the legacy side legend and skip
+ *  pre-stripping hidden series. */
 export function useTrendsLegendConfig({
     insightProps,
     inSharedMode = false,
+    defaultPosition = 'bottom',
+    hiddenKeys: hiddenKeysOverride,
+    onToggleSeries: onToggleSeriesOverride,
 }: UseTrendsLegendConfigOptions): ChartLegendConfig | undefined {
     const { featureFlags } = useValues(featureFlagLogic)
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
@@ -45,19 +62,24 @@ export function useTrendsLegendConfig({
         if (!quillLegendEnabled) {
             return undefined
         }
-        const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
-        const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
+        const hiddenKeys =
+            hiddenKeysOverride ?? (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
+        // Suppress the isolation context menu when the caller owns toggling — the menu actions
+        // (isolate, show-all) also go through resultCustomizations and would produce wrong keys.
+        const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible && !onToggleSeriesOverride
         return {
             show: !!showLegend,
-            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
+            position: (legendPosition as ChartLegendConfig['position']) ?? defaultPosition,
             interactive: legendInteractive,
             hiddenKeys,
-            onToggleSeries: (key: string) => {
-                const result = resultById.get(key)
-                if (result) {
-                    toggleResultHidden(result)
-                }
-            },
+            onToggleSeries:
+                onToggleSeriesOverride ??
+                ((key: string) => {
+                    const result = resultById.get(key)
+                    if (result) {
+                        toggleResultHidden(result)
+                    }
+                }),
             renderItem: showContextMenu
                 ? (node: ReactNode, item: LegendItem) => {
                       const result = resultById.get(item.key)
@@ -78,8 +100,11 @@ export function useTrendsLegendConfig({
         getTrendsHidden,
         showLegend,
         legendPosition,
+        defaultPosition,
         legendInteractive,
         legendSeriesIsolationMenuEligible,
+        hiddenKeysOverride,
+        onToggleSeriesOverride,
         resultById,
         toggleResultHidden,
         insightProps,
