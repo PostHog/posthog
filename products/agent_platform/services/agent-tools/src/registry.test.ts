@@ -43,9 +43,12 @@ describe('native tool registry', () => {
             expect(t.schema.description.length).toBeGreaterThan(0)
             expect(t.schema.args).not.toBeUndefined()
             expect(t.schema.returns).not.toBeUndefined()
-            expect(t.schema.requires).toEqual(
-                expect.objectContaining({ integrations: expect.any(Array), scopes: expect.any(Array) })
-            )
+            // `requires.provider` is optional (omitted for credential-free tools);
+            // when present it carries an id + scopes array.
+            if (t.schema.requires.provider) {
+                expect(typeof t.schema.requires.provider.id).toBe('string')
+                expect(Array.isArray(t.schema.requires.provider.scopes)).toBe(true)
+            }
             expect(['cheap', 'medium', 'expensive']).toContain(t.schema.cost_hint)
         }
     })

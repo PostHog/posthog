@@ -5,7 +5,7 @@ conversation JSON tells you _what was said_; the LLM-observability
 events tell you _what it cost, how long it took, what the model
 actually saw, and where a tool errored_. The runner emits these into
 **the agent's own team project**, so you can HogQL them with
-`@posthog/query` as the connected user — no extra setup.
+`posthog__execute-sql` as the connected user — no extra setup.
 
 Load this for the authoritative event contract. `cost-and-quota-analysis`
 has the cost-framing rollups; this skill has the ground truth of
@@ -185,7 +185,7 @@ single-agent deep dive.
   (the gateway owns billing; pi-ai's client-side number is an
   estimate). Token counts are still accurate. For true cost on the
   gateway path, the session row's `usage_total` is authoritative —
-  read it via `agent-applications-sessions-retrieve`.
+  read it via `posthog__agent-applications-sessions-retrieve`.
 - **Emission is best-effort.** A dropped event means a slightly low
   count, never a wrong one. Don't treat counts as exact.
 - **Heavy columns** (`$ai_input`, `$ai_output_choices`,

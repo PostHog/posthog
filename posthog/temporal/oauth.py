@@ -106,11 +106,10 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
-        # `signals_scout` reports True so the MCP server doesn't enable read-only mode for
-        # the harness sandbox — the agent IS allowed to call its own internal-write tools
-        # (remember, forget, emit_finding) as well as the narrow user-facing writes in
-        # `SCOUT_USER_WRITE_SCOPES` (e.g. `notebook:write`). Read-only mode is a
-        # tool-annotation filter, not a scope filter, and would strip those tools
+        # `signals_scout` reports True so the MCP server doesn't enable read-only mode for the
+        # scout sandbox — the agent IS allowed to call the write tools its preset exists for
+        # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
+        # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
         return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)

@@ -59,6 +59,8 @@ class AnthropicConfig:
         "claude-haiku-4-5",
     ]
 
+    DEFAULT_MODEL: str = "claude-haiku-4-5"
+
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
         "claude-opus-4-8",
         "claude-opus-4-7",

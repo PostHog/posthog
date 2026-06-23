@@ -153,9 +153,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Experiment parameters JSON. Supported keys include "
             "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
             "`recommended_running_time`, `recommended_sample_size`, "
-            "`custom_exposure_filter`, and `excluded_variants` "
+            "`custom_exposure_filter`, `excluded_variants` "
             "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded). "
+            "the baseline variant and holdout pseudo-variants cannot be excluded), "
+            "and `variant_notes` (free-text notes per variant, keyed by variant key). "
             "The running-time calculator keys (`minimum_detectable_effect`, "
             "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
             "are deprecated here — prefer `running_time_calculation`."
@@ -181,6 +182,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Comment about the experiment conclusion.",
     )
     archived = serializers.BooleanField(
@@ -622,6 +624,7 @@ class EndExperimentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
     )
 

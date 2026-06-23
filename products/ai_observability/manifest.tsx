@@ -401,7 +401,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityEvaluations(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
             sceneKey: 'AIObservabilityEvaluations',
         },
         {
@@ -424,7 +423,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityPrompts(),
-            flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
             tags: ['beta'],
             sceneKey: 'AIObservabilityPrompts',
         },
