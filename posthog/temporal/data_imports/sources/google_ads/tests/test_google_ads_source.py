@@ -573,7 +573,8 @@ class TestSearchTransientRetry:
 
         # Two transient failures were retried, then the page was served — no data lost.
         assert service.calls == 3
-        assert sleep.call_count == 2
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
         assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
 
     def test_persistent_unavailable_is_reraised_for_temporal_to_retry(self):
@@ -582,7 +583,7 @@ class TestSearchTransientRetry:
         )
         manager = _FakeResumableManager(saved_token=None)
 
-        with mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep"):
+        with mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep") as sleep:
             with pytest.raises(google_api_exceptions.ServiceUnavailable):
                 list(
                     _search_as_arrow_tables(
@@ -596,6 +597,8 @@ class TestSearchTransientRetry:
 
         # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
         assert service.calls == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_non_transient_error_is_not_retried(self):
         service = _FlakyService(_single_page(), error=ValueError("boom"), fail_times=99)
