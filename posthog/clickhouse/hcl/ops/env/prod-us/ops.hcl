@@ -178,41 +178,10 @@ database "posthog" {
       sharding_key    = "sipHash64(distinct_id)"
     }
   }
+  # Shape inherited from sharded_tophog_base (prod layer); prod-us writes to the
+  # tophog_new keeper path.
   table "sharded_tophog" {
-    order_by     = ["pipeline", "lane", "metric", "timestamp", "key"]
-    partition_by = "toYYYYMMDD(timestamp)"
-    ttl          = "toDate(timestamp) + toIntervalDay(30)"
-    settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "metric" {
-      type = "LowCardinality(String)"
-    }
-    column "type" {
-      type = "LowCardinality(String)"
-    }
-    column "key" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "count" {
-      type = "UInt64"
-    }
-    column "pipeline" {
-      type = "LowCardinality(String)"
-    }
-    column "lane" {
-      type = "LowCardinality(String)"
-    }
-    column "labels" {
-      type = "Map(LowCardinality(String), String)"
-    }
+    extend = "sharded_tophog_base"
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/ops/{shard}/posthog.tophog_new"
       replica_name = "{replica}"

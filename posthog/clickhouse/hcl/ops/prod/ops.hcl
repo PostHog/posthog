@@ -4,6 +4,47 @@
 # Resolve with: hclexp load -layer <base>,<...>
 
 database "posthog" {
+  # Shared shape for the per-env sharded_tophog tables. prod-us and prod-eu
+  # differ only in the engine zoo_path (tophog_new vs tophog), so the columns
+  # and table settings live here and each env layer instantiates a concrete
+  # sharded_tophog via `extend`, supplying just its engine block.
+  table "sharded_tophog_base" {
+    abstract     = true
+    order_by     = ["pipeline", "lane", "metric", "timestamp", "key"]
+    partition_by = "toYYYYMMDD(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(30)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "metric" {
+      type = "LowCardinality(String)"
+    }
+    column "type" {
+      type = "LowCardinality(String)"
+    }
+    column "key" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "pipeline" {
+      type = "LowCardinality(String)"
+    }
+    column "lane" {
+      type = "LowCardinality(String)"
+    }
+    column "labels" {
+      type = "Map(LowCardinality(String), String)"
+    }
+  }
   table "metrics_exemplars" {
     order_by     = ["team_id", "id", "timestamp"]
     partition_by = "toYYYYMMDD(timestamp)"
