@@ -34,8 +34,8 @@ from requests.exceptions import RequestException
 
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
-    CAPTURE_BATCH_CHUNK_SIZE,
-    CAPTURE_BATCH_MAX_WORKERS,
+    CAPTURE_INTERNAL_BATCH_CHUNK_SIZE,
+    CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
@@ -79,7 +79,12 @@ _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
 CAPTURE_V1_BATCH_SUBMITTED = Counter(
     "capture_v1_internal_batch_submitted",
-    "Batch submissions to capture v1 endpoint.",
+    "Chunked batches submitted to capture v1 endpoint (one per chunk, retries excluded).",
+    labelnames=["event_source"],
+)
+CAPTURE_V1_REQUEST_SUBMITTED = Counter(
+    "capture_v1_internal_request_submitted",
+    "HTTP POST requests to capture v1 endpoint (one per attempt, retries included).",
     labelnames=["event_source"],
 )
 CAPTURE_V1_EVENT_SUBMITTED = Counter(
@@ -259,7 +264,7 @@ def _normalize_options_and_properties(
     # force it even if the event-level option disagrees (but log the conflict).
     if not process_person_profile:
         existing = options.get("process_person_profile")
-        if existing is not None and existing is not False:
+        if existing not in (None, False):
             logger.warning(
                 "capture_internal option conflict",
                 event_source=event_source,
@@ -278,6 +283,16 @@ def _normalize_options_and_properties(
 # --------------------------------------------------------------------------- #
 
 
+def _validate_batch_inputs(events: list[dict[str, Any]], *, token: str, event_source: str) -> None:
+    """Validate required batch-level inputs. Raises CaptureInternalError on failure."""
+    if not event_source:
+        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
+    if not token:
+        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+    if not events:
+        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+
+
 def prepare_capture_internal_batch(
     events: list[dict[str, Any]],
     *,
@@ -291,12 +306,7 @@ def prepare_capture_internal_batch(
     Returns ``(payload, ordered_uuids)`` so callers can correlate the
     results map.
     """
-    if not event_source:
-        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
-    if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
-    if not events:
-        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+    _validate_batch_inputs(events, token=token, event_source=event_source)
 
     batch: list[dict[str, Any]] = []
     uuids: list[str] = []
@@ -401,6 +411,25 @@ def _submit_batch_chunk(
     attempt = 1
     pending_batch = payload["batch"]
 
+    def _finalize(status_code: int, error: Optional[dict[str, Any]] = None) -> CaptureInternalResult:
+        # Any uuid capture-rs never acked — including whole-request failures — is unaccounted.
+        for uid in uuid_to_event:
+            aggregated.setdefault(uid, {"result": "unaccounted"})
+        result = CaptureInternalResult(status_code=status_code, results=aggregated, error=error)
+        for uid, entry in aggregated.items():
+            status = entry.get("result", "ok")
+            if status == "ok":
+                result.ok.append(uid)
+            elif status == "drop":
+                result.dropped.append(uid)
+            elif status == "warning":
+                result.warnings.append(uid)
+            elif status == "retry":
+                result.retried.append(uid)
+            else:
+                result.unaccounted.append(uid)
+        return result
+
     with internal_requests_session() as session:
         session.mount(
             url,
@@ -423,6 +452,7 @@ def _submit_batch_chunk(
                 "batch": pending_batch,
             }
 
+            CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source=event_source).inc()
             try:
                 resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
             except RequestException as exc:
@@ -434,10 +464,7 @@ def _submit_batch_chunk(
                     batch_size=len(pending_batch),
                     error=str(exc),
                 )
-                return CaptureInternalResult(
-                    status_code=0,
-                    error={"error": "transport_error", "error_description": str(exc)},
-                )
+                return _finalize(0, {"error": "transport_error", "error_description": str(exc)})
 
             if resp.status_code != 200:
                 CAPTURE_V1_REQUEST_FAILED.labels(
@@ -459,18 +486,15 @@ def _submit_batch_chunk(
                     batch_size=len(pending_batch),
                     error=error_body.get("error", "unknown"),
                 )
-                return CaptureInternalResult(
-                    status_code=resp.status_code,
-                    error=error_body,
-                )
+                return _finalize(resp.status_code, error_body)
 
             # --- 200: parse per-event results ---
             try:
                 body = resp.json()
             except Exception:
-                return CaptureInternalResult(
-                    status_code=resp.status_code,
-                    error={"error": "invalid_json", "error_description": "could not parse 200 body"},
+                return _finalize(
+                    resp.status_code,
+                    {"error": "invalid_json", "error_description": "could not parse 200 body"},
                 )
 
             results_map: dict[str, Any] = body.get("results", {})
@@ -506,26 +530,7 @@ def _submit_batch_chunk(
             pending_batch = [uuid_to_event[uid] for uid in retry_uuids]
             attempt += 1
 
-    # Sweep for uuids never acknowledged by capture-rs.
-    for uid in uuid_to_event:
-        if uid not in aggregated:
-            aggregated[uid] = {"result": "unaccounted"}
-
-    result = CaptureInternalResult(status_code=200, results=aggregated)
-    for uid, entry in aggregated.items():
-        status = entry.get("result", "ok")
-        if status == "ok":
-            result.ok.append(uid)
-        elif status == "drop":
-            result.dropped.append(uid)
-        elif status == "warning":
-            result.warnings.append(uid)
-        elif status == "retry":
-            result.retried.append(uid)
-        else:
-            result.unaccounted.append(uid)
-
-    return result
+    return _finalize(200)
 
 
 def _merge_results(chunk_results: list[CaptureInternalResult]) -> CaptureInternalResult:
@@ -570,9 +575,9 @@ def capture_batch_internal(
     to ``max_attempts`` rounds.  Transport-level retries on 5xx are handled by urllib3.
 
     Automatic chunking:
-        Batches larger than ``CAPTURE_BATCH_CHUNK_SIZE`` (default 200 events) are
+        Batches larger than ``CAPTURE_INTERNAL_BATCH_CHUNK_SIZE`` (default 200 events) are
         automatically split into chunks and submitted concurrently using up to
-        ``CAPTURE_BATCH_MAX_WORKERS`` (default 8) threads.  Callers do NOT need to
+        ``CAPTURE_INTERNAL_MAX_WORKERS`` (default 16) threads.  Callers do NOT need to
         pre-chunk — the API handles this transparently.  Small batches (<=200 events)
         are submitted directly with zero threading overhead.
 
@@ -651,15 +656,10 @@ def capture_batch_internal(
             HTTP/transport errors.  The exception carries a ``.status_code`` attribute
             (the HTTP status from capture-rs, or 0 for client-side/transport errors).
     """
-    # Validate early so all chunks share the same validation errors.
-    if not event_source:
-        raise CaptureInternalError("capture_internal: event_source is required (identifies the submitting call site)")
-    if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
-    if not events:
-        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+    # Validate early so we fail fast before chunking/fan-out, not inside a worker thread.
+    _validate_batch_inputs(events, token=token, event_source=event_source)
 
-    chunk_size = max(CAPTURE_BATCH_CHUNK_SIZE, 1)
+    chunk_size = max(CAPTURE_INTERNAL_BATCH_CHUNK_SIZE, 1)
 
     def _submit_chunk(chunk_events: list[dict[str, Any]]) -> CaptureInternalResult:
         return _submit_batch_chunk(
@@ -684,11 +684,11 @@ def capture_batch_internal(
         total_events=len(events),
         chunks=len(chunks),
         chunk_size=chunk_size,
-        max_workers=CAPTURE_BATCH_MAX_WORKERS,
+        max_workers=CAPTURE_INTERNAL_MAX_WORKERS,
     )
 
     chunk_results: list[CaptureInternalResult] = []
-    with ThreadPoolExecutor(max_workers=CAPTURE_BATCH_MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         futures = {executor.submit(_submit_chunk, chunk): i for i, chunk in enumerate(chunks)}
         for future in as_completed(futures):
             chunk_idx = futures[future]

@@ -13,6 +13,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from posthog.api.capture import (
     CAPTURE_V1_OPTION_CONFLICT,
+    CAPTURE_V1_REQUEST_SUBMITTED,
     CaptureInternalError,
     CaptureInternalResult,
     _build_v1_headers,
@@ -877,6 +878,38 @@ class TestCaptureBatchInternal(SimpleTestCase):
         assert "connection refused" in result.error["error_description"]
         assert not result.succeeded()
 
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_transport_failure_marks_events_unaccounted(self, mock_session_fn: MagicMock) -> None:
+        u1, u2 = str(uuid4()), str(uuid4())
+        events = [_make_event(event_uuid=u1), _make_event(event_uuid=u2)]
+        mock_session = MagicMock()
+        mock_session.post.side_effect = RequestsConnectionError("connection refused")
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+
+        result = capture_batch_internal(events=events, token="tok", event_source="unacct")
+
+        assert set(result.unaccounted) == {u1, u2}
+        assert not result.ok
+
+    @patch("posthog.api.capture.time.sleep")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_request_submitted_metric_counts_each_attempt(
+        self, mock_session_fn: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        u_retry = str(uuid4())
+        events = [_make_event(event_uuid=u_retry)]
+        resp1 = MockResponse(body={"results": {u_retry: {"result": "retry"}}}, headers={"Retry-After": "0"})
+        resp2 = MockResponse(body=_ok_results(u_retry))
+        InstallV1Spy(mock_session_fn, [resp1, resp2])
+
+        before = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric")._value.get()
+        capture_batch_internal(events=events, token="tok", event_source="reqmetric")
+        after = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="reqmetric")._value.get()
+
+        # Two HTTP POSTs: initial + one retry round.
+        assert after == before + 2
+
 
 class TestParseRetryAfter(SimpleTestCase):
     @parameterized.expand(
@@ -1031,8 +1064,8 @@ def _make_batch(size: int) -> list[dict[str, Any]]:
 
 
 class TestBatchChunking(SimpleTestCase):
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_small_batch_no_chunking(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(200)
@@ -1045,8 +1078,8 @@ class TestBatchChunking(SimpleTestCase):
         assert len(result.ok) == 200
         assert len(spy.calls) == 1
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_boundary_201_triggers_chunking(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(201)
@@ -1062,8 +1095,8 @@ class TestBatchChunking(SimpleTestCase):
         batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
         assert batch_sizes == [1, 200]
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_large_batch_450_events_three_chunks(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(450)
@@ -1078,8 +1111,8 @@ class TestBatchChunking(SimpleTestCase):
         batch_sizes = sorted(len(c["json"]["batch"]) for c in spy.calls)
         assert batch_sizes == [50, 200, 200]
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_partial_chunk_failure_preserves_successful_chunks(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(400)
@@ -1106,8 +1139,8 @@ class TestBatchChunking(SimpleTestCase):
         assert len(result.ok) == 200
         assert result.error is not None
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_all_chunks_fail(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(400)
@@ -1123,8 +1156,8 @@ class TestBatchChunking(SimpleTestCase):
         assert result.error is not None
         assert result.error["error"] == "transport_error"
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_chunked_results_merge_correctly(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(400)
@@ -1154,8 +1187,8 @@ class TestBatchChunking(SimpleTestCase):
         assert set(result.ok) == set(chunk1_uuids)
         assert set(result.dropped) == set(chunk2_uuids)
 
-    @patch("posthog.api.capture.CAPTURE_BATCH_CHUNK_SIZE", 200)
-    @patch("posthog.api.capture.CAPTURE_BATCH_MAX_WORKERS", 8)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", 200)
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_MAX_WORKERS", 8)
     @patch("posthog.api.capture.internal_requests_session")
     def test_chunked_historical_migration_flag_propagated(self, mock_session_fn: MagicMock) -> None:
         events = _make_batch(201)
