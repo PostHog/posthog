@@ -18,6 +18,11 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 BUILDKITE_BASE_URL = "https://api.buildkite.com"
 # Buildkite caps per_page at 100 (default 30).
 PAGE_SIZE = 100
+# The batcher flushes every CHUNK_SIZE items. State is saved only after a flush, pointing at the
+# next page, so the batcher must never flush mid-page — otherwise items after the flush point but
+# before the page end would be skipped on resume. Keeping CHUNK_SIZE an exact multiple of PAGE_SIZE
+# guarantees flushes land on page boundaries; the assertion below makes the dependency explicit.
+CHUNK_SIZE = 2000
 
 
 class BuildkiteRetryableError(Exception):
@@ -170,7 +175,10 @@ def get_rows(
 ) -> Iterator[Any]:
     config = BUILDKITE_ENDPOINTS[endpoint]
     headers = _get_headers(api_access_token)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+    assert CHUNK_SIZE % PAGE_SIZE == 0, (
+        "CHUNK_SIZE must be a multiple of PAGE_SIZE so the batcher only flushes at page boundaries"
+    )
+    batcher = Batcher(logger=logger, chunk_size=CHUNK_SIZE, chunk_size_bytes=100 * 1024 * 1024)
     session = make_tracked_session()
 
     params = _build_initial_params(

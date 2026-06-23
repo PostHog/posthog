@@ -34,6 +34,12 @@ class BuildkiteSource(ResumableSource[BuildkiteSourceConfig, BuildkiteResumeConf
         return ExternalDataSourceType.BUILDKITE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The token is sent to api.buildkite.com against <organization>, so retargeting the
+        # organization must force re-entry of the token.
+        return ["organization"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BUILDKITE,

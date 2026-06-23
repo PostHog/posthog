@@ -42,6 +42,11 @@ class TestBuildkiteSource:
         assert token_field.secret is True
         assert org_field.secret is False
 
+    def test_connection_host_fields_includes_organization(self) -> None:
+        # The token is sent to api.buildkite.com against <organization>, so retargeting the
+        # organization must force re-entry of the token.
+        assert self.source.connection_host_fields == ["organization"]
+
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
         assert schemas == set(ENDPOINTS)

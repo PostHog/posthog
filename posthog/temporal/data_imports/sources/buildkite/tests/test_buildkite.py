@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.buildkite import buildkite
 from posthog.temporal.data_imports.sources.buildkite.buildkite import (
+    CHUNK_SIZE,
+    PAGE_SIZE,
     BuildkiteResumeConfig,
     _build_initial_params,
     _build_initial_url,
@@ -219,18 +221,35 @@ class TestGetRows:
         assert [r["id"] for r in rows] == ["p9"]
 
     def test_saves_state_after_yielding_a_batch(self, monkeypatch: Any) -> None:
-        # The batcher yields once the buffer reaches its 2000-row chunk size; state is then saved
-        # with the NEXT page URL so a crash re-yields the last page rather than skipping it.
-        page1 = "https://api.buildkite.com/v2/organizations/my-org/builds?per_page=100"
-        page2 = "https://api.buildkite.com/v2/organizations/my-org/builds?page=2&per_page=100"
+        # Mirror the real API contract: Buildkite caps per_page at PAGE_SIZE, so the batcher only
+        # reaches its CHUNK_SIZE buffer after CHUNK_SIZE / PAGE_SIZE consecutive full pages. State is
+        # saved at that page boundary, pointing at the NEXT page, so a crash re-yields the last page
+        # rather than skipping it. CHUNK_SIZE must be a multiple of PAGE_SIZE for this to hold.
+        assert CHUNK_SIZE % PAGE_SIZE == 0
+        full_pages = CHUNK_SIZE // PAGE_SIZE
+
+        base = "https://api.buildkite.com/v2/organizations/my-org/builds?per_page=100"
+
+        def page_url(n: int) -> str:
+            return base if n == 1 else f"{base}&page={n}"
+
+        # full_pages pages of PAGE_SIZE items each fill exactly one chunk; the boundary page after
+        # them holds the final straggler row.
+        boundary_page = page_url(full_pages + 1)
         pages = {
-            page1: _FakeResponse(200, [{"id": f"b{i}"} for i in range(2000)], link=f'<{page2}>; rel="next"'),
-            page2: _FakeResponse(200, [{"id": "b-last"}]),
+            page_url(n): _FakeResponse(
+                200,
+                [{"id": f"b{(n - 1) * PAGE_SIZE + i}"} for i in range(PAGE_SIZE)],
+                link=f'<{page_url(n + 1)}>; rel="next"',
+            )
+            for n in range(1, full_pages + 1)
         }
+        pages[boundary_page] = _FakeResponse(200, [{"id": "b-last"}])
+
         manager = _FakeResumableManager()
         rows, _fetched = _collect(monkeypatch, manager, pages, endpoint="builds")
-        assert len(rows) == 2001
-        assert manager.saved == [BuildkiteResumeConfig(next_url=page2)]
+        assert len(rows) == CHUNK_SIZE + 1
+        assert manager.saved == [BuildkiteResumeConfig(next_url=boundary_page)]
 
 
 class TestBuildkiteSourceResponse:
