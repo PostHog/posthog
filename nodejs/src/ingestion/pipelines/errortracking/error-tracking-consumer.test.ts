@@ -643,6 +643,43 @@ describe('ErrorTrackingConsumer', () => {
                 await drainProduces()
                 expect(producedCount()).toBe(5)
             })
+
+            it('emits per-issue app_metrics2 rows keyed by the Cymbal-assigned issue id', async () => {
+                await upsertSettings({ perIssueRateLimit: 2 })
+                await enableRateLimiter()
+
+                // issue-foo bucket of 2: 4 events → 2 allowed, 2 rate_limited.
+                const events = Array.from({ length: 4 }, () => exceptionEvent('foo'))
+                await consumer.handleKafkaBatch(createKafkaMessages(events))
+                await drainProduces()
+
+                const appMetrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                    .map((m) => m.value)
+
+                expect(appMetrics).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            team_id: team.id,
+                            app_source: 'exceptions',
+                            app_source_id: 'issue-foo',
+                            metric_kind: 'rate_limiting',
+                            metric_name: 'allowed',
+                            count: 2,
+                        }),
+                        expect.objectContaining({
+                            team_id: team.id,
+                            app_source: 'exceptions',
+                            app_source_id: 'issue-foo',
+                            metric_kind: 'rate_limiting',
+                            metric_name: 'rate_limited',
+                            count: 2,
+                        }),
+                    ])
+                )
+                // Every rate-limiting row is keyed by the issue id, not collapsed per team.
+                expect(appMetrics.every((v) => v?.app_source_id === 'issue-foo')).toBe(true)
+            })
         })
     })
 })

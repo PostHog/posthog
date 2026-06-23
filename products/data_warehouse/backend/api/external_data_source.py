@@ -44,6 +44,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
@@ -853,6 +854,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -972,7 +980,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):
@@ -2200,7 +2212,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource) and source.supports_column_selection:
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
@@ -3595,6 +3609,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

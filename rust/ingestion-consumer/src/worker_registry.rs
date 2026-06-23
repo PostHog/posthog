@@ -78,6 +78,12 @@ struct WorkerHealth {
     /// Rolling window of passive send outcomes: (timestamp, is_error).
     /// Always appended in chronological order so the head is always the oldest entry.
     passive_window: VecDeque<(Instant, bool)>,
+    /// The worker is draining: it left the pool (e.g. a deploy) but may still be
+    /// finishing in-flight batches. It receives no new work and its `/_ready`
+    /// probe failures are ignored (readiness is expected to be down), but send
+    /// failures still escalate it (a crash mid-drain). It is reaped once
+    /// `drain_deadline` passes — set to "now" when its in-flight reaches zero.
+    drain_deadline: Option<Instant>,
 }
 
 impl WorkerHealth {
@@ -88,7 +94,12 @@ impl WorkerHealth {
             unhealthy_since: None,
             consecutive_probe_failures: 0,
             passive_window: VecDeque::new(),
+            drain_deadline: None,
         }
+    }
+
+    fn is_draining(&self) -> bool {
+        self.drain_deadline.is_some()
     }
 
     /// Attempt a state transition. Returns true if the transition happened.
@@ -186,6 +197,7 @@ pub struct WorkerRegistryConfig {
     pub degraded_hold: Duration,
     pub min_state_duration: Duration,
     pub probe_failure_threshold: u32,
+    pub drain_timeout: Duration,
 }
 
 impl From<&Config> for WorkerRegistryConfig {
@@ -199,6 +211,7 @@ impl From<&Config> for WorkerRegistryConfig {
             degraded_hold: Duration::from_millis(c.worker_degraded_hold_ms),
             min_state_duration: Duration::from_millis(c.worker_min_state_duration_ms),
             probe_failure_threshold: c.worker_probe_failure_threshold,
+            drain_timeout: Duration::from_millis(c.worker_drain_timeout_ms),
         }
     }
 }
@@ -260,16 +273,17 @@ impl WorkerRegistry {
         self.workers.iter().map(|e| e.key().clone()).collect()
     }
 
-    /// Snapshot of worker ids currently eligible for routing (Healthy or
-    /// Degraded). Returned in arbitrary order.
+    /// Snapshot of worker ids currently eligible for routing: Healthy or
+    /// Degraded, and not draining. Returned in arbitrary order.
     pub fn healthy_workers(&self) -> Vec<WorkerId> {
         self.workers
             .iter()
             .filter(|e| {
-                matches!(
-                    e.value().state,
-                    WorkerState::Healthy | WorkerState::Degraded
-                )
+                !e.value().is_draining()
+                    && matches!(
+                        e.value().state,
+                        WorkerState::Healthy | WorkerState::Degraded
+                    )
             })
             .map(|e| e.key().clone())
             .collect()
@@ -293,19 +307,86 @@ impl WorkerRegistry {
             .unwrap_or(true)
     }
 
-    /// Add a worker to the pool if not already present (starts Healthy).
-    /// Idempotent — re-adding an existing worker preserves its current health.
+    /// Add a worker to the pool. If it is already present and draining (it left
+    /// and rejoined, e.g. a flapping EndpointSlice), clear the draining mark so
+    /// it routes again; otherwise an existing worker keeps its current health.
     pub fn add_worker(&self, worker: WorkerId) {
-        // `entry` makes the check-and-insert atomic — a plain
-        // `contains_key` + `insert` could let a concurrent caller overwrite a
-        // fresh `WorkerHealth` and reset health state.
-        let Entry::Vacant(slot) = self.workers.entry(worker.clone()) else {
-            return;
-        };
-        set_state_gauge(&worker, WorkerState::Healthy);
-        info!(worker = %worker, "Worker added to pool");
-        slot.insert(WorkerHealth::new());
-        counter!("ingestion_consumer_worker_membership_total", "action" => "add").increment(1);
+        // `entry` makes the check-and-insert atomic — a plain `contains_key` +
+        // `insert` could let a concurrent caller overwrite a fresh `WorkerHealth`
+        // and reset health state.
+        match self.workers.entry(worker.clone()) {
+            Entry::Occupied(mut slot) => {
+                // Already present. If it was draining (it left and rejoined, e.g.
+                // a flapping EndpointSlice), clear the draining mark so it routes
+                // again; otherwise it keeps its current health.
+                if slot.get_mut().drain_deadline.take().is_some() {
+                    info!(worker = %worker, "Draining worker rejoined the pool");
+                }
+            }
+            Entry::Vacant(slot) => {
+                set_state_gauge(&worker, WorkerState::Healthy);
+                info!(worker = %worker, "Worker added to pool");
+                slot.insert(WorkerHealth::new());
+                counter!("ingestion_consumer_worker_membership_total", "action" => "add")
+                    .increment(1);
+            }
+        }
+    }
+
+    /// Mark a worker as draining: it stops receiving new work (excluded from
+    /// `healthy_workers`) but is not treated as dead, so its already-sent
+    /// in-flight batches finish and ACK normally. Probe failures are ignored
+    /// while draining (its readiness is expected to be down), but send failures
+    /// still escalate it (a crash mid-drain). The reaper removes it once
+    /// `complete_drain` fires (in-flight reached zero) or `drain_timeout` elapses.
+    pub fn start_draining(&self, worker: &str) {
+        if let Some(mut health) = self.workers.get_mut(worker) {
+            if health.is_draining() {
+                return;
+            }
+            health.drain_deadline = Some(Instant::now() + self.config.drain_timeout);
+            info!(worker = %worker, "Worker draining (no new work; finishing in-flight)");
+            counter!("ingestion_consumer_worker_membership_total", "action" => "drain")
+                .increment(1);
+        }
+    }
+
+    /// Mark a draining worker ready to reap now — called once its in-flight count
+    /// reaches zero, so it's removed promptly instead of waiting for the timeout.
+    pub fn complete_drain(&self, worker: &str) {
+        if let Some(mut health) = self.workers.get_mut(worker) {
+            if health.is_draining() {
+                health.drain_deadline = Some(Instant::now());
+            }
+        }
+    }
+
+    pub fn is_draining(&self, worker: &str) -> bool {
+        self.workers
+            .get(worker)
+            .map(|h| h.is_draining())
+            .unwrap_or(false)
+    }
+
+    /// Draining workers whose reap deadline has passed (in-flight drained, or the
+    /// timeout elapsed). The caller removes them from the registry and transport.
+    pub fn reapable_workers(&self) -> Vec<WorkerId> {
+        let now = Instant::now();
+        self.workers
+            .iter()
+            .filter(|e| e.value().drain_deadline.is_some_and(|d| now >= d))
+            .map(|e| e.key().clone())
+            .collect()
+    }
+
+    /// All workers currently draining (regardless of deadline). The reaper uses
+    /// this to complete the drain of a worker that left the pool while idle.
+    pub fn draining_workers(&self) -> Vec<WorkerId> {
+        self.workers
+            .iter()
+            .filter(|e| e.value().is_draining())
+            .map(|e| e.key().clone())
+            .collect()
     }
 
     /// Remove a worker from the pool (e.g. it left the EndpointSlice).
@@ -389,6 +470,14 @@ impl WorkerRegistry {
             return;
         };
 
+        // A draining worker's `/_ready` is expected to be down (it flipped
+        // readiness to leave the pool), so ignore probe results — otherwise the
+        // probe would march it to dead and evict its in-flight work. A crash
+        // mid-drain is still caught by the passive send-failure signal.
+        if health.is_draining() {
+            return;
+        }
+
         if is_success {
             health.consecutive_probe_failures = 0;
 
@@ -444,6 +533,7 @@ mod tests {
             degraded_hold: Duration::from_millis(50),
             min_state_duration: Duration::ZERO,
             probe_failure_threshold: 2,
+            drain_timeout: Duration::from_secs(5),
         }
     }
 
@@ -655,6 +745,81 @@ mod tests {
         let healthy = registry.healthy_workers();
         assert_eq!(healthy.len(), 2);
         assert!(!healthy.iter().any(|w| w.as_ref() == W2));
+    }
+
+    // --- Draining lifecycle ---
+
+    #[test]
+    fn test_draining_excludes_from_routing_but_not_dead() {
+        let registry = WorkerRegistry::new(&three_workers(), no_cooldown_config());
+        registry.start_draining(W2);
+
+        assert!(registry.is_draining(W2));
+        assert!(
+            !registry.is_dead(W2),
+            "a draining worker is alive, not dead"
+        );
+        assert_eq!(
+            registry.state(W2),
+            WorkerState::Healthy,
+            "draining doesn't change the health state"
+        );
+        assert!(
+            !registry.healthy_workers().iter().any(|w| w.as_ref() == W2),
+            "a draining worker is not routable"
+        );
+        assert_eq!(registry.worker_count(), 3, "still in the pool until reaped");
+    }
+
+    #[test]
+    fn test_complete_drain_makes_reapable() {
+        // Long timeout, so only complete_drain (in-flight reached zero) reaps it.
+        let config = WorkerRegistryConfig {
+            drain_timeout: Duration::from_secs(3600),
+            ..no_cooldown_config()
+        };
+        let registry = WorkerRegistry::new(&three_workers(), config);
+        registry.start_draining(W2);
+        assert!(
+            registry.reapable_workers().is_empty(),
+            "not reapable until drained or timed out"
+        );
+
+        registry.complete_drain(W2);
+        assert_eq!(registry.reapable_workers(), vec![WorkerId::from(W2)]);
+    }
+
+    #[tokio::test]
+    async fn test_drain_timeout_makes_reapable() {
+        let config = WorkerRegistryConfig {
+            drain_timeout: Duration::from_millis(20),
+            ..no_cooldown_config()
+        };
+        let registry = WorkerRegistry::new(&one_worker(), config);
+        registry.start_draining(W1);
+        assert!(registry.reapable_workers().is_empty());
+
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(registry.reapable_workers(), vec![WorkerId::from(W1)]);
+    }
+
+    #[test]
+    fn test_add_worker_rejoin_clears_draining() {
+        let registry = WorkerRegistry::new(&one_worker(), no_cooldown_config());
+        registry.start_draining(W1);
+        assert!(registry.is_draining(W1));
+
+        registry.add_worker(WorkerId::from(W1));
+        assert!(!registry.is_draining(W1), "rejoining clears draining");
+        assert!(registry.healthy_workers().iter().any(|w| w.as_ref() == W1));
+    }
+
+    #[test]
+    fn test_start_draining_unknown_worker_is_noop() {
+        let registry = WorkerRegistry::new(&one_worker(), no_cooldown_config());
+        registry.start_draining("http://worker:9999");
+        assert!(!registry.is_draining("http://worker:9999"));
+        assert!(registry.reapable_workers().is_empty());
     }
 
     // --- Passive window pruning ---

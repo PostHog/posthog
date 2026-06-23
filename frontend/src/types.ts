@@ -4757,6 +4757,8 @@ export interface Experiment {
         }
     }
     running_time_calculation?: ExperimentRunningTimeCalculationConfig
+    /** Variant keys dropped from statistical analysis. Canonical home for what historically lived in `parameters.excluded_variants`. */
+    excluded_variants?: string[] | null
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -7363,6 +7365,10 @@ export type OAuthApplicationPublicMetadata = {
     client_id: string
     is_verified: boolean
     logo_uri: string | null
+    /** Scopes the user cannot deselect at consent. Empty unless the app declares optional scopes. */
+    required_scopes?: string[]
+    /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
+    wildcard_read_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'

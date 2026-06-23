@@ -36,7 +36,6 @@ import {
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
-    IntegrationCredentials,
     MemoryStore,
     TabularStore,
     Sandbox,
@@ -101,7 +100,6 @@ export interface AgentToolDeps {
     rev: AgentRevision
     session: AgentSession
     sandbox: Sandbox | null
-    integrations: Record<string, IntegrationCredentials>
     /** Resolved plaintext secrets for native tools (custom tools get nonces via the sandbox). */
     secrets: Record<string, string>
     bundle: BundleStore
@@ -240,7 +238,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     // code so the session-failure reason is attributable to a
                     // specific MCP at triage time. Matches the convention used
                     // by `mcp-clients.ts` for the other error paths
-                    // (`mcp_secret_not_resolved`, `mcp_integration_not_resolved`,
+                    // (`mcp_secret_not_resolved`, `mcp_identity_unavailable`,
                     // `duplicate_mcp_prefix`).
                     throw new Error(`mcp_list_tools_failed:${client.prefix}: ${(err as Error).message}`)
                 }
@@ -504,7 +502,6 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         teamId: deps.session.team_id,
         applicationId: deps.rev.application_id,
         sessionId,
-        integrations: deps.integrations,
         secret: (name) => deps.secrets[name],
         secretAllowedHosts: (name) => getSecretAllowedHosts(deps.rev.spec, name),
         log: deps.log,

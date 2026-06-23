@@ -1779,3 +1779,125 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
     def test_reports_list_rejects_malformed_task_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
+    """The artefact list surfaces legacy `SignalReportTask` rows as synthetic `task_run` artefacts so
+    research / implementation associations show up before the backfill has converted the gate rows."""
+
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_report(self, team=None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Report",
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _task_runs(self, report_id: str) -> list[dict]:
+        response = self.client.get(self._artefacts_url(report_id))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [a for a in response.json()["results"] if a["type"] == "task_run"]
+
+    @parameterized.expand(
+        [
+            ("research", "signals", "research"),
+            ("implementation", "signals", "implementation"),
+            ("repo_selection", "signals", "repo_selection"),
+            (None, "tasks", "agent_run"),
+            ("link-only", "tasks", "agent_run"),
+        ]
+    )
+    def test_legacy_task_surfaces_as_synthetic_task_run(self, relationship, expected_product, expected_type):
+        report = self._create_report()
+        task = self._create_task()
+        report_task = SignalReportTask.objects.create(
+            team=self.team, report=report, task=task, relationship=relationship
+        )
+
+        task_runs = self._task_runs(str(report.id))
+        assert len(task_runs) == 1
+        artefact = task_runs[0]
+        assert artefact["id"] == str(report_task.id)
+        assert str(artefact["task_id"]) == str(task.id)
+        assert artefact["content"]["task_id"] == str(task.id)
+        assert artefact["content"]["product"] == expected_product
+        assert artefact["content"]["type"] == expected_type
+
+    def test_real_task_run_artefact_wins_over_legacy_row(self):
+        report = self._create_report()
+        task = self._create_task()
+        # Both the gate row and the real artefact exist for the same task: only the real one shows.
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="implementation")
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+        )
+
+        task_runs = self._task_runs(str(report.id))
+        assert len(task_runs) == 1
+        # The persisted artefact id is a real row, not the gate row's id.
+        assert SignalReportArtefact.objects.filter(id=task_runs[0]["id"]).exists()
+
+    def test_legacy_rows_are_not_persisted(self):
+        report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=report, task=task, relationship="research")
+
+        self._task_runs(str(report.id))
+        # Listing must not write the synthetic artefacts — the backfill owns that.
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    def test_synthetic_rows_count_and_interleave_chronologically(self):
+        report = self._create_report()
+        older_task = self._create_task()
+        newer_task = self._create_task()
+        # A real artefact dated between the two legacy rows, so a correct merge interleaves by time.
+        older = SignalReportTask.objects.create(team=self.team, report=report, task=older_task, relationship="research")
+        SignalReportTask.objects.filter(id=older.id).update(created_at=timezone.now() - timedelta(hours=2))
+        middle = append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="repo_selection",
+            task_id=str(self._create_task().id),
+        )
+        SignalReportArtefact.objects.filter(id=middle.id).update(created_at=timezone.now() - timedelta(hours=1))
+        newer = SignalReportTask.objects.create(
+            team=self.team, report=report, task=newer_task, relationship="implementation"
+        )
+
+        response = self.client.get(self._artefacts_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        # count covers the real artefact plus both synthetic legacy rows.
+        assert body["count"] == 3
+        # Default order is newest-first; the legacy rows land at their own timestamps, not appended last.
+        ids_newest_first = [a["id"] for a in body["results"]]
+        assert ids_newest_first == [str(newer.id), str(middle.id), str(older.id)]
+
+    def test_legacy_rows_do_not_cross_reports(self):
+        report = self._create_report()
+        other_report = self._create_report()
+        task = self._create_task()
+        SignalReportTask.objects.create(team=self.team, report=other_report, task=task, relationship="research")
+
+        # The gate row belongs to `other_report`, so `report`'s log stays empty.
+        assert self._task_runs(str(report.id)) == []
+        assert len(self._task_runs(str(other_report.id))) == 1

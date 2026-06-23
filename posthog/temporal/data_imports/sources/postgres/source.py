@@ -69,6 +69,15 @@ PostgresErrors = {
         "your database is active and the connection details are correct."
     ),
     "could not translate host name": "Could not connect to the host",
+    # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
+    # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
+    # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
+    # "[Errno -5] No address associated with hostname" — e.g. through an SSH tunnel or psycopg's
+    # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
+    # them here too so credential validation returns an actionable message instead of surfacing the
+    # customer's unresolvable host as captured error noise.
+    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
@@ -379,6 +388,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
+            # key can't be parsed, or password auth is missing a username/password. The auth config
+            # is fixed, so retrying just replays the same invalid credentials. The streaming path
+            # already classifies this via `Any_Source_Errors`, but schema discovery only consults
+            # the per-source dict, so without this entry discovery keeps retrying and reporting the
+            # customer's misconfig as error-tracking noise on every run.
+            "SSHTunnel auth is not valid": (
+                "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+                "(private key, passphrase, or username and password) on the source's SSH tunnel "
+                "configuration, then re-enable the sync."
+            ),
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '

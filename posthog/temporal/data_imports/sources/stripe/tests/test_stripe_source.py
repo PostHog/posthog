@@ -1,7 +1,9 @@
 import pytest
+from unittest import mock
 
 from posthog.temporal.data_imports.sources.generated_configs import StripeAuthMethodConfig, StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
+from posthog.temporal.data_imports.sources.stripe.stripe import StripeAuthenticationError
 
 
 class TestStripeSource:
@@ -64,3 +66,22 @@ class TestStripeSource:
 
         assert ok is False
         assert message == expected_message
+
+    def test_validate_credentials_does_not_echo_rejected_key(self):
+        # Stripe's 401 body echoes the submitted key verbatim; here the user pasted a password into
+        # the key field. The validation message must not leak it into the toast or analytics event.
+        pasted_secret = "Ammgad1979@"
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key=pasted_secret)
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripeAuthenticationError(f"Invalid API Key provided: {pasted_secret}"),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert pasted_secret not in message
+        assert message.startswith("Stripe rejected the API key.")

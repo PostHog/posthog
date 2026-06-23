@@ -376,6 +376,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
             ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+            ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
             .array(zod.unknown())
@@ -2757,6 +2763,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5198,6 +5210,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window.'
+            ),
+        excluded_variants: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod

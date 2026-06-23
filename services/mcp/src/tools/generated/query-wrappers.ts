@@ -1318,6 +1318,41 @@ const AssistantStickinessActorsQuery = z.object({
     source: AssistantStickinessQuery.describe('The source stickiness insight query whose bar we are drilling into.'),
 })
 
+const AssistantFunnelsActorsQuery = z.object({
+    funnelStep: integer
+        .describe(
+            'Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).'
+        )
+        .optional(),
+    funnelStepBreakdown: z
+        .array(z.string())
+        .describe(
+            'Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown) series.'
+        )
+        .optional(),
+    funnelTrendsDropOff: z.coerce
+        .boolean()
+        .describe(
+            'Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.'
+        )
+        .optional(),
+    funnelTrendsEntrancePeriodStart: z
+        .string()
+        .describe(
+            "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`."
+        )
+        .optional(),
+    includeRecordings: z.coerce
+        .boolean()
+        .describe('Whether to include matched session recordings for each actor.')
+        .default(true)
+        .optional(),
+    kind: z.literal('FunnelsActorsQuery').default('FunnelsActorsQuery'),
+    source: AssistantFunnelsQuery.describe(
+        'The source funnel insight query whose step (or trends point) we are drilling into.'
+    ),
+})
+
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
@@ -1428,6 +1463,16 @@ const QueryStickinessActorsSchema = AssistantStickinessActorsQuery.extend({
         ),
 })
 
+const QueryFunnelActorsSchema = AssistantFunnelsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1517,6 +1562,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-stickiness-actors',
         schema: QueryStickinessActorsSchema,
         kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-funnel-actors': createQueryWrapper({
+        name: 'query-funnel-actors',
+        schema: QueryFunnelActorsSchema,
+        kind: 'FunnelsActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
     }),
