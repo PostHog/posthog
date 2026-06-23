@@ -30,7 +30,7 @@ from posthog.schema import ActorsQuery, ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -967,7 +967,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -978,7 +978,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             result.raise_for_status()
 
-        except CaptureRoutedError as cre:
+        except CaptureInternalError as cre:
             logger.warning(
                 "delete_person_property.capture_http_error",
                 team_id=self.team_id,
@@ -1140,7 +1140,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
@@ -1151,7 +1151,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             result.raise_for_status()
 
-        # Failures in this codepath (old and new) are ignored here
+        # Failures in this codepath are ignored
         except Exception:
             pass
 

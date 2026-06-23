@@ -176,6 +176,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_incremental or self.is_append or self.is_webhook
 
     @property
+    def table_row_count_is_cumulative(self) -> bool:
+        # These sync types append/merge into the warehouse table across runs, so its true size is the
+        # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
+        # replaces the whole table, so there the run's row_count already equals the table size.
+        return self.should_use_incremental_field or self.is_cdc or self.is_xmin
+
+    @property
     def incremental_field(self) -> str | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field", None)
@@ -327,10 +334,64 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["partition_format"] = partition_format
         self.save()
 
+    def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
+        existing = self.sync_type_config.get("incremental_staged", {})
+        if existing.get("run_uuid") == run_uuid:
+            staged = existing
+        else:
+            staged = {"run_uuid": run_uuid}
+        if last_value is not None:
+            staged["last_value"] = self._serialize_incremental_value(last_value)
+        if earliest_value is not None:
+            staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
+        self.sync_type_config["incremental_staged"] = staged
+        self.save()
+
+    def promote_staged_incremental_values(self, run_uuid: str) -> bool:
+        staged = self.sync_type_config.get("incremental_staged")
+        if not staged or staged.get("run_uuid") != run_uuid:
+            return False
+        if "last_value" in staged:
+            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
+        if "earliest_value" in staged:
+            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
+        self.sync_type_config.pop("incremental_staged", None)
+        self.save()
+        return True
+
+    def _serialize_incremental_value(self, value: Any) -> Any:
+        incremental_field_type = self.sync_type_config.get("incremental_field_type")
+        if "numpy" in sys.modules:
+            import numpy  # noqa: PLC0415
+
+            value = value.item() if isinstance(value, numpy.generic) else value
+        if value is None:
+            return None
+        if (
+            incremental_field_type == IncrementalFieldType.Integer
+            or incremental_field_type == IncrementalFieldType.Numeric
+        ):
+            if isinstance(value, int | float):
+                return value
+            elif isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return int(value)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return str(value)
+        return str(value)
+
     def update_sync_type_config_for_reset_pipeline(self) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
+        self.sync_type_config.pop("incremental_staged", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)

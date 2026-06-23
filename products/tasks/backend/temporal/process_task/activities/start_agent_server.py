@@ -1,6 +1,8 @@
 import shlex
 from dataclasses import dataclass
 
+from django.conf import settings
+
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
@@ -142,6 +144,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 
         event_stream_ingest_enabled = ctx.sandbox_event_ingest_enabled
         event_ingest_token: str | None = None
+        # When the agent-proxy is configured, route the sandbox ingest POST to it instead of the
+        # Django ASGI short-circuit. Only meaningful once sequenced ingest is enabled. Unset means
+        # the agent falls back to POSTHOG_API_URL (Django).
+        event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
         if event_stream_ingest_enabled:
             try:
                 task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
@@ -158,6 +164,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             project_id=ctx.team_id,
             scopes=scopes,
             interaction_origin=ctx.interaction_origin,
+            task_id=str(ctx.task_id),
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
@@ -225,6 +232,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mcp_configs=mcp_configs or None,
                 allowed_domains=agentsh_domains,
                 event_ingest_token=event_ingest_token,
+                event_ingest_url=event_ingest_url,
             )
 
             # Mark startup-time token issuance so follow-ups within the next

@@ -1,6 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import OperationalError as DjangoOperationalError
+
 import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -67,6 +69,15 @@ PostgresErrors = {
         "your database is active and the connection details are correct."
     ),
     "could not translate host name": "Could not connect to the host",
+    # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
+    # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
+    # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
+    # "[Errno -5] No address associated with hostname" — e.g. through an SSH tunnel or psycopg's
+    # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
+    # them here too so credential validation returns an actionable message instead of surfacing the
+    # customer's unresolvable host as captured error noise.
+    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
@@ -377,6 +388,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
+            # key can't be parsed, or password auth is missing a username/password. The auth config
+            # is fixed, so retrying just replays the same invalid credentials. The streaming path
+            # already classifies this via `Any_Source_Errors`, but schema discovery only consults
+            # the per-source dict, so without this entry discovery keeps retrying and reporting the
+            # customer's misconfig as error-tracking noise on every run.
+            "SSHTunnel auth is not valid": (
+                "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+                "(private key, passphrase, or username and password) on the source's SSH tunnel "
+                "configuration, then re-enable the sync."
+            ),
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '
@@ -403,6 +425,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # The source server itself ran out of memory (PostgreSQL SQLSTATE 53200, psycopg's
+            # `OutOfMemory`) — "out of memory ... Failed on request of size N in memory context ...".
+            # We've seen it fire even on the tiny schema-discovery queries in `_get_table` (a few KB
+            # in server-side contexts like "MessageContext" / "get_actual_variable_range workspace"),
+            # which means the server is memory-starved regardless of our workload — an undersized
+            # instance, work_mem set too high, or too many concurrent connections. Retrying re-reads
+            # into the same wall, so it's non-retryable like the disk-full siblings above (same class
+            # 53 "insufficient resources"). The lowercase message matches both the raw activity-level
+            # str(e) and the Temporal-wrapped "OutOfMemory: ..." workflow-level form. The volatile
+            # request size and memory-context name are excluded from the match.
+            "out of memory": (
+                "Your database server ran out of memory while PostHog was reading from it "
+                '(PostgreSQL reported "out of memory"). This usually means the server is undersized, '
+                "work_mem is set too high, or too many connections are competing for memory. Reduce "
+                "memory pressure on your database (for example lower work_mem, reduce concurrent "
+                "connections, or increase the instance's memory), then re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -802,13 +841,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 conn.close()
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+        from posthog.temporal.data_imports.sources.postgres.exceptions import (
+            CDCHandledExternally,
+            PostHogDatabaseConnectionError,
+        )
 
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
+        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
+        # the same "Name or service not known" wording a customer host misconfig would, which
+        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
+        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None

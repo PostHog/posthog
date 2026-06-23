@@ -72,8 +72,9 @@ from posthog.security.outbound_proxy import internal_requests
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
+from ..logic.posthog_identity_app import provision_posthog_identity_apps
 from ..logic.spec_schema import missing_required_secrets
-from ..models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -526,6 +527,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "approvals_decide",
+        "users_connection_delete",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
         # tools and incurring inference cost. That's a write-class capability,
@@ -539,6 +541,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "users_list",
         "stats",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
@@ -567,10 +570,21 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(team_id=self.team_id, created_by_id=self.request.user.id)
 
     def perform_destroy(self, instance: AgentApplication) -> None:
-        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history."""
-        instance.archived = True
-        instance.archived_at = timezone.now()
-        instance.save(update_fields=["archived", "archived_at", "updated_at"])
+        """Soft-delete: archived=True, archived_at=NOW. Preserves audit history.
+
+        Also revoke every linked identity credential for the application: archive
+        is terminal (no unarchive), so a retired agent should hold no decryptable
+        bearers. Done in the same transaction via the ORM — Django owns this table,
+        so no janitor round-trip — and `state='active'` keeps it idempotent.
+        """
+        now = timezone.now()
+        with transaction.atomic(using=WRITER_DB):
+            instance.archived = True
+            instance.archived_at = now
+            instance.save(update_fields=["archived", "archived_at", "updated_at"])
+            AgentIdentityCredential.objects.using(WRITER_DB).filter(application_id=instance.id, state="active").update(
+                state="revoked", revoked_at=now, updated_at=now
+            )
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -969,9 +983,117 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 offset=offset,
                 state=request.query_params.get("state") or None,
                 revision_id=request.query_params.get("revision_id") or None,
+                agent_user_id=request.query_params.get("agent_user_id") or None,
                 created_after=request.query_params.get("created_after") or None,
                 created_before=request.query_params.get("created_before") or None,
             )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_list",
+        description=(
+            "List this agent's end-users (the stable identities behind inbound "
+            "principals) and each user's linked external connections. Connection "
+            "metadata only — credential material is never returned."
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentUsersList",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentUserWithConnections",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "principal_kind": drf_serializers.CharField(
+                                    help_text="Edge-identity kind: slack | jwt | posthog | service | …",
+                                ),
+                                "principal_id": drf_serializers.CharField(),
+                                "metadata": drf_serializers.JSONField(allow_null=True, required=False),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "connections": drf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name="AgentUserConnection",
+                                        fields={
+                                            "id": drf_serializers.UUIDField(),
+                                            "provider": drf_serializers.CharField(),
+                                            "scopes": drf_serializers.ListField(child=drf_serializers.CharField()),
+                                            "state": drf_serializers.CharField(help_text="active | revoked"),
+                                            "subject": drf_serializers.CharField(allow_null=True, required=False),
+                                            "access_expires_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                            "created_at": drf_serializers.DateTimeField(),
+                                            "updated_at": drf_serializers.DateTimeField(),
+                                            "revoked_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                        },
+                                    )
+                                ),
+                            },
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="users")
+    def users_list(self, request: Request, **kwargs) -> Response:
+        """End-users of this agent, each with their linked connections."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().list_users(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_connection_delete",
+        description=(
+            "Revoke one of an end-user's linked connections. The credential is "
+            "marked revoked (kept for audit), so the agent can no longer act as "
+            "that user on the provider."
+        ),
+        parameters=[
+            OpenApiParameter("agent_user_id", OpenApiTypes.UUID, OpenApiParameter.PATH, required=True),
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id (e.g. 'posthog', 'github').",
+            ),
+        ],
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentConnectionDelete",
+                fields={
+                    "provider": drf_serializers.CharField(),
+                    "revoked": drf_serializers.BooleanField(),
+                },
+            )
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"users/(?P<agent_user_id>[^/.]+)/connections/(?P<provider>[^/.]+)",
+    )
+    def users_connection_delete(
+        self, request: Request, agent_user_id: str = "", provider: str = "", **kwargs
+    ) -> Response:
+        """Revoke one linked connection for an end-user."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().delete_connection(int(self.team_id), str(application.id), agent_user_id, provider)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
@@ -1168,7 +1290,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ),
         "approver_scope": drf_serializers.DictField(
             child=drf_serializers.JSONField(),
-            help_text="Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.",
+            help_text="Resolved approval policy (type: principal|agent, allow_edit) at request time.",
         ),
         "state": drf_serializers.ChoiceField(
             choices=[
@@ -1334,9 +1456,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="approvals/(?P<approval_id>[^/.]+)/decide")
     def approvals_decide(self, request: Request, approval_id: str = "", **kwargs) -> Response:
-        """Approve or reject a queued tool-approval request. Team-admin only
-        (plan §6.1). The runtime side runs the tool platform-side on approve
-        and wakes the session with a synthetic tool_result either way."""
+        """Approve or reject a queued `agent`-type tool-approval request.
+
+        This is the OWNER decision surface — the only PostHog-authoritative one:
+        team admins decide here, in the console. `principal`-type approvals are
+        decided by the session principal at the ingress decision API, not here.
+        The runtime side runs the tool platform-side on approve and wakes the
+        session with a synthetic tool_result either way."""
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -1347,22 +1473,28 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or a
-        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
-        # human approves in-app) — `is_first_party` is staff-set on the app, so a
-        # third-party OAuth app or a personal API key can't decide a human-only
-        # approval regardless of scope.
+        # Only `agent`-type approvals are decided through the console. A
+        # `principal`-type request is the session owner's to clear at the ingress
+        # decision API; collapse it to not-found here. (Legacy rows queued before
+        # the principal/agent split carry `approvers[]` instead of `type` — map
+        # `team_admins` → agent so an in-flight old row stays decidable.)
+        scope = existing.get("approver_scope", {})
+        approval_type = scope.get("type")
+        if approval_type is None:
+            approval_type = "agent" if "team_admins" in (scope.get("approvers") or []) else "principal"
+        if approval_type != "agent":
+            raise NotFound("Approval not found")
+        # A human acting interactively only: SessionAuthentication, or a bearer
+        # from a first-party PostHog OAuth app (e.g. PostHog Code, where a human
+        # approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide an owner
+        # approval.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
         is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
             getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
-        if (
-            existing.get("approver_scope", {}).get("allow_agent_approver") is False
-            and not is_session
-            and not is_first_party_oauth
-        ):
+        if not is_session and not is_first_party_oauth:
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(
@@ -1544,6 +1676,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"Set the value(s) via the env editor then retry."
             )
 
+        # Managed PostHog identity providers: ensure each declared `{kind:posthog}`
+        # provider has a (normal, user-consented) OAuthApplication and inject its
+        # client_id into the spec. Idempotent; runs before the state flip so the
+        # frozen-and-live spec carries the client_id the runner links against.
+        spec_mutated = provision_posthog_identity_apps(
+            # Promote requires auth, so this is always a real User (not Anonymous);
+            # cast to satisfy the `User | None` signature, as elsewhere in this file.
+            application=revision.application,
+            revision=revision,
+            acting_user=cast(User, request.user),
+        )
+
         # All three writes — demote previous live, set this live, point the
         # application — must succeed or fail together. select_for_update on
         # the application row serializes concurrent promotes so two callers
@@ -1558,7 +1702,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 previously_live.state = "archived"
                 previously_live.save(update_fields=["state", "updated_at"])
             revision.state = "live"
-            revision.save(update_fields=["state", "updated_at"])
+            revision.save(update_fields=["state", "spec", "updated_at"] if spec_mutated else ["state", "updated_at"])
             application.live_revision = revision
             application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "live"})
@@ -2650,7 +2794,7 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/projects/<team>/agent_fleet/approvals/       — approval-gated tool requests across every agent in the team
 
     All three endpoints proxy the janitor (which owns the runtime DB). Used
-    by the agent-console "fleet" overview to render the cards on the agents
+    by the "fleet" overview to render the cards on the agents
     list without per-agent N+1.
     """
 
