@@ -1474,6 +1474,48 @@ describe('Hogflow Executor', () => {
         })
     })
 
+    describe('group propagation', () => {
+        it('carries groups from globals onto the invocation', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            const groups = {
+                organization: {
+                    id: 'acme-123',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: {},
+                },
+            }
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                project: { id: 1, name: 'Test Project', url: '' },
+                person: { id: 'person_id', name: 'John Doe', properties: {}, url: '' },
+                groups,
+            }
+
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+
+            expect(invocation.groups).toEqual(groups)
+        })
+    })
+
     describe('output variable mapping', () => {
         let hogFlowBuilder: (outputVariable: any) => Promise<HogFlow>
 

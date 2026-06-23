@@ -1800,6 +1800,7 @@ class ExternalDataSourceType(StrEnum):
     METRONOME = "Metronome"
     JOBBER = "Jobber"
     KNOCK = "Knock"
+    LEEXI = "Leexi"
 
 
 class ExternalQueryErrorCode(StrEnum):

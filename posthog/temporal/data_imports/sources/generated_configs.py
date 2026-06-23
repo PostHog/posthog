@@ -1690,6 +1690,11 @@ class LeadfeederSourceConfig(config.Config):
 
 
 @config.config
+class LeexiSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LemlistSourceConfig(config.Config):
     pass
 
@@ -3792,6 +3797,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,
         ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
+        ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
