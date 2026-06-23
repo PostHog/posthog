@@ -3,7 +3,9 @@
 Zendesk Sell's Core API lives at https://api.getbase.com/v2/. It returns a uniform envelope
 (`{"items": [{"data": {...}, "meta": {...}}], "meta": {"links": {"next_page": ...}}}`) and paginates
 with a 1-based `page` parameter plus `per_page` (max 100). We follow `meta.links.next_page` verbatim
-rather than constructing page URLs ourselves, as the API docs instruct.
+rather than constructing page URLs ourselves, as the API docs instruct — but only after validating
+each URL is still pinned to the Zendesk Sell API origin, so a hostile response or poisoned resume
+state can't retarget an authenticated request at another host (`_validate_pagination_url`).
 
 Every endpoint is full refresh. The Core API supports `sort_by` ordering but exposes no server-side
 `updated_after` / `since` timestamp filter on its list endpoints, so there is no way to fetch only
@@ -15,7 +17,7 @@ full refresh and leave incremental off until that can be verified against a live
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -27,12 +29,39 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.zendesk_sell.settings import ZENDESK_SELL_ENDPOINTS
 
 ZENDESK_SELL_BASE_URL = "https://api.getbase.com"
+ZENDESK_SELL_HOST = "api.getbase.com"
+ZENDESK_SELL_PATH_PREFIX = "/v2/"
 PER_PAGE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
 class ZendeskSellRetryableError(Exception):
     pass
+
+
+class ZendeskSellUntrustedURLError(Exception):
+    """A pagination URL (resumed or upstream) pointed somewhere other than the Zendesk Sell API."""
+
+
+def _validate_pagination_url(url: str) -> str:
+    """Pin every authenticated request to the Zendesk Sell API origin.
+
+    Both resumed `next_url` values (loaded from Redis) and upstream `meta.links.next_page` URLs are
+    followed verbatim with the customer's bearer token. Validating the scheme, host, and `/v2/` path
+    prefix keeps a poisoned resume state or a hostile upstream response from retargeting the request at
+    another host and leaking the token (SSRF). Returns the URL unchanged when it is trusted.
+    """
+    parts = urlsplit(url)
+    is_trusted = (
+        parts.scheme == "https"
+        and parts.netloc == ZENDESK_SELL_HOST
+        and parts.path.startswith(ZENDESK_SELL_PATH_PREFIX)
+    )
+    if not is_trusted:
+        raise ZendeskSellUntrustedURLError(
+            f"Refusing to follow pagination URL outside {ZENDESK_SELL_BASE_URL}{ZENDESK_SELL_PATH_PREFIX}"
+        )
+    return url
 
 
 @dataclasses.dataclass
@@ -92,12 +121,14 @@ def get_rows(
     config = ZENDESK_SELL_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
     # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
-    # masks the bearer token in logged URLs and captured request samples.
-    session = make_tracked_session(redact_values=(access_token,))
+    # masks the bearer token in logged URLs and captured request samples. `allow_redirects=False`
+    # stops a redirect response from sending the bearer token to another host.
+    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url: str | None = resume.next_url
+        # Resume state comes from Redis — validate before sending the token to it.
+        url: str | None = _validate_pagination_url(resume.next_url)
         logger.debug(f"Zendesk Sell: resuming {endpoint} from URL: {url}")
     else:
         url = _build_initial_url(config.path)
@@ -107,6 +138,10 @@ def get_rows(
 
         records = _extract_records(payload)
         next_url = payload.get("meta", {}).get("links", {}).get("next_page")
+        # The upstream-supplied next-page URL is followed verbatim with the bearer token — pin it to
+        # the Zendesk Sell API so a hostile response can't retarget the authenticated request.
+        if next_url:
+            next_url = _validate_pagination_url(next_url)
 
         if records:
             yield records
@@ -148,7 +183,7 @@ def validate_credentials(access_token: str) -> bool:
     """Cheap probe that the access token is genuine: list a single contact."""
     url = f"{ZENDESK_SELL_BASE_URL}/v2/contacts?{urlencode({'per_page': 1})}"
     try:
-        session = make_tracked_session(redact_values=(access_token,))
+        session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
         response = session.get(url, headers=_get_headers(access_token), timeout=10)
         return response.status_code == 200
     except Exception:

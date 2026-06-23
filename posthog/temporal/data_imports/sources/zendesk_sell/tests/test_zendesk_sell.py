@@ -12,9 +12,11 @@ from posthog.temporal.data_imports.sources.zendesk_sell.zendesk_sell import (
     PER_PAGE,
     ZendeskSellResumeConfig,
     ZendeskSellRetryableError,
+    ZendeskSellUntrustedURLError,
     _build_initial_url,
     _extract_records,
     _fetch_page,
+    _validate_pagination_url,
     get_rows,
     validate_credentials,
     zendesk_sell_source,
@@ -172,6 +174,51 @@ class TestGetRowsPagination:
         assert rows == []
         assert manager.saved == []
 
+    def test_hostile_upstream_next_page_is_rejected(self, monkeypatch: Any) -> None:
+        # An upstream response pointing next_page at another host must abort before the bearer token is
+        # sent there, and must not be persisted as resume state.
+        pages = {
+            f"https://api.getbase.com/v2/contacts?per_page={PER_PAGE}": _envelope(
+                [{"id": 1}], next_page="https://evil.example.com/v2/contacts"
+            ),
+        }
+        manager = _FakeResumableManager()
+        with pytest.raises(ZendeskSellUntrustedURLError):
+            self._collect(manager, monkeypatch, pages)
+        assert manager.saved == []
+
+    def test_hostile_resumed_next_url_is_rejected(self, monkeypatch: Any) -> None:
+        # A poisoned resume state from Redis must never be requested with the bearer token.
+        manager = _FakeResumableManager(ZendeskSellResumeConfig(next_url="https://evil.example.com/v2/contacts"))
+        with pytest.raises(ZendeskSellUntrustedURLError):
+            self._collect(manager, monkeypatch, {})
+
+
+class TestValidatePaginationUrl:
+    @parameterized.expand(
+        [
+            ("first_page", f"https://api.getbase.com/v2/contacts?per_page={PER_PAGE}"),
+            ("next_page", "https://api.getbase.com/v2/contacts?page=2&per_page=100"),
+            ("other_endpoint", "https://api.getbase.com/v2/deals?page=3"),
+        ]
+    )
+    def test_trusted_urls_pass_through(self, _name: str, url: str) -> None:
+        assert _validate_pagination_url(url) == url
+
+    @parameterized.expand(
+        [
+            ("foreign_host", "https://evil.example.com/v2/contacts"),
+            ("subdomain_lookalike", "https://api.getbase.com.evil.example.com/v2/contacts"),
+            ("http_scheme", "http://api.getbase.com/v2/contacts"),
+            ("wrong_path_prefix", "https://api.getbase.com/internal/contacts"),
+            ("missing_path", "https://api.getbase.com"),
+            ("metadata_endpoint", "http://169.254.169.254/latest/meta-data/"),
+        ]
+    )
+    def test_untrusted_urls_raise(self, _name: str, url: str) -> None:
+        with pytest.raises(ZendeskSellUntrustedURLError):
+            _validate_pagination_url(url)
+
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
@@ -198,6 +245,7 @@ class TestTokenRedaction:
         with patch.object(zendesk_sell, "make_tracked_session", return_value=session) as make_session:
             validate_credentials("secret-token")
         assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
 
     def test_get_rows_redacts_token(self, monkeypatch: Any) -> None:
         session = MagicMock()
@@ -217,6 +265,7 @@ class TestTokenRedaction:
             )
         )
         assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
 
 
 class TestZendeskSellSource:
