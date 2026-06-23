@@ -173,3 +173,14 @@ class TestSessionActivity(BaseTest):
         # handled IntegrityError raises when the write runs.
         with self.assertNumQueries(0):
             sync_current_session_metadata(request, force=True)
+
+    def test_user_deletion_purges_their_sessions(self):
+        # user_id is a plain BigIntegerField (no FK cascade), so a deleted user's rows — and their
+        # ip / location / user-agent — would otherwise linger until the session expires.
+        user = self._make_user()
+        key = self._login_session(user)
+        self.assertTrue(Session.objects.filter(session_key=key).exists())
+
+        user.delete()
+
+        self.assertFalse(Session.objects.filter(session_key=key).exists())
