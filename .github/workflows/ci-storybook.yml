@@ -384,7 +384,9 @@ jobs:
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
+              # The cache key is identical across all visual-regression shards, so only one
+              # shard needs to write it — gating to a single shard avoids redundant concurrent saves.
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
