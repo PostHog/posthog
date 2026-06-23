@@ -131,7 +131,11 @@ export function FunnelStepsBarChart({
         <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
             <div className="flex flex-1 flex-col" data-attr="funnel-steps-bar-chart">
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex min-h-[150px] flex-1" style={{ width: chartWidth }}>
+                <div
+                    className="flex min-h-[150px] flex-1"
+                    style={{ width: chartWidth }}
+                    data-attr="funnel-steps-bar-chart-canvas"
+                >
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}
                         labels={labels}

@@ -26,6 +26,7 @@ import {
     filterPullRequests,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
+import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
@@ -224,6 +225,13 @@ describe('engineeringAnalyticsLogic', () => {
 
         expect(tabA.values.stateFilter).toBe('merged')
         expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
+    })
+
+    it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
+        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
+        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
+        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        expect(() => engineeringAnalyticsSceneLogic().mount()).not.toThrow()
     })
 
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
