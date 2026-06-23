@@ -26,8 +26,11 @@ This is an **alpha** capability. Caps: at most 50 resources per manifest, and at
   API — and can give you its docs URL or describe its endpoints.
 - The user explicitly asks for a "custom REST source", "custom source manifest", or to "build a connector from docs".
 
-If a built-in connector exists for the source (Postgres, MySQL, Stripe, Hubspot, Zendesk, BigQuery, …), use
-`setting-up-a-data-warehouse-source` — it's simpler and battle-tested. Only fall back to a Custom source when none fits.
+A Custom source is the **fallback** — only correct when no native connector fits. PostHog ships **hundreds** of native
+connectors (Postgres, MySQL, Stripe, Hubspot, Zendesk, BigQuery, GitHub, Salesforce, …), far more than any list here
+can name, so **never infer "no built-in exists" from a name's absence in these examples** — that misroutes well-known
+APIs into a hand-authored manifest that duplicates a battle-tested connector. Step 0 below makes you check the registry
+before drafting anything; if a native connector matches, hand off to `setting-up-a-data-warehouse-source` instead.
 
 ## The grammar
 
@@ -65,15 +68,28 @@ response. Putting a token inline is rejected at validation.
 
 ## Available tools
 
-| Tool                                     | Purpose                                                                                                                                                                |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `external-data-sources-db-schema`        | Validate the manifest + credential and list the resources (tables) it exposes, with detected primary keys and incremental cursors. This is the validate-and-list step. |
-| `external-data-sources-preview-resource` | Read a small live sample of rows for one resource — verify `data_selector` / `primary_key` / `cursor_path` against real data before creating anything.                 |
-| `data-warehouse-source-setup`            | Create the source. Enables **all** manifest resources with sync defaults in one call.                                                                                  |
-| `external-data-sources-create`           | Advanced create — lets the user hand-pick which resources sync via a `schemas` array.                                                                                  |
-| `external-data-schemas-list`             | After creation, watch per-table sync status.                                                                                                                           |
+| Tool                                     | Purpose                                                                                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `external-data-sources-wizard`           | List every native source type PostHog supports. Run this **first** (Step 0) to check whether the target API already has a built-in connector before drafting a manifest. |
+| `external-data-sources-db-schema`        | Validate the manifest + credential and list the resources (tables) it exposes, with detected primary keys and incremental cursors. This is the validate-and-list step.   |
+| `external-data-sources-preview-resource` | Read a small live sample of rows for one resource — verify `data_selector` / `primary_key` / `cursor_path` against real data before creating anything.                   |
+| `data-warehouse-source-setup`            | Create the source. Enables **all** manifest resources with sync defaults in one call.                                                                                    |
+| `external-data-sources-create`           | Advanced create — lets the user hand-pick which resources sync via a `schemas` array.                                                                                    |
+| `external-data-schemas-list`             | After creation, watch per-table sync status.                                                                                                                             |
 
 ## Workflow
+
+### Step 0 — Check for a native connector first
+
+Before drafting anything, call `external-data-sources-wizard` to list the native source types and check whether the
+target API is among them (match on the service name — GitHub, Stripe, Salesforce, Postgres, …). A Custom source is the
+fallback for APIs with **no** native connector; do not skip this check on the assumption that a well-known API isn't
+supported — most are.
+
+If a native connector matches, **stop and tell the user** the built-in path is simpler and battle-tested (it handles
+auth, pagination, schema, and incremental sync for you), and hand off to `setting-up-a-data-warehouse-source`. Only
+continue with this skill when the user has no matching native connector, or explicitly wants to exercise the custom
+REST path despite one existing.
 
 ### Step 1 — Gather the API shape
 
