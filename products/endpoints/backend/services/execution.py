@@ -74,7 +74,6 @@ from products.endpoints.backend.logs import build_execution_message, log_endpoin
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
     ENDPOINT_CONCURRENCY_REJECTED_TOTAL,
-    ENDPOINT_DUCKLAKE_FALLBACK_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
@@ -83,7 +82,6 @@ from products.endpoints.backend.metrics import (
     query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.ducklake_shadow import build_ducklake_hogql_query
 from products.endpoints.backend.services.pagination import EndpointPagination
 from products.endpoints.backend.services.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
@@ -94,7 +92,7 @@ logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
-ExecutionType = Literal["materialized", "materialized_fallback", "inline", "ducklake", "ducklake_fallback"]
+ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
 
 # Deterministic, customer-caused ClickHouse cost guardrails → stable client `code` + remediation.
 # Kept out of status="error" so they don't page on-call; surfaced as an actionable 400.
@@ -388,42 +386,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
         return True
 
-    def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        if version is None:
-            return False
-        if version.query.get("kind") != "HogQLQuery":
-            return False
-
-        ff_result = posthoganalytics.feature_enabled(
-            "endpoints-ducklake-execution",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        logger.info(
-            "Ducklake FF evaluation",
-            endpoint_name=endpoint.name,
-            ff_result=ff_result,
-        )
-        if not ff_result:
-            return False
-
-        server = get_duckgres_server_for_organization(str(self.team.organization_id))
-        if server is None:
-            logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team.pk)
-        return server is not None
-
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         """Whether to run a non-blocking DuckLake shadow of this execution for timing
-        comparison. Independent of `_should_use_ducklake` (which serves from DuckLake)."""
+        comparison. ClickHouse always serves the response; the shadow never affects it."""
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
@@ -554,20 +519,6 @@ class EndpointExecutionService(PydanticModelMixin):
                     # series drift self-heal on the next materialization run.
                     execution_type = "materialized_fallback"
                     result = None
-            elif self._should_use_ducklake(endpoint, version_obj):
-                try:
-                    result = self._execute_ducklake_endpoint(
-                        endpoint, data, version_obj, version_obj.query.copy(), debug=debug
-                    )
-                    execution_type = "ducklake"
-                except Exception:
-                    logger.warning(
-                        "DuckLake execution failed, falling back to inline",
-                        endpoint_name=endpoint.name,
-                    )
-                    ENDPOINT_DUCKLAKE_FALLBACK_TOTAL.inc()
-                    execution_type = "ducklake_fallback"
-                    result = None
 
             if result is None:
                 result = self._execute_inline_endpoint(
@@ -691,12 +642,10 @@ class EndpointExecutionService(PydanticModelMixin):
         result_row_count: int | None = None
         try:
             if isinstance(result.data, dict):
-                # DuckLake bypasses the query result cache entirely — don't claim hit/miss for it.
-                if execution_type != "ducklake":
-                    cache_outcome = "hit" if bool(result.data.get("is_cached")) else "miss"
-                    ENDPOINT_CACHE_RESULT_TOTAL.labels(
-                        execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
-                    ).inc()
+                cache_outcome = "hit" if bool(result.data.get("is_cached")) else "miss"
+                ENDPOINT_CACHE_RESULT_TOTAL.labels(
+                    execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
+                ).inc()
 
                 results_value = result.data.get("results")
                 if isinstance(results_value, list):
@@ -976,53 +925,6 @@ class EndpointExecutionService(PydanticModelMixin):
                 query_kind=query_kind,
                 executed_sql=query.get("query") if query_kind == "HogQLQuery" else None,
                 endpoint_columns=version.columns,
-            )
-            raise
-
-    def _execute_ducklake_endpoint(
-        self,
-        endpoint: Endpoint,
-        data: EndpointRunRequest,
-        version: EndpointVersion,
-        query: dict,
-        debug: bool = False,
-    ) -> Response:
-        from posthog.ducklake.client import execute_ducklake_query
-
-        try:
-            hogql_query = build_ducklake_hogql_query(endpoint, version, self.team, data)
-
-            result = execute_ducklake_query(
-                self.team.pk,
-                query=hogql_query,
-                organization_id=str(self.team.organization_id),
-                team=self.team,
-            )
-            response_data: dict = {
-                "results": result.results,
-                "columns": result.columns,
-                "types": result.types,
-                "hasMore": False,
-                "backend": "ducklake",
-            }
-            if debug:
-                response_data["query"] = query.get("query")
-                response_data["hogql"] = result.hogql
-                response_data["ducklake_sql"] = result.sql
-            return Response(response_data, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.exception(
-                "DuckLake endpoint execution failed",
-                endpoint_name=endpoint.name,
-            )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "ducklake": True,
-                    "endpoint_name": endpoint.name,
-                },
             )
             raise
 

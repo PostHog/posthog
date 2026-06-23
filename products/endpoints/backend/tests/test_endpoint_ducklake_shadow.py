@@ -69,27 +69,6 @@ class TestShadowDispatch(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_task.delay.assert_not_called()
 
-    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
-    @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
-        return_value=True,
-    )
-    @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake",
-        return_value=True,
-    )
-    def test_no_dispatch_when_primary_path_is_ducklake(self, _mock_use, _mock_should, mock_task):
-        create_endpoint_with_version(name="shadow-dl", team=self.team, query=HOGQL_QUERY, created_by=self.user)
-
-        with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_ducklake_endpoint",
-            return_value=Response({"results": [], "columns": [], "hasMore": False}, status=status.HTTP_200_OK),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/shadow-dl/run/")
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_task.delay.assert_not_called()
-
 
 class TestShadowComparison(APIBaseTest):
     """The worker-side comparison in run_ducklake_shadow_comparison."""
