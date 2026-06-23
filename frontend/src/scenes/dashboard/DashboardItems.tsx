@@ -302,7 +302,6 @@ export function DashboardItems(): JSX.Element {
     }, [])
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        interactionInProgress.current = true
         resizingItemRef.current = newItem
     }, [])
 
