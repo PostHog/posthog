@@ -17,7 +17,6 @@
 @source "../../packages/quill/packages/components/src/**/*.{ts,tsx}";
 @source "../../packages/quill/packages/blocks/src/**/*.{ts,tsx}";
 @source "../../packages/quill/packages/quill/src/**/*.{ts,tsx}";
-@source "../../packages/quill/packages/charts/src/**/*.{ts,tsx}";
 
 @theme {
     --text-xxs: 0.625rem;
