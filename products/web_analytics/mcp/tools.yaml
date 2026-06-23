@@ -171,6 +171,9 @@ tools:
     web-analytics-filter-presets-update:
         operation: web_analytics_filter_presets_update
         enabled: false
+    web-analytics-recap:
+        operation: web_analytics_recap
+        enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest
         enabled: true
