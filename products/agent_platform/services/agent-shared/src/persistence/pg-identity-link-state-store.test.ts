@@ -8,24 +8,12 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { reset } from '@posthog/agent-shared/testing'
+import { isReachable, reset } from '@posthog/agent-shared/testing'
 
 import { PgIdentityLinkStateStore } from '../runtime/identity-link-state-store'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
-
-async function isReachable(): Promise<boolean> {
-    const probe = new Pool({ connectionString: TEST_DB_URL, max: 1 })
-    try {
-        await probe.query('SELECT 1')
-        return true
-    } catch {
-        return false
-    } finally {
-        await probe.end().catch(() => undefined)
-    }
-}
 
 const maybeDescribe = process.env.SKIP_PG_TESTS === '1' ? describe.skip : describe
 
@@ -35,7 +23,7 @@ maybeDescribe('PgIdentityLinkStateStore (real PG)', () => {
     let store: PgIdentityLinkStateStore
 
     beforeAll(async () => {
-        reachable = await isReachable()
+        reachable = await isReachable(TEST_DB_URL)
         if (!reachable) {
             return
         }

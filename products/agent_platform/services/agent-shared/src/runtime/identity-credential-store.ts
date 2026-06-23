@@ -146,8 +146,13 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
 
     async getEstablishedSubject(agentUserId: string): Promise<string | null> {
         const r = await this.pool.query<{ subject: string }>(
+            // Today only `posthog` stamps a subject and (agent_user, provider) is
+            // unique, so there's effectively one row — but ORDER BY makes the pick
+            // deterministic (most-recently-linked) if a second identity-establishing
+            // provider is ever added, rather than relying on physical row order.
             `SELECT subject FROM agent_identity_credential
               WHERE agent_user_id = $1 AND state = 'active' AND subject IS NOT NULL
+              ORDER BY updated_at DESC
               LIMIT 1`,
             [agentUserId]
         )

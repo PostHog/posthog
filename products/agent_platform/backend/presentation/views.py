@@ -1017,7 +1017,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                             ),
                                             "created_at": drf_serializers.DateTimeField(),
                                             "updated_at": drf_serializers.DateTimeField(),
-                                            "revoked_at": drf_serializers.DateTimeField(allow_null=True, required=False),
+                                            "revoked_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
                                         },
                                     )
                                 ),
@@ -1080,9 +1082,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if application is None:
             raise NotFound("Application not found")
         try:
-            payload = _janitor().delete_connection(
-                int(self.team_id), str(application.id), agent_user_id, provider
-            )
+            payload = _janitor().delete_connection(int(self.team_id), str(application.id), agent_user_id, provider)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)

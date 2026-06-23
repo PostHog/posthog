@@ -9,8 +9,10 @@
  * decryption key (least privilege), so the runtime `PgIdentityCredentialStore`
  * (which decrypts) stays out of the janitor; this store covers what the console
  * needs without it. `revokeConnection` is the same state flip as
- * `PgIdentityCredentialStore.revoke`, but scoped by `application_id` for
- * defence-in-depth tenancy.
+ * `PgIdentityCredentialStore.revoke`, but scoped by `(team_id, application_id)`
+ * for defence-in-depth tenancy — `application_id` is already a tenant-unique
+ * UUID, but the janitor path carries `team_id` too, so we enforce both and a
+ * mismatched pair fails closed rather than crossing a team boundary.
  */
 
 import type { Pool } from 'pg'
@@ -59,11 +61,13 @@ export class PgIdentityAdminStore {
     constructor(private readonly pool: Pool) {}
 
     /**
-     * Every `agent_user` for an application, each with its connections (active
-     * or revoked). Users with no links are included (LEFT JOIN). Ordered newest
-     * user first, oldest connection first.
+     * Every `agent_user` for a (team, application), each with its connections
+     * (active or revoked). Users with no links are included (LEFT JOIN). Ordered
+     * newest user first, oldest connection first. Scoped by `team_id` too so a
+     * mismatched team/application pair returns nothing instead of crossing
+     * tenants.
      */
-    async listUsersWithConnections(applicationId: string): Promise<AdminUserWithConnections[]> {
+    async listUsersWithConnections(teamId: number, applicationId: string): Promise<AdminUserWithConnections[]> {
         const r = await this.pool.query<JoinedRow>(
             `SELECT u.id                  AS user_id,
                     u.principal_kind      AS principal_kind,
@@ -81,9 +85,9 @@ export class PgIdentityAdminStore {
                     c.revoked_at          AS revoked_at
                FROM agent_user u
                LEFT JOIN agent_identity_credential c ON c.agent_user_id = u.id
-              WHERE u.application_id = $1
+              WHERE u.team_id = $1 AND u.application_id = $2
               ORDER BY u.created_at DESC, c.created_at ASC NULLS FIRST`,
-            [applicationId]
+            [teamId, applicationId]
         )
 
         const byUser = new Map<string, AdminUserWithConnections>()
@@ -119,16 +123,21 @@ export class PgIdentityAdminStore {
 
     /**
      * Revoke one active link (state → revoked, kept for audit). Scoped by
-     * application_id so a leaked agent_user_id can't revoke another tenant's
-     * row. Returns true when a row was flipped, false if there was nothing
-     * active to revoke.
+     * `(team_id, application_id)` so a leaked agent_user_id — or a mismatched
+     * team/application pair — can't revoke another tenant's row. Returns true
+     * when a row was flipped, false if there was nothing active to revoke.
      */
-    async revokeConnection(applicationId: string, agentUserId: string, provider: string): Promise<boolean> {
+    async revokeConnection(
+        teamId: number,
+        applicationId: string,
+        agentUserId: string,
+        provider: string
+    ): Promise<boolean> {
         const r = await this.pool.query(
             `UPDATE agent_identity_credential
                 SET state = 'revoked', revoked_at = NOW(), updated_at = NOW()
-              WHERE application_id = $1 AND agent_user_id = $2 AND provider = $3 AND state = 'active'`,
-            [applicationId, agentUserId, provider]
+              WHERE team_id = $1 AND application_id = $2 AND agent_user_id = $3 AND provider = $4 AND state = 'active'`,
+            [teamId, applicationId, agentUserId, provider]
         )
         return (r.rowCount ?? 0) > 0
     }

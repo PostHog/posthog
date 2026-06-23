@@ -381,6 +381,10 @@ class AgentIdentityLinkState(ProductTeamModel, UUIDModel):
     agent_user_id = models.UUIDField()
     provider = models.TextField()
     scopes = ArrayField(models.TextField(), default=list, db_default=Value("{}"))
+    # Stored plaintext, unlike the Fernet-encrypted agent_identity_credential.
+    # Intentional: a PKCE verifier is single-use, ≤10m TTL, and worthless without
+    # the matching authorization code — its secrecy rests on DB access control,
+    # which is sufficient for a short-lived link-handshake secret.
     code_verifier = models.TextField()
     redirect_uri = models.TextField()
     expires_at = models.DateTimeField()

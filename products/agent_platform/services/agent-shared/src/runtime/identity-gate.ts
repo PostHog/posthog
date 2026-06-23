@@ -145,9 +145,11 @@ export interface ToolIdentityDeps {
     redirectUriFor: (providerId: string) => string
     /**
      * When set, identity is refused with this reason. Used to fail closed in
-     * shared participant threads where the asker isn't the session owner —
-     * resolving the owner's credential for someone else would be a confused
-     * deputy (T1), so we don't resolve at all there.
+     * shared participant threads (`allow_workspace_participants`): there we
+     * can't trust that the asker is the session owner, and resolving the
+     * owner's credential for any other participant would be a confused deputy
+     * (T1) — so we refuse for EVERY asker in the thread (the owner included),
+     * not just when asker ≠ owner. Fail closed for the whole thread.
      */
     unavailableReason?: string
     /**

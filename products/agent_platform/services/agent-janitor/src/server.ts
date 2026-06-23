@@ -80,8 +80,8 @@ import { getNativeTool, hasNativeTool, listNativeTools } from '@posthog/agent-to
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
-import { mountUsersRoutes } from './api/users'
 import { buildTypedBundleRouter } from './api/typed-bundle'
+import { mountUsersRoutes } from './api/users'
 import { buildApprovalDecidedMarker } from './approval-marker'
 // compile-custom-tools.ts now exports `compileTypedTool` — wired by the
 // typed PUT /tools/:id handler, not by freeze. Freeze just validates +

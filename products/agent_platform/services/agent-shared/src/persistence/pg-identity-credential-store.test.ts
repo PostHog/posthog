@@ -9,25 +9,13 @@ import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { reset } from '@posthog/agent-shared/testing'
+import { isReachable, reset } from '@posthog/agent-shared/testing'
 
 import { PgIdentityCredentialStore, StoredCredential } from '../runtime/identity-credential-store'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 const KEY = '01234567890123456789012345678901' // 32-byte UTF-8, matches the harness
-
-async function isReachable(): Promise<boolean> {
-    const probe = new Pool({ connectionString: TEST_DB_URL, max: 1 })
-    try {
-        await probe.query('SELECT 1')
-        return true
-    } catch {
-        return false
-    } finally {
-        await probe.end().catch(() => undefined)
-    }
-}
 
 const cred = (over: Partial<StoredCredential> = {}): StoredCredential => ({
     access_token: 'at-1',
@@ -48,7 +36,7 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
     let store: PgIdentityCredentialStore
 
     beforeAll(async () => {
-        reachable = await isReachable()
+        reachable = await isReachable(TEST_DB_URL)
         if (!reachable) {
             // eslint-disable-next-line no-console
             console.warn(`[pg-identity-credential-store.test] ${TEST_DB_URL} unreachable — skipping`)
