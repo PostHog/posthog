@@ -55,6 +55,15 @@ class FlowKind(StrEnum):
     def creates_team_integration(self) -> bool:
         return self is FlowKind.TEAM_OAUTH
 
+    @property
+    def is_personal(self) -> bool:
+        return self in (
+            FlowKind.PERSONAL_INSTALL,
+            FlowKind.PERSONAL_OAUTH,
+            FlowKind.PERSONAL_UPDATE,
+            FlowKind.OAUTH_DISCOVER,
+        )
+
 
 def team_id_from_next_url(next_url: str) -> int | None:
     if not next_url:

@@ -82,7 +82,12 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
                 team_id=ctx.authorize_state.team_id,
                 error=error_code,
             )
-        if ctx.entry == "oauth_redirect" or is_personal_github_setup_state(ctx.state_raw):
+        # Trust the server-side cached flow over the mutable callback query string.
+        if (
+            (ctx.flow is not None and ctx.flow.is_personal)
+            or ctx.entry == "oauth_redirect"
+            or is_personal_github_setup_state(ctx.state_raw)
+        ):
             connect_from = ctx.authorize_state.connect_from if ctx.authorize_state else None
             return FinishResult(redirect_kind="personal_finish", connect_from=connect_from, error=error_code)
         team_id, next_url = state.resolve_github_setup_callback_context(user, ctx.state_raw)
@@ -92,6 +97,13 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
             team_id=team_id,
             error=error_code,
         )
+
+    # Trust the server-side cached flow over the mutable callback query string: a personal
+    # state with `source=user_integration` stripped must never fall through to team setup.
+    if ctx.flow is not None and ctx.flow.is_personal:
+        if ctx.flow == FlowKind.PERSONAL_UPDATE:
+            return personal_finish.finish_personal_setup_update(http_request)
+        return personal_finish.finish_personal(http_request)
 
     if ctx.entry == "oauth_redirect" or is_personal_github_setup_state(ctx.state_raw):
         return personal_finish.finish_personal(http_request)

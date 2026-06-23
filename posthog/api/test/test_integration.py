@@ -2053,6 +2053,61 @@ class TestGitHubTeamIntegrationComplete:
         assert "/complete/github-link" not in response["Location"]
         mock_user_from_code.assert_called_once_with("oauth-code-abc")
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_personal_github_setup_with_forged_team_next_still_finishes_personal(
+        self, mock_user_from_code, mock_client_request, mock_verify, client: HttpClient
+    ):
+        # A personal install whose callback `state` has been tampered — `source=user_integration`
+        # stripped and a team `next` injected — must route by the server-side cached flow to the
+        # personal finisher, never fall through to team setup. self.user is an org admin, so without
+        # flow-based routing the forged `next` would otherwise reach team setup and pass its admin gate.
+        client.force_login(self.user)
+        state_token = "personal-install-token"
+        forged_state = urlencode(
+            {"token": state_token, "next": f"/project/{self.team.pk}/settings/project-integrations"}
+        )
+        store_unified_authorize_state(
+            GitHubAuthorizeState(token=state_token, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
+        )
+
+        mock_user_from_code.return_value = GitHubUserAuthorization(
+            gh_id=99,
+            gh_login="octocat",
+            access_token="gho_access",
+            refresh_token="ghr_refresh",
+            access_token_expires_in=28800,
+            refresh_token_expires_in=15897600,
+        )
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {"account": {"type": "User", "login": "octocat"}}
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": forged_state,
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_link_success=1" in response["Location"]
+        # Personal install exchanges the code without the OAuth redirect_uri — proving the personal path ran.
+        mock_user_from_code.assert_called_once_with("oauth-code-abc")
+        # The forged team `next` created no team integration; only the user's personal one exists.
+        assert not Integration.objects.filter(team=self.team, kind="github").exists()
+        assert UserIntegration.objects.filter(user=self.user, kind="github", integration_id="12345").exists()
+
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_personal_github_setup_update_redirects_to_personal_settings(self, mock_client_request, client: HttpClient):
         client.force_login(self.user)
