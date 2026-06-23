@@ -183,6 +183,7 @@ the row lists both.
 | surveymonkey      | HTTP                        | requests                                                        | ✅                          |
 | taboola           | HTTP                        | requests                                                        | ✅                          |
 | temporalio        | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| thinkific         | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | trello            | HTTP                        | requests                                                        | ✅                          |
 | twilio            | HTTP                        | requests                                                        | ✅                          |
@@ -649,7 +650,6 @@ doesn't conflict with concurrent PRs.
 - teamwork
 - tempo
 - testrail
-- thinkific
 - thinkific_courses
 - thrive_learning
 - ticketmaster
