@@ -30,6 +30,7 @@ import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
+import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -355,6 +356,7 @@ export function InboxDetailFrame({
                         </RightColumnSection>
                     )}
                     <ReportTasksSection report={report} />
+                    <ReportActivitySection report={report} />
                 </div>
             </div>
         </div>

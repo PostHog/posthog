@@ -29,6 +29,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
@@ -436,6 +437,50 @@ class TestObservationStateActivities:
         assert observation.status == ObservationStatus.FAILED
         assert observation.completed_at is not None
         assert observation.scanner_result == {}  # not overwritten
+
+    def test_mark_succeeded_writes_usage_receipt(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        receipts = ReplayObservationUsage.objects.filter(observation_id=observation.id)
+        assert receipts.count() == 1
+        receipt = receipts.get()
+        assert receipt.organization_id == observation.team.organization_id
+        assert receipt.observation_created_at == observation.created_at
+
+    def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        inputs = MarkObservationSucceededInputs(
+            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+        )
+
+        mark_observation_succeeded_activity(inputs)
+        mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second receipt
+
+        assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
+
+    def test_mark_failed_writes_no_usage_receipt(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+
+        mark_observation_failed_activity(
+            MarkObservationFailedInputs(
+                observation_id=observation.id,
+                error_reason="provider_rejected:nope",
+                scanner_type=ScannerType.MONITOR,
+            )
+        )
+
+        assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

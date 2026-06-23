@@ -527,6 +527,7 @@
           ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
           ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
           ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+          ExternalDataSourceType.SANITY: SanitySourceConfig,
           ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
           ExternalDataSourceType.SAPERP: SapErpSourceConfig,
           ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,

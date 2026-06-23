@@ -44,7 +44,7 @@ def _mock_conn(producer: PostgresProducer) -> Any:
 class TestPostgresProducerSendBatch:
     def test_inserts_row_on_send(self) -> None:
         producer = _make_producer()
-        batch_result = _make_batch_result()
+        batch_result = _make_batch_result(batch_index=1)
 
         producer.send_batch_notification(batch_result)
 
@@ -56,7 +56,7 @@ class TestPostgresProducerSendBatch:
         assert params["team_id"] == 1
         assert params["s3_path"] == "s3://bucket/path"
         assert params["row_count"] == 100
-        assert params["batch_index"] == 0
+        assert params["batch_index"] == 1
 
     def test_metadata_includes_optional_fields(self) -> None:
         producer = _make_producer(
@@ -65,7 +65,7 @@ class TestPostgresProducerSendBatch:
             cdc_write_mode="upsert",
             cdc_table_mode="merge",
         )
-        batch_result = _make_batch_result()
+        batch_result = _make_batch_result(batch_index=1)
 
         producer.send_batch_notification(batch_result)
 
@@ -82,9 +82,9 @@ class TestPostgresProducerSendBatch:
 class TestPostgresProducerFlush:
     def test_returns_count_and_resets(self) -> None:
         producer = _make_producer()
-        producer.send_batch_notification(_make_batch_result(0))
-        producer.send_batch_notification(_make_batch_result(1))
-        producer.send_batch_notification(_make_batch_result(2))
+        producer.send_batch_notification(_make_batch_result(batch_index=1))
+        producer.send_batch_notification(_make_batch_result(batch_index=2))
+        producer.send_batch_notification(_make_batch_result(batch_index=3))
 
         count = producer.flush()
 
@@ -117,6 +117,42 @@ class TestPostgresProducerClose:
         producer.close()
 
         mock.close.assert_not_called()
+
+
+class TestPostgresProducerSupersede:
+    def test_supersedes_old_runs_on_batch_zero(self) -> None:
+        producer = _make_producer(is_resume=False)
+        batch_result = _make_batch_result(batch_index=0)
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=2,
+        ) as mock_supersede:
+            producer.send_batch_notification(batch_result)
+
+        mock_supersede.assert_called_once_with(producer._conn, job_id="job-1", current_run_uuid="run-1")
+
+    def test_does_not_supersede_on_non_zero_batch(self) -> None:
+        producer = _make_producer(is_resume=False)
+        batch_result = _make_batch_result(batch_index=1)
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+        ) as mock_supersede:
+            producer.send_batch_notification(batch_result)
+
+        mock_supersede.assert_not_called()
+
+    def test_does_not_supersede_on_resume(self) -> None:
+        producer = _make_producer(is_resume=True)
+        batch_result = _make_batch_result(batch_index=0)
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+        ) as mock_supersede:
+            producer.send_batch_notification(batch_result)
+
+        mock_supersede.assert_not_called()
 
 
 class TestPostgresProducerProperties:

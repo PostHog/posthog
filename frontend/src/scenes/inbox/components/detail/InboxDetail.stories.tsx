@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse } from 'msw'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import {
     makeReport,
     mockArtefacts,
-    mockReportTasks,
     mockReviewers,
+    mockRunLog,
     mockSignals,
     mockTask,
+    mockTaskRun,
     pullRequestReports,
     reportTabReports,
     runReportsMany,
@@ -32,12 +34,14 @@ const detailMocks = mswDecorator({
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
         ],
-        '/api/projects/:id/signals/reports/:reportId/tasks': (req) => [
-            200,
-            mockReportTasks(req.params.reportId as string),
-        ],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
-        '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
+        // Terminal run status so the inline run viewer replays its static log instead of opening SSE.
+        '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string, 'completed')],
+        '/api/projects/:id/tasks/:taskId/runs/:runId': (req) => [
+            200,
+            mockTaskRun(req.params.taskId as string, req.params.runId as string),
+        ],
+        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
     },
 })
 

@@ -176,7 +176,6 @@ async def validate_schema_and_update_table(
 
         _schema_id = external_data_schema.id
         _schema_name: str = external_data_schema.name
-        incremental_or_append = external_data_schema.should_use_incremental_field
 
         # The HogQL table name derives from the raw schema name (only lower-cased); the S3 folder is
         # the snake_cased `s3_folder_name`. They differ on purpose — see `resolve_table_and_folder_names`.
@@ -206,7 +205,7 @@ async def validate_schema_and_update_table(
                     table_created.format = table_params["format"]
                     table_created.url_pattern = new_url_pattern
                     table_created.queryable_folder = queryable_folder
-                    if incremental_or_append or external_data_schema.is_cdc:
+                    if external_data_schema.table_row_count_is_cumulative:
                         table_created.row_count = table_created.get_count()
                     else:
                         table_created.row_count = row_count

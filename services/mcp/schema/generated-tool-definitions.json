@@ -2992,7 +2992,7 @@
         }
     },
     "external-data-schemas-list": {
-        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
@@ -3146,7 +3146,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected.",
+        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -7404,7 +7404,7 @@
         }
     },
     "view-update": {
-        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update saved query",
@@ -7764,6 +7764,48 @@
             "readOnlyHint": true
         },
         "feature_flag": "visual-review"
+    },
+    "warehouse-column-annotations-create": {
+        "description": "Add a semantic description for a data warehouse table or column. Provide the table id, the column_name (empty string for a table-level description), and the description. The new annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a warehouse column description",
+        "title": "Add a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-column-annotations-list": {
+        "description": "List semantic descriptions of data warehouse tables and columns. Pass ?table_id=<uuid> to scope to one table. Each entry has the column_name (empty string = table-level description), the description, and its source (canonical from the source's API documentation, ai_generated, or user_edited). Use this to see what the imported data means before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List warehouse column descriptions",
+        "title": "List warehouse column descriptions",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-column-annotations-partial-update": {
+        "description": "Update the description of an existing warehouse table or column annotation by its id. The annotation is marked user-edited, so automatic enrichment will no longer overwrite it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Edit a warehouse column description",
+        "title": "Edit a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     },
     "warehouse-tables-refresh-schema-create": {
         "description": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",

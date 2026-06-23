@@ -130,6 +130,15 @@ class FailedRunRef:
     reason: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class RunActivitySummary:
+    """Queue DB activity for a holder's run, used by the lock takeover decision matrix."""
+
+    has_batches: bool
+    has_non_terminal: bool
+    is_stale: bool
+
+
 class BatchQueue:
     """
     Async interface to the Postgres batch queue tables. Each method runs
@@ -328,10 +337,36 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def verify_advisory_lock(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        """Check if this session still holds the advisory lock for (team_id, schema_id)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_locks
+                    WHERE locktype = 'advisory'
+                      AND classid = {ADVISORY_LOCK_NAMESPACE}
+                      AND objid = hashtext(%(key)s)
+                      AND pid = pg_backend_pid()
+                      AND granted = true
+                )
+                """,
+                {"key": f"{team_id}:{schema_id}"},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
 
@@ -340,6 +375,9 @@ class BatchQueue:
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
+
+        When ``keep_locks`` is True the caller is responsible for releasing the
+        probe locks after it has finished acting on the returned batches.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -366,8 +404,8 @@ class BatchQueue:
 
         result = [PendingBatch(**row) for row in rows]
 
-        # Release the locks immediately — we only needed them to detect orphans.
-        await BatchQueue.unlock_for_batches(conn, batches=result)
+        if not keep_locks:
+            await BatchQueue.unlock_for_batches(conn, batches=result)
 
         return result
 
@@ -393,6 +431,34 @@ class BatchQueue:
             {
                 "run_uuid": run_uuid,
                 "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def supersede_other_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> int:
+        """Mark non-terminal batches from older runs of the same job as superseded."""
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "job_id": job_id,
+                "current_run_uuid": current_run_uuid,
+                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
         )
         return cursor.rowcount or 0
@@ -425,6 +491,7 @@ class BatchQueue:
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
                     ORDER BY b.run_uuid, s.created_at DESC
                 ) failed_runs
                 ORDER BY failed_at DESC
@@ -459,3 +526,51 @@ class BatchQueue:
         one unlock per row balances the depth exactly.
         """
         await unlock_advisory_locks(conn, batches=batches, namespace=ADVISORY_LOCK_NAMESPACE)
+
+    @staticmethod
+    def get_run_activity_summary(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        workflow_run_id: str,
+    ) -> RunActivitySummary:
+        """Check the queue DB for batch activity belonging to a holder's run.
+
+        Returns a summary indicating whether any non-terminal batches exist and
+        the age of the most recent status update. Used by the lock takeover
+        decision matrix to distinguish genuinely stale RUNNING jobs from ones
+        with active consumer processing.
+        """
+        STALE_THRESHOLD_SECONDS = 30 * 60  # 30 minutes
+
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE s.job_state NOT IN ('succeeded', 'failed')
+                    ) AS non_terminal_count,
+                    MAX(s.created_at) AS latest_status_at
+                FROM {BATCH_TABLE} b
+                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                WHERE
+                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND b.job_id = %(job_id)s
+                    AND b.metadata->>'workflow_run_id' = %(workflow_run_id)s
+                """,
+                {"job_id": job_id, "workflow_run_id": workflow_run_id},
+            )
+            row = cur.fetchone()
+
+        if row is None or row["latest_status_at"] is None:
+            return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
+
+        non_terminal_count: int = row["non_terminal_count"]
+        latest_status_at: datetime = row["latest_status_at"]
+        age_seconds = (datetime.now(latest_status_at.tzinfo) - latest_status_at).total_seconds()
+
+        return RunActivitySummary(
+            has_batches=True,
+            has_non_terminal=non_terminal_count > 0,
+            is_stale=age_seconds > STALE_THRESHOLD_SECONDS,
+        )
