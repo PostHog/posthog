@@ -122,7 +122,9 @@ capabilities:
     agent_runtime:
         description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
         requires: [core_infra]
-        docker_profiles: []
+        # SeaweedFS on :8333 — agent bundle + memory object storage (separate
+        # from the main `objectstorage` on :19000).
+        docker_profiles: [agents]
 
     ai_gateway:
         description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes agent model calls'

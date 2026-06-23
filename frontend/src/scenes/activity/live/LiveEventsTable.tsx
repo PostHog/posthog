@@ -24,7 +24,7 @@ import { EventName } from 'products/actions/frontend/components/EventName'
 
 import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
-import { liveEventsLogic } from './liveEventsLogic'
+import { LIVE_EVENTS_SUPPORTED_OPERATORS, liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
 
 const LIVE_EVENTS_POLL_INTERVAL_MS = 1500
@@ -92,7 +92,11 @@ export function LiveEventsTable(): JSX.Element {
                         propertyFilters={filters.properties ?? []}
                         onChange={(properties) => setFilters({ ...filters, properties })}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        operatorAllowlist={[PropertyOperator.Exact]}
+                        operatorAllowlist={
+                            featureFlags[FEATURE_FLAGS.LIVE_EVENTS_RICH_FILTERS]
+                                ? LIVE_EVENTS_SUPPORTED_OPERATORS
+                                : [PropertyOperator.Exact]
+                        }
                         buttonText="Filter by property"
                     />
                     <LemonButton

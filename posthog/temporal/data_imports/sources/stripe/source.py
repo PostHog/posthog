@@ -29,6 +29,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookSource,
     WebhookSyncResult,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -97,6 +98,11 @@ class StripeSource(
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.stripe.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:

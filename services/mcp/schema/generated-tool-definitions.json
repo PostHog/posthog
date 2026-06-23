@@ -711,6 +711,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-session-logs": {
+        "description": "The append-only event log for one session — the runner's own record of what happened, separate from the conversation transcript. Entries carry a level (info / warn / error), a message, and structured metadata: tool executions + results, MCP open successes / failures (with a coarse failure category), identity resolution decisions (`identity.resolved` — which credential source acted as whom, never the token), approval gates, and errors. Use this to debug WHY a session behaved as it did when the transcript alone isn't enough (e.g. a tool degraded, an MCP failed to open, or an asker's identity resolved unexpectedly). Pair with `agent-applications-sessions-retrieve` for the transcript. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get a session's structured event log",
+        "title": "Get a session's structured event log",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-sessions-list": {
         "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
         "category": "Agent stack",
@@ -1200,6 +1215,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "product-business-knowledge"
+    },
+    "business-knowledge-sources-partial-update": {
+        "description": "Update an existing business knowledge source by ID. Change its name, replace the text content (text sources only — triggers a re-chunk), or toggle `always_include`. Set `always_include: true` to inject this source's content into every support reply as general guidance (tone, policies, company direction); set false to make it retrieval-only again. Only the fields you pass are changed.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Update business knowledge source",
+        "title": "Update business knowledge source",
+        "required_scopes": ["business_knowledge:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "product-business-knowledge"
     },
@@ -2962,7 +2992,7 @@
         }
     },
     "external-data-schemas-list": {
-        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, and latest error. Use this to see which tables are actively syncing and their health.",
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table being synced from an external source. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
@@ -3116,7 +3146,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected.",
+        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -3643,6 +3673,76 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-report-artefacts-create": {
+        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report association: content.task_id defaults to your own task, product/type label the run and default to tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry), `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Returns the created artefact including its id.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Append an artefact to a report",
+        "title": "Append an artefact to a report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-delete": {
+        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete an artefact",
+        "title": "Delete an artefact",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "inbox-report-artefacts-list": {
+        "description": "List every artefact on a signal report — the full picture of why it exists and what has been done about it: `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability / priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status), and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or adding to the log.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's artefacts",
+        "title": "List a report's artefacts",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-artefacts-retrieve": {
+        "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a single artefact",
+        "title": "Get a single artefact",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "inbox-report-artefacts-update": {
+        "description": "Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The new content is validated against the artefact type's schema. Editing the latest row of a status type changes the report's canonical status; to re-assess while keeping history, append a new artefact instead.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace an artefact's content",
+        "title": "Replace an artefact's content",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-bulk-set-state": {
         "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
         "category": "Signals",
@@ -3658,7 +3758,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -3672,7 +3772,7 @@
         }
     },
     "inbox-reports-retrieve": {
-        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.",
+        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even research — first associate your task with it by appending a `task_run` artefact via inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready` reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than acting on it yourself.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get signal report",
@@ -5527,6 +5627,21 @@
         },
         "system_prompt_hint": "Conversion rates, drop-off analysis, time to convert"
     },
+    "query-funnel-actors": {
+        "description": "List the persons behind one step of a funnel insight — either those who converted through it or those who dropped off at it.\n\nPair this with `query-funnel`: first run the funnel query to read the per-step counts, then call this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and the selectors you use must match the source funnel's `funnelsFilter.funnelVizType`.\n\n## Step mode (the default — source `funnelVizType: \"steps\"`)\n\nUse `funnelStep` to pick a step. The **sign** picks the direction:\n\n- **Positive** `funnelStep` lists actors who **converted through** that step.\n- **Negative** `funnelStep` lists actors who **dropped off** at that step.\n\nSteps are **1-based**. Examples for a 3-step funnel:\n\n- `funnelStep: 1` — entered the funnel (reached step 1).\n- `funnelStep: 2` — converted through step 2.\n- `funnelStep: -2` — dropped off at step 2 (reached step 1 but not step 2).\n- `funnelStep: 3` — converted through the whole funnel.\n- `funnelStep: -3` — dropped off at step 3.\n\nYou cannot drop off at the entry step, so the smallest negative value is `-2`. To list every person at each step, call this tool once per `(step, direction)` you care about — a single call returns one cohort, not all steps.\n\n- `funnelStepBreakdown` (optional): scope to one breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.\n\n## Trends-dropoff mode (source `funnelVizType: \"trends\"`)\n\nFor a funnel-trends (conversion-over-time) insight, drill into one point on the chart:\n\n- `funnelTrendsDropOff`: `true` lists actors who dropped off, `false` lists those who converted.\n- `funnelTrendsEntrancePeriodStart`: the entrance period as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the point the user is asking about.\n\nUse these two together. Do not mix them with `funnelStep`.\n\n> The funnel `time_to_convert` viz type has no persons drilldown — this tool does not support it.\n\n## Response\n\nEach returned row contains `distinct_id`, `email`, and `name`, plus a `recordings` column when `includeRecordings` is set (default `true`). Results are limited to the top 100 actors.\n\n## Guidance\n\n- Keep the `source` funnel query identical to the one whose step the user is asking about — the series order, date range, conversion window, and filters all determine who converts at each step.\n- Make sure the mode matches the source's `funnelVizType`: `funnelStep` needs `\"steps\"` (the default), `funnelTrendsDropOff` needs `\"trends\"`. Mixing them returns wrong or empty results.\n- For large cohorts, tighten the source (date range, filters) rather than expecting more than 100 rows.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "List persons who converted or dropped off at a funnel step",
+        "title": "List persons who converted or dropped off at a funnel step",
+        "required_scopes": ["query:read", "person:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "List persons who converted through or dropped off at a given funnel step"
+    },
     "query-lifecycle": {
         "description": "Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What is the composition of my active users over time?\n- Are we gaining new users faster than we're losing dormant ones?\n- How many users resurrected (came back after being inactive) last week?\n- Is the returning user base growing or shrinking?\n- How does user engagement change after a product launch?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Lifecycle guidelines\n\nLifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.\n\n## Lifecycle statuses\n\nEach user is categorized into one of four statuses for each time period:\n\n- **New** – the user performed the event for the first time ever during this period.\n- **Returning** – the user was active in the previous period and is active again in the current period.\n- **Resurrecting** – the user was inactive for one or more periods and became active again.\n- **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.\n\n## Time interval\n\nSpecify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.\n\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n\n## Toggled lifecycles\n\nUse `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses are displayed. By default, all four statuses are shown. Only set this when the user wants to focus on specific statuses (e.g., only new and dormant users).\n\n## Math aggregation\n\nLifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.\n\n# Examples\n\n## Daily lifecycle of pageviews over the last 30 days\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\"\n}\n```\n\n## Weekly lifecycle of sign ups, excluding test accounts\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"user signed up\" }],\n  \"dateRange\": { \"date_from\": \"-90d\" },\n  \"interval\": \"week\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Monthly lifecycle of \"insight created\" showing only new and dormant users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"insight created\" }],\n  \"dateRange\": { \"date_from\": \"-12m\" },\n  \"interval\": \"month\",\n  \"lifecycleFilter\": {\n    \"toggledLifecycles\": [\"new\", \"dormant\"]\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Lifecycle of purchases by mobile users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"purchase completed\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\",\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }]\n}\n```\n\n# Reminders\n\n- Lifecycle insights support only **one** series — do not add multiple events or actions.\n- Do not set `math` on the series node — lifecycle does not support math aggregation.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
         "category": "Query wrappers",
@@ -7304,7 +7419,7 @@
         }
     },
     "view-update": {
-        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update saved query",
@@ -7664,6 +7779,48 @@
             "readOnlyHint": true
         },
         "feature_flag": "visual-review"
+    },
+    "warehouse-column-annotations-create": {
+        "description": "Add a semantic description for a data warehouse table or column. Provide the table id, the column_name (empty string for a table-level description), and the description. The new annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a warehouse column description",
+        "title": "Add a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-column-annotations-list": {
+        "description": "List semantic descriptions of data warehouse tables and columns. Pass ?table_id=<uuid> to scope to one table. Each entry has the column_name (empty string = table-level description), the description, and its source (canonical from the source's API documentation, ai_generated, or user_edited). Use this to see what the imported data means before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List warehouse column descriptions",
+        "title": "List warehouse column descriptions",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-column-annotations-partial-update": {
+        "description": "Update the description of an existing warehouse table or column annotation by its id. The annotation is marked user-edited, so automatic enrichment will no longer overwrite it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Edit a warehouse column description",
+        "title": "Edit a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     },
     "warehouse-tables-refresh-schema-create": {
         "description": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",

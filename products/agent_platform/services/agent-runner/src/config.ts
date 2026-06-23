@@ -238,6 +238,13 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),
+    linkRedirectBaseUrl: z
+        .string()
+        .url()
+        .default(() => (isDev() ? 'http://localhost:3030' : 'https://agents.posthog.com'))
+        .describe(
+            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress; prod sets the deployed ingress URL.'
+        ),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -277,6 +284,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
+    AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

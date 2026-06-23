@@ -3952,7 +3952,7 @@
             "label": "Deep link opened"
         },
         "mcp feedback submitted": {
-            "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
+            "description": "Fires when feedback is submitted through the MCP server's feedback tool — about any PostHog product, the MCP server itself, or the docs.",
             "label": "MCP feedback submitted"
         },
         "mcp init": {

@@ -92,11 +92,6 @@ function TracesOptionsMenu(): JSX.Element | null {
     const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
 
     const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-    const showSentimentToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
-
-    if (!showInputOutputToggleEnabled && !showSentimentToggleEnabled) {
-        return null
-    }
 
     return (
         <LemonDropdown
@@ -114,16 +109,14 @@ function TracesOptionsMenu(): JSX.Element | null {
                             data-attr="llm-traces-show-input-output-toggle"
                         />
                     )}
-                    {showSentimentToggleEnabled && (
-                        <LemonSwitch
-                            checked={showSentimentColumn}
-                            onChange={setShowSentimentColumn}
-                            label="Show sentiment"
-                            fullWidth
-                            tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
-                            data-attr="llm-traces-show-sentiment-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showSentimentColumn}
+                        onChange={setShowSentimentColumn}
+                        label="Show sentiment"
+                        fullWidth
+                        tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
+                        data-attr="llm-traces-show-sentiment-toggle"
+                    />
                 </div>
             }
         >

@@ -412,7 +412,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "mcp feedback submitted": {
             "label": "MCP feedback submitted",
-            "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
+            "description": "Fires when feedback is submitted through the MCP server's feedback tool — about any PostHog product, the MCP server itself, or the docs.",
         },
         "$snapshot": {
             "label": "Session recording snapshot",

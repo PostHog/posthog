@@ -26,77 +26,20 @@
             "auth": {
                 "modes": [{ "type": "posthog", "audience": "organization" }, { "type": "posthog_internal" }]
             }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "mention_only": true,
+                "auto_resume_threads": true,
+                "allow_workspace_participants": false,
+                "allow_direct_messages": true,
+                "trusted_workspaces": "*",
+                "ack_reaction": "eyes"
+            }
         }
     ],
     "tools": [
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-native-tools-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-spec-schema"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-system-prompt"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-manifest-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-slack-manifest"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-sessions-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-sessions-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-session-logs"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-bundle-retrieve"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-env-keys-list"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-env-keys-get"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/query"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/list-projects"
-        },
         {
             "kind": "native",
             "id": "@posthog/memory-search"
@@ -108,72 +51,6 @@
         {
             "kind": "native",
             "id": "@posthog/memory-write"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-partial-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-new-draft-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-partial-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-agent-md-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-skills-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-skills-destroy"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-tools-update"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-tools-destroy"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-validate-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-freeze-create"
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-promote-create",
-            "requires_approval": true,
-            "approval_policy": {
-                "approvers": ["session_principal"],
-                "ttl_ms": 900000
-            }
-        },
-        {
-            "kind": "native",
-            "id": "@posthog/agent-applications-revisions-archive-create",
-            "requires_approval": true,
-            "approval_policy": {
-                "approvers": ["session_principal"],
-                "ttl_ms": 900000
-            }
         },
         {
             "kind": "client",
@@ -326,7 +203,64 @@
             }
         }
     ],
-    "mcps": [],
+    "mcps": [
+        {
+            "id": "posthog",
+            "url": "http://localhost:8787/mcp",
+            "auth": { "provider": "posthog" },
+            "tools": [
+                "agent-applications-list",
+                "agent-applications-retrieve",
+                "agent-applications-create",
+                "agent-applications-partial-update",
+                "agent-applications-revisions-list",
+                "agent-applications-revisions-retrieve",
+                "agent-applications-revisions-create",
+                "agent-applications-revisions-new-draft-create",
+                "agent-applications-revisions-clone-from-create",
+                "agent-applications-revisions-partial-update",
+                "agent-applications-revisions-agent-md-update",
+                "agent-applications-revisions-skills-update",
+                "agent-applications-revisions-skills-destroy",
+                "agent-applications-revisions-tools-update",
+                "agent-applications-revisions-tools-destroy",
+                "agent-applications-revisions-spec-update",
+                "agent-applications-revisions-bundle-retrieve",
+                "agent-applications-revisions-validate-create",
+                "agent-applications-revisions-freeze-create",
+                "agent-applications-revisions-system-prompt",
+                "agent-applications-revisions-manifest-retrieve",
+                "agent-applications-revisions-slack-manifest",
+                "agent-applications-sessions-list",
+                "agent-applications-sessions-retrieve",
+                "agent-applications-session-logs",
+                "agent-applications-env-keys-list",
+                "agent-applications-env-keys-get",
+                "agent-native-tools-list",
+                "agent-resolve-resource",
+                "execute-sql",
+                "insight-query",
+                "get-llm-total-costs-for-project",
+                "projects-get",
+                "switch-project",
+                {
+                    "name": "agent-applications-revisions-promote-create",
+                    "requires_approval": true,
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                },
+                {
+                    "name": "agent-applications-revisions-archive-create",
+                    "requires_approval": true,
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                },
+                {
+                    "name": "agent-applications-destroy",
+                    "requires_approval": true,
+                    "approval_policy": { "type": "principal", "ttl_ms": 900000 }
+                }
+            ]
+        }
+    ],
     "skills": [
         {
             "id": "platform-mental-model",
@@ -352,6 +286,11 @@
             "id": "authoring-new-agents",
             "path": "skills/authoring-new-agents/SKILL.md",
             "description": "Creating a new agent from scratch \u2014 discover building blocks, design spec, write agent.md and skills, configure tools. Load only when the user is creating a NEW agent; for editing, use editing-agents-safely instead."
+        },
+        {
+            "id": "authenticating-as-the-user",
+            "path": "skills/authenticating-as-the-user/SKILL.md",
+            "description": "How an agent acts on a service AS the user \u2014 the identity system. The two axes (principal: who's asking vs credential provider: how the agent gets their token), spec.identity_providers (kind posthog vs bring-your-own oauth2, scopes, binding), how tools/MCPs declare they need a provider (native requires.provider, mcp auth.provider, custom requires_identity), the resolve outcomes (ok / link_required / unavailable), connect + relink links via @posthog/identity-connect, and how to choose OAuth scopes. Load whenever you're wiring an agent that calls PostHog or any third-party API as the user, adding an MCP with auth.provider, deciding scopes, or the user asks about connecting / linking / OAuth / 'act as me'."
         },
         {
             "id": "choosing-the-model",
@@ -410,6 +349,21 @@
         }
     ],
     "integrations": [],
+    "identity_providers": [
+        {
+            "kind": "posthog",
+            "scopes": [
+                "openid",
+                "profile",
+                "email",
+                "user:read",
+                "agents:read",
+                "agents:write",
+                "query:read",
+                "insight:read"
+            ]
+        }
+    ],
     "secrets": [],
     "limits": {
         "max_turns": 80,

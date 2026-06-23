@@ -108,7 +108,7 @@ describe('cron trigger: real e2e', () => {
     it('manual fire endpoint shape — POST /revisions/:id/cron/fire enqueues + the runner completes', async () => {
         // Uses the janitor HTTP route directly. The endpoint isn't on the
         // ingress (it's an authoring-side surface), so we hit the janitor
-        // app the harness exposes. Same code path the agent-console will
+        // app the harness exposes. Same code path the console UI will
         // call when an author clicks "Fire now."
         c.setScript([fauxText('manual ack')])
         const { application, revision } = await c.deployAgent({

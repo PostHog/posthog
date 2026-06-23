@@ -1,0 +1,38 @@
+import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
+import { dayjs } from 'lib/dayjs'
+
+import { DatePicker, DatePickerProps } from './DatePicker'
+
+type Story = StoryObj<typeof DatePicker>
+const meta: Meta<typeof DatePicker> = {
+    title: 'Components/Date picker',
+    component: DatePicker,
+    parameters: {
+        mockDate: '2023-01-26',
+    },
+    tags: ['autodocs'],
+}
+export default meta
+
+function Template(props: Partial<DatePickerProps>): JSX.Element {
+    const [value, setValue] = useState<dayjs.Dayjs | null>(props.value ?? null)
+    return (
+        <div className="w-80">
+            <DatePicker {...props} value={value} onChange={setValue} />
+        </div>
+    )
+}
+
+export const Empty: Story = { render: () => <Template placeholder="Select a date" /> }
+
+export const WithValue: Story = { render: () => <Template value={dayjs('2023-01-15')} /> }
+
+export const Clearable: Story = { render: () => <Template value={dayjs('2023-01-15')} clearable /> }
+
+export const WithTime: Story = {
+    render: () => <Template value={dayjs('2023-01-15')} granularity="minute" showTimeToggle />,
+}
+
+export const PastOnly: Story = { render: () => <Template placeholder="Select a past date" selectionPeriod="past" /> }

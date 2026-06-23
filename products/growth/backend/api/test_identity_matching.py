@@ -193,6 +193,16 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert runs_response.status_code == status.HTTP_200_OK
         assert runs_response.json() == {"results": []}
 
+    @parameterized.expand([("links", ""), ("runs", "runs/")])
+    def test_returns_503_when_scratch_bucket_unconfigured_on_cloud(self, _name: str, suffix: str) -> None:
+        # On Cloud, an unset IDENTITY_MATCHING_S3_BUCKET falls back to OBJECT_STORAGE_BUCKET; both
+        # equal means the env is missing, so the endpoint should fail loudly instead of reading the
+        # wrong bucket. Force equality so the assertion holds regardless of the CI environment.
+        with override_settings(CLOUD_DEPLOYMENT="US", IDENTITY_MATCHING_S3_BUCKET="b", OBJECT_STORAGE_BUCKET="b"):
+            response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/{suffix}")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "IDENTITY_MATCHING_S3_BUCKET" in response.json()["detail"]
+
     def test_runs_lists_link_counts_per_model(self) -> None:
         self._seed()
         response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/runs/")
