@@ -8,8 +8,11 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import {
+    getDefaultFilters,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -22,6 +25,7 @@ import { ObservationStatusTag } from '../../components/ObservationCard'
 import { visionScannersObservationsList } from '../../generated/api'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScanner } from '../types'
 
 type RowObservation = { id: string; status: ReplayObservationApi['status'] }
 const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
@@ -203,6 +207,11 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             ),
         },
         {
+            title: 'Person',
+            key: 'person',
+            render: (_, recording) => <PersonDisplay person={recording.person} withIcon />,
+        },
+        {
             title: 'When',
             dataIndex: 'start_time',
             render: (start_time) => (start_time ? <TZLabel time={String(start_time)} /> : <span>—</span>),
@@ -329,23 +338,44 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
 
 /** Browse and filter recordings, then fire this scanner against any of them. */
 function ScanFromRecordings({ scannerId }: { scannerId: string }): JSX.Element {
-    const logicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: `vision-run-${scannerId}`,
-        updateSearchParams: false,
-    }
+    // Seed the recordings list from the scanner's trigger filters so it starts scoped to the sessions this scanner
+    // cares about (useful for backfilling sessions that were never sampled). `originalScanner` is the saved scanner
+    // — null until it loads — and we gate on it because the playlist logic reads `filters` only at mount.
+    const { originalScanner } = useValues(replayScannerLogic({ id: scannerId }))
+
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div>
                 <h3 className="text-sm font-medium mb-1">Pick from your recordings</h3>
                 <p className="text-muted text-sm m-0">
                     Filter your session recordings and run this scanner against any of them. Each scan produces one
-                    observation.
+                    observation. Filters start from this scanner's triggers — adjust them to backfill or scan
+                    un-sampled sessions.
                 </p>
             </div>
-            <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-                <RecordingsList scannerId={scannerId} />
-            </BindLogic>
+            {originalScanner ? (
+                <RecordingsPicker scannerId={scannerId} scanner={originalScanner} />
+            ) : (
+                <div className="flex items-center text-muted text-sm">
+                    <Spinner className="mr-1" /> Loading recordings…
+                </div>
+            )}
         </div>
+    )
+}
+
+function RecordingsPicker({ scannerId, scanner }: { scannerId: string; scanner: ReplayScanner }): JSX.Element {
+    // Date range / sort come from the recordings defaults (the scanner query stores no date window); the filter
+    // group, duration, and test-account setting are taken from the scanner's triggers.
+    const logicProps: SessionRecordingPlaylistLogicProps = {
+        logicKey: `vision-run-${scannerId}`,
+        updateSearchParams: false,
+        filters: { ...getDefaultFilters(), ...recordingsQueryToUniversalFilters(scanner.query) },
+    }
+    return (
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <RecordingsList scannerId={scannerId} />
+        </BindLogic>
     )
 }
 
