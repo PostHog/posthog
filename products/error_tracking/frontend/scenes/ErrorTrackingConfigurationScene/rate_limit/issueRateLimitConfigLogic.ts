@@ -280,21 +280,10 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                 return
             }
             const bucketMinutes = values.configForm.per_issue_rate_limit_bucket_size_minutes
-            // Volume backs the default simulation view, so load it eagerly (like the project-wide
-            // chart loads volume on mount) — switching back to simulation then needs no refetch.
+            // Fetch both charts once per issue; toggling between Simulation and History then reuses
+            // them without refetching. The reload button forces a refresh when fresh data is wanted.
             actions.loadSelectedIssueVolume({ issueId, bucketMinutes })
-            if (values.chartMode === 'history') {
-                actions.loadSelectedIssueHistory({ issueId, bucketMinutes })
-            }
-        },
-        setChartMode: ({ mode }) => {
-            // Only history needs fetching on toggle; volume is already loaded for the selected issue.
-            if (mode === 'history' && values.selectedIssueId) {
-                actions.loadSelectedIssueHistory({
-                    issueId: values.selectedIssueId,
-                    bucketMinutes: values.configForm.per_issue_rate_limit_bucket_size_minutes,
-                })
-            }
+            actions.loadSelectedIssueHistory({ issueId, bucketMinutes })
         },
         loadTopIssuesSuccess: ({ topIssues }) => {
             const current = values.selectedIssueId
