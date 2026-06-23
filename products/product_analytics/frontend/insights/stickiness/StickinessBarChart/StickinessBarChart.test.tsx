@@ -74,13 +74,13 @@ describe('StickinessBarChart', () => {
         })
     })
 
-    it('tooltip: percent value + "Stickiness on {Interval} {day}" title (not a calendar date)', async () => {
+    it('tooltip: percent value + "Stickiness on {interval} {day}" title (not a calendar date)', async () => {
         renderInsight({ query: stickinessBar() })
 
         const tooltip = await chart.hoverTooltip(2)
         // Days are 1-indexed in the mock, so bucket 2 == day 3.
         expect(tooltip.row('Pageview')).toMatch(/%/)
-        expect(tooltip.title()).toMatch(/Stickiness on Day 3/)
+        expect(tooltip.title()).toMatch(/Stickiness on day 3/)
         // Must NOT default to a Unix-epoch-derived calendar date.
         expect(tooltip.title()).not.toMatch(/1970/i)
     })
@@ -101,7 +101,7 @@ describe('StickinessBarChart', () => {
         expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
     })
 
-    it('click → persons modal: opens with a "Stickiness on {Interval} {day}" title', async () => {
+    it('click → persons modal: opens with a "Stickiness on {interval} {day}" title', async () => {
         renderInsight({ query: stickinessBar() })
 
         await chart.clickAtIndex(2)
@@ -112,7 +112,7 @@ describe('StickinessBarChart', () => {
             },
             { timeout: 5000 }
         )
-        expect(personsModal.title()).toMatch(/Stickiness on Day 3/)
+        expect(personsModal.title()).toMatch(/Stickiness on day 3/)
         expect(personsModal.title()).toMatch(/Pageview/i)
     })
 

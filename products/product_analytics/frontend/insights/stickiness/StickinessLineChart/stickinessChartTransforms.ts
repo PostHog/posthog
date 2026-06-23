@@ -91,14 +91,14 @@ export function stickinessPercentFormatter(value: number): string {
 export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 /** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "Stickiness on {Interval} {day}" so InsightTooltip doesn't try to
+ *  Render "Stickiness on {interval} {day}" so InsightTooltip doesn't try to
  *  format it as a calendar date (which would land on 1970-01-01). */
 export function buildStickinessTooltipTitle(
     interval: string | null | undefined
 ): (seriesData: SeriesDatum[]) => string {
     return (seriesData) => {
         const day = seriesData[0]?.date_label ?? ''
-        return `Stickiness on ${capitalizeFirstLetter(interval || 'day')} ${day}`
+        return `Stickiness on ${interval || 'day'} ${day}`
     }
 }
 
