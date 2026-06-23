@@ -84,27 +84,32 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
         return ast.And(exprs=exprs)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # nosemgrep: hogql-fstring-audit (interpolated SQL is static module constants from mcp_harness; user input — date range + properties — is injected via the {{where}} HogQL placeholder, not the f-string)
+        # The harness label and token are HogQL fragments from mcp_harness; parse them
+        # to AST and inject as placeholders (like {where}) so nothing is string-interpolated.
         return parse_select(
-            f"""
+            """
             SELECT
-                {mcp_harness.harness_label_sql("h")} AS harness,
+                {label} AS harness,
                 count() AS total_calls,
                 countIf(is_error) AS errors,
                 round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
                 countDistinctIf(session_id, session_id != '') AS sessions
             FROM (
                 SELECT
-                    {mcp_harness.HARNESS_TOKEN_SQL} AS h,
+                    {token} AS h,
                     $session_id AS session_id,
                     toBool(properties.$mcp_is_error) AS is_error
                 FROM events
-                WHERE {{where}}
+                WHERE {where}
             )
             GROUP BY harness
             ORDER BY total_calls DESC
             """,
-            placeholders={"where": self._where()},
+            placeholders={
+                "label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+                "where": self._where(),
+            },
         )
 
     def _calculate(self) -> MCPHarnessBreakdownQueryResponse:
