@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -30,9 +30,13 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import reconcile_source_schema_metadata
 from posthog.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
@@ -53,6 +57,10 @@ ClickHouseErrors: dict[str, str] = {
 
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Lets users pick which columns to sync (and, in the wizard, surfaces the
+    # row-filter editor that shares the same column-selection modal).
+    supports_column_selection: bool = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
@@ -181,6 +189,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `_get_table` when `system.columns` returns no columns for the
+            # configured table — the table no longer exists in the source database at sync
+            # time. It was dropped or renamed, or (commonly) the schema points at a
+            # materialized view's auto-generated `.inner_id.<uuid>` inner table whose UUID
+            # changed when the view was recreated. Either way the table is gone and retrying
+            # replays the identical failure, so stop and tell the customer to fix the schema.
+            # We match the stable suffix, not the volatile `<database>.<table>` prefix.
+            "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
         }
 
     def get_schemas(
@@ -340,4 +356,17 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
+            row_filters=inputs.row_filters,
+            enabled_columns=inputs.enabled_columns,
         )
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Persist per-schema column metadata so row filters validate and the
+        column picker populates. ClickHouse isn't a `SQLSource`, but the
+        reconcile step is driver-agnostic, so we reuse the shared helper."""
+        return reconcile_source_schema_metadata(source, source_schemas, team_id)

@@ -6,12 +6,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'

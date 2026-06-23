@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dateFilterToText, dateMapping, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { githubWorkflowUrl } from '../lib/github'
 import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
@@ -49,12 +52,23 @@ function successRateClass(rate: number | null): string {
 }
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
-    const { workflowHealth, workflowHealthLoading, loadFailed, workflowDateFrom, workflowDateTo } =
-        useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange } = useActions(engineeringAnalyticsLogic)
+    const {
+        workflowHealth,
+        workflowHealthLoading,
+        notConnected,
+        workflowHealthLoadError,
+        workflowDateFrom,
+        workflowDateTo,
+        branchInput,
+        appliedBranch,
+    } = useValues(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
-    if (loadFailed) {
+    if (notConnected) {
         return <ConnectGitHubSource />
+    }
+    if (workflowHealthLoadError) {
+        return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
     const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 30 days') ?? 'Last 30 days'
@@ -105,7 +119,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     <Sparkline
                         className="h-8"
                         type="bar"
-                        name="Non-passing"
+                        name="Failing"
                         data={values}
                         labels={labels}
                         maximumIndicator={false}
@@ -156,6 +170,17 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onChange={setWorkflowDateRange}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                 />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    className="w-56"
+                    placeholder="Branch: all (e.g. main)"
+                    value={branchInput}
+                    onChange={setBranchFilter}
+                    onPressEnter={applyBranchFilter}
+                    onBlur={applyBranchFilter}
+                    data-attr="engineering-analytics-branch-filter"
+                />
             </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
@@ -166,12 +191,17 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
-                emptyState="No workflow runs in this window."
+                emptyState={
+                    appliedBranch
+                        ? `No workflow runs on '${appliedBranch}' in this window.`
+                        : 'No workflow runs in this window.'
+                }
                 nouns={['workflow', 'workflows']}
             />
             <div className="text-xs text-tertiary">
                 Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: {windowLabel}.
+                excluded, not counted as a failure. Window: {windowLabel}
+                {appliedBranch ? ` · branch: ${appliedBranch}` : ''}.
             </div>
         </div>
     )

@@ -7,6 +7,7 @@ from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
     _is_invalid_page_token_error,
+    _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -167,6 +169,28 @@ class TestGoogleAdsNonRetryableErrors:
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # `str(google.api_core.exceptions.Unauthenticated)` as it propagates from
+            # `GoogleAdsService.search` — gapic wraps the transport-level UNAUTHENTICATED as
+            # "401 {message}", so it carries the human message but not the bare status token.
+            (
+                "401 Request is missing required authentication credential. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
+        ],
+    )
+    def test_missing_auth_credential_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_missing_auth_credential_has_friendly_message(self):
+        friendly = self.non_retryable["Request is missing required authentication credential"]
+        assert friendly is not None
+        assert "reconnect" in friendly.lower()
+
     def test_other_model_does_not_exist_is_not_swallowed(self):
         # The pattern is model-specific so an unrelated model's DoesNotExist — which may be a real
         # bug — is not silently treated as non-retryable.
@@ -201,6 +225,7 @@ class TestGoogleAdsNonRetryableErrors:
             "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
             "access_not_configured",
+            "Request is missing required authentication credential",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -443,3 +468,60 @@ class TestSearchPageTokenResumption:
 
         assert always_failing.calls == [""]
         assert manager.saved_states == []
+
+
+_CLIENT_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
+_SLEEP_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+
+
+class TestLoadClientTransientRetry:
+    def test_retries_transport_error_then_succeeds(self):
+        client = object()
+        load = mock.Mock(
+            side_effect=[
+                google_auth_exceptions.TransportError("timed out"),
+                google_auth_exceptions.TransportError("timed out"),
+                client,
+            ]
+        )
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            result = _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert result is client
+        assert load.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        load = mock.Mock(side_effect=google_auth_exceptions.TransportError("timed out"))
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(google_auth_exceptions.TransportError):
+                _load_client_with_transient_retry({"refresh_token": "x"}, max_attempts=3)
+
+        assert load.call_count == 3
+        # One sleep fewer than attempts — no backoff after the final failure.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A revoked/expired credential surfaces as RefreshError, not TransportError — it must
+            # not be retried as if it were transient (it's handled as non-retryable elsewhere).
+            google_auth_exceptions.RefreshError("invalid_grant"),
+            ValueError("boom"),
+        ],
+    )
+    def test_non_transient_error_is_not_retried(self, error):
+        load = mock.Mock(side_effect=error)
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(type(error)):
+                _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert load.call_count == 1
+        assert sleep.call_args_list == []

@@ -10,7 +10,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -64,6 +64,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # via the serializer; NULL on historical rows created before this field existed.
     created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
     access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
+    # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
+    direct_query_enabled = models.BooleanField(default=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -82,6 +84,20 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_postgres(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.POSTGRES
+
+    @property
+    def is_direct_mysql(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.MYSQL
+
+    @property
+    def direct_engine(self) -> str | None:
+        """The direct-SQL engine for this source's type, or None if no engine maps to it.
+
+        This keys off ``source_type`` only and ignores ``access_method``/toggles — a non-None
+        result means "an engine exists for this type", not "this source is queryable". Whether a
+        source may actually be queried live is decided by ``is_direct_capable`` and the adapters.
+        """
+        return DIRECT_ENGINE_BY_SOURCE_TYPE.get(self.source_type)
 
     @property
     def supports_scheduled_sync(self) -> bool:

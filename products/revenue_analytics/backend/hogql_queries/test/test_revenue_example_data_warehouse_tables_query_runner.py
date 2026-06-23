@@ -78,7 +78,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
             query = RevenueExampleDataWarehouseTablesQuery(
                 modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
-            runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query)
+            runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query, user=self.user)
 
             response = runner.calculate()
             RevenueExampleDataWarehouseTablesQueryResponse.model_validate(response)

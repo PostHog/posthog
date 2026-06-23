@@ -6,6 +6,8 @@ import { AccountsEvents } from './constants'
 
 export type AccountExpansionTab = 'notes' | 'users' | 'usage' | 'spend'
 
+export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = ['notes', 'users', 'usage', 'spend']
+
 export const DEFAULT_ACCOUNT_TAB: AccountExpansionTab = 'notes'
 
 export const accountsExpansionLogic = kea<accountsExpansionLogicType>([

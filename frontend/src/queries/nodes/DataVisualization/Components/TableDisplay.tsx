@@ -26,6 +26,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
         [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
         [ChartDisplayType.BoldNumber]: 'Big number',
+        [ChartDisplayType.Metric]: 'Metric',
         [ChartDisplayType.ActionsPie]: 'Pie chart',
         [ChartDisplayType.ActionsBarValue]: 'Value chart',
         [ChartDisplayType.ActionsTable]: 'Table',

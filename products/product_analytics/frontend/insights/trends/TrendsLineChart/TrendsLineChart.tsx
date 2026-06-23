@@ -6,7 +6,7 @@ import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/qui
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { ciRanges } from 'lib/statistics'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -28,6 +28,7 @@ import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
@@ -43,6 +44,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps, insight } = useValues(insightLogic)
+
+    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -195,7 +199,9 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // With the quill legend on, hidden series are listed (dimmed) and excluded via
+                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
+                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
         [
@@ -206,6 +212,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             isStickiness,
             getTrendsColor,
             getTrendsHidden,
+            quillLegendEnabled,
         ]
     )
 
@@ -235,6 +242,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             indexedResults,
@@ -256,6 +264,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showTrendLines,
             showValuesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
 

@@ -13,7 +13,7 @@ import {
 } from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
 import { Params } from 'scenes/sceneTypes'

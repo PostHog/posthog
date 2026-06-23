@@ -9,14 +9,11 @@ import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs } from 'lib/dayjs'
-import {
-    capitalizeFirstLetter,
-    ceilMsToClosestSecond,
-    humanFriendlyDuration,
-    isEmptyObject,
-    percentage,
-} from 'lib/utils'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
+import { ceilMsToClosestSecond, humanFriendlyDuration } from 'lib/utils/durations'
+import { isEmptyObject } from 'lib/utils/guards'
+import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'

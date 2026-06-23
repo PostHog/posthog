@@ -57,7 +57,7 @@ CACHE_SIZE_SAMPLE_LIMIT = 1000
 HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
     "Cache updates triggered by Django signals",
-    labelnames=["namespace", "operation", "result"],
+    labelnames=["namespace", "cache_name", "operation", "result"],
 )
 
 

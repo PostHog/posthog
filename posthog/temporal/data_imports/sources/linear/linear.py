@@ -90,7 +90,13 @@ def _make_paginated_request(
         reraise=True,
     )
     def execute(variables: dict[str, Any]) -> dict:
-        response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
+        try:
+            response = sess.post(LINEAR_API_URL, json={"query": query, "variables": variables}, timeout=60)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            # The session's urllib3 Retry only covers idempotent methods, so Linear's POSTs get no
+            # transport-level retry. Route transient network failures (read timeout, connection reset)
+            # through the same backoff path as 5xx/429 instead of failing the whole activity on one blip.
+            raise LinearRetryableError(f"Linear: transient network error - {e}")
 
         if response.status_code >= 500:
             raise LinearRetryableError(f"Linear: server error {response.status_code}")

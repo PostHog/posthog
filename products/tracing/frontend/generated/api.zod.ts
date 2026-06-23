@@ -564,7 +564,54 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
         .describe('The sparkline \/ duration-histogram query to execute.'),
 })
 
+export const TracingSpansSymbolStatsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            filePath: zod
+                .string()
+                .describe(
+                    "Repo-relative path of the source file to aggregate (e.g. 'src\/flags\/flag_matching.rs'). Matched as a path suffix against the recorded OTel code.file.path \/ code.filepath, so a recorded path carrying an extra crate\/workspace prefix still matches. Separators are normalized."
+                ),
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe(
+                    'Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h.'
+                ),
+            symbols: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Opaque identifier (e.g. the function name) echoed back on the matching result row.'
+                            ),
+                        startLine: zod.number().min(1).describe("First line of the symbol's range, inclusive."),
+                        endLine: zod.number().min(1).describe("Last line of the symbol's range, inclusive."),
+                    })
+                )
+                .optional()
+                .describe(
+                    'Optional symbol (function) line ranges, supplied by the client from its own AST\/LSP. When given, each span is attributed to the smallest enclosing range (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per line); pass a single whole-file range for a file-level total.'
+                ),
+        })
+        .describe('The symbol-stats per-symbol aggregation query to execute.'),
+})
+
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
+export const tracingSpansTraceCreateBodyOffsetMin = 0
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -587,6 +634,13 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
             'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+        ),
+    offset: zod
+        .number()
+        .min(tracingSpansTraceCreateBodyOffsetMin)
+        .optional()
+        .describe(
+            "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
 })
 

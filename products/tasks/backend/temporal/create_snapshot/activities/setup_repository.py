@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import RetryableRepositorySetupError
-from products.tasks.backend.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 from .get_snapshot_context import SnapshotContext

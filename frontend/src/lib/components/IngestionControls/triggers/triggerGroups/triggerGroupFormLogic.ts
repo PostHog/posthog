@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ensureAnchored } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import {
     EventTriggerConfig,

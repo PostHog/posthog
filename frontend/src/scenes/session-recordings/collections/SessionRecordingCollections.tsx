@@ -20,7 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import {

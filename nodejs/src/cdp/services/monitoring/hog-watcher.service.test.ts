@@ -1,10 +1,10 @@
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
-import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'

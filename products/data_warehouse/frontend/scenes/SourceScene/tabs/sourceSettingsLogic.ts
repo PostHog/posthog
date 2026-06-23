@@ -7,7 +7,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectsEqual, pluralize } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
@@ -44,6 +45,7 @@ export interface CdcStatus {
     slot_exists?: boolean
     publication_exists?: boolean
     lag_bytes?: number | null
+    published_tables?: string[]
 }
 
 const REFRESH_INTERVAL = 5000
@@ -130,6 +132,7 @@ function buildSchemaUpdatePayload(
     | 'sync_type'
     | 'incremental_field'
     | 'incremental_field_type'
+    | 'incremental_field_lookback_seconds'
     | 'sync_frequency'
     | 'sync_time_of_day'
     | 'cdc_table_mode'
@@ -141,6 +144,7 @@ function buildSchemaUpdatePayload(
         sync_type: schema.sync_type,
         incremental_field: schema.incremental_field,
         incremental_field_type: schema.incremental_field_type,
+        incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
         sync_frequency: schema.sync_frequency,
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,

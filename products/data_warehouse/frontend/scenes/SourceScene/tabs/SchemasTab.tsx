@@ -24,7 +24,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -388,7 +388,10 @@ function ManagedSchemaTable({
                                         )}
                                     </div>
                                 }
-                                description={schema.table?.name ? <code>{schema.table.name}</code> : undefined}
+                                description={((): JSX.Element | undefined => {
+                                    const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    return tableName ? <code>{tableName}</code> : undefined
+                                })()}
                             />
                         )
                     },

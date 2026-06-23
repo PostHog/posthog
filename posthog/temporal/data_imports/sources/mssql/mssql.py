@@ -9,10 +9,11 @@ just holds an instance and validates credentials.
 
 from __future__ import annotations
 
+import time
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, TypeVar
 
 import pyarrow as pa
 import pymssql
@@ -36,9 +37,11 @@ from posthog.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     format_projected_select_clause,
     project_arrow_columns,
+    render_named_conditions,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
@@ -62,6 +65,50 @@ _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
 # Schemas every MSSQL database ships with that never hold user tables. `db_*` covers the
 # fixed database roles (db_owner, db_datareader, …), which also surface as schemas.
 SYSTEM_MSSQL_SCHEMAS = ("sys", "guest", "INFORMATION_SCHEMA")
+
+_T = TypeVar("_T")
+
+# DB-Lib error 20047 — "DBPROCESS is dead or not enabled". The TDS connection died mid-stream (an
+# idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
+# fetch raises. A fresh connection recovers, so this is transient rather than a config error.
+_TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
+_MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
+
+
+def _is_transient_connection_error(error: BaseException) -> bool:
+    """True for a mid-stream TDS connection death that a fresh connection recovers from."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _TRANSIENT_CONNECTION_ERROR in message
+
+
+def retry_on_transient_connection_error(
+    operation: Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_DISCOVERY_CONNECTION_ATTEMPTS,
+) -> _T:
+    """Run `operation`, retrying a transient MSSQL connection death with bounded backoff.
+
+    Mirrors the in-process discovery retry the Postgres and MySQL sources use: a momentary
+    connection death recovers on a fresh connect-and-discover cycle, so retry it here instead of
+    failing schema discovery on the first blip and surfacing it as captured error-tracking noise.
+    Permanent errors re-raise immediately — `_is_transient_connection_error` only matches the
+    transient mid-stream drop.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymssql.Error as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_connection_error(e):
+                raise
+            structlog.get_logger().warning(
+                "Transient MSSQL connection death during schema discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
 
 
 def _non_system_schema_clause(column: str) -> tuple[str, dict[str, str]]:
@@ -127,6 +174,7 @@ def _build_query(
     add_limit: bool = False,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     # Every identifier interpolated below is validated by the bracket
     # quoter — bad input (`;`, `]`, whitespace, etc.) raises before any
@@ -137,7 +185,11 @@ def _build_query(
     select_clause = format_projected_select_clause(projected, _IDENTIFIER_QUOTER)
     base_query = f"SELECT {top}{select_clause} FROM {qualified_table}"
 
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
+        if filter_conditions:
+            return f"{base_query} WHERE {' AND '.join(filter_conditions)}", filter_params
         return base_query, {}
 
     if incremental_field is None or incremental_field_type is None:
@@ -148,15 +200,14 @@ def _build_query(
 
     operator = incremental_type_to_operator(incremental_field_type)
     quoted_incremental = _IDENTIFIER_QUOTER.quote(incremental_field)
-    query = f"{base_query} WHERE {quoted_incremental} {operator} %(incremental_value)s"
+    conditions = [f"{quoted_incremental} {operator} %(incremental_value)s", *filter_conditions]
+    query = f"{base_query} WHERE {' AND '.join(conditions)}"
     # it is only safe to have this order by nested in a CTE if TOP is also specified
     # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
     if add_limit:
         query = f"{query} ORDER BY {quoted_incremental} ASC"
 
-    return query, {
-        "incremental_value": db_incremental_field_last_value,
-    }
+    return query, {"incremental_value": db_incremental_field_last_value, **filter_params}
 
 
 class MSSQLColumn(Column):
@@ -713,6 +764,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
@@ -737,6 +789,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
@@ -759,6 +812,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     if incremental_field:
                         query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"

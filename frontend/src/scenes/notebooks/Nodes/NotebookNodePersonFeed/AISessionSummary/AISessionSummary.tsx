@@ -4,7 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { SessionSummaryComponent } from 'scenes/session-recordings/player/PlayerSummaryViews'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 

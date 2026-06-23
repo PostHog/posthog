@@ -54,7 +54,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, humanFriendlyNumber, pluralize } from 'lib/utils'
+import { clamp, humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
 import {

@@ -139,6 +139,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
+ */
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
+        ),
+})
+
+/**
  * Copy an experiment into another project in the same organization as a new draft.
  */
 export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
@@ -193,6 +213,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  *
  * Returns 400 if the experiment is not running.
  */
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -207,7 +229,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -224,13 +250,22 @@ export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
 export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .object({
         trigger: zod
-            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .enum([
+                'manual',
+                'cold_run',
+                'stale_refresh',
+                'auto_refresh',
+                'config_change',
+                'experiment_launch',
+                'experiment_stop',
+                'experiment_update',
+            ])
             .describe(
-                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
@@ -268,6 +303,8 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  * Returns 400 if the experiment is in draft state, the variant_key is not found
  * on the flag, or the experiment has no linked feature flag.
  */
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -284,7 +321,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
@@ -293,6 +334,106 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
             'If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.'
         ),
 })
+
+/**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+
+export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin = 0
+
+export const experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault = 0
+
+export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_type: zod
+            .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
+            .describe(
+                '\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention'
+            )
+            .describe(
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention"
+            ),
+        minimum_detectable_effect: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin)
+            .describe('Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.'),
+        number_of_variants: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
+            .describe('Total number of variants including control (default 2).'),
+        exposure_rate_per_day: zod
+            .number()
+            .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
+            .nullish()
+            .describe('Expected exposures per day. When provided, the response includes the recommended running time.'),
+        baseline_value: zod
+            .number()
+            .nullish()
+            .describe(
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio\/retention). Provide this or baseline_stats.'
+            ),
+        variance: zod
+            .number()
+            .nullish()
+            .describe(
+                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+            ),
+        baseline_stats: zod
+            .union([
+                zod
+                    .object({
+                        number_of_samples: zod
+                            .number()
+                            .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
+                            .describe('Number of control-group samples (users\/units) observed.'),
+                        sum: zod
+                            .number()
+                            .describe(
+                                'Sum of the metric values across the control group (for funnels, the numerator\/conversions).'
+                            ),
+                        sum_squares: zod
+                            .number()
+                            .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
+                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                        denominator_sum: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of the denominator values. Required for ratio\/retention metrics.'),
+                        denominator_sum_squares: zod
+                            .number()
+                            .nullish()
+                            .describe('Sum of squared denominator values (ratio\/retention variance).'),
+                        numerator_denominator_sum_product: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Sum of numerator×denominator products, used for the delta-method covariance term.'
+                            ),
+                        step_counts: zod
+                            .array(zod.number())
+                            .optional()
+                            .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
+                    })
+                    .describe(
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio\/retention)\nthe delta-method variance, instead of passing `baseline_value`\/`variance` directly.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Raw control-group statistics. When provided, the server derives baseline_value and variance.'),
+    })
+    .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
 
 /**
  * Create an experiment that compares N versions of an LLM prompt using a metric template.

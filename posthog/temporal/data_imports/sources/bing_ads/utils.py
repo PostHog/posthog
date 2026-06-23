@@ -1,6 +1,5 @@
 import csv
 import uuid
-import typing
 import zipfile
 import datetime as dt
 import tempfile
@@ -9,7 +8,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import structlog
 from bingads.v13.reporting import ReportingDownloadParameters
 from dateutil.relativedelta import relativedelta
 
@@ -30,8 +28,6 @@ class BingAdsResumeConfig:
     next_start_date: str
     end_date: str
 
-
-logger = structlog.get_logger(__name__)
 
 ENVIRONMENT = "production"
 REPORT_POLL_INTERVAL_MS = 5000
@@ -73,7 +69,6 @@ def fetch_data_in_yearly_chunks(
         end_date = dt.date.fromisoformat(saved_state.end_date)
 
     current_start = start_date
-    errors: list[dict[str, typing.Any]] = []
 
     while current_start <= end_date:
         chunk_end = min(
@@ -81,44 +76,27 @@ def fetch_data_in_yearly_chunks(
             end_date,
         )
 
-        try:
-            data_pages = client.get_data_by_resource(
-                resource=resource,
-                account_id=account_id,
-                start_date=dt.datetime.combine(current_start, dt.time.min),
-                end_date=dt.datetime.combine(chunk_end, dt.time.max),
-            )
+        data_pages = client.get_data_by_resource(
+            resource=resource,
+            account_id=account_id,
+            start_date=dt.datetime.combine(current_start, dt.time.min),
+            end_date=dt.datetime.combine(chunk_end, dt.time.max),
+        )
 
-            for page in data_pages:
-                if page:
-                    yield page
-        except Exception as e:
-            errors.append(
-                {
-                    "start_date": current_start.isoformat(),
-                    "end_date": chunk_end.isoformat(),
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                }
-            )
+        for page in data_pages:
+            if page:
+                yield page
 
         # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
         current_start = chunk_end + dt.timedelta(days=1)
 
-        # Checkpoint after each chunk boundary (both success and error paths) so resume
-        # always advances past chunks we've already attempted.
+        # Checkpoint only after a chunk has been fetched, so a resume re-attempts a failed
+        # chunk rather than skipping past it.
         resumable_source_manager.save_state(
             BingAdsResumeConfig(
                 next_start_date=current_start.isoformat(),
                 end_date=end_date.isoformat(),
             )
-        )
-
-    if errors:
-        logger.error(
-            "Some data chunks failed to fetch",
-            failed_chunks=len(errors),
-            total_errors=errors,
         )
 
 

@@ -56,12 +56,12 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Postgres, Snowflake, and MSSQL have an optional `schema` (qualify today); MySQL/unknown never do.
+            # SQL sources with an optional `schema` field qualify legacy rows; unknown sources never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, True),
             ("redshift", ExternalDataSourceType.REDSHIFT, True),
             ("mssql", ExternalDataSourceType.MSSQL, True),
-            ("mysql", ExternalDataSourceType.MYSQL, False),
+            ("mysql", ExternalDataSourceType.MYSQL, True),
             ("unknown type", "NotARealSource", False),
         ]
     )
@@ -110,7 +110,7 @@ class TestDetectSchemaClearTransition:
 
     def test_incapable_source_never_transitions(self) -> None:
         result = detect_schema_clear_transition(
-            source_type=ExternalDataSourceType.MYSQL,
+            source_type="NotARealSource",
             existing_job_inputs={"schema": "public"},
             incoming_job_inputs={"schema": ""},
         )

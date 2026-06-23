@@ -48,6 +48,10 @@ products/
       hooks/
       logics/
       generated/            # OpenAPI-generated TypeScript types
+    mcp/                    # MCP tool definitions (tools.yaml) and UI apps — most products
+    skills/                 # agent skills for the product — many products
+    services/               # optional: a service this product deploys
+    packages/               # optional: a library/CLI this product owns
 ```
 
 Use `bin/hogli product:bootstrap <name>` to scaffold a new product with this structure.
@@ -100,6 +104,25 @@ This avoids circular imports and keeps migrations/app labels stable.
 
 If backend and frontend need shared schemas, validators, or constants, put them in a `shared/` directory under the product.
 Keep shared code minimal to avoid tight coupling.
+
+## What a product can own
+
+`backend/` and `frontend/` are the core, but a product owns more than that.
+
+Beyond `backend/` + `frontend/` + `manifest.tsx` + `package.json`, most products also carry:
+
+- `mcp/` — MCP tool definitions (`tools.yaml`) and UI apps (the majority of products expose these)
+- `skills/` — agent skills for the product (many products)
+
+And anything else attributable to a single product — nest it here rather than in a top-level dir:
+
+- `services/<svc>/` — a service or worker the product deploys
+- `packages/<lib>/` — a library or CLI the product owns
+- dev/CI/backfill scripts, benchmarks, audits, fixtures and dummy-data generators
+
+Co-locating keeps tooling boundaries (CODEOWNERS, CI filters, lint) on the `products/<product>/**` path instead of hand-synced `<product>-*` prefixes.
+Reserve top-level `tools/`, `services/`, `packages/`, and `cli/` for things no single product owns.
+See [monorepo-layout.md](/docs/internal/monorepo-layout.md) → "What a product can own" for the full rationale and the nest-then-promote rule for shared packages.
 
 ## Product requirements
 

@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -83,6 +84,37 @@ oauth_refresh_counter = Counter(
 )
 
 GITHUB_API_VERSION = "2022-11-28"
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
+# files) from bloating the JSON response and worker memory. ~1 MB of text.
+_MAX_DIFF_CHARS = 1_000_000
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
+
+
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
+    return (
+        bool(ref)
+        and ".." not in ref
+        and not ref.startswith("/")
+        and not ref.endswith("/")
+        and bool(_GITHUB_REF_RE.fullmatch(ref))
+    )
+
+
+def _is_safe_github_sha(sha: str) -> bool:
+    return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
+
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -324,7 +356,7 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str, is_sandbox: bool = False) -> OauthConfig:
+    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -630,17 +662,8 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_id and secret for live vs sandbox installs of the
-            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
-            # using the live secret returns "Authorization code provided does not belong to you".
-            if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
-                    raise NotImplementedError("Stripe sandbox not configured")
-                client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
-            else:
-                client_id = settings.STRIPE_APP_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SECRET_KEY
+            client_id = settings.STRIPE_APP_CLIENT_ID
+            client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -665,8 +688,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
-        oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
+    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+        oauth_config = cls.oauth_config_for_kind(kind)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
 
@@ -741,37 +764,6 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
-            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
-            # without any signal indicating live vs sandbox. If the live secret rejected
-            # the code as "does not belong to you", it was minted by the sandbox app -
-            # retry with the sandbox secret. Both sandbox client_id and secret must be
-            # configured: oauth_config_for_kind requires both, so guard on both here to
-            # avoid raising NotImplementedError over the original OAuth error.
-            if (
-                res.status_code == 400
-                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
-                and "does not belong to you" in (res.text or "")
-            ):
-                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
-                res = requests.post(
-                    sandbox_oauth_config.token_url,
-                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
-                    data={
-                        "code": params["code"],
-                        "grant_type": "authorization_code",
-                    },
-                )
-                if res.status_code == 200:
-                    # Use the sandbox config for downstream API calls (account name lookup)
-                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
-                    # pick the sandbox secret without retrying.
-                    oauth_config = sandbox_oauth_config
-                    stripe_is_sandbox = True
-                else:
-                    stripe_is_sandbox = False
-            else:
-                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -984,12 +976,6 @@ class OauthIntegration:
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
 
-        if kind == "stripe":
-            # Persisted so downstream Stripe API calls (refresh_access_token,
-            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
-            # pick the right developer secret without error-driven retries.
-            config["is_sandbox"] = stripe_is_sandbox
-
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -1006,6 +992,27 @@ class OauthIntegration:
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        if kind == "slack":
+            # The cached auth verdict in slack_app is per-integration. A
+            # reconnect mints a new bot token, so any stale ``ok=false`` row
+            # from the previous token would silently demote this install for
+            # the remaining cache TTL. Inline-imported to keep the slack_app
+            # module off the core django.setup() path; wrapped so a broken
+            # slack_app build can't take down OAuth completion for every
+            # integration kind.
+            try:
+                from products.slack_app.backend.facade.api import (  # noqa: PLC0415
+                    invalidate_slack_integration_auth_state,
+                )
+
+                invalidate_slack_integration_auth_state(integration.id)
+            except Exception:
+                logger.warning(
+                    "slack_app_auth_state_invalidation_on_oauth_failed",
+                    integration_id=integration.id,
+                    exc_info=True,
+                )
 
         return integration
 
@@ -1038,8 +1045,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        is_sandbox = _stripe_integration_is_sandbox(self.integration)
-        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -2497,7 +2503,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
-        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
+
+        ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
+        check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
+        that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
+        can't steer that authenticated request to a different GitHub endpoint as a probe.
+        """
+        if not _is_safe_github_repo_path(repository):
+            return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration)
             if github.installation_can_access_repository(repository):
@@ -2607,6 +2621,70 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to create branch: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def get_diff(
+        self,
+        repository: str,
+        target_branch: str,
+        base_branch: str,
+        target_sha: str | None = None,
+        base_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the unified diff of one branch/commit against another for ``repository``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). The diff is ``base...target``: ``target_branch`` compared against ``base_branch``.
+        A SHA, when supplied, pins that side to an exact commit; otherwise the side tracks the
+        branch tip (``None`` means "use latest"). The branch is what's used when no SHA pins the
+        point — diffing branch tips keeps the result useful as a branch keeps moving (e.g. after PR
+        babysitting or customer tweaks), which a single pinned commit would not.
+
+        Uses the GitHub compare API with the ``diff`` media type, so the response body is raw
+        unified-diff text. Repository / ref / SHA values come from team-writable artefact content,
+        so they're validated before interpolation — a crafted value could otherwise redirect the
+        authenticated request to a different GitHub endpoint.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        for ref in (target_branch, base_branch):
+            if not _is_safe_github_ref(ref):
+                return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
+        for sha in (target_sha, base_sha):
+            if sha is not None and not _is_safe_github_sha(sha):
+                return {"success": False, "error": f"Invalid commit SHA '{sha}'.", "status_code": 400}
+
+        # Pin to the SHA when we have one, else compare branch tips. Both sides are now built from
+        # validated values, so the compare path can't be steered off-endpoint.
+        base_ref = base_sha or base_branch
+        target_ref = target_sha or target_branch
+        access_token = self.integration.sensitive_config["access_token"]
+
+        try:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                headers={
+                    "Accept": "application/vnd.github.diff",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
+        # the consumer can tell the diff was cut rather than silently showing a partial diff.
+        diff_text = response.text
+        truncated = len(diff_text) > _MAX_DIFF_CHARS
+        if truncated:
+            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
@@ -3324,16 +3402,6 @@ class AzureBlobIntegration:
         return None
 
 
-def _stripe_integration_is_sandbox(integration: Integration) -> bool:
-    """True when this is a Stripe integration provisioned via the sandbox channel.
-
-    Strict identity check on the config flag - a malformed string write (e.g. "false")
-    fails closed to live rather than escalating to sandbox-secret usage. Returns
-    False for non-stripe integrations so non-Stripe call sites can pass through.
-    """
-    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
-
-
 class StripeIntegration:
     integration: Integration
 
@@ -3364,25 +3432,18 @@ class StripeIntegration:
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
 
-    @property
-    def is_sandbox(self) -> bool:
-        return _stripe_integration_is_sandbox(self.integration)
-
     def _stripe_client(self) -> "StripeClient | None":
-        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
-        # Apps Secret Store and account-scoped API calls must authenticate with the matching
-        # developer secret. Returns None when the required env vars are missing so callers
-        # can skip Stripe API calls without raising past their per-secret error handling.
+        # Returns None when the required env vars are missing so callers can skip Stripe
+        # API calls without raising past their per-secret error handling.
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
                 {
                     "stripe_user_id": self.integration.integration_id,
-                    "is_sandbox": self.is_sandbox,
                 },
             )
             return None
@@ -3449,7 +3510,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 
@@ -3485,7 +3545,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 

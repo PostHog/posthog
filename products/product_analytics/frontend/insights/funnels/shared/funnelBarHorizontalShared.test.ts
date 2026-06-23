@@ -38,6 +38,13 @@ describe('funnelBarHorizontalShared', () => {
             expect(filler.meta).toEqual({ isDropOff: true, breakdownIndex: null })
             expect(filler.visibility).toEqual({ tooltip: false })
         })
+
+        it('carries a breakdownIndex when given one, so compare drop-off clicks resolve the period series', () => {
+            expect(buildFunnelBarHorizontalFiller([segment(30)], '#ccc', 1).meta).toEqual({
+                isDropOff: true,
+                breakdownIndex: 1,
+            })
+        })
     })
 
     describe('buildFunnelConversionStep', () => {

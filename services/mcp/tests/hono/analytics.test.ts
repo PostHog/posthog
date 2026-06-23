@@ -21,8 +21,9 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
-            getAnalyticsContextSafe: vi.fn(async () => undefined),
+            safelyGetAnalyticsContext: vi.fn(async () => undefined),
             getSessionUuid: vi.fn(async () => 'session-uuid'),
+            getEffectiveSessionUuid: vi.fn(async () => 'session-uuid'),
         } as any,
         context: {
             stateManager: {},
