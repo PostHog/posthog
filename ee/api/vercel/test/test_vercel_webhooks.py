@@ -78,7 +78,8 @@ class TestVercelWebhooks(VercelTestBase):
         assert "configurationId" in response.json()["error"]  # Error message still says configurationId
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
-    def test_unknown_config_returns_404(self):
+    @patch("ee.api.vercel.vercel_webhooks.capture_exception")
+    def test_unknown_config_returns_404_without_capturing_exception(self, mock_capture_exception):
         payload = {
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
@@ -89,6 +90,8 @@ class TestVercelWebhooks(VercelTestBase):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Unknown configuration" in response.json()["error"]
+        # A handled 404 must not pollute error tracking.
+        mock_capture_exception.assert_not_called()
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_non_billing_events_ignored(self):
@@ -270,7 +273,61 @@ class TestVercelWebhooks(VercelTestBase):
         REGION_EU_DOMAIN="eu.posthog.com",
     )
     @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
-    def test_billing_event_unknown_config_does_not_proxy(self, mock_post):
+    def test_billing_event_unknown_config_on_us_proxies_to_eu(self, mock_post):
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 200
+        mock_post.return_value = mock_eu_response
+
+        payload = {
+            "type": "marketplace.invoice.paid",
+            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        # EU found and handled the integration, so we return its success rather than a 404.
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "ok"
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs["url"] == "https://eu.posthog.com/webhooks/vercel"
+        assert call_kwargs.kwargs["headers"]["x-vercel-signature"] == signature
+
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
+        SITE_URL="https://us.posthog.com",
+        REGION_US_DOMAIN="us.posthog.com",
+        REGION_EU_DOMAIN="eu.posthog.com",
+    )
+    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    def test_billing_event_unknown_config_on_us_returns_404_when_eu_also_unknown(self, mock_post):
+        mock_eu_response = MagicMock()
+        mock_eu_response.status_code = 404
+        mock_post.return_value = mock_eu_response
+
+        payload = {
+            "type": "marketplace.invoice.paid",
+            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
+        }
+        signature = self._sign_payload(payload)
+
+        response = self._post_webhook(payload, signature=signature)
+
+        # EU did not recognise it either, so it is genuinely unknown.
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "Unknown configuration" in response.json()["error"]
+        mock_post.assert_called_once()
+
+    @override_settings(
+        VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret",
+        SITE_URL="https://eu.posthog.com",
+        REGION_US_DOMAIN="us.posthog.com",
+        REGION_EU_DOMAIN="eu.posthog.com",
+    )
+    @patch("ee.api.vercel.vercel_webhooks.outbound_requests.post")
+    def test_billing_event_unknown_config_on_eu_does_not_proxy(self, mock_post):
         payload = {
             "type": "marketplace.invoice.paid",
             "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
