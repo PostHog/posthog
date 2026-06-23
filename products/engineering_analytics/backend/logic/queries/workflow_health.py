@@ -27,7 +27,7 @@ _SELECT = f"""
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
         quantileIf(0.5)(duration_seconds, status = 'completed') AS p50_seconds,
         quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
-        max(if(conclusion = 'failure', run_started_at, NULL)) AS last_failure_at
+        max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name

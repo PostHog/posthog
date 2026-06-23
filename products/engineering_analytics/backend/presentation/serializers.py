@@ -217,7 +217,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent run with conclusion 'failure' started, or null.",
+                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
                 "allow_null": True,
             },
         }

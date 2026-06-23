@@ -304,7 +304,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     runCount: d.run_count,
                                     completed: d.completed,
                                     successes: d.successes,
-                                    failures: d.failures,
+                                    // Defensive ?? 0: a new frontend can briefly hit an older backend whose
+                                    // response predates this field — degrade to 0, don't compute NaN bars.
+                                    failures: d.failures ?? 0,
                                 })),
                             })
                         )

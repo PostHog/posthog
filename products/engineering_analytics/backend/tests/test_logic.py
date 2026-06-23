@@ -579,15 +579,35 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             [
                 _run_row(6001, "CI", "sha-a", "completed", "success", _ago(1), _ago(1)),
                 _run_row(6002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
-                _run_row(6003, "CI", "sha-c", "completed", "skipped", _ago(1), _ago(1)),
-                _run_row(6004, "CI", "sha-d", "completed", "cancelled", _ago(1), _ago(1)),
-                _run_row(6005, "CI", "sha-e", "completed", "action_required", _ago(1), _ago(1)),
+                _run_row(6003, "CI", "sha-c", "completed", "timed_out", _ago(1), _ago(1)),
+                _run_row(6004, "CI", "sha-d", "completed", "skipped", _ago(1), _ago(1)),
+                _run_row(6005, "CI", "sha-e", "completed", "cancelled", _ago(1), _ago(1)),
+                _run_row(6006, "CI", "sha-f", "completed", "action_required", _ago(1), _ago(1)),
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
         day = next(entry for entry in ci.daily if entry.run_count > 0)
-        # 5 completed, 1 success, 1 failure — the 3 skipped/cancelled/action_required are neither.
-        assert (day.completed, day.successes, day.failures) == (5, 1, 1)
+        # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
+        assert (day.completed, day.successes, day.failures) == (6, 1, 2)
+
+    def test_workflow_health_last_failure_includes_timed_out(self) -> None:
+        # last_failure_at must agree with the failure definition used by the trend: a workflow whose
+        # only decisive failure is a timeout still has a "last failure".
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(31, "alice", "open", 0, _ago(1), head_sha="sha31")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6101, "CI", "sha-g", "completed", "success", _ago(2), _ago(2)),
+                _run_row(6102, "CI", "sha-h", "completed", "timed_out", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        assert ci.last_failure_at is not None
 
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(
