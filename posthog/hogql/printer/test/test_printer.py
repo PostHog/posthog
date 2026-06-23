@@ -7165,3 +7165,9 @@ class TestSnowflakePrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._select(query)
         self.assertIn(error_substring, str(ctx.exception))
+
+    def test_snowflake_qualify_emits_natively(self):
+        # QUALIFY parses and resolves but the base/HogQL printers rejected it; Snowflake supports
+        # it natively, so it should print straight through.
+        sql = self._select("SELECT event FROM events QUALIFY row_number() OVER (ORDER BY timestamp) = 1")
+        self.assertIn("QUALIFY", sql)
