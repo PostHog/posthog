@@ -8,7 +8,6 @@ pub mod config;
 pub mod error;
 pub mod ids;
 pub mod metric_consts;
-pub mod notifications;
 pub mod resolver;
 pub mod sanitize;
 pub mod symbolication;

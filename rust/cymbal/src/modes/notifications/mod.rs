@@ -16,7 +16,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::core::notifications::IngestionNotification;
+use crate::modes::processing::types::notification::IngestionNotification;
 
 pub mod config;
 
