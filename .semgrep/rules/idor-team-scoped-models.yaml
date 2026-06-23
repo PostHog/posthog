@@ -175,6 +175,7 @@ rules:
                               |LLMPrompt
                               |LLMProviderKey
                               |LLMSkill
+                              |LLMSkillNameAlias
                               |LLMTraceSummary
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
@@ -433,6 +434,7 @@ rules:
                         |LLMPrompt
                         |LLMProviderKey
                         |LLMSkill
+                        |LLMSkillNameAlias
                         |LLMTraceSummary
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory

@@ -41,7 +41,7 @@ import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openRenameSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -75,7 +75,7 @@ export function LLMSkillScene(): JSX.Element {
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
-    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
+    const { submitSkillForm, deleteSkill, renameSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
         useActions(llmSkillLogic)
 
     if (isSkillMissing) {
@@ -154,6 +154,25 @@ export function LLMSkillScene(): JSX.Element {
                             >
                                 Download .zip
                             </LemonButton>
+                        )}
+
+                        {isSkill(skill) && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPencil />}
+                                    onClick={() =>
+                                        openRenameSkillDialog(skill.name, (_, newName) => renameSkill(newName))
+                                    }
+                                    size="small"
+                                    data-attr="llma-skill-rename-button"
+                                >
+                                    Rename
+                                </LemonButton>
+                            </AccessControlAction>
                         )}
 
                         <AccessControlAction

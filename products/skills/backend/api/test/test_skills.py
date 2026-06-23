@@ -807,6 +807,155 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    # --- Rename ---
+
+    def test_rename_skill(self, mock_feature_enabled):
+        skill = self.create_skill(name="old-name", description="A skill.")
+        LLMSkillFile.objects.create(skill=skill, path="scripts/run.sh", content="#!/bin/bash")
+
+        response = self.client.post(
+            self._url("name/old-name/rename"),
+            data={"new_name": "new-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "new-name"
+        assert data["id"] == str(skill.id)
+        assert not LLMSkill.objects.filter(name="old-name", deleted=False).exists()
+        renamed = LLMSkill.objects.get(name="new-name", deleted=False)
+        assert LLMSkillFile.objects.filter(skill=renamed).count() == 1
+
+    def test_rename_skill_renames_all_versions(self, mock_feature_enabled):
+        self.create_skill(name="old-name", version=1, is_latest=False)
+        self.create_skill(name="old-name", version=2, is_latest=True)
+
+        response = self.client.post(
+            self._url("name/old-name/rename"),
+            data={"new_name": "new-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert LLMSkill.objects.filter(name="new-name", deleted=False).count() == 2
+        assert not LLMSkill.objects.filter(name="old-name", deleted=False).exists()
+
+    def test_rename_to_existing_name_fails(self, mock_feature_enabled):
+        self.create_skill(name="source")
+        self.create_skill(name="taken")
+
+        response = self.client.post(
+            self._url("name/source/rename"),
+            data={"new_name": "taken"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(name="source", deleted=False).exists()
+
+    def test_rename_to_same_name_fails(self, mock_feature_enabled):
+        self.create_skill(name="same-name")
+
+        response = self.client.post(
+            self._url("name/same-name/rename"),
+            data={"new_name": "same-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_rename_invalid_name_fails(self, mock_feature_enabled):
+        self.create_skill(name="valid-name")
+
+        response = self.client.post(
+            self._url("name/valid-name/rename"),
+            data={"new_name": "Invalid Name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_rename_missing_skill_returns_404(self, mock_feature_enabled):
+        response = self.client.post(
+            self._url("name/does-not-exist/rename"),
+            data={"new_name": "new-name"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    # --- Rename redirects (former-name aliases) ---
+
+    def _rename(self, old_name: str, new_name: str) -> None:
+        response = self.client.post(
+            self._url(f"name/{old_name}/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_old_name_redirects_to_new_name(self, mock_feature_enabled):
+        self.create_skill(name="old-name")
+        self._rename("old-name", "new-name")
+
+        response = self.client.get(self._url("name/old-name"))
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"].endswith("/llm_skills/name/new-name")
+
+    def test_old_name_redirect_followed_returns_skill(self, mock_feature_enabled):
+        self.create_skill(name="old-name", description="Renamed skill.")
+        self._rename("old-name", "new-name")
+
+        redirect = self.client.get(self._url("name/old-name"))
+        assert redirect.status_code == status.HTTP_302_FOUND
+
+        followed = self.client.get(redirect.headers["Location"])
+        assert followed.status_code == status.HTTP_200_OK
+        assert followed.json()["name"] == "new-name"
+
+    def test_resolve_old_name_redirects(self, mock_feature_enabled):
+        self.create_skill(name="old-name")
+        self._rename("old-name", "new-name")
+
+        response = self.client.get(self._url("resolve/name/old-name"))
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "/llm_skills/resolve/name/new-name" in response.headers["Location"]
+
+    def test_chained_rename_resolves_oldest_name(self, mock_feature_enabled):
+        self.create_skill(name="name-a")
+        self._rename("name-a", "name-b")
+        self._rename("name-b", "name-c")
+
+        first = self.client.get(self._url("name/name-a"))
+        second = self.client.get(self._url("name/name-b"))
+
+        assert first.status_code == status.HTTP_302_FOUND
+        assert first.headers["Location"].endswith("/llm_skills/name/name-c")
+        assert second.status_code == status.HTTP_302_FOUND
+        assert second.headers["Location"].endswith("/llm_skills/name/name-c")
+
+    def test_reused_old_name_serves_live_skill_over_alias(self, mock_feature_enabled):
+        self.create_skill(name="old-name", description="First skill.")
+        self._rename("old-name", "new-name")
+        self.create_skill(name="old-name", description="A different, newer skill.")
+
+        response = self.client.get(self._url("name/old-name"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["description"] == "A different, newer skill."
+
+    def test_alias_to_archived_skill_returns_404(self, mock_feature_enabled):
+        self.create_skill(name="old-name")
+        self._rename("old-name", "new-name")
+        self.client.post(self._url("name/new-name/archive"))
+
+        response = self.client.get(self._url("name/old-name"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Get file ---
 
     def test_get_file_by_path(self, mock_feature_enabled):

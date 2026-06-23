@@ -40,7 +40,7 @@ import {
     skillTabUrl,
 } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { openArchiveSkillDialog, openRenameSkillDialog } from './skillSceneComponents'
 
 export const scene: SceneExport = {
     component: LLMSkillsScene,
@@ -59,6 +59,7 @@ function isCanonicalScout(skill: LLMSkillListApi): boolean {
 function buildSkillColumns(
     skillUrl: (name: string) => string,
     duplicateSkill: (name: string, newName: string) => void,
+    renameSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
     downloadSkillZip: (name: string) => void,
     options?: { showScoutOrigin?: boolean }
@@ -183,6 +184,19 @@ function buildSkillColumns(
                                         fullWidth
                                     >
                                         Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
+
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => openRenameSkillDialog(skill.name, renameSkill)}
+                                        data-attr="llma-skill-dropdown-rename"
+                                        fullWidth
+                                    >
+                                        Rename
                                     </LemonButton>
                                 </AccessControlAction>
 
@@ -426,7 +440,7 @@ function ConnectToClaudeCodeModal(): JSX.Element {
 }
 
 export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
+    const { setFilters, deleteSkill, duplicateSkill, renameSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
         useActions(llmSkillsLogic)
     const {
         skills,
@@ -451,9 +465,12 @@ export function LLMSkillsScene(): JSX.Element {
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
+        () =>
+            buildSkillColumns(skillUrl, duplicateSkill, renameSkill, deleteSkill, downloadSkillZip, {
+                showScoutOrigin,
+            }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
+        [searchParams, duplicateSkill, renameSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading

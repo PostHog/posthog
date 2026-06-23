@@ -26838,6 +26838,14 @@ export namespace Schemas {
       rotate?: boolean;
     }
 
+    export interface LLMSkillRename {
+      /**
+         * New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.
+         * @maxLength 64
+         */
+      new_name: string;
+    }
+
     export interface LLMSkillVersionSummary {
       readonly id: string;
       readonly version: number;

@@ -73,6 +73,33 @@ class LLMSkillFile(UUIDModel):
     content_type = models.CharField(max_length=100, default="text/plain")
 
 
+class LLMSkillNameAlias(UUIDModel):
+    """Maps a former skill name to the skill's current name so renames don't break old references.
+
+    Renaming a skill rewrites `name` on every version row, leaving its old name unresolvable. An alias
+    row preserves the old name → current name mapping, letting lookups 302-redirect old URLs (mirroring
+    the existing UUID → name redirect). A live skill always wins over an alias, so reusing a freed-up
+    name is unaffected.
+    """
+
+    class Meta:
+        db_table = "llm_analytics_llmskillnamealias"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "old_name"],
+                name="unique_llm_skill_alias_per_team",
+            ),
+        ]
+
+    old_name = models.CharField(max_length=64)
+    # Current canonical name the alias resolves to. Rewritten on chained renames so A→B→C keeps A→C.
+    skill_name = models.CharField(max_length=64)
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 def annotate_llm_skill_version_history_metadata(queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
     active_versions = LLMSkill.objects.filter(team_id=OuterRef("team_id"), name=OuterRef("name"), deleted=False)
 

@@ -107,6 +107,7 @@ LLMModelConfiguration
 LLMPrompt
 LLMProviderKey
 LLMSkill
+LLMSkillNameAlias
 LLMTraceSummary
 Link
 LiveDebuggerBreakpoint

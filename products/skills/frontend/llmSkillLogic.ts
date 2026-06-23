@@ -13,6 +13,7 @@ import {
     llmSkillsNameArchiveCreate,
     llmSkillsNameFilesRetrieve,
     llmSkillsNamePartialUpdate,
+    llmSkillsNameRenameCreate,
     llmSkillsResolveNameRetrieve,
 } from 'products/skills/frontend/generated/api'
 import type {
@@ -128,6 +129,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     actions({
         setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => ({ skill }),
         deleteSkill: true,
+        renameSkill: (newName: string) => ({ newName }),
         loadMoreVersions: true,
         setVersionsLoading: (versionsLoading: boolean) => ({ versionsLoading }),
         setMode: (mode: SkillMode) => ({ mode }),
@@ -441,6 +443,25 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             }
         },
 
+        renameSkill: async ({ newName }) => {
+            if (props.skillName === 'new' || !isSkill(values.skill) || newName === props.skillName) {
+                return
+            }
+            try {
+                await llmSkillsNameRenameCreate(String(ApiConfig.getCurrentTeamId()), props.skillName, {
+                    new_name: newName,
+                })
+                lemonToast.success(`Skill renamed to "${newName}".`)
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                router.actions.replace(urls.skill(newName))
+            } catch (e) {
+                console.error('Failed to rename skill', e)
+                const detail =
+                    e !== null && typeof e === 'object' && 'detail' in e ? (e as { detail?: string }).detail : undefined
+                lemonToast.error(detail || 'Failed to rename skill')
+            }
+        },
+
         loadMoreVersions: async () => {
             if (props.skillName === 'new' || !isSkill(values.skill)) {
                 actions.setVersionsLoading(false)
@@ -512,6 +533,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             if (skill && isSkill(skill)) {
                 actions.resetSkillForm()
                 actions.setSkillFormValues(getSkillFormDefaults(skill))
+                // The resolve endpoint redirects a former name (or UUID) to the skill's current name.
+                // Sync the URL so subsequent edits target the canonical name, not the stale one.
+                if (props.skillName !== 'new' && skill.name !== props.skillName) {
+                    router.actions.replace(urls.skill(skill.name))
+                }
             }
         },
 

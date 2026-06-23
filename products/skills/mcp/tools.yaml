@@ -159,6 +159,23 @@ tools:
             skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill
             `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id`
             (UUID) is not a valid route segment and will 404.
+    skill-rename:
+        operation: llm_skills_name_rename_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename skill
+        description: >
+            Rename an existing agent skill. Renaming applies to every version of the skill — version history, IDs, and
+            bundled files are preserved. Fails with 400 if the new name is already taken by another active skill or
+            matches the current name. The new name must be unique kebab-case (lowercase letters, numbers, hyphens).
+        param_overrides:
+            skill_name:
+                description: The current kebab-case name of the skill to rename.
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false

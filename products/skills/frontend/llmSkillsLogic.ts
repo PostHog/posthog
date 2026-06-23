@@ -21,6 +21,7 @@ import {
     llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
+    llmSkillsNameRenameCreate,
 } from 'products/skills/frontend/generated/api'
 import type {
     LLMSkillListApi,
@@ -242,6 +243,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        renameSkill: (skillName: string, newName: string) => ({ skillName, newName }),
         importSkill: (file: File) => ({ file }),
         setImporting: (importing: boolean) => ({ importing }),
         downloadSkillZip: (skillName: string) => ({ skillName }),
@@ -511,6 +513,20 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             } catch (e) {
                 console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
+            }
+        },
+
+        renameSkill: async ({ skillName, newName }) => {
+            try {
+                await llmSkillsNameRenameCreate(String(ApiConfig.getCurrentTeamId()), skillName, {
+                    new_name: newName,
+                })
+                lemonToast.success(`Skill renamed to "${newName}".`)
+                await asyncActions.loadSkills(false)
+                actions.loadCategoryCounts()
+            } catch (e) {
+                console.error('Failed to rename skill', e)
+                lemonToast.error(errorDetail(e) || 'Failed to rename skill')
             }
         },
 

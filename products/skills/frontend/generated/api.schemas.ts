@@ -447,6 +447,14 @@ export interface LLMSkillFileApi {
     content_type?: string
 }
 
+export interface LLMSkillRenameApi {
+    /**
+     * New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.
+     * @maxLength 64
+     */
+    new_name: string
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number

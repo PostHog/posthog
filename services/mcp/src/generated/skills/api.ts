@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -391,4 +391,24 @@ export const LlmSkillsNameFilesDestroyQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
+})
+
+export const llmSkillsNameRenameCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameRenameCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameRenameCreatePathSkillNameRegExp),
+})
+
+export const llmSkillsNameRenameCreateBodyNewNameMax = 64
+
+export const LlmSkillsNameRenameCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(llmSkillsNameRenameCreateBodyNewNameMax)
+        .describe('New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.'),
 })

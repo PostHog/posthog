@@ -59,6 +59,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
+    LLMSkillRenameSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -86,7 +87,9 @@ from .skill_services import (
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
+    rename_skill,
     rename_skill_file,
+    resolve_skill_name_alias,
     resolve_versions_page,
 )
 
@@ -347,23 +350,31 @@ class LLMSkillViewSet(
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
 
-        if skill is None and _is_uuid(skill_name):
-            redirect = self._redirect_to_name(request, skill_name)
+        if skill is None:
+            redirect = self._redirect_for_missing_name(request, skill_name)
             if redirect is not None:
                 return redirect
-
-        if skill is None:
             return self._skill_not_found_response(skill_name)
 
         return Response(self._serialize_skill(skill))
 
-    def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
-        skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
-        if skill_by_id is None:
+    def _redirect_for_missing_name(self, request: Request, skill_name: str) -> Response | None:
+        """Resolve a missing name to its canonical one — by UUID, or via a former-name alias."""
+        if _is_uuid(skill_name):
+            skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+            if skill_by_id is not None:
+                return self._name_redirect(request, skill_name, skill_by_id.name)
             return None
-        # Use a relative path (no build_absolute_uri) to avoid embedding the
-        # Host header in the Location value — prevents host-header open-redirect.
-        redirect_url = request.get_full_path().replace(skill_name, skill_by_id.name, 1)
+        alias_target = resolve_skill_name_alias(self.team, skill_name)
+        if alias_target is not None:
+            return self._name_redirect(request, skill_name, alias_target)
+        return None
+
+    def _name_redirect(self, request: Request, from_name: str, to_name: str) -> Response:
+        # Anchor on the `/name/<segment>` portion so a skill named after a path word (e.g. "name")
+        # can't misdirect the replacement. Use a relative path (no build_absolute_uri) to avoid
+        # embedding the Host header in the Location value — prevents host-header open-redirect.
+        redirect_url = request.get_full_path().replace(f"/name/{from_name}", f"/name/{to_name}", 1)
         response = Response(status=status.HTTP_302_FOUND)
         response["Location"] = redirect_url
         return response
@@ -486,6 +497,9 @@ class LLMSkillViewSet(
             version_id=str(version_id) if version_id else None,
         )
         if skill is None:
+            redirect = self._redirect_for_missing_name(request, skill_name)
+            if redirect is not None:
+                return redirect
             return self._skill_not_found_response(skill_name)
 
         limit = cast(int, query_params["limit"])
@@ -828,6 +842,59 @@ class LLMSkillViewSet(
             request=request,
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=LLMSkillRenameSerializer, responses={200: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/rename",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_rename")
+    @monitor(feature=None, endpoint="llma_skills_rename", method="POST")
+    def rename(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        if new_name == skill_name:
+            return Response(
+                {"attr": "new_name", "detail": "The new name matches the current name."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            renamed_skill = rename_skill(self.team, old_name=skill_name, new_name=new_name)
+        except LLMSkillNotFoundError:
+            return self._skill_not_found_response(skill_name)
+        except LLMSkillDuplicateNameConflictError:
+            return Response(
+                {"attr": "new_name", "detail": "A skill with this name already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        props = {
+            **_skill_analytics_props(renamed_skill),
+            "previous_skill_name": skill_name,
+        }
+        logger.info(
+            "llma_skill_renamed",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill renamed",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(self._serialize_skill(renamed_skill))
 
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],

@@ -535,6 +535,16 @@ class LLMSkillDuplicateSerializer(serializers.Serializer):
         return validate_skill_name_value(value)
 
 
+class LLMSkillRenameSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=64,
+        help_text="New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
 class LLMSkillResolveResponseSerializer(serializers.Serializer):
     skill = LLMSkillSerializer()
     versions = LLMSkillVersionSummarySerializer(many=True)

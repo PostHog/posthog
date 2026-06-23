@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata
+from ..models.skills import LLMSkill, LLMSkillFile, LLMSkillNameAlias, annotate_llm_skill_version_history_metadata
 
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
@@ -568,6 +568,73 @@ def rename_skill_file(
         next_skill = _create_next_version_with_files(team, user, current_latest, next_files)
 
     return _refresh_with_annotations(team, next_skill)
+
+
+def _record_rename_alias(team: Team, *, old_name: str, new_name: str) -> None:
+    """Maintain old-name → current-name aliases after a rename.
+
+    Must run inside the rename transaction. Repoints existing aliases that targeted `old_name` to
+    `new_name` (so chained renames A→B→C keep resolving A→C), records old_name → new_name, and drops
+    any stale alias occupying new_name now that a live skill owns it.
+    """
+    LLMSkillNameAlias.objects.filter(team=team, skill_name=old_name).update(
+        skill_name=new_name,
+        updated_at=timezone.now(),
+    )
+    LLMSkillNameAlias.objects.filter(team=team, old_name=new_name).delete()
+    LLMSkillNameAlias.objects.update_or_create(
+        team=team,
+        old_name=old_name,
+        defaults={"skill_name": new_name},
+    )
+
+
+def resolve_skill_name_alias(team: Team, name: str) -> str | None:
+    """Return the current name a former skill name resolves to, if a live skill exists for it."""
+    alias = LLMSkillNameAlias.objects.filter(team=team, old_name=name).first()
+    if alias is None:
+        return None
+    if not LLMSkill.objects.filter(team=team, name=alias.skill_name, deleted=False).exists():
+        return None
+    return alias.skill_name
+
+
+def rename_skill(team: Team, *, old_name: str, new_name: str) -> LLMSkill:
+    """Rename every active version of a skill in place.
+
+    The skill identity is (team, name), spread across version rows, so a rename rewrites `name`
+    on all non-deleted versions at once — version history, IDs, and bundled files are preserved.
+    """
+    with transaction.atomic():
+        existing = list(
+            LLMSkill.objects.select_for_update()
+            .filter(team=team, name=old_name, deleted=False)
+            .values_list("id", flat=True)
+        )
+        if not existing:
+            raise LLMSkillNotFoundError()
+
+        if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
+            raise LLMSkillDuplicateNameConflictError()
+
+        try:
+            # Bump updated_at (the .update() bypasses auto_now) so the marketplace plugin version,
+            # derived from max(updated_at) across all team rows, advances on rename too.
+            LLMSkill.objects.filter(team=team, name=old_name, deleted=False).update(
+                name=new_name,
+                updated_at=timezone.now(),
+            )
+        except IntegrityError as err:
+            if "unique_llm_skill_latest_per_team" in str(err) or "unique_llm_skill_version_per_team" in str(err):
+                raise LLMSkillDuplicateNameConflictError() from err
+            raise
+
+        _record_rename_alias(team, old_name=old_name, new_name=new_name)
+
+    refreshed = get_latest_skills_queryset(team).filter(name=new_name).first()
+    if refreshed is None:
+        raise LLMSkillNotFoundError()
+    return refreshed
 
 
 def archive_skill(team: Team, skill_name: str) -> list[int]:

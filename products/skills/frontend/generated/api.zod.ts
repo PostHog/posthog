@@ -246,3 +246,12 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
+
+export const llmSkillsNameRenameCreateBodyNewNameMax = 64
+
+export const LlmSkillsNameRenameCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(llmSkillsNameRenameCreateBodyNewNameMax)
+        .describe('New name for the skill. Lowercase letters, numbers, and hyphens only. Must be unique on the team.'),
+})
