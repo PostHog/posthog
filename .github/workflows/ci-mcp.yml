@@ -268,6 +268,9 @@ jobs:
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
             INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
+            # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off, and
+            # this job boots the app prod-like. The dev value is fine for CI.
+            INTERNAL_API_SECRET: 'posthog123'
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

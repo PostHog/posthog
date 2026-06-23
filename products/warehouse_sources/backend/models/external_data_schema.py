@@ -176,6 +176,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_incremental or self.is_append or self.is_webhook
 
     @property
+    def table_row_count_is_cumulative(self) -> bool:
+        # These sync types append/merge into the warehouse table across runs, so its true size is the
+        # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
+        # replaces the whole table, so there the run's row_count already equals the table size.
+        return self.should_use_incremental_field or self.is_cdc or self.is_xmin
+
+    @property
     def incremental_field(self) -> str | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field", None)

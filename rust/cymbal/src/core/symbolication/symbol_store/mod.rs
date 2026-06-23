@@ -12,7 +12,7 @@ use crate::{
     symbolication::symbol_store::{
         apple::AppleRef,
         hermesmap::ParsedHermesMap,
-        native::ParsedNativeSymbols,
+        native::{NativeRef, ParsedNativeSymbols},
         proguard::{FetchedMapping, ProguardRef},
     },
 };
@@ -79,6 +79,10 @@ pub struct Catalog {
     // Apple dSYM provider
     pub apple:
         Box<dyn Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>>,
+    // Native (ELF/dSYM) debug symbol provider
+    pub native: Box<
+        dyn Provider<Ref = OrChunkId<NativeRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
+    >,
 }
 
 impl Catalog {
@@ -87,12 +91,14 @@ impl Catalog {
         hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
         pg: impl Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>,
         apple: impl Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
+        native: impl Provider<Ref = OrChunkId<NativeRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
     ) -> Self {
         Self {
             smp: Box::new(smp),
             hmp: Box::new(hmp),
             pg: Box::new(pg),
             apple: Box::new(apple),
+            native: Box::new(native),
         }
     }
 }
@@ -146,6 +152,17 @@ impl SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols> for Catalog {
         r: OrChunkId<AppleRef>,
     ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
         self.apple.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<NativeRef>, ParsedNativeSymbols> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<NativeRef>,
+    ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
+        self.native.lookup(team_id, r).await
     }
 }
 

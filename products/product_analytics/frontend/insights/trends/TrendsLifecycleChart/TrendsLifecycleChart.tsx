@@ -6,6 +6,8 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -65,8 +67,15 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showValuesOnSeries,
         showPercentagesOnSeries,
         showLegend,
+        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The legend has always rendered in-chart here; the flag only adds the configurable placement
+    // (defaulting to bottom to match the other in-chart legends). Without the flag it stays at top.
+    const legendPlacement = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+        ? ((legendPosition as 'top' | 'bottom' | 'left' | 'right') ?? 'bottom')
+        : 'top'
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
@@ -206,7 +215,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
+        <ChartLegend
+            show={!!showLegend}
+            items={legendItems}
+            position={legendPlacement}
+            legendDataAttr="trend-lifecycle-legend"
+        >
             <TimeSeriesBarChart<TrendsSeriesMeta>
                 series={series}
                 labels={labels}

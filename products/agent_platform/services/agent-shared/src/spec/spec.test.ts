@@ -30,7 +30,6 @@ describe('AgentSpecSchema', () => {
             ],
             mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
-            integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
             entrypoint: 'agent.md',
@@ -408,7 +407,6 @@ describe('AgentSpecSchema', () => {
                     {
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
-                        auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
                         tools: ['create-issue', 'list-issues'],
                     },
@@ -417,7 +415,6 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.id).toBe('linear')
             expect(m.url).toBe('https://mcp.linear.app/sse')
-            expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
             expect(m.tools).toEqual(['create-issue', 'list-issues'])
         })

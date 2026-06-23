@@ -195,15 +195,36 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Path',
-            width: 120,
+            width: 200,
             render: function Path(_, item) {
-                if (!item.experiment_execution_path) {
+                if (item.experiment_query_surface === 'precompute_build') {
+                    return (
+                        <LemonTag type="warning">
+                            build{item.experiment_precompute_table ? `: ${item.experiment_precompute_table}` : ''}
+                        </LemonTag>
+                    )
+                }
+                const pathTag = (label: string, value: string): JSX.Element | null => {
+                    if (!value || value === 'not_applicable') {
+                        return null
+                    }
+                    return (
+                        <LemonTag type={value === 'precomputed' ? 'success' : 'default'}>
+                            {label}: {value === 'precomputed' ? 'precomputed' : 'direct'}
+                        </LemonTag>
+                    )
+                }
+                // Fall back to the deprecated experiment_execution_path for rows logged before the split.
+                const exposures = pathTag('exposures', item.experiment_exposures_path || item.experiment_execution_path)
+                const events = pathTag('events', item.experiment_metric_events_path)
+                if (!exposures && !events) {
                     return null
                 }
                 return (
-                    <LemonTag type={item.experiment_execution_path === 'precomputed' ? 'success' : 'default'}>
-                        {item.experiment_execution_path}
-                    </LemonTag>
+                    <div className="flex flex-wrap gap-1">
+                        {exposures}
+                        {events}
+                    </div>
                 )
             },
         },
