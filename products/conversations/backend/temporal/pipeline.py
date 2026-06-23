@@ -496,7 +496,9 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
 
 
 async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutput:
-    user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:4000]}\n</ticket>"
+    # Must cover at least as much text as _draft_async feeds the agent (ticket_context[:6000]),
+    # otherwise an attacker can hide injection past the filter window.
+    user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:6000]}\n</ticket>"
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
     message = await _create_message(
