@@ -182,11 +182,14 @@ def build_enrichment_prompt(
             "Business context about this company (use it to interpret domain terms and abbreviations):",
             business_context,
         ]
+    # Column names are source-derived — quote/escape each (like table_name) so a crafted name can't
+    # break out of this final instruction line.
+    described_names = ", ".join(json.dumps(_collapse_untrusted(name)) for name in columns_needing_description)
     sections += [
         "",
         "Write a concise one-sentence description for the table, and a concise one-sentence description for "
         "EACH of these columns (infer units, enums, and meaning from the name, type, foreign keys, and business "
-        f"context): {', '.join(columns_needing_description)}.",
+        f"context): {described_names}.",
         "",
         'Respond with ONLY a JSON object of the form {"table_description": "...", "columns": {"column_name": '
         '"description", ...}}. Do not include columns you were not asked to describe. Do not invent columns.',
