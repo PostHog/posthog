@@ -1,6 +1,14 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
-import { cellStateFor } from './ProjectsGrid'
+import { ProjectsGrid, cellStateFor } from './ProjectsGrid'
 
 const CURRENT_TEAM_ID = 1
 const OTHER_TEAM_ID = 2
@@ -74,5 +82,53 @@ describe('cellStateFor', () => {
         const state = cellStateFor(row, OTHER_TEAM_ID, CURRENT_TEAM_ID, new Set([CURRENT_TEAM_ID]), [], false)
 
         expect(state.kind).toBe('no-access')
+    })
+})
+
+describe('ProjectsGrid', () => {
+    const FLAG_TEAM_ID = MOCK_TEAM_ID + 1 // a project other than the current one
+
+    beforeAll(() => {
+        // jsdom has no IntersectionObserver; the infinite-scroll sentinel effect needs it.
+        global.IntersectionObserver = class {
+            observe(): void {}
+            unobserve(): void {}
+            disconnect(): void {}
+        } as unknown as typeof IntersectionObserver
+    })
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/organizations/:org/feature_flags/keys/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 42,
+                            team_id: FLAG_TEAM_ID,
+                            key: 'cross-project-flag',
+                            name: 'Cross Project Flag',
+                            active: true,
+                            filters: { groups: [] },
+                            created_at: '2024-01-01T00:00:00Z',
+                            created_by: null,
+                        },
+                    ],
+                },
+                '/api/organizations/:org/feature_flags/:key/': [],
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(() => cleanup())
+
+    it('links each flag row to that flag in its own project', async () => {
+        render(<ProjectsGrid />)
+
+        const link = await screen.findByRole('link', { name: /Cross Project Flag/i })
+        expect(link).toHaveAttribute('href', `/project/${FLAG_TEAM_ID}/feature_flags/42`)
     })
 })
