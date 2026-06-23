@@ -124,6 +124,7 @@ the row lists both.
 | linear            | HTTP                        | requests                                                        | ✅                          |
 | lever             | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads      | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| lob               | HTTP                        | requests                                                        | ✅                          |
 | mailchimp         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite        | HTTP                        | requests                                                        | ✅                          |
 | mailgun           | HTTP                        | requests                                                        | ✅                          |
@@ -462,7 +463,6 @@ doesn't conflict with concurrent PRs.
 - linkedin_pages
 - linkrunner
 - linnworks
-- lob
 - lokalise
 - looker
 - luma
