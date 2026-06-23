@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 
@@ -92,7 +94,7 @@ class TestFilloutSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     def test_validate_credentials_rejects_unknown_api_base_url(self) -> None:
-        config = FilloutSourceConfig(api_key="fillout-key", api_base_url="https://api.fillout.com")
+        config = FilloutSourceConfig(api_key="fillout-key", api_base_url=cast(Any, "https://api.fillout.com"))
         is_valid, message = self.source.validate_credentials(config, self.team_id)
         assert is_valid is False
         assert message is not None and "API base URL must be one of" in message
