@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -13,17 +13,13 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { CadenceFrequency, humanizeCadence } from '../cadence'
+import { humanizeCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
-
-const FREQUENCY_OPTIONS: { value: CadenceFrequency; label: string }[] = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-]
 
 // 0=Mon … 6=Sun, matching CadenceState.weekdays.
 const WEEKDAY_PILLS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
+const WEEKDAYS_MON_FRI = [0, 1, 2, 3, 4]
 
 function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: string) => void }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -53,61 +49,59 @@ function ScheduleSection(): JSX.Element {
 
     const timeValue = `${cadence.hour.toString().padStart(2, '0')}:${cadence.minute.toString().padStart(2, '0')}`
 
-    const toggleWeekday = (day: number): void => {
-        const weekdays = cadence.weekdays.includes(day)
-            ? cadence.weekdays.filter((d) => d !== day)
-            : [...cadence.weekdays, day]
-        setVisionActionFormValue('cadence', { ...cadence, weekdays })
-    }
+    const setWeekdays = (weekdays: number[]): void => setVisionActionFormValue('cadence', { ...cadence, weekdays })
+
+    const toggleWeekday = (day: number): void =>
+        setWeekdays(
+            cadence.weekdays.includes(day) ? cadence.weekdays.filter((d) => d !== day) : [...cadence.weekdays, day]
+        )
+
+    const noDays = cadence.weekdays.length === 0
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                    <label className="text-sm font-semibold">Frequency</label>
-                    <LemonSelect
-                        value={cadence.frequency}
-                        options={FREQUENCY_OPTIONS}
-                        onChange={(frequency) =>
-                            frequency && setVisionActionFormValue('cadence', { ...cadence, frequency })
-                        }
-                        fullWidth
-                    />
-                </div>
-                <div className="w-32">
-                    <label className="text-sm font-semibold">At</label>
-                    <LemonInput
-                        type="time"
-                        value={timeValue}
-                        onChange={(val) => {
-                            const [h, m] = (val || '09:00').split(':').map((n) => parseInt(n, 10))
-                            setVisionActionFormValue('cadence', {
-                                ...cadence,
-                                hour: Number.isNaN(h) ? 9 : h,
-                                minute: Number.isNaN(m) ? 0 : m,
-                            })
-                        }}
-                    />
-                </div>
-            </div>
-
-            {cadence.frequency === 'weekly' && (
-                <div>
-                    <label className="text-sm font-semibold">On days</label>
+            <div>
+                <div className="flex items-center justify-between">
+                    <label className="text-sm font-semibold">Runs on</label>
                     <div className="flex gap-1">
-                        {WEEKDAY_PILLS.map((label, day) => (
-                            <LemonButton
-                                key={day}
-                                size="small"
-                                type={cadence.weekdays.includes(day) ? 'primary' : 'secondary'}
-                                onClick={() => toggleWeekday(day)}
-                            >
-                                {label}
-                            </LemonButton>
-                        ))}
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => setWeekdays([...ALL_WEEKDAYS])}>
+                            Every day
+                        </LemonButton>
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => setWeekdays([...WEEKDAYS_MON_FRI])}>
+                            Weekdays
+                        </LemonButton>
                     </div>
                 </div>
-            )}
+                <div className="flex gap-1">
+                    {WEEKDAY_PILLS.map((label, day) => (
+                        <LemonButton
+                            key={day}
+                            size="small"
+                            type={cadence.weekdays.includes(day) ? 'primary' : 'secondary'}
+                            onClick={() => toggleWeekday(day)}
+                        >
+                            {label}
+                        </LemonButton>
+                    ))}
+                </div>
+                {noDays && <span className="text-xs text-danger">Pick at least one day</span>}
+            </div>
+
+            <div className="w-32">
+                <label className="text-sm font-semibold">At</label>
+                <LemonInput
+                    type="time"
+                    value={timeValue}
+                    onChange={(val) => {
+                        const [h, m] = (val || '09:00').split(':').map((n) => parseInt(n, 10))
+                        setVisionActionFormValue('cadence', {
+                            ...cadence,
+                            hour: Number.isNaN(h) ? 9 : h,
+                            minute: Number.isNaN(m) ? 0 : m,
+                        })
+                    }}
+                />
+            </div>
 
             <div>
                 <label className="text-sm font-semibold">Timezone</label>
@@ -157,8 +151,10 @@ function DeliverySection(): JSX.Element {
 }
 
 export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Element {
-    const { formVisible, editingAction, isVisionActionFormSubmitting } = useValues(visionActionsLogic)
+    const { formVisible, editingAction, isVisionActionFormSubmitting, visionActionForm } = useValues(visionActionsLogic)
     const { closeForm } = useActions(visionActionsLogic)
+
+    const noDays = visionActionForm.cadence.weekdays.length === 0
 
     return (
         <LemonModal
@@ -177,6 +173,7 @@ export function VisionActionForm({ scannerId }: { scannerId: string }): JSX.Elem
                         htmlType="submit"
                         form="vision-action-form"
                         loading={isVisionActionFormSubmitting}
+                        disabledReason={noDays ? 'Pick at least one day to run on' : undefined}
                     >
                         {editingAction ? 'Save' : 'Create action'}
                     </LemonButton>

@@ -111,7 +111,7 @@ describe('visionActionsLogic', () => {
             editingAction: expect.objectContaining({ id: 'e' }),
             visionActionForm: {
                 name: 'action-e',
-                cadence: { frequency: 'weekly', weekdays: [0, 2], hour: 14, minute: 30 },
+                cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
                 timezone: 'Europe/Prague',
                 prompt_guide: 'focus on checkout',
                 integration_id: 5,
