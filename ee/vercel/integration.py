@@ -1290,12 +1290,16 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
 
     Operations are silently skipped if Vercel integration is not configured and
     exceptions are caught and logged rather than bubbling up to the caller.
+
+    The entire body is wrapped so that even the initial resource/installation lookups
+    cannot raise — a transient DB error (e.g. a closed connection) at signal time must
+    never fail the user-facing feature flag/experiment save this wrapper protects.
     """
-    if not VercelIntegration._get_vercel_resource_for_team(team):
-        installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation:
-            return
-        try:
+    try:
+        if not VercelIntegration._get_vercel_resource_for_team(team):
+            installation = VercelIntegration._get_installation_for_organization(team.organization)
+            if not installation:
+                return
             resource, created = Integration.objects.get_or_create(
                 team=team,
                 kind=Integration.IntegrationKind.VERCEL,
@@ -1318,12 +1322,7 @@ def _safe_vercel_sync(operation_name: str, item_id: str | int, team: Team, sync_
                         name=team.name,
                         secrets=VercelIntegration._build_secrets(team),
                     )
-        except Exception as e:
-            logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
-            capture_exception(e)
-            return
 
-    try:
         sync_func()
     except Exception as e:
         logger.exception(

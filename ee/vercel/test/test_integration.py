@@ -3,7 +3,7 @@ from typing import Any
 from unittest import mock
 from unittest.mock import Mock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -827,6 +827,20 @@ class TestVercelIntegration(TestCase):
         feature_flag.save()
 
         mock_sync.assert_called_once_with(feature_flag, False)
+
+    @patch("ee.vercel.integration.VercelIntegration._get_vercel_resource_for_team")
+    def test_safe_vercel_sync_swallows_db_error_from_initial_lookup(self, mock_get_resource):
+        team, _ = self.make_team_with_vercel(self.organization, self.user)
+        feature_flag = self.make_feature_flag(team, "test_flag", "Test Flag", False)
+        mock_get_resource.side_effect = OperationalError("the connection is closed")
+
+        # The initial lookup inside _safe_vercel_sync now raises, but the signal-driven
+        # save must still succeed rather than propagating the transient DB error.
+        feature_flag.name = "Updated Test Flag"
+        feature_flag.save()
+
+        feature_flag.refresh_from_db()
+        assert feature_flag.name == "Updated Test Flag"
 
     @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
     def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
