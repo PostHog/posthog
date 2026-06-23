@@ -12,7 +12,6 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardCard } from './DashboardCard'
 import { DashboardsDndContext, DroppableFolder } from './dashboardsDnd'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { folderSiblings } from './dashboardsFileSystemUtils'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 import { dashboardsLogic } from './dashboardsLogic'
 import { NewFolderButton } from './NewFolderButton'
@@ -20,16 +19,15 @@ import { NewFolderButton } from './NewFolderButton'
 // Explorer arm (variant=explorer): drill-in folder navigation + organizing. Drill into folders via the
 // breadcrumb, drag a dashboard onto a subfolder, or use the per-card menu (move to / rename / cut / copy /
 // delete) plus the clipboard paste affordance. A search query flips to a flat global results grid. Shares
-// the FileSystem folder structure (dashboard + folder rows) with the tree arm and sidebar.
+// the FileSystem folder structure (dashboard + folder rows) with the sidebar tree.
 export function DashboardsExplorer(): JSX.Element {
     const {
         currentFolderContents,
         compactedSubfolders,
-        breadcrumb,
+        breadcrumbWithSiblings,
         currentFolder,
         clipboard,
         renamingDashboardId,
-        folderTree,
     } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -67,47 +65,43 @@ export function DashboardsExplorer(): JSX.Element {
                     <>
                         <div className="flex items-center gap-2 flex-wrap">
                             <div className="flex items-center gap-1 flex-wrap" aria-label="Folder breadcrumb">
-                                {breadcrumb.map((crumb, index) => {
-                                    // Sibling folders, for a jump-to-sibling dropdown (skip the root crumb).
-                                    const siblings = index > 0 ? folderSiblings(crumb.path, folderTree) : []
-                                    return (
-                                        <span key={crumb.path} className="flex items-center gap-1">
-                                            {index > 0 ? <IconChevronRight className="text-muted" /> : null}
-                                            <button
-                                                type="button"
-                                                className="font-medium"
-                                                onClick={() => navigateToFolder(crumb.path)}
-                                            >
-                                                {crumb.label}
-                                            </button>
-                                            {siblings.length > 1 ? (
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger
-                                                        render={
-                                                            <Button
-                                                                variant="default"
-                                                                size="icon-sm"
-                                                                aria-label={`Switch ${crumb.label} folder`}
-                                                            />
-                                                        }
-                                                    >
-                                                        <IconChevronDown className="text-tertiary" />
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="start" side="bottom">
-                                                        {siblings.map((sibling) => (
-                                                            <DropdownMenuItem
-                                                                key={sibling.path}
-                                                                onClick={() => navigateToFolder(sibling.path)}
-                                                            >
-                                                                {sibling.label}
-                                                            </DropdownMenuItem>
-                                                        ))}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            ) : null}
-                                        </span>
-                                    )
-                                })}
+                                {breadcrumbWithSiblings.map((crumb, index) => (
+                                    <span key={crumb.path} className="flex items-center gap-1">
+                                        {index > 0 ? <IconChevronRight className="text-muted" /> : null}
+                                        <button
+                                            type="button"
+                                            className="font-medium"
+                                            onClick={() => navigateToFolder(crumb.path)}
+                                        >
+                                            {crumb.label}
+                                        </button>
+                                        {crumb.siblings.length > 1 ? (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger
+                                                    render={
+                                                        <Button
+                                                            variant="default"
+                                                            size="icon-sm"
+                                                            aria-label={`Switch ${crumb.label} folder`}
+                                                        />
+                                                    }
+                                                >
+                                                    <IconChevronDown className="text-tertiary" />
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="start" side="bottom">
+                                                    {crumb.siblings.map((sibling) => (
+                                                        <DropdownMenuItem
+                                                            key={sibling.path}
+                                                            onClick={() => navigateToFolder(sibling.path)}
+                                                        >
+                                                            {sibling.label}
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        ) : null}
+                                    </span>
+                                ))}
                             </div>
                             {clipboard ? (
                                 <LemonButton

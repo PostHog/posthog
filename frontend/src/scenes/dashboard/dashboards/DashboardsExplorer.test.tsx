@@ -51,7 +51,7 @@ describe('DashboardsExplorer', () => {
             currentFolderContents: { subfolders: [], dashboards: [] },
             dashboards: [],
             filters: { search: '' },
-            folderTree: [],
+            breadcrumbWithSiblings: [],
             ...overrides,
         })
     }
@@ -60,9 +60,17 @@ describe('DashboardsExplorer', () => {
         mockValues({
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [{ id: 1, name: 'Campaigns' }] },
             compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
-            breadcrumb: [
-                { label: 'All dashboards', path: '' },
-                { label: 'Marketing', path: 'Marketing' },
+            breadcrumbWithSiblings: [
+                { label: 'All dashboards', path: '', siblings: [] },
+                {
+                    label: 'Marketing',
+                    path: 'Marketing',
+                    // Two siblings → the crumb gets a jump-to-sibling dropdown.
+                    siblings: [
+                        { path: 'Marketing', label: 'Marketing', children: [] },
+                        { path: 'Product', label: 'Product', children: [] },
+                    ],
+                },
             ],
         })
         render(<DashboardsExplorer />)
@@ -70,13 +78,15 @@ describe('DashboardsExplorer', () => {
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
         expect(screen.getByText('Campaigns')).toBeInTheDocument()
+        // The Marketing crumb has >1 sibling, so its switch-folder dropdown trigger renders.
+        expect(screen.getByLabelText('Switch Marketing folder')).toBeInTheDocument()
     })
 
     it('drills into a folder on click', () => {
         mockValues({
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [] },
             compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
-            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
         })
         render(<DashboardsExplorer />)
         fireEvent.click(screen.getByText('Q1'))
@@ -86,7 +96,7 @@ describe('DashboardsExplorer', () => {
     it('shows a paste affordance into the current folder when the clipboard has an item', () => {
         mockValues({
             currentFolderContents: { subfolders: [], dashboards: [] },
-            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
             clipboard: { mode: 'cut', dashboardId: 1 },
             currentFolder: 'Marketing',
         })
@@ -98,7 +108,7 @@ describe('DashboardsExplorer', () => {
     it('commits a rename on blur for the dashboard being renamed', () => {
         mockValues({
             currentFolderContents: { subfolders: [], dashboards: [{ id: 1, name: 'Campaigns' }] },
-            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
             renamingDashboardId: 1,
         })
         render(<DashboardsExplorer />)
@@ -111,7 +121,7 @@ describe('DashboardsExplorer', () => {
     it('cancels the rename on Escape without dispatching a rename', () => {
         mockValues({
             currentFolderContents: { subfolders: [], dashboards: [{ id: 1, name: 'Campaigns' }] },
-            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
             renamingDashboardId: 1,
         })
         render(<DashboardsExplorer />)
@@ -128,7 +138,7 @@ describe('DashboardsExplorer', () => {
             dashboards: [{ id: 7, name: 'Revenue' }],
             compactedSubfolders: [{ path: 'Marketing/Q1', label: 'Q1' }],
             currentFolderContents: { subfolders: ['Marketing/Q1'], dashboards: [] },
-            breadcrumb: [{ label: 'All dashboards', path: '' }],
+            breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
         })
         render(<DashboardsExplorer />)
         expect(screen.getByText('Revenue')).toBeInTheDocument()

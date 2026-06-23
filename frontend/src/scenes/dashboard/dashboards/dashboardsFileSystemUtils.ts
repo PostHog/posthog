@@ -25,9 +25,9 @@ export function buildEntryByRef(entries: FileSystemEntry[]): Record<string, File
     return byRef
 }
 
-// Build the nested folder tree the tree arm renders: every folder that contains a dashboard (plus all its
-// ancestors), unioned with the explicit `folderPaths` (real folder rows) so empty folders also appear.
-// Unfiled dashboards contribute the Unfiled subtree.
+// Build the nested folder tree: every folder that contains a dashboard (plus all its ancestors), unioned
+// with the explicit `folderPaths` (real folder rows) so empty folders also appear. Unfiled dashboards
+// contribute the Unfiled subtree. Feeds the explorer's breadcrumb sibling-folder dropdowns (folderSiblings).
 export function buildFolderTree(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>,
@@ -50,10 +50,11 @@ export function buildFolderTree(
 
     const byPath = new Map<string, FolderTreeNode>()
     const roots: FolderTreeNode[] = []
-    // Shallowest first so a node's parent always exists before the node is attached.
-    const sorted = [...allFolderPaths].sort((a, b) => splitPath(a).length - splitPath(b).length || a.localeCompare(b))
-    for (const path of sorted) {
-        const segments = splitPath(path)
+    // Split each path once, then shallowest-first so a node's parent always exists before it's attached.
+    const sorted = [...allFolderPaths]
+        .map((path) => ({ path, segments: splitPath(path) }))
+        .sort((a, b) => a.segments.length - b.segments.length || a.path.localeCompare(b.path))
+    for (const { path, segments } of sorted) {
         const node: FolderTreeNode = { path, label: segments.at(-1) ?? path, children: [] }
         byPath.set(path, node)
         const parent = segments.length > 1 ? byPath.get(joinPath(segments.slice(0, -1))) : undefined
@@ -68,8 +69,8 @@ export function buildFolderTree(
     return roots
 }
 
-// dnd-kit ids for the grid: dashboards are draggable, folder headers are droppable. We namespace and
-// round-trip the dashboard id / folder path through the id so the drag-end handler can resolve them.
+// dnd-kit ids for the explorer's drag-to-folder: dashboards are draggable, folder cards are droppable. We
+// namespace and round-trip the dashboard id / folder path through the id so the drag-end handler can resolve them.
 const DRAG_PREFIX = 'dashboards-grid'
 const DASH_PREFIX = `${DRAG_PREFIX}:dash:`
 const FOLDER_PREFIX = `${DRAG_PREFIX}:folder:`
@@ -123,11 +124,10 @@ export function folderContents(
     const subfolders = new Set<string>()
     const directDashboards: DashboardBasicType[] = []
 
-    const addImmediateChild = (segments: string[]): void => {
-        const withinCurrent = currentSegments.every((segment, index) => segments[index] === segment)
-        if (withinCurrent && segments.length > currentSegments.length) {
-            subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
-        }
+    const isWithinCurrent = (segments: string[]): boolean =>
+        currentSegments.every((segment, index) => segments[index] === segment)
+    const addImmediateSubfolder = (segments: string[]): void => {
+        subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
     }
 
     for (const dashboard of dashboards) {
@@ -135,19 +135,21 @@ export function folderContents(
         // Parent segments of the dashboard's path in one split (no joinPath→splitPath round-trip).
         const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
         const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
-        const withinCurrent = currentSegments.every((segment, index) => segments[index] === segment)
-        if (!withinCurrent) {
+        if (!isWithinCurrent(segments)) {
             continue
         }
         if (segments.length === currentSegments.length) {
             directDashboards.push(dashboard)
         } else {
-            subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
+            addImmediateSubfolder(segments)
         }
     }
 
     for (const folderPath of folderPaths) {
-        addImmediateChild(splitPath(folderPath))
+        const segments = splitPath(folderPath)
+        if (isWithinCurrent(segments) && segments.length > currentSegments.length) {
+            addImmediateSubfolder(segments)
+        }
     }
 
     return { subfolders: [...subfolders].sort((a, b) => a.localeCompare(b)), dashboards: directDashboards }

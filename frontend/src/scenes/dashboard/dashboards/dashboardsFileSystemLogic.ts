@@ -20,6 +20,7 @@ import {
     FolderBreadcrumb,
     folderContents,
     FolderContents,
+    folderSiblings,
     FolderTreeNode,
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
@@ -34,10 +35,10 @@ export interface ClipboardItem {
     dashboardId: number
 }
 
-// View state for the explorer/tree arms: the dashboards-subtree folder structure (read from the same
-// FileSystem rows that back the sidebar tree — both dashboard and folder rows), folder navigation/collapse
-// state, and a clipboard. Writes delegate to projectTreeDataLogic (moves) and dashboardsModel
-// (duplicate/rename/delete) so the sidebar stays consistent and there is no second folder model to sync.
+// View state for the explorer arm: the dashboards-subtree folder structure (read from the same FileSystem
+// rows that back the sidebar tree — both dashboard and folder rows), folder navigation state, and a
+// clipboard. Writes delegate to projectTreeDataLogic (moves) and dashboardsModel (duplicate/rename/delete)
+// so the sidebar stays consistent and there is no second folder model to sync.
 export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
@@ -146,6 +147,17 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 ),
         ],
         breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
+        // Explorer breadcrumb crumbs paired with their sibling folders, for the jump-to-sibling dropdowns.
+        // Derived here (not in render) so the tree walk memoizes on [breadcrumb, folderTree] rather than
+        // re-running per crumb on every explorer re-render. The root crumb has no siblings.
+        breadcrumbWithSiblings: [
+            (s) => [s.breadcrumb, s.folderTree],
+            (breadcrumb, folderTree): (FolderBreadcrumb & { siblings: FolderTreeNode[] })[] =>
+                breadcrumb.map((crumb, index) => ({
+                    ...crumb,
+                    siblings: index > 0 ? folderSiblings(crumb.path, folderTree) : [],
+                })),
+        ],
     }),
     listeners(({ values, actions }) => ({
         moveDashboardToFolder: ({ dashboardId, folder }) => {
