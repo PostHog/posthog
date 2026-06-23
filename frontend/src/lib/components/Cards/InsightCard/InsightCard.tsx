@@ -66,6 +66,8 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    /** While the tile is being resized: unmount the viz so the chart doesn't redraw on every frame. */
+    isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
@@ -123,6 +125,7 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        isResizing,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -281,7 +284,11 @@ function InsightCardInternal(
                         surveyOpportunity={surveyOpportunity}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
-                    {isVisible ? (
+                    {isResizing ? (
+                        // Skip the chart while resizing — keeping it mounted would redraw the canvas on every
+                        // frame as the tile's dimensions change. Remounts from cached results once resizing stops.
+                        <div className="InsightCard__viz" />
+                    ) : isVisible ? (
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
                                 BlockingEmptyState

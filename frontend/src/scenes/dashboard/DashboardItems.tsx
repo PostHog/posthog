@@ -85,7 +85,9 @@ export function DashboardItems(): JSX.Element {
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
-    const resizingItemRef = useRef<any>(null)
+    // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
+    // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
+    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
@@ -302,11 +304,12 @@ export function DashboardItems(): JSX.Element {
     }, [])
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        resizingItemRef.current = newItem
+        // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
+        setResizingTileId(newItem.i)
     }, [])
 
     const handleResizeStop = useCallback(() => {
-        resizingItemRef.current = null
+        setResizingTileId(null)
         flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
@@ -477,6 +480,7 @@ export function DashboardItems(): JSX.Element {
                                         showDetailsControls={showDetailsControls}
                                         placement={placement}
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                        isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
