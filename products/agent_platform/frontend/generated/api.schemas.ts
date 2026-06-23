@@ -462,7 +462,7 @@ export type AgentRevisionApiSpecIdentityProvidersItem =
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           scopes?: string[]
           client_id?: string
       }
@@ -470,7 +470,7 @@ export type AgentRevisionApiSpecIdentityProvidersItem =
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           authorize_url: string
           token_url: string
           /** @minLength 1 */
@@ -842,7 +842,7 @@ export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           scopes?: string[]
           client_id?: string
       }
@@ -850,7 +850,7 @@ export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           authorize_url: string
           token_url: string
           /** @minLength 1 */

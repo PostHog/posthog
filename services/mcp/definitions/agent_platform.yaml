@@ -592,6 +592,12 @@ tools:
     agent-applications-update:
         operation: agent_applications_update
         enabled: false
+    agent-applications-users-connection-delete:
+        operation: agent_applications_users_connection_delete
+        enabled: false
+    agent-applications-users-list:
+        operation: agent_applications_users_list
+        enabled: false
     agent-fleet-approvals-list:
         operation: agent_fleet_approvals_list
         enabled: false
