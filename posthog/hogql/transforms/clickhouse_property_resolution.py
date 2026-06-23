@@ -343,10 +343,10 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
         # keep the JSON fallback.
         if isinstance(field_type.resolve_database_field(context), MapStringDatabaseField):
             _record_property_usage(context, "map_subscript")
-            head = _map_value_read(node.expr, first_key)
+            map_head = _map_value_read(node.expr, first_key)
             if not deeper_keys:
-                return head
-            return ast.PropertyAccess(expr=head, keys=deeper_keys, type=ast.StringType(nullable=True))
+                return map_head
+            return ast.PropertyAccess(expr=map_head, keys=deeper_keys, type=ast.StringType(nullable=True))
         _record_property_usage(context, None)
         return None
     _record_property_usage(context, source.kind)
@@ -434,6 +434,7 @@ _USAGE_BY_SOURCE_KIND = {
     "materialized_column": "materialized_column",
     "dmat": "dynamic_materialized_column",
     "property_group": "property_group",
+    "map_subscript": "map_subscript",
 }
 
 
