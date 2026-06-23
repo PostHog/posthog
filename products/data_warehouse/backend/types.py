@@ -676,6 +676,9 @@ class ExternalDataSourceType(models.TextChoices):
     TILE38 = "Tile38", "Tile38"
     CHATWOOT = "Chatwoot", "Chatwoot"
     SANITY = "Sanity", "Sanity"
+    METRONOME = "Metronome", "Metronome"
+    JOBBER = "Jobber", "Jobber"
+    KNOCK = "Knock", "Knock"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

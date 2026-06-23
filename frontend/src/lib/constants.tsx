@@ -173,6 +173,7 @@ export const FEATURE_FLAGS = {
     HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
 
     // UX flags, used to control the UX of the app
+    CREATE_BUTTON_NAV_EXPERIMENT: 'create-button-nav-experiment', // owner: #team-platform-ux multivariate=control,test — adds a Create dropdown to the top of the Browse tab in the left nav
     STARRED_REORDER: 'starred-reorder', // owner: #team-platform-ux, drag-and-drop reorder of starred shortcuts in the side panel
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
@@ -333,6 +334,7 @@ export const FEATURE_FLAGS = {
     LEGAL_DOCUMENTS: 'legal-documents', // owner: @rafaeelaudibert #team-growth
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
+    LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LIVESTREAM_TUI: 'livestream-tui', // owner: @rafaeelaudibert #team-growth
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_CUSTOM_PARSERS: 'ai-observability-custom-parsers', // owner: #team-ai-observability
@@ -478,10 +480,12 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
+    TASKS_STREAM_VIA_PROXY: 'tasks-stream-via-proxy', // owner: #team-ai-observability
     TAXONOMIC_FILTER_CATEGORY_DROPDOWN: 'taxonomic-filter-category-dropdown', // owner: @pauldambra #team-product-analytics multivariate=control,pill
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
+    TRACING_OPERATIONS_VIEW: 'tracing-operations-view', // owner: #team-apm — gates the Operations (per-operation aggregate) tab in tracing
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys

@@ -110,7 +110,6 @@ describe('openMcpClients', () => {
     it('returns an empty result for an empty refs list', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const { clients, close } = await openMcpClients([], {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -125,7 +124,6 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
 
         const { clients, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -156,7 +154,6 @@ describe('openMcpClients', () => {
             { id: 'github', url: 'https://example.com/github', secrets: [] },
         ]
         const { clients, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -171,9 +168,9 @@ describe('openMcpClients', () => {
             { id: 'dup', url: 'https://example.com/a', secrets: [] },
             { id: 'dup', url: 'https://example.com/b', secrets: [] },
         ]
-        await expect(
-            openMcpClients(refs, { integrations: {}, secrets: {}, transportFactory: factory })
-        ).rejects.toThrow(/duplicate_mcp_prefix: dup/)
+        await expect(openMcpClients(refs, { secrets: {}, transportFactory: factory })).rejects.toThrow(
+            /duplicate_mcp_prefix: dup/
+        )
         // The duplicate-prefix path closes the clients it opened — the in-memory
         // server pairs should still be drain-able by the test's own cleanup.
         await closePairs(pairs)
@@ -189,7 +186,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { TENANT: 'acme' },
             secretAllowedHosts: (n) => (n === 'TENANT' ? ['example.com'] : undefined),
             transportFactory: factory,
@@ -218,7 +214,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
             secretAllowedHosts: (n) => (n === 'GITHUB_TOKEN' ? ['api.githubcopilot.com'] : undefined),
             transportFactory: factory,
@@ -229,41 +224,10 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
-    it('author headers take precedence over integration-stamped Authorization on duplicate keys', async () => {
-        // Matches @posthog/http-request's "caller-set values are not silently
-        // overwritten" rule. If the author explicitly sets Authorization in
-        // headers AND wires auth.integration, the explicit author value wins
-        // — the integration bearer falls through. Authors who want the
-        // integration's token must omit Authorization from headers.
-        const { factory, pairs, targets } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'fancy',
-                url: 'https://example.com/mcp',
-                secrets: ['CUSTOM_TOKEN'],
-                auth: { integration: 'slack:T01' },
-                headers: { Authorization: 'Bearer ${CUSTOM_TOKEN}' },
-            },
-        ]
-        const { close } = await openMcpClients(refs, {
-            integrations: {
-                'slack:T01': { kind: 'slack', access_token: 'xoxb-from-integration' },
-            },
-            secrets: { CUSTOM_TOKEN: 'custom-from-secret' },
-            secretAllowedHosts: (n) => (n === 'CUSTOM_TOKEN' ? ['example.com'] : undefined),
-            transportFactory: factory,
-            integrationHostValidator: () => true,
-        })
-        expect(targets[0].headers.Authorization).toBe('Bearer custom-from-secret')
-        await close()
-        await closePairs(pairs)
-    })
-
     it('auth.provider stamps the asker bearer when the identity resolves ok', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
         const { close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
             identity: {
@@ -283,7 +247,6 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [{ id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } }]
         const { clients, failures, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
             identity: {
@@ -318,7 +281,6 @@ describe('openMcpClients', () => {
         ]
         const relink = vi.fn(async () => 'https://app.posthog.test/oauth/authorize/?reconnect=1')
         const { clients, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: failingFactory,
             identity: {
@@ -343,7 +305,6 @@ describe('openMcpClients', () => {
             { id: 'gh', url: 'https://evil.example/mcp', secrets: [], auth: { provider: 'github' } },
         ]
         const { clients, failures, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
             identity: {
@@ -366,7 +327,6 @@ describe('openMcpClients', () => {
             { id: 'posthog', url: 'http://localhost:8787/mcp', secrets: [], auth: { provider: 'posthog' } },
         ]
         const { close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
             identity: {
@@ -399,7 +359,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -422,7 +381,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -450,7 +408,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { SLACK_BOT_TOKEN: 'xoxb-secret' },
             secretAllowedHosts: (n) => (n === 'SLACK_BOT_TOKEN' ? ['slack.com'] : undefined),
             transportFactory: factory,
@@ -466,8 +423,8 @@ describe('openMcpClients', () => {
 
     it('SECURITY: refuses to substitute a bare-string (unbound) header secret (fail closed)', async () => {
         // A secret declared in spec.secrets[] as a bare string carries no
-        // network-egress authority — same fail-closed shape as the unwired
-        // integration-host-validator branch.
+        // network-egress authority — it fails closed rather than being
+        // stamped onto a request to an unverified host.
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
@@ -478,7 +435,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
             // null = declared as a bare string in spec.secrets[].
             secretAllowedHosts: (n) => (n === 'GITHUB_TOKEN' ? null : undefined),
@@ -505,7 +461,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
             transportFactory: factory,
         })
@@ -528,7 +483,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { TENANT: 'super-secret-tenant' },
             secretAllowedHosts: (n) => (n === 'TENANT' ? ['example.com'] : undefined),
             transportFactory: factory,
@@ -553,7 +507,6 @@ describe('openMcpClients', () => {
             },
         ]
         const { close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: { SVC_TOKEN: 'tok_ok' },
             secretAllowedHosts: (n) => (n === 'SVC_TOKEN' ? ['*.example.com'] : undefined),
             transportFactory: factory,
@@ -563,174 +516,10 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
-    it('stamps Authorization: Bearer <token> when auth.integration is set and the validator allows the host', async () => {
-        const { factory, pairs, targets } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'linear',
-                url: 'https://example.com/linear',
-                secrets: [],
-                auth: { integration: 'linear:T01' },
-            },
-        ]
-        const { close } = await openMcpClients(refs, {
-            integrations: {
-                'linear:T01': { kind: 'linear', access_token: 'tok_abc' },
-            },
-            secrets: {},
-            transportFactory: factory,
-            integrationHostValidator: () => true,
-        })
-        expect(targets[0].headers).toEqual({ Authorization: 'Bearer tok_abc' })
-        await close()
-        await closePairs(pairs)
-    })
-
-    it('SECURITY: refuses to attach integration bearer when no host validator is wired (reported as unavailable)', async () => {
-        // Fail-closed: a deploy that doesn't wire `integrationHostValidator`
-        // must NOT silently regress to "attach bearer to whatever URL the
-        // spec author chose." Without this, a malicious author could point
-        // at their own URL and harvest the team's OAuth token. The MCP is
-        // captured as unavailable (degraded session) rather than thrown so
-        // a deploy regression on ONE integration doesn't blow up every
-        // session that references it — the bearer is still NEVER attached.
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'linear',
-                url: 'https://example.com/linear',
-                secrets: [],
-                auth: { integration: 'linear:T01' },
-            },
-        ]
-        const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
-            secrets: {},
-            transportFactory: factory,
-        })
-        expect(clients).toEqual([])
-        expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_integration_host_validator_not_wired: linear:T01/)
-        await close()
-        await closePairs(pairs)
-    })
-
-    it('SECURITY: refuses to attach integration bearer when validator rejects the host (reported as unavailable)', async () => {
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'linear',
-                url: 'https://evil.example.com/linear',
-                secrets: [],
-                auth: { integration: 'linear:T01' },
-            },
-        ]
-        const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
-            secrets: {},
-            transportFactory: factory,
-            integrationHostValidator: (ref, url) =>
-                // Mimic a prod validator that only allows the canonical
-                // host for a known integration kind.
-                ref === 'linear:T01' && url.host === 'mcp.linear.app',
-        })
-        expect(clients).toEqual([])
-        expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_integration_host_not_allowed: linear:T01 → evil\.example\.com/)
-        await close()
-        await closePairs(pairs)
-    })
-
-    it('SECURITY: refuses to attach integration bearer over plaintext http (reported as unavailable)', async () => {
-        // Smokescreen owns SSRF but filters by destination, not scheme — it
-        // won't stop the team's OAuth bearer being sent in cleartext to an
-        // allowlisted public host. The host validator only checks `url.host`,
-        // so the https-only guard is the runner's job on the credential path.
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'linear',
-                url: 'http://mcp.linear.app/linear',
-                secrets: [],
-                auth: { integration: 'linear:T01' },
-            },
-        ]
-        const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
-            secrets: {},
-            transportFactory: factory,
-            // Host is allowed — only the scheme should reject it.
-            integrationHostValidator: () => true,
-        })
-        expect(clients).toEqual([])
-        expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_integration_unsafe_scheme: linear:T01 → http:/)
-        await close()
-        await closePairs(pairs)
-    })
-
-    it('reports mcp_integration_not_resolved as an unavailable MCP (auth category)', async () => {
-        const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [
-            {
-                id: 'linear',
-                url: 'https://example.com/linear',
-                secrets: [],
-                auth: { integration: 'linear:T01' },
-            },
-        ]
-        const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
-            secrets: {},
-            transportFactory: factory,
-        })
-        expect(clients).toEqual([])
-        expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_integration_not_resolved: linear:T01/)
-        await close()
-        await closePairs(pairs)
-    })
-
-    it('on partial open: keeps the successful clients alive and records the bad ones as failures', async () => {
-        const { factory, pairs, targets } = await buildEchoFactory()
-        // First ref opens cleanly; second ref fails during target resolution
-        // (missing integration). Under the degraded-MCP contract the session
-        // continues with `ok`, and `broken` is reported via `failures`.
-        const refs: McpRef[] = [
-            { id: 'ok', url: 'https://example.com/a', secrets: [] },
-            {
-                id: 'broken',
-                url: 'https://example.com/b',
-                secrets: [],
-                auth: { integration: 'missing' },
-            },
-        ]
-        const { clients, close, failures } = await openMcpClients(refs, {
-            integrations: {},
-            secrets: {},
-            transportFactory: factory,
-        })
-        expect(clients.map((c) => c.prefix)).toEqual(['ok'])
-        expect(failures).toHaveLength(1)
-        expect(failures[0].ref.id).toBe('broken')
-        expect(failures[0].category).toBe('auth')
-        expect(failures[0].devReason).toMatch(/mcp_integration_not_resolved/)
-        expect(targets.length).toBeGreaterThanOrEqual(1)
-        // The good client is still usable.
-        const okPair = pairs[0]
-        expect(okPair).not.toBeUndefined()
-        expect(okPair.serverClosed.value).toBe(false)
-        await close()
-        // close() shut down the surviving client.
-        expect(okPair.serverClosed.value).toBe(true)
-        await closePairs(pairs)
-    })
-
     it('surfaces remote tool errors as isError on the McpCallResult', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
         const { clients, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
         })
@@ -766,7 +555,6 @@ describe('openMcpClients', () => {
         }
         const refs: McpRef[] = [{ id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
         const { clients, close } = await openMcpClients(refs, {
-            integrations: {},
             secrets: {},
             transportFactory: factory,
             log: (level, msg, meta) => {
@@ -787,7 +575,6 @@ describe('openMcpClients', () => {
         it('attaches Authorization: Bearer when ref has no auth and a dev bearer is configured', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
             const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
-                integrations: {},
                 secrets: {},
                 transportFactory: factory,
                 devMcpBearerToken: 'phx_dev_token',
@@ -797,30 +584,9 @@ describe('openMcpClients', () => {
             await closePairs(pairs)
         })
 
-        it('does NOT attach the dev bearer when ref.auth.integration is set (integration wins)', async () => {
-            const { factory, pairs, targets } = await buildEchoFactory()
-            const ref: McpRef = {
-                id: 'x',
-                url: 'https://mcp.example.com/sse',
-                secrets: [],
-                auth: { integration: 'linear:acme' },
-            }
-            const { close } = await openMcpClients([ref], {
-                integrations: { 'linear:acme': { access_token: 'integration_token', kind: 'linear' } },
-                secrets: {},
-                transportFactory: factory,
-                devMcpBearerToken: 'phx_dev_token',
-                integrationHostValidator: () => true,
-            })
-            expect(targets[0].headers.Authorization).toBe('Bearer integration_token')
-            await close()
-            await closePairs(pairs)
-        })
-
-        it('omits Authorization entirely when neither auth.integration nor a dev bearer is set', async () => {
+        it('omits Authorization entirely when no auth and no dev bearer is set', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
             const { close } = await openMcpClients([{ id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }], {
-                integrations: {},
                 secrets: {},
                 transportFactory: factory,
             })

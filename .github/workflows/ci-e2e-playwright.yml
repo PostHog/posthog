@@ -73,6 +73,9 @@ env:
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
+    # check_internal_api_secret requires a non-empty INTERNAL_API_SECRET outside DEBUG/TEST. The dev
+    # value matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

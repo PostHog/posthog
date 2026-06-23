@@ -35,7 +35,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -94,7 +94,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'arr'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___arr,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -299,7 +299,7 @@
   SELECT tuple(coalesce(toString(groups.properties___name), toString(groups.key)), toString(groups.key)) AS `tuple(coalesce(toString(properties.name), toString(key)), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -328,7 +328,7 @@
   SELECT tuple(coalesce(toString(groups.properties___name), toString(groups.key)), toString(groups.key)) AS `tuple(coalesce(toString(properties.name), toString(key)), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -418,7 +418,7 @@
   SELECT tuple(coalesce(toString(groups.properties___name), toString(groups.key)), toString(groups.key)) AS `tuple(coalesce(toString(properties.name), toString(key)), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -447,7 +447,7 @@
   SELECT tuple(coalesce(toString(groups.properties___name), toString(groups.key)), toString(groups.key)) AS `tuple(coalesce(toString(properties.name), toString(key)), toString(key))`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -479,7 +479,7 @@
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___name,
             tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'prop with whitespace'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS `properties___prop with whitespace`,
-            tupleElement(argMax(tuple(toTimeZone(groups.created_at, 'UTC')), toTimeZone(groups._timestamp, 'UTC')), 1) AS created_at,
+            argMax(toTimeZone(groups.created_at, 'UTC'), toTimeZone(groups._timestamp, 'UTC')) AS created_at,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups

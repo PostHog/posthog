@@ -436,6 +436,7 @@ doesn't conflict with concurrent PRs.
 - invoiceninja
 - ip2whois
 - jamf_pro
+- jobber
 - jobnimbus
 - jotform
 - judgeme_reviews
@@ -449,6 +450,7 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - klaus
+- knock
 - kyve
 - lago
 - leadfeeder
@@ -475,6 +477,7 @@ doesn't conflict with concurrent PRs.
 - merge
 - metabase
 - metricool
+- metronome
 - microsoft_dataverse
 - microsoft_entra_id
 - microsoft_lists

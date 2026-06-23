@@ -22,7 +22,6 @@
         }
     ],
     "skills": [],
-    "integrations": [],
     "identity_providers": [
         {
             "kind": "posthog",
