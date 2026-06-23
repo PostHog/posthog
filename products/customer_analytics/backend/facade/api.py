@@ -32,17 +32,15 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
 from products.customer_analytics.backend.models import (
-    DATA_TYPE_BY_DISPLAY_TYPE,
     Account,
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
-    DataType,
-    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -612,12 +610,6 @@ def _to_custom_property_definition_view(
     )
 
 
-def _coerced_is_big_number(display_type: str, is_big_number: bool) -> bool:
-    """``is_big_number`` only applies to numeric display types; force it false otherwise.
-    A one-way coercion (never rejects) — the rule the old serializer's ``validate`` enforced."""
-    return is_big_number and DATA_TYPE_BY_DISPLAY_TYPE[DisplayType(display_type)] == DataType.NUMERIC
-
-
 def list_custom_property_definitions(
     team_id: int, offset: int, limit: int
 ) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
@@ -651,7 +643,7 @@ def create_custom_property_definition(
             name=name,
             description=description,
             display_type=display_type,
-            is_big_number=_coerced_is_big_number(display_type, is_big_number),
+            is_big_number=coerce_is_big_number(display_type, is_big_number),
         )
     except IntegrityError:
         raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
@@ -687,7 +679,7 @@ def update_custom_property_definition(
         setattr(definition, attr, value)
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
     # non-numeric one must clear a previously-set is_big_number (the partial-update case).
-    definition.is_big_number = _coerced_is_big_number(definition.display_type, definition.is_big_number)
+    definition.is_big_number = coerce_is_big_number(definition.display_type, definition.is_big_number)
     try:
         definition.save()
     except IntegrityError:

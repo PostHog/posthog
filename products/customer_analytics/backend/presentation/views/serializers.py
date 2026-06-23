@@ -27,6 +27,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
+from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
 from products.customer_analytics.backend.facade.contracts import (
     AccountNotebookView,
     AccountView,
@@ -46,12 +47,6 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_3", "Group 3"),
     ("group_4", "Group 4"),
 ]
-
-# Display-type choices for custom property definitions, kept in sync with ``models.DisplayType``.
-# Declared here (not read off the model) so this module imports no product models; the generated
-# ``CustomPropertyDisplayTypeEnum`` stays identical to the model-derived one (pinned via
-# ``ENUM_NAME_OVERRIDES`` in settings).
-_CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = ["text", "number", "currency", "percent", "date", "datetime", "boolean"]
 
 # JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
 # serializer so the generated ``AccountApiProperties`` component is unchanged.
@@ -290,7 +285,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         help_text="Optional description of what the property represents.",
     )
     display_type = serializers.ChoiceField(
-        choices=_CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+        choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
             "How the property is interpreted and rendered: 'text', 'number', 'currency', "
             "'percent', 'date', 'datetime', or 'boolean'."

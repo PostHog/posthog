@@ -39,8 +39,6 @@ class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields
 
     name = models.CharField(max_length=400)
     description = models.TextField(null=True)
-    # The single granular type the UI offers; the broad value category is derived (see data_type),
-    # so there is no second coupled `format` column to keep in sync.
     display_type = models.CharField(
         choices=[(t.value, t.value) for t in DisplayType], default=DisplayType.TEXT, max_length=20
     )
