@@ -111,19 +111,21 @@ def recent_view_logs(
     type: Optional[str] = None,
     exclude_types: Optional[Sequence[str]] = None,
     limit: Optional[int] = None,
+    descending: bool = True,
 ) -> QuerySet[FileSystemViewLog]:
-    """A user's view-log rows for one surface, newest first.
+    """A user's view-log rows for one surface, newest first by default.
 
     Served end-to-end by the ``(team, user, -viewed_at)`` index: no join to FileSystem and no
     sort on a computed column. This is the single query behind both Recents and the per-scene
-    "last viewed" markers.
+    "last viewed" markers. ``descending=False`` orders oldest-first; the slice then happens at the
+    query level so ``limit`` always returns the globally oldest/newest rows, never a re-sorted page.
     """
     queryset = FileSystemViewLog.objects.filter(surface_q(surface), team_id=team_id, user_id=user_id)
     if type is not None:
         queryset = queryset.filter(type=type)
     if exclude_types:
         queryset = queryset.exclude(type__in=list(exclude_types))
-    queryset = queryset.order_by("-viewed_at")
+    queryset = queryset.order_by("-viewed_at" if descending else "viewed_at")
     if limit is not None:
         queryset = queryset[:limit]
     return queryset
@@ -137,8 +139,9 @@ def get_recent_file_system_items(
     limit: Optional[int] = None,
     exclude_types: Optional[Sequence[str]] = ("folder",),
     file_system_queryset: Optional[QuerySet[FileSystem]] = None,
+    descending: bool = True,
 ) -> list[FileSystem]:
-    """Recently-viewed FileSystem rows for a user, newest first.
+    """Recently-viewed FileSystem rows for a user, newest first by default.
 
     View-log-first: read the recent ``(type, ref)`` keys from the indexed view log, then hydrate
     the canonical FileSystem rows for exactly those keys. This replaces a left join plus an
@@ -146,11 +149,17 @@ def get_recent_file_system_items(
     team's entire tree on every homepage/search load.
 
     ``file_system_queryset`` lets callers pre-scope the hydration (e.g. apply access control)
-    before the ``(type, ref)`` keys are matched.
+    before the ``(type, ref)`` keys are matched. ``descending`` is threaded down to the view-log
+    query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
     log_rows = list(
         recent_view_logs(
-            team_id=team_id, user_id=user_id, surface=surface, exclude_types=exclude_types, limit=limit
+            team_id=team_id,
+            user_id=user_id,
+            surface=surface,
+            exclude_types=exclude_types,
+            limit=limit,
+            descending=descending,
         ).values_list("type", "ref", "viewed_at")
     )
     if not log_rows:

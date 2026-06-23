@@ -500,10 +500,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit=RECENTS_SEARCH_SCAN_LIMIT if search_param else limit,
             exclude_types=exclude_types,
             file_system_queryset=base_queryset,
+            descending=descending,
         )
+        # Ordering is handled at the view-log query level, so a search scan that widened the window
+        # is the only reason to re-slice here — `descending` already picked the right end.
         items = items[:limit]
-        if not descending:
-            items = list(reversed(items))
 
         results = self.get_serializer(items, many=True).data
         return Response(

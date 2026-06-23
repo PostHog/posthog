@@ -409,10 +409,11 @@ class TestFileSystemOrdering(APIBaseTest):
         results = response.json()["results"]
         assert [item["path"] for item in results] == ["Reports/Live"]
 
-    def test_recents_ascending_reverses_order(self) -> None:
+    def test_recents_ascending_returns_globally_oldest_within_limit(self) -> None:
         timestamp = now()
 
-        for ref, age_hours in (("a", 3), ("b", 1)):
+        # a viewed longest ago, c most recently.
+        for ref, age_hours in (("a", 3), ("b", 2), ("c", 1)):
             FileSystem.objects.create(
                 team=self.team, path=f"R/{ref}", depth=2, type="insight", ref=ref, shortcut=False, created_by=self.user
             )
@@ -426,11 +427,12 @@ class TestFileSystemOrdering(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/file_system/",
-            {"order_by": "last_viewed_at", "not_type": "folder"},
+            {"order_by": "last_viewed_at", "not_type": "folder", "limit": 2},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        # `a` was viewed earlier than `b`, so ascending puts it first.
+        # Ascending + limit must pick the globally oldest two (a, b), oldest first — not the two most
+        # recent reversed (b, c). Ordering and the slice both live in the view-log query.
         assert [item["ref"] for item in response.json()["results"]] == ["a", "b"]
 
     def test_recents_with_search_filters_viewed_items(self) -> None:
