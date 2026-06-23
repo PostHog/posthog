@@ -106,26 +106,6 @@ def extract_posthog_flags_from_headers(request: Request) -> dict[str, str]:
     return _extract_headers_with_prefix(request, POSTHOG_FLAG_PREFIX)
 
 
-def extract_billing_team_id(request: Request, fallback_team_id: int | None) -> int | None:
-    """Resolve the team that owns this request's spend (and therefore its credit quota).
-
-    Shared-key callers (e.g. signals) authenticate with the gateway's single shared key but
-    attribute spend to a customer team via the ``x-posthog-property-team_id`` header. That same
-    customer team owns the credit pool, so the quota gate must look up *its* limit — not the key
-    owner's team. This mirrors the ``team_id`` resolution in
-    ``callbacks.posthog._apply_owned_event_properties`` (header arrives as a string; fall back to
-    the authenticated key owner's team when absent or unparseable) so attribution and enforcement
-    always agree on which team is being billed.
-    """
-    raw_team_id = request.headers.get(f"{POSTHOG_PROPERTY_PREFIX}team_id")
-    if raw_team_id is not None:
-        try:
-            return int(raw_team_id)
-        except (TypeError, ValueError):
-            pass
-    return fallback_team_id
-
-
 def extract_posthog_provider_from_headers(request: Request) -> str | None:
     provider = request.headers.get(POSTHOG_PROVIDER_HEADER)
     if provider is None:

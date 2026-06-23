@@ -21,7 +21,6 @@ from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import (
-    extract_billing_team_id,
     extract_posthog_provider_from_headers,
     get_request_id,
     set_throttle_context,
@@ -164,16 +163,10 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for billable products) the product's credit quota in parallel.
+    """Fetch plan info and (for billable products) AI credits quota in parallel.
 
-    ``team_id`` is the *billing* team — the team whose credit pool this request
-    draws down — which for shared-key callers is the customer team carried on the
-    ``x-posthog-property-team_id`` header, not the gateway key owner's team (see
-    ``extract_billing_team_id``). The quota resource is per-product
-    (``ProductConfig.quota_resource`` — e.g. ``ai_credits`` or ``signals_credits``).
     Both calls are independent Django roundtrips on cache miss, so for billable
-    products we overlap them.
-    For non-billable products the throttle stack
+    products we overlap them. For non-billable products the throttle stack
     short-circuits regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
     """
@@ -181,7 +174,7 @@ async def resolve_plan_and_quota(
     if product_config and product_config.billable:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id, product_config.quota_resource),
+            resolve_quota_status(request, team_id),
         )
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)
@@ -202,15 +195,10 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    # Quota is drawn from the billing team's pool, which for shared-key callers
-    # (e.g. signals) is the customer team on x-posthog-property-team_id rather
-    # than the key owner's team. This keeps the quota gate consistent with how
-    # spend is attributed in callbacks.posthog.
-    billing_team_id = extract_billing_team_id(request, user.team_id)
     plan_info, quota_status = await resolve_plan_and_quota(
         request,
         user_id=user.user_id,
-        team_id=billing_team_id,
+        team_id=user.team_id,
         product=product,
     )
 

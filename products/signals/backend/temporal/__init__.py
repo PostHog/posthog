@@ -62,6 +62,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    check_signals_quota_limited_activity,
     dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
@@ -98,6 +99,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,
+    check_signals_quota_limited_activity,
     delete_report_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,

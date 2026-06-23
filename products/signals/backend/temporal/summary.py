@@ -23,6 +23,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal import metrics
@@ -155,6 +156,28 @@ class SignalReportSummaryWorkflow:
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
+        # 0. Signals enforces its credit quota in-pipeline (not at the LLM gateway). Bail before the
+        # expensive research stages when the team is out of Signals credits, marking the report failed
+        # so the skip is visible in the inbox rather than silently stalling.
+        if await workflow.execute_activity(
+            check_signals_quota_limited_activity,
+            CheckSignalsQuotaInput(team_id=inputs.team_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ):
+            log.warning("Team over Signals credits quota, skipping report generation")
+            await workflow.execute_activity(
+                mark_report_failed_activity,
+                MarkReportFailedInput(
+                    team_id=inputs.team_id,
+                    report_id=inputs.report_id,
+                    error="Team is over its Signals credits quota",
+                    failure_reason="quota_limited",
+                ),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return False
         # 1. Fetch signals for the report
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
@@ -527,6 +550,25 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         has_new_signals=has_new_signals,
     )
     return has_new_signals
+
+
+@dataclass
+class CheckSignalsQuotaInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
+    """Return whether the team is over its Signals credits quota.
+
+    Signals enforces its credit quota in-pipeline (not at the LLM gateway), so the report
+    workflow checks this before the expensive research stages and bails out when a team is
+    out of credits.
+    """
+    team = await Team.objects.only("api_token").aget(pk=input.team_id)
+    return await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
 
 
 @dataclass

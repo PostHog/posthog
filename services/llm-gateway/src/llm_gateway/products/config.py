@@ -20,16 +20,6 @@ class ProductConfig:
     # (posthog/tasks/usage_report.py) rolls them into the customer team's credit bucket
     # for this product's ai_product (e.g. PostHog AI credits, or signals credits).
     billable: bool = False
-    # QuotaResource the gateway gates this product on when billable. Different
-    # billable products can draw from different pools — PostHog AI credits vs. the
-    # separate Signals credits bucket. Must match a `QuotaResource` value exposed by
-    # Django's /api/projects/{team_id}/quota_limits/ endpoint.
-    quota_resource: str = "ai_credits"
-    # Message returned to the caller when this product is gated for quota exhaustion.
-    quota_exhausted_message: str = (
-        "Your team has used its monthly PostHog AI credits. "
-        "Top up at https://us.posthog.com/organization/billing to continue."
-    )
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -157,12 +147,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
-        billable=False,  # gating not enabled yet; signals_credits plumbing is wired so flipping this is all it takes
-        quota_resource="signals_credits",
-        quota_exhausted_message=(
-            "Your team has used its monthly Signals credits. "
-            "Top up at https://us.posthog.com/organization/billing to continue."
-        ),
+        billable=False,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,

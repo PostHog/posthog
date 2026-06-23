@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+_AI_CREDITS_RESOURCE = "ai_credits"
+
 # Cache window for the fail-open path (4xx from Django, or transient failure
 # after retries are exhausted). Long enough to keep a misconfigured client off
 # Django's neck during an auth-failure storm; short enough that a recovered
@@ -60,13 +62,8 @@ def _redis_key(resource_key: str, team_id: int) -> str:
     return f"quota:{resource_key}:team:{team_id}"
 
 
-async def resolve_quota_status(request: Request, team_id: int | None, resource_key: str) -> QuotaResourceStatus:
-    """Resolve the team's quota state for ``resource_key``, falling open on errors.
-
-    ``resource_key`` is required and must be the calling product's configured
-    ``quota_resource`` — there is intentionally no default, so a new billable
-    product cannot silently gate on ``ai_credits`` instead of its own pool.
-    """
+async def resolve_quota_status(request: Request, team_id: int | None) -> QuotaResourceStatus:
+    """Resolve the team's AI credits quota state, falling open on errors."""
     if team_id is None:
         return QuotaResourceStatus(limited=False)
     auth_header = request.headers.get("Authorization", "")
@@ -75,11 +72,9 @@ async def resolve_quota_status(request: Request, team_id: int | None, resource_k
 
     quota_resolver: QuotaResolver = request.app.state.quota_resolver
     try:
-        return await quota_resolver.get_resource_status(
-            resource_key=resource_key, team_id=team_id, auth_header=auth_header
-        )
+        return await quota_resolver.get_ai_credits_status(team_id=team_id, auth_header=auth_header)
     except Exception:
-        logger.warning("quota_resolve_failed", team_id=team_id, resource=resource_key)
+        logger.warning("quota_resolve_failed", team_id=team_id)
         return QuotaResourceStatus(limited=False)
 
 
@@ -91,7 +86,10 @@ class QuotaResolver:
         self._http = http_client
         self._cache_ttl = get_settings().quota_cache_ttl
 
-    async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
+    async def get_ai_credits_status(self, team_id: int, auth_header: str) -> QuotaResourceStatus:
+        return await self._get_resource_status(_AI_CREDITS_RESOURCE, team_id, auth_header)
+
+    async def _get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
         cached = await self._get_cached(resource_key, team_id)
         if cached is not None:
             return cached
