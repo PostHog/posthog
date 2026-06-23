@@ -8,7 +8,10 @@ from freezegun import freeze_time
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db import connection as django_connection
+from django.db import (
+    OperationalError as DjangoOperationalError,
+    connection as django_connection,
+)
 
 import psycopg
 import pyarrow as pa
@@ -24,7 +27,10 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     TemporaryFileSizeExceedsLimitException,
 )
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
-from posthog.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
+from posthog.temporal.data_imports.sources.postgres.exceptions import (
+    PostHogDatabaseConnectionError,
+    XminUnsupportedError,
+)
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
@@ -237,6 +243,34 @@ class TestPostgresImplementationWiring:
     def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
         impl = PostgresSource().get_implementation
         assert impl.get_incremental_filter() is filter_postgres_incremental_fields
+
+
+class TestPostgresSourceMetadataConnectionErrors:
+    def test_posthog_database_connection_failure_stays_retryable(self):
+        # `source_for_pipeline` first reads sync metadata from PostHog's own database. A transient
+        # connection failure there (e.g. a DNS blip resolving our host) surfaces the same
+        # "Name or service not known" wording a customer host misconfig would, so it must be
+        # re-raised as PostHogDatabaseConnectionError to avoid being misclassified as non-retryable.
+        source = PostgresSource()
+        config = MagicMock()
+        inputs = MagicMock()
+
+        with (
+            patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=None),
+            patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
+            ) as mock_schema_model,
+        ):
+            mock_schema_model.objects.select_related.return_value.get.side_effect = DjangoOperationalError(
+                "[Errno -2] Name or service not known"
+            )
+            with pytest.raises(PostHogDatabaseConnectionError) as exc_info:
+                source.source_for_pipeline(config, inputs)
+
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = str(exc_info.value)
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"A PostHog-side DB connection failure must stay retryable: {error_msg}"
 
 
 class TestPostgresSourceNonRetryableErrors:
@@ -467,6 +501,37 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Missing pooler tenant/user error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
+            # username omits the project ref. The host/IP and port are volatile; the message is stable.
+            'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+            # The real production message repeats the line (newlines are normalized to spaces upstream).
+            'connection failed: connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required) connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+        ],
+    )
+    def test_missing_pooler_tenant_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing pooler tenant identifier error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
+            # username omits the project ref. The host/IP and port are volatile; the message is stable.
+            'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+            # The real production message repeats the line (newlines are normalized to spaces upstream).
+            'connection failed: connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required) connection to server at "52.74.252.201", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
+        ],
+    )
+    def test_missing_pooler_tenant_identifier_returns_friendly_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing pooler tenant identifier error should surface an actionable message"
+        assert "project ref" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

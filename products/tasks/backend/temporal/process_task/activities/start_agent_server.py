@@ -158,6 +158,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             project_id=ctx.team_id,
             scopes=scopes,
             interaction_origin=ctx.interaction_origin,
+            task_id=str(ctx.task_id),
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(

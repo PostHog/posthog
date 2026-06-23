@@ -154,9 +154,6 @@ tools:
     error-tracking-issues-cohort-update:
         operation: error_tracking_issues_cohort_update
         enabled: false
-    error-tracking-issues-create:
-        operation: error_tracking_issues_create
-        enabled: false
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false
@@ -255,7 +252,16 @@ tools:
         enabled: false
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking recommendations
+        description_file: ./prompts/error-tracking-recommendations-list.md
+        system_prompt_hint: Error tracking setup recommendations and how to act on each (error-tracking category)
     error-tracking-recommendations-refresh-create:
         operation: error_tracking_recommendations_refresh_create
         enabled: false

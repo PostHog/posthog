@@ -192,6 +192,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # text is translated on non-English servers) so it catches both the raw pymysql string and
             # the Temporal-wrapped `OperationalError: (1054, ...)` form.
             '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
+            # PostHog's connecting host, so the handshake is rejected before any credentials are
+            # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
+            # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
+            # Match the stable tail phrase, not the volatile host in the message prefix.
+            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
         }
 
     def reconcile_schema_metadata(

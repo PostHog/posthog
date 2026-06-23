@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
@@ -83,6 +84,9 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
+GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -300,6 +304,25 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Whether more channels match the current search beyond this page.",
     )
+
+
+class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
+    siteUrl = serializers.CharField(
+        help_text=(
+            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
+            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
+        )
+    )
+    permissionLevel = serializers.CharField(
+        help_text=(
+            "The connected user's permission level for this site. One of `siteOwner`, "
+            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
+        )
+    )
+
+
+class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
+    sites = GoogleSearchConsoleSiteSerializer(many=True)
 
 
 class IntegrationAccessRequestSerializer(serializers.Serializer):
@@ -681,6 +704,9 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        # Enumerates every Search Console property on the connected Google account — gate behind
+        # manage access so read-only members can't discover unrelated domains (info disclosure).
+        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -961,6 +987,35 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
+        return Response(response_data)
+
+    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
+    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the Search Console properties the connected Google account has access to."""
+        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
+        # import path, mirroring how other ad-platform endpoints stay self-contained.
+        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            google_search_console_session,
+            list_sites,
+        )
+
+        instance = self.get_object()
+        if instance.kind != "google-search-console":
+            raise ValidationError(
+                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
+            )
+        _ensure_oauth_token_valid(instance)
+
+        cache_key = f"google_search_console/{instance.id}/sites"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        session = google_search_console_session(instance.id, instance.team_id)
+        sites = list_sites(session)
+        response_data = {"sites": sites}
+        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
@@ -1247,6 +1302,17 @@ class IntegrationViewSet(
             requesting_user_id=cast(User, request.user).id,
             kind=serializer.validated_data["kind"],
             reason=serializer.validated_data["reason"],
+        )
+        # Keep the free-text reason out of properties (PII + cardinality); a length signal is enough.
+        report_user_action(
+            cast(User, request.user),
+            "integration access requested",
+            {
+                "integration_kind": serializer.validated_data["kind"],
+                "requester_level": requesting_level,
+                "reason_length": len(serializer.validated_data["reason"]),
+            },
+            team=self.team,
         )
         return Response({"success": True})
 
