@@ -79,7 +79,11 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     total_tokens?: number
     /** Wall-clock duration of the pi-ai call, milliseconds. */
     latency_ms: number
-    /** Total cost in USD as reported by pi-ai. Suppressed when the gateway path is in use (see useGatewayCost). */
+    /**
+     * Total cost in USD. No longer set by the runner — the gateway emits cost on
+     * the gateway path, and ingestion prices direct-path events from the
+     * catalog. pi-ai's estimate is never used. Kept on the shape for consumers.
+     */
     cost_usd?: number
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string

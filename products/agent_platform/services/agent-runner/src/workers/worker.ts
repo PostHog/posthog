@@ -138,11 +138,11 @@ export interface WorkerDeps {
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps per-turn max_tokens below model ceiling. */
     maxOutputTokens?: number
     /**
-     * Set to true when calls go through PostHog's ai-gateway. The runner
-     * keeps token counts but drops pi-ai's `cost.*` accumulation — the
-     * gateway tracks cost server-side; client-side estimates are unreliable.
+     * True on the ai-gateway path: the gateway emits the `$ai_generation`
+     * (settled cost + forwarded attribution), so the runner suppresses its
+     * duplicate. pi-ai's `cost.*` estimates are never used regardless.
      */
-    useGatewayCost?: boolean
+    gatewayEmitsGenerations?: boolean
     /**
      * Approval-gated tools store. MANDATORY and
      * fail-closed: `requires_approval` in spec.tools is a security control, so
@@ -553,7 +553,7 @@ export class Worker {
                 applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
                 getSessionState: async (id) => (await this.deps.queue.get(id))?.state ?? null,
-                useGatewayCost: this.deps.useGatewayCost,
+                gatewayEmitsGenerations: this.deps.gatewayEmitsGenerations,
                 gatewayHeaders,
                 gatewayUsage,
                 approvals: this.deps.approvals,

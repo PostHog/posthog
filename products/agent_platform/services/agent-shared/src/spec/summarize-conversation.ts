@@ -62,34 +62,27 @@ export function totalConversationUsage(conversation: ConversationMessage[]): Ses
 }
 
 /**
- * Fold one assistant message's `usage` into a running total. Used by both
- * the runner's per-turn accumulator and the backfill walk.
- *
- * `useGatewayCost: true` means the model went through PostHog's
- * ai-gateway — pi-ai's cost fields in that path are unreliable estimates,
- * so we keep token counts but zero the cost contribution. The gateway is
- * the source of truth for cost on that path; a future revision pulls our
- * own price-table calc in here.
+ * Fold one assistant message's `usage` into a running total (runner per-turn
+ * accumulator + backfill walk). Accumulates tokens but NEVER pi-ai's `cost.*`
+ * estimates — cost is owned by the gateway's settled /v1/usage figure, which
+ * the driver merges into `cost_total` post-turn. Off the gateway path the row
+ * cost stays zero (ingestion prices events from the catalog). Cost fields carry
+ * forward unchanged here.
  */
-export function accumulateUsage(
-    prev: SessionUsageTotal,
-    msg: AssistantMessageRecord,
-    opts: { useGatewayCost?: boolean } = {}
-): SessionUsageTotal {
+export function accumulateUsage(prev: SessionUsageTotal, msg: AssistantMessageRecord): SessionUsageTotal {
     const usage = msg.usage
     if (!usage) {
         return prev
     }
-    const trustCost = !opts.useGatewayCost
     return {
         tokens_in: prev.tokens_in + (usage.input ?? 0),
         tokens_out: prev.tokens_out + (usage.output ?? 0),
         cache_read: prev.cache_read + (usage.cacheRead ?? 0),
         cache_write: prev.cache_write + (usage.cacheWrite ?? 0),
-        cost_input: prev.cost_input + (trustCost ? (usage.cost?.input ?? 0) : 0),
-        cost_output: prev.cost_output + (trustCost ? (usage.cost?.output ?? 0) : 0),
-        cost_cache_read: prev.cost_cache_read + (trustCost ? (usage.cost?.cacheRead ?? 0) : 0),
-        cost_cache_write: prev.cost_cache_write + (trustCost ? (usage.cost?.cacheWrite ?? 0) : 0),
-        cost_total: prev.cost_total + (trustCost ? (usage.cost?.total ?? 0) : 0),
+        cost_input: prev.cost_input,
+        cost_output: prev.cost_output,
+        cost_cache_read: prev.cost_cache_read,
+        cost_cache_write: prev.cost_cache_write,
+        cost_total: prev.cost_total,
     }
 }

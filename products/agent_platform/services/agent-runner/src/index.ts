@@ -328,6 +328,13 @@ async function main(): Promise<void> {
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
+                  // Agent attribution onto the gateway's `$ai_generation` so the
+                  // observability board can slice per agent. The gateway strips
+                  // `$ai_*` from this passthrough but keeps `$agent_*`.
+                  'X-PostHog-Properties': JSON.stringify({
+                      $agent_application_id: session.application_id,
+                      $agent_session_id: session.id,
+                  }),
               })
             : undefined,
         // /v1/usage + /v1/wallet reads use the same static phs_ (the `phc` field
@@ -335,10 +342,11 @@ async function main(): Promise<void> {
         resolveGatewayUsage: gatewayClient
             ? () => ({ client: gatewayClient, phc: config.posthogAiGatewayKey! })
             : undefined,
-        // On the gateway path pi-ai's cost numbers are client-side estimates;
-        // the gateway itself owns billing. We keep token counts. Cost is
-        // recovered post-turn via /v1/usage/{request_id} (see resolveGatewayUsage).
-        useGatewayCost: config.useAiGateway,
+        // Gateway path: the gateway emits the `$ai_generation` (settled cost +
+        // the attribution above), so the runner suppresses its own. Session-row
+        // cost comes from /v1/usage post-turn (resolveGatewayUsage); pi-ai's
+        // estimate is never used.
+        gatewayEmitsGenerations: config.useAiGateway,
         analytics,
         maxConcurrency: config.maxConcurrency,
         maxOutputTokens: config.maxOutputTokens,
