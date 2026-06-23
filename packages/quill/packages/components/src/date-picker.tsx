@@ -52,6 +52,8 @@ export function DatePicker({
     const [selected, setSelected] = React.useState<Date>(value)
     const [includeTime, setIncludeTime] = React.useState<boolean>(showTime)
     const [viewing, setViewing] = React.useState<Date>(new Date(getYear(value), getMonth(value), 1))
+    // Instance-scoped so two DatePickers on one page don't share a label association.
+    const includeTimeId = React.useId()
 
     const handleSelect = (date: Date): void => {
         const next = new Date(
@@ -148,10 +150,10 @@ export function DatePicker({
                         checked={includeTime}
                         onCheckedChange={setIncludeTime}
                         aria-label="Include time"
-                        id="date-picker-include-time"
+                        id={includeTimeId}
                         data-attr="date-picker-include-time"
                     />
-                    <label htmlFor="date-picker-include-time" className="text-xs text-muted-foreground select-none">
+                    <label htmlFor={includeTimeId} className="text-xs text-muted-foreground select-none">
                         Include time
                     </label>
                 </div>

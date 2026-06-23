@@ -153,10 +153,11 @@ export function Calendar({
     const minYearVal = getYear(floorDate)
     const minMonthAtMinYear = getMonth(floorDate)
     const floorKey = minYearVal * 12 + minMonthAtMinYear
+    const ceilKey = getYear(maxDate) * 12 + getMonth(maxDate)
     const viewingKey = getYear(viewing) * 12 + getMonth(viewing)
 
     const disableNext =
-        (getMonth(viewing) === getMonth(new Date()) && getYear(viewing) === getYear(new Date())) ||
+        viewingKey >= ceilKey ||
         (!!siblingViewing &&
             getMonth(siblingViewing) === getMonth(addMonths(viewing, 1)) &&
             getYear(siblingViewing) === getYear(addMonths(viewing, 1)))
