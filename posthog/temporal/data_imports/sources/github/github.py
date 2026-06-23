@@ -25,6 +25,14 @@ from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOIN
 
 GITHUB_BASE_URL = "https://api.github.com"
 
+# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
+# "Repository webhooks: read and write" permission on a fine-grained token. Name both so
+# the error/setup guidance doesn't mislead whichever token type the user connected.
+_WEBHOOK_PERMISSION_HINT = (
+    "the `admin:repo_hook` scope (classic token) or the "
+    '"Repository webhooks: read and write" permission (fine-grained token)'
+)
+
 
 class GithubRetryableError(Exception):
     pass
@@ -662,8 +670,8 @@ def create_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                "Your GitHub token lacks the admin:repo_hook scope needed to create a repository webhook. "
-                "Add the scope and reconnect, or set up the webhook manually following the steps below."
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
 
@@ -716,7 +724,7 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
-            error="Your GitHub token lacks the admin:repo_hook scope. Please delete the webhook manually.",
+            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     if error is not None:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error}")
@@ -740,9 +748,11 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
     if _is_repo_hook_permission_error(response):
         return WebhookDeletionResult(
             success=False,
-            error="Your GitHub token lacks the admin:repo_hook scope. Please delete the webhook manually.",
+            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
-    return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {response.status_code}")
+    return WebhookDeletionResult(
+        success=False, error=f"Failed to delete webhook: {response.status_code} {response.text}"
+    )
 
 
 def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
@@ -751,7 +761,7 @@ def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWe
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
-            error="Your GitHub token lacks the admin:repo_hook scope needed to read repository webhooks.",
+            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
         )
     if error is not None:
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error}")

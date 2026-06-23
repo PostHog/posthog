@@ -146,7 +146,7 @@ class GithubSource(
 6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs** and **Workflow runs**
 7. Click **Add webhook**
 
-If automatic creation failed, your token needs the **admin:repo_hook** scope to manage repository webhooks. Add the scope and reconnect, or set the webhook up manually using the steps above.""",
+If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
             webhookFields=cast(
                 list[FieldType],
                 [
