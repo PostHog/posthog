@@ -450,6 +450,7 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - klaus
+- knock
 - kyve
 - lago
 - leadfeeder

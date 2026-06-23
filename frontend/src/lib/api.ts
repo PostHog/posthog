@@ -1,5 +1,10 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { encodeParams } from 'kea-router'
+
+// Re-exported so code outside frontend/ (e.g. products/*/frontend) can type stream
+// callbacks without importing @microsoft/fetch-event-source directly — that package
+// only resolves from frontend/node_modules, not the repo root.
+export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
