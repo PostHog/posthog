@@ -35,7 +35,15 @@ from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROL
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
-from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
+from products.customer_analytics.backend.models import (
+    DATA_TYPE_BY_DISPLAY_TYPE,
+    Account,
+    CustomerJourney,
+    CustomerProfileConfig,
+    CustomPropertyDefinition,
+    DataType,
+    DisplayType,
+)
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -369,6 +377,10 @@ class CustomerJourneyConflictError(Exception):
     """Raised when a customer journey already exists for the given insight (per team)."""
 
 
+class CustomPropertyDefinitionConflictError(Exception):
+    """Raised when a custom property definition violates the per-team unique name constraint."""
+
+
 class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
@@ -579,6 +591,144 @@ def delete_customer_profile_config(
         user=user,
         was_impersonated=was_impersonated,
     )
+    return True
+
+
+# --- CustomPropertyDefinition ---
+
+
+def _to_custom_property_definition_view(
+    definition: CustomPropertyDefinition,
+) -> contracts.CustomPropertyDefinitionView:
+    return contracts.CustomPropertyDefinitionView(
+        id=definition.id,
+        name=definition.name,
+        description=definition.description,
+        display_type=definition.display_type,
+        is_big_number=definition.is_big_number,
+        created_at=definition.created_at,
+        created_by=definition.created_by_id,
+        updated_at=definition.updated_at,
+    )
+
+
+def _coerced_is_big_number(display_type: str, is_big_number: bool) -> bool:
+    """``is_big_number`` only applies to numeric display types; force it false otherwise.
+    A one-way coercion (never rejects) — the rule the old serializer's ``validate`` enforced."""
+    return is_big_number and DATA_TYPE_BY_DISPLAY_TYPE[DisplayType(display_type)] == DataType.NUMERIC
+
+
+def list_custom_property_definitions(
+    team_id: int, offset: int, limit: int
+) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
+    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``."""
+    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_custom_property_definition_view(d) for d in page], total_count
+
+
+def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    return _to_custom_property_definition_view(definition) if definition is not None else None
+
+
+def create_custom_property_definition(
+    *,
+    team_id: int,
+    name: str,
+    description: str | None,
+    display_type: str,
+    is_big_number: bool,
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.CustomPropertyDefinitionView:
+    try:
+        definition = CustomPropertyDefinition.objects.create(
+            team_id=team_id,
+            created_by=user,
+            name=name,
+            description=description,
+            display_type=display_type,
+            is_big_number=_coerced_is_big_number(display_type, is_big_number),
+        )
+    except IntegrityError:
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="created",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+    return _to_custom_property_definition_view(definition)
+
+
+def update_custom_property_definition(
+    *,
+    team_id: int,
+    definition_id: str,
+    fields: dict[str, Any],
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.CustomPropertyDefinitionView | None:
+    """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
+    updated view, or None when no definition matches the id for this team (→ 404)."""
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
+        return None
+    previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
+    for attr, value in fields.items():
+        setattr(definition, attr, value)
+    # Re-coerce against the effective display type: a PATCH that only flips the type to a
+    # non-numeric one must clear a previously-set is_big_number (the partial-update case).
+    definition.is_big_number = _coerced_is_big_number(definition.display_type, definition.is_big_number)
+    try:
+        definition.save()
+    except IntegrityError:
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="updated",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        previous=previous,
+    )
+    return _to_custom_property_definition_view(definition)
+
+
+def delete_custom_property_definition(
+    *,
+    team_id: int,
+    definition_id: str,
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> bool:
+    """Delete a team-scoped definition. Returns False when none matched (→ 404)."""
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
+        return False
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="deleted",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+    definition.delete()
     return True
 
 

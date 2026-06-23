@@ -32,6 +32,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
+    CustomPropertyDefinitionView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -45,6 +46,12 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_3", "Group 3"),
     ("group_4", "Group 4"),
 ]
+
+# Display-type choices for custom property definitions, kept in sync with ``models.DisplayType``.
+# Declared here (not read off the model) so this module imports no product models; the generated
+# ``CustomPropertyDisplayTypeEnum`` stays identical to the model-derived one (pinned via
+# ``ENUM_NAME_OVERRIDES`` in settings).
+_CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = ["text", "number", "currency", "percent", "date", "datetime", "boolean"]
 
 # JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
 # serializer so the generated ``AccountApiProperties`` component is unchanged.
@@ -260,4 +267,56 @@ class AccountNotebookSerializer(DataclassSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+        ]
+
+
+class CustomPropertyDefinitionSerializer(DataclassSerializer):
+    """A team-scoped definition of a custom account property — the attribute side of the model.
+
+    Holds only the property's shape (name, display type, big-number flag). Per-account values are
+    stored separately, so this serializer never reads or writes account values. The numeric-only
+    big-number rule and the unique-name conflict are enforced behind the facade.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the custom property. Unique within the team.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional description of what the property represents.",
+    )
+    display_type = serializers.ChoiceField(
+        choices=_CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+        help_text=(
+            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
+            "'percent', 'date', 'datetime', or 'boolean'."
+        ),
+    )
+    is_big_number = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertyDefinitionView
+        # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
+        # otherwise name it after the wrapped dataclass, ``CustomPropertyDefinitionView``).
+        ref_name = "CustomPropertyDefinition"
+        fields = [
+            "id",
+            "name",
+            "description",
+            "display_type",
+            "is_big_number",
+            "created_at",
+            "created_by",
+            "updated_at",
         ]

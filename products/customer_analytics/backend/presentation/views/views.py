@@ -36,6 +36,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
+    CustomPropertyDefinitionSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -175,6 +176,103 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
         fields["content"] = validated.content
     if "sidebar" in raw_data:
         fields["sidebar"] = validated.sidebar
+    return fields
+
+
+class CustomPropertyDefinitionViewSet(
+    TeamAndOrgViewSetMixin,
+    _FacadePaginationMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "account"
+    serializer_class = CustomPropertyDefinitionSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_custom_property_definitions(self.team_id, offset=offset, limit=limit),
+            CustomPropertyDefinitionSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        definition = api.get_custom_property_definition(self.team_id, self.kwargs["pk"])
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = CustomPropertyDefinitionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            definition = api.create_custom_property_definition(
+                team_id=self.team_id,
+                name=data.name,
+                description=data.description,
+                display_type=data.display_type,
+                is_big_number=data.is_big_number,
+                organization_id=self.organization.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+            )
+        except api.CustomPropertyDefinitionConflictError as e:
+            raise Conflict(str(e))
+        return Response(CustomPropertyDefinitionSerializer(instance=definition).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        partial = kwargs.pop("partial", False)
+        serializer = CustomPropertyDefinitionSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            definition = api.update_custom_property_definition(
+                team_id=self.team_id,
+                definition_id=self.kwargs["pk"],
+                fields=_custom_property_definition_write_fields(serializer.validated_data, request.data),
+                organization_id=self.organization.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+            )
+        except api.CustomPropertyDefinitionConflictError as e:
+            raise Conflict(str(e))
+        if definition is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertyDefinitionSerializer(instance=definition).data)
+
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        deleted = api.delete_custom_property_definition(
+            team_id=self.team_id,
+            definition_id=self.kwargs["pk"],
+            organization_id=self.organization.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
+    """The columns the caller actually sent. ``is_big_number`` is re-derived in the facade against
+    the effective display type, so a PATCH that omits it still clears it for a non-numeric type."""
+    fields: dict = {}
+    if "name" in raw_data:
+        fields["name"] = validated.name
+    if "description" in raw_data:
+        fields["description"] = validated.description
+    if "display_type" in raw_data:
+        fields["display_type"] = validated.display_type
+    if "is_big_number" in raw_data:
+        fields["is_big_number"] = validated.is_big_number
     return fields
 
 

@@ -8,6 +8,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountViewSet,
     CustomerJourneyViewSet,
     CustomerProfileConfigViewSet,
+    CustomPropertyDefinitionViewSet,
 )
 
 
@@ -26,6 +27,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.register_legacy_dual_route(
         r"customer_journeys", CustomerJourneyViewSet, "project_customer_journeys", ["team_id"]
+    )
+    routers.register_legacy_dual_route(
+        r"custom_property_definitions",
+        CustomPropertyDefinitionViewSet,
+        "project_custom_property_definitions",
+        ["team_id"],
     )
     project_accounts_router, environment_accounts_router = routers.register_legacy_dual_route(
         r"accounts", AccountViewSet, "project_accounts", ["team_id"]
