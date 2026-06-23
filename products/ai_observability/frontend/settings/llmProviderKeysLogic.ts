@@ -16,6 +16,7 @@ export type LLMProvider =
     | 'fireworks'
     | 'azure_openai'
     | 'together_ai'
+    | 'deepseek'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -28,6 +29,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
+    deepseek: 'DeepSeek',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -69,6 +71,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'together' || normalized === 'together ai' || normalized === 'together-ai') {
         return 'together_ai'
+    }
+    if (normalized === 'deepseek' || normalized === 'deep-seek' || normalized === 'deepseek-ai') {
+        return 'deepseek'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
