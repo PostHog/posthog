@@ -71,20 +71,26 @@ class TestFormatIncrementalDate:
 
 
 class TestBuildBaseParams:
-    def test_full_refresh_endpoint_never_adds_filter(self) -> None:
-        # supports_incremental=False -> no server-side filter even when a cursor value is present.
-        params = _build_base_params(100, False, True, datetime(2026, 3, 4, tzinfo=UTC))
-        assert params == {"limit": 100}
-
-    def test_incremental_adds_inclusive_filter(self) -> None:
-        params = _build_base_params(100, True, True, datetime(2026, 3, 4, tzinfo=UTC))
-        assert params == {"limit": 100, "query[updated_on_or_after]": "2026-03-04"}
-
-    def test_no_filter_when_cursor_value_missing(self) -> None:
-        assert _build_base_params(100, True, True, None) == {"limit": 100}
-
-    def test_no_filter_when_incremental_flag_off(self) -> None:
-        assert _build_base_params(100, True, False, datetime(2026, 3, 4, tzinfo=UTC)) == {"limit": 100}
+    @parameterized.expand(
+        [
+            # The server-side filter is added only when all three hold: the endpoint supports it, the
+            # incremental flag is on, and a cursor value is present. Any other combination is limit-only.
+            (
+                "incremental_adds_inclusive_filter",
+                True,
+                True,
+                datetime(2026, 3, 4, tzinfo=UTC),
+                {"limit": 100, "query[updated_on_or_after]": "2026-03-04"},
+            ),
+            ("full_refresh_endpoint_never_filters", False, True, datetime(2026, 3, 4, tzinfo=UTC), {"limit": 100}),
+            ("cursor_value_missing", True, True, None, {"limit": 100}),
+            ("incremental_flag_off", True, False, datetime(2026, 3, 4, tzinfo=UTC), {"limit": 100}),
+        ]
+    )
+    def test_filter_only_added_when_all_conditions_hold(
+        self, _name: str, supports_incremental: bool, should_use: bool, value: Any, expected: dict[str, Any]
+    ) -> None:
+        assert _build_base_params(100, supports_incremental, should_use, value) == expected
 
 
 class TestIsValidSubdomain:
