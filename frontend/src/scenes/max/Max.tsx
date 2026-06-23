@@ -36,7 +36,7 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
-import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { MaxLogicProps, SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
 
@@ -71,7 +71,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    return <AiFirstMaxInstance tabId={tabId ?? ''} />
+    return <AiFirstMaxInstance tabId={tabId ?? SCENE_PANEL_ID} />
 }
 
 export interface MaxInstanceProps {
