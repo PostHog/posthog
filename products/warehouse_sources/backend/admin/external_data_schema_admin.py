@@ -189,10 +189,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # updating this view.
             assert_never(schema.partition_mode)
 
-        # Display the logical knob name (without the _override suffix) and flag that the
-        # value is pinned for the next reset only.
+        # Display the logical knob name (without the _override suffix). *_override keys are
+        # one-shot (consumed on the next reset); partition_format (datetime mode) survives every
+        # reset, so the "pinned for this reset" note only applies to the override variants.
         display_field = partition_field.removesuffix("_override")
-        change_label = f"{display_field}: {previous_value!r} → {partition_value!r} (pinned for this reset)"
+        pin_note = " (pinned for this reset)" if partition_field.endswith("_override") else ""
+        change_label = f"{display_field}: {previous_value!r} → {partition_value!r}{pin_note}"
 
         # Pause the schedule before triggering an admin resync so the scheduled
         # workflow doesn't race with the admin one (Temporal's "OnlyOne" overlap
