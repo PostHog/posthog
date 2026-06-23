@@ -146,7 +146,7 @@ class TestFetchPageRetries:
     @mock.patch("posthog.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
     def test_client_errors_raise_immediately(self, mock_session, status_code):
         response = _response([], status_code)
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
         mock_session.return_value.get.return_value = response
         manager = _make_manager()
         with pytest.raises(requests.HTTPError):
