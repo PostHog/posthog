@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -53,7 +53,7 @@ class TestVercelSource:
         assert config.unreleasedSource is True
 
     def test_source_config_fields(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields}
+        fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
         assert set(fields) == {"access_token", "team_id"}
         assert fields["access_token"].required is True
         assert fields["access_token"].secret is True

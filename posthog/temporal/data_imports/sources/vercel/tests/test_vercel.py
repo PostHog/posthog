@@ -194,11 +194,11 @@ class TestGetRows:
     def test_state_saved_after_each_yielded_batch(self, monkeypatch: Any) -> None:
         # One page large enough to cross the batcher's 2000-row chunk: the batch yields mid-page and
         # state must be checkpointed (after the yield) at the page's next cursor.
-        big_page = {
+        big_page: dict = {
             "deployments": [{"uid": str(i), "created": 100000 - i} for i in range(2500)],
             "pagination": {"next": 999},
         }
-        responses = [big_page, {"deployments": [], "pagination": {"next": None}}]
+        responses: list[dict] = [big_page, {"deployments": [], "pagination": {"next": None}}]
         manager = _FakeResumableManager()
         rows, _ = _collect("deployments", manager, monkeypatch, responses)
 
