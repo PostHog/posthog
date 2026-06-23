@@ -298,7 +298,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -747,6 +747,12 @@ jobs:
                   ./bin/hogli db:restore-test-db
 
             - name: Register Temporal search attributes
+              # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
+              # via sync_connect() in their tests, so keep a readiness gate before tests run.
+              # By this point Temporal has warmed up in the background, so the wait is ~1-2s.
+              # data_warehouse tests use custom search attributes (PostHogTeamId, PostHogOrgId,
+              # PostHogDagId) when calling schedule_materialization() → sync_saved_query_workflow(),
+              # so they must be registered before tests run.
               run: |
                   bin/wait-for-docker temporal
                   python manage.py register_temporal_search_attributes
@@ -2232,6 +2238,24 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Restore per-segment test durations from cache
+              # File-granularity sharding plans from a per-segment file (.test_durations.core /
+              # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
+              # union file's cross-segment contamination. These are cache-only (NOT committed),
+              # written by the daily timing-update job on master so PR runs can restore them.
+              # On a miss the file is simply absent and the "Run … tests" step omits
+              # --split-plan-path, falling back to scoping the union (still correct, pre-fix
+              # balance). The posthog-segment-durations- prefix is deliberately distinct from
+              # the union's posthog-test-durations- so the two never shadow each other.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -2291,13 +2315,26 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  # Pick the split algorithm at runtime: optimal_chunks only when the
-                  # installed pytest-split offers it, else duration_based_chunks. A workflow
-                  # edit runs merged with master, so an unrebased PR on older pytest-split
-                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
                   SPLITTING_ALGORITHM=duration_based_chunks
-                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to Core's clean per-segment durations
+                      # (restored from the daily master cache) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations's
+                      # cross-segment tests — see AGENTS.md (CI). Only persons-on-events-off,
+                      # non-compat Core matches the .core run-set; POE-on and compat run a
+                      # different/narrower scope, and a cache miss with no committed file all
+                      # fall back to scoping the union.
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
+                      fi
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
@@ -2333,6 +2370,7 @@ jobs:
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                        "${SPLIT_GRANULARITY[@]}" \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
@@ -2387,13 +2425,24 @@ jobs:
                   TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
-                  # Pick the split algorithm at runtime: optimal_chunks only when the
-                  # installed pytest-split offers it, else duration_based_chunks. A workflow
-                  # edit runs merged with master, so an unrebased PR on older pytest-split
-                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
                   SPLITTING_ALGORITHM=duration_based_chunks
-                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                      # Scope the file-mode plan to this segment's clean per-segment durations
+                      # (restored from the daily master cache) when the pinned pytest-split
+                      # supports it, so the plan isn't poisoned by the union .test_durations —
+                      # see AGENTS.md (CI). A missing file (cache miss, no fallback) is omitted
+                      # and the plugin falls back to scoping the union.
+                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
+                      fi
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
@@ -2416,6 +2465,7 @@ jobs:
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                          "${SPLIT_GRANULARITY[@]}" \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \

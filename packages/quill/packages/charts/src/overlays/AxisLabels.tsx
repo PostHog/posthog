@@ -25,6 +25,12 @@ interface AxisLabelsProps {
 const CATEGORY_LABEL_PADDING = 20
 const VALUE_TICK_LABEL_PADDING = 8
 
+// Minimum center-to-center spacing (px) between stacked y-axis tick labels. A 12px font renders a
+// box ~14px tall, so anything closer than this overlaps. Used to thin a crowded value axis — most
+// notably a log scale, whose `.ticks()` emits sub-decade values (…8, 9, 20, 30…) that pack far
+// tighter than a linear axis's `.nice()`-bounded ticks ever do.
+const Y_TICK_LABEL_MIN_GAP = 16
+
 interface XLabelCandidate {
     index: number
     /** Display text — truncated to `maxCategoryLabelWidth` when one is set. */
@@ -119,6 +125,55 @@ export function computeVisibleValueTicks(
     }
 
     return dropOverlappingLabels(candidates, VALUE_TICK_LABEL_PADDING)
+}
+
+// Roundness rank for a value, lowest = most preferred to keep as a label: a power of ten beats a
+// 5×10ⁿ, which beats a 2×10ⁿ, which beats everything else. Drives which labels survive when a log
+// axis is too crowded to show them all — yielding the classic 1-2-5 decade labelling.
+function tickRoundness(value: number): number {
+    if (value === 0) {
+        return 0
+    }
+    const abs = Math.abs(value)
+    const mantissa = abs / Math.pow(10, Math.floor(Math.log10(abs)))
+    const rounded = Math.round(mantissa)
+    if (rounded === 1 || rounded === 10) {
+        return 0
+    }
+    if (rounded === 5) {
+        return 1
+    }
+    if (rounded === 2) {
+        return 2
+    }
+    return 3
+}
+
+/** Thin value-axis ticks whose stacked labels would overlap vertically, keeping the roundest values
+ *  (powers of ten, then 5s, then 2s) so a crowded axis — chiefly a log scale — reads as clean 1-2-5
+ *  decade labels instead of an unreadable smear. Linear axes are `.nice()`-bounded to comfortably
+ *  spaced ticks, so every one clears the gap and all are kept unchanged. Returns ticks in ascending
+ *  value order, matching the input. */
+export function computeVisibleYTicks(
+    ticks: number[],
+    valueToCoord: (value: number) => number,
+    minGap = Y_TICK_LABEL_MIN_GAP
+): number[] {
+    const candidates = ticks.map((tick) => ({ tick, y: valueToCoord(tick) })).filter(({ y }) => isFinite(y))
+    if (candidates.length <= 1) {
+        return candidates.map((c) => c.tick)
+    }
+
+    // Offer the roundest ticks first; ties broken by position so the greedy fills the axis evenly.
+    const ordered = [...candidates].sort((a, b) => tickRoundness(a.tick) - tickRoundness(b.tick) || a.y - b.y)
+    const kept: { tick: number; y: number }[] = []
+    for (const candidate of ordered) {
+        if (kept.every((k) => Math.abs(k.y - candidate.y) >= minGap)) {
+            kept.push(candidate)
+        }
+    }
+
+    return kept.sort((a, b) => a.tick - b.tick).map((c) => c.tick)
 }
 
 const TICK_STYLE_BASE: React.CSSProperties = {
@@ -286,7 +341,7 @@ export const AxisLabels = React.memo(function AxisLabels({
     return (
         <>
             {yGutters.flatMap((gutter) =>
-                gutter.ticks.map((tick: number) => {
+                computeVisibleYTicks(gutter.ticks, gutter.scale).map((tick: number) => {
                     const y = gutter.scale(tick)
                     if (!isFinite(y)) {
                         return null

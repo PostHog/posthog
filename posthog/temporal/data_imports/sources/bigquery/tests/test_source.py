@@ -460,6 +460,21 @@ def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Corrupted/truncated private key body in the uploaded service account JSON.
+        "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
+        "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
+    ],
+)
+def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Unparseable private key error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
@@ -852,6 +867,40 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+def test_bigquery_table_not_found_during_sync_is_non_retryable():
+    """A table deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
+    google NotFound whose str() is "... Not found: Table <project>:<dataset>.<table>" — distinct from
+    the dataset-region "was not found in location" wording. It must be recognised as non-retryable via
+    the "Not found: Table" pattern instead of retrying a table that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Not found: Table my-proj:my_dataset.my_table"
+    )
+
+    # Mirror the substring match in `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a table-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "was not found in location" not in error_msg
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # Transient server errors must stay retryable.
+        "503 Service unavailable, please retry",
+        "500 Internal error encountered, please retry",
+    ],
+)
+def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert "Not found: Table" not in other_error
+    assert not any(key in other_error for key in non_retryable_errors)
 
 
 def test_bigquery_storage_read_client_disables_grpc_message_size_limit():

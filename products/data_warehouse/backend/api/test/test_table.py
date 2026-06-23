@@ -168,13 +168,8 @@ class TestTable(APIBaseTest):
 
         assert table.name == "whatever"
         assert table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True, "position": 0},
-            "a_column": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": True,
-                "position": 1,
-            },
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         }
 
         assert credential.access_key, "_accesskey"
@@ -214,13 +209,8 @@ class TestTable(APIBaseTest):
 
         assert table.name == "whatever"
         assert table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 0},
-            "a_column": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": False,
-                "position": 1,
-            },
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
         assert credential.access_key, "_accesskey"
@@ -264,12 +254,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         columns = table.columns
         assert columns is not None
-        assert columns["id"] == {
-            "clickhouse": "Nullable(Float64)",
-            "hogql": "FloatDatabaseField",
-            "valid": True,
-            "position": 0,
-        }
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
@@ -292,12 +277,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         columns = table.columns
         assert columns is not None
-        assert columns["id"] == {
-            "clickhouse": "Nullable(Float64)",
-            "hogql": "FloatDatabaseField",
-            "valid": True,
-            "position": 0,
-        }
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
@@ -893,14 +873,9 @@ class TestTable(APIBaseTest):
 
         # columns will be false as validation doesn't work for mocked fields
         assert existing_table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 0},
-            "new_name": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": False,
-                "position": 1,
-            },
-            "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 2},
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
         # Verify S3 client was called to upload the file
