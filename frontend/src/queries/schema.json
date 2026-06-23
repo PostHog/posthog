@@ -21463,7 +21463,8 @@
                 "Tile38",
                 "Chatwoot",
                 "Sanity",
-                "Metronome"
+                "Metronome",
+                "Jobber"
             ],
             "type": "string"
         },
@@ -22615,6 +22616,12 @@
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "resultCustomizations": {
                     "additionalProperties": {
@@ -25439,6 +25446,12 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "showLegend": {
                     "default": false,
                     "type": "boolean"
@@ -41653,6 +41666,12 @@
                         "$ref": "#/definitions/integer"
                     },
                     "type": "array"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",

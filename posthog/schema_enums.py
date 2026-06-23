@@ -1798,6 +1798,7 @@ class ExternalDataSourceType(StrEnum):
     CHATWOOT = "Chatwoot"
     SANITY = "Sanity"
     METRONOME = "Metronome"
+    JOBBER = "Jobber"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1943,6 +1944,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -3289,13 +3297,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

@@ -187,10 +187,15 @@ def _request(
     return Response(body, status=resp.status_code)
 
 
-def provision(organization_id: UUID | str, database_name: str | None) -> Response:
+def provision(organization_id: UUID | str, database_name: str | None, team_id: int, table_name: str | None) -> Response:
     name_error = validate_warehouse_name(database_name)
     if name_error:
         return Response({"error": name_error}, status=status.HTTP_400_BAD_REQUEST)
+    # Validate the table name up front: the duckling backfill setup runs best-effort after the
+    # provision call, so a bad name there would be swallowed — catch it before provisioning.
+    table_name_error = _validate_table_name(table_name)
+    if table_name_error or table_name is None:
+        return Response({"error": table_name_error or "table_name is required"}, status=status.HTTP_400_BAD_REQUEST)
     resp = _request(
         "POST",
         organization_id,
@@ -204,6 +209,7 @@ def provision(organization_id: UUID | str, database_name: str | None) -> Respons
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
+        _register_provisioning_team(organization_id, team_id, table_name)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
@@ -215,6 +221,43 @@ def _strip_bucket_fields(body: dict) -> None:
     """Drop the internal bucket fields from a UI-facing response body, in place."""
     body.pop("bucket", None)
     body.pop("bucket_region", None)
+
+
+def _validate_table_name(name: str | None) -> str | None:
+    """Return an error message if `name` isn't a valid events/persons table suffix, else None."""
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import validate_table_suffix  # noqa: PLC0415
+
+    return validate_table_suffix(name)
+
+
+def team_backfill_state(team_id: int) -> dict:
+    """Return the calling team's duckling backfill state for the warehouse-status response."""
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import get_team_backfill_state  # noqa: PLC0415
+
+    return get_team_backfill_state(team_id)
+
+
+def _register_provisioning_team(organization_id: UUID | str, team_id: int, table_name: str) -> None:
+    """Record the provisioning (calling) team's duckling membership and enable its backfill.
+
+    A managed warehouse is org-scoped, but membership and backfills are per team, so provision
+    registers only the provisioning team: its `DuckgresServerTeam` link (first-class membership)
+    and a `DuckLakeBackfill` enabled with the per-environment table name the admin chose at
+    provision — so a newly provisioned org writes to its own `events_<suffix>` tables. Other teams
+    join later via `enable_backfill`, which runs the same path.
+
+    Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so the
+    one-time provision password is never lost to it.
+    """
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import enable_team_backfill  # noqa: PLC0415
+
+    try:
+        enable_team_backfill(team_id=team_id, organization_id=organization_id, table_name=table_name)
+    except Exception:
+        logger.exception("Failed to register provisioning team after provision", team_id=team_id)
 
 
 def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:
@@ -257,6 +300,34 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
         )
     except Exception:
         logger.exception("Failed to persist DuckgresServer after provision", organization_id=str(organization_id))
+
+
+def enable_backfill(organization_id: UUID | str, team_id: int, table_name: str | None) -> Response:
+    """Enable warehouse backfill for a team's environment with dedicated per-environment tables.
+
+    Per-team (not org-wide): persists the per-environment table suffix on the team's
+    DuckLakeBackfill and records team↔duckling membership. Gated on the org's feature flag so
+    a team can't enable a backfill for an org that isn't entitled to the managed warehouse.
+    """
+    if not is_enabled(organization_id):
+        return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+    table_name_error = _validate_table_name(table_name)
+    if table_name_error or table_name is None:
+        return Response({"error": table_name_error or "table_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Keep ducklake.common (and its duckdb dependency) off the API import path.
+    from posthog.ducklake.common import DucklingBackfillEnableError, enable_team_backfill  # noqa: PLC0415
+
+    try:
+        suffix = enable_team_backfill(
+            team_id=team_id,
+            organization_id=organization_id,
+            table_name=table_name,
+        )
+    except DucklingBackfillEnableError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"enabled": True, "table_suffix": suffix}, status=status.HTTP_200_OK)
 
 
 def deprovision(organization_id: UUID | str) -> Response:
