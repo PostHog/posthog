@@ -64,6 +64,10 @@ MAX_CHUNKS = 25
 # they flow into validate's input and the workflow's best-so-far tracking.
 MAX_SOURCES = 25
 MAX_EXCERPT_CHARS = 1000
+# The safety filter and draft prompt must review/consume the exact same ticket text. This
+# constant is the single source of truth for that window; the workflow slices once and passes
+# the result to both activities so there's no mismatch.
+MAX_SAFETY_REVIEWED_CHARS = 6000
 
 # Plain-LLM utility calls go through the internal LLM gateway via the raw Anthropic SDK —
 # the gateway captures $ai_generation itself, so no langchain wrapper.
@@ -496,9 +500,9 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
 
 
 async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutput:
-    # Must cover at least as much text as _draft_async feeds the agent (ticket_context[:6000]),
-    # otherwise an attacker can hide injection past the filter window.
-    user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:6000]}\n</ticket>"
+    # The workflow pre-slices ticket_context to MAX_SAFETY_REVIEWED_CHARS before passing it
+    # here and to _draft_async, so both always see the same bytes. Cap again defensively.
+    user_content = f"Ticket to review:\n<ticket>\n{ticket_context[:MAX_SAFETY_REVIEWED_CHARS]}\n</ticket>"
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
     message = await _create_message(
@@ -864,7 +868,7 @@ SECURITY:
 
 TICKET CONTEXT (untrusted data):
 <ticket_context>
-{ticket_context[:6000]}
+{ticket_context[:MAX_SAFETY_REVIEWED_CHARS]}
 </ticket_context>
 
 {company_context_block}
@@ -1055,11 +1059,14 @@ class SupportReplyWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+        # Slice once so the safety filter and draft agent see the exact same ticket text.
+        reviewed_context = ctx_output.ticket_context[:MAX_SAFETY_REVIEWED_CHARS]
+
         # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
         # draft work. Mirrored from the signals product's safety_filter_activity pattern.
         safety_output = await workflow.execute_activity(
             safety_filter_activity,
-            SafetyFilterInput(team_id=input.team_id, ticket_context=ctx_output.ticket_context),
+            SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1074,7 +1081,7 @@ class SupportReplyWorkflow:
         # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
         classify_output = await workflow.execute_activity(
             classify_activity,
-            ClassifyInput(team_id=input.team_id, ticket_context=ctx_output.ticket_context),
+            ClassifyInput(team_id=input.team_id, ticket_context=reviewed_context),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1104,7 +1111,7 @@ class SupportReplyWorkflow:
                 refine_queries_activity,
                 RefineQueriesInput(
                     team_id=input.team_id,
-                    ticket_context=ctx_output.ticket_context,
+                    ticket_context=reviewed_context,
                     missing=missing,
                     ticket_type=ticket_type,
                     seed_queries=classify_output.seed_queries,
@@ -1137,7 +1144,7 @@ class SupportReplyWorkflow:
                 draft_activity,
                 DraftInput(
                     team_id=input.team_id,
-                    ticket_context=ctx_output.ticket_context,
+                    ticket_context=reviewed_context,
                     chunk_ids=retrieve_output.chunk_ids,
                     prior_reply=prior_reply,
                     prior_missing=missing,
@@ -1156,7 +1163,7 @@ class SupportReplyWorkflow:
                 validate_activity,
                 ValidateInput(
                     team_id=input.team_id,
-                    ticket_context=ctx_output.ticket_context,
+                    ticket_context=reviewed_context,
                     reply=draft_output.reply,
                     citations=draft_output.citations,
                     chunk_ids=retrieve_output.chunk_ids,
@@ -1184,7 +1191,7 @@ class SupportReplyWorkflow:
                     review_reply_activity,
                     ReviewReplyInput(
                         team_id=input.team_id,
-                        ticket_context=ctx_output.ticket_context,
+                        ticket_context=reviewed_context,
                         reply=draft_output.reply,
                         sources=draft_output.sources,
                         ticket_type=ticket_type,
@@ -1225,7 +1232,7 @@ class SupportReplyWorkflow:
                 review_reply_activity,
                 ReviewReplyInput(
                     team_id=input.team_id,
-                    ticket_context=ctx_output.ticket_context,
+                    ticket_context=reviewed_context,
                     reply=best_reply,
                     sources=best_sources,
                     ticket_type=ticket_type,
