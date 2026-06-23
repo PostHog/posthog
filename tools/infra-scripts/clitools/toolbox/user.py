@@ -8,12 +8,11 @@ import subprocess
 
 from toolbox.kubernetes import kubectl_cmd
 
-# Kubernetes groups that grant write access to the cluster. The toolbox claims
-# pods by patching their labels and deletes them on exit, so a read-only
-# identity can't actually use it — membership in at least one of these is
-# required. These mirror the EKS access-entry / aws-auth group mappings; update
-# this set if the cluster's group names change.
-WRITE_ACCESS_GROUPS = frozenset({"eks-developers", "eks-admins"})
+# `kubectl auth whoami` usernames that grant write access to the cluster. The
+# toolbox claims pods by patching their labels and deletes them on exit, so a
+# read-only identity can't actually use it. These are the EKS access-entry SSO
+# usernames; update this set if the cluster's username mappings change.
+WRITE_ACCESS_USERNAMES = frozenset({"sso-developers", "sso-administrators"})
 
 # Slack channel users ping to elevate their permissions, and the runbook that
 # explains how. Kept as constants so they're easy to adjust in one place.
@@ -57,19 +56,19 @@ def get_user_info(*, context: str | None = None) -> dict:
 
 
 def ensure_write_access(user_info: dict) -> None:
-    """Exit early unless the caller belongs to a write-access kubernetes group.
+    """Exit early unless the caller authenticates as a write-access username.
 
     Claiming and deleting toolbox pods needs write RBAC, so a read-only identity
-    would only fail later with an opaque permission error. We check group
-    membership from the ``kubectl auth whoami`` ``userInfo`` up front and bail
-    out with an actionable message instead.
+    would only fail later with an opaque permission error. We check the
+    ``kubectl auth whoami`` username up front and bail out with an actionable
+    message instead.
     """
-    groups = set(user_info.get("groups", []))
+    username = user_info.get("username", "")
 
-    if WRITE_ACCESS_GROUPS.isdisjoint(groups):
+    if username not in WRITE_ACCESS_USERNAMES:
         print("\n❌ You don't have write access to this kubernetes cluster.")  # noqa: T201
-        print(f"   Your groups: {sorted(groups) or '(none)'}")  # noqa: T201
-        print(f"   Toolbox requires membership in one of: {sorted(WRITE_ACCESS_GROUPS)}")  # noqa: T201
+        print(f"   Your username: {username or '(unknown)'}")  # noqa: T201
+        print(f"   Toolbox requires one of: {sorted(WRITE_ACCESS_USERNAMES)}")  # noqa: T201
         print(  # noqa: T201
             f"\n   You need to elevate your permissions with {ELEVATE_PERMISSIONS_CHANNEL} "
             "to k8s + toolbox (or admin) at least."

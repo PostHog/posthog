@@ -20,7 +20,7 @@ from toolbox.kubernetes import (
 )
 from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
 from toolbox.user import (
-    WRITE_ACCESS_GROUPS,
+    WRITE_ACCESS_USERNAMES,
     ensure_write_access,
     get_current_user,
     get_user_info,
@@ -157,16 +157,15 @@ class TestToolbox(unittest.TestCase):
         )
 
     def test_ensure_write_access_allows_member(self):
-        """ensure_write_access returns silently when the user is in a write-access group."""
-        write_group = sorted(WRITE_ACCESS_GROUPS)[0]
-        user_info = {"username": "sso-developers", "groups": ["system:authenticated", write_group]}
+        """ensure_write_access returns silently for a write-access username."""
+        write_username = sorted(WRITE_ACCESS_USERNAMES)[0]
 
-        ensure_write_access(user_info)  # does not raise
+        ensure_write_access({"username": write_username})  # does not raise
 
     @patch("builtins.print")
     def test_ensure_write_access_blocks_non_member(self, mock_print):
-        """ensure_write_access exits when the user is in no write-access group."""
-        user_info = {"username": "sso-developers", "groups": ["system:authenticated", "eks-readonly"]}
+        """ensure_write_access exits when the username has no write access."""
+        user_info = {"username": "sso-readonly"}
 
         with self.assertRaises(SystemExit) as ctx:
             ensure_write_access(user_info)
