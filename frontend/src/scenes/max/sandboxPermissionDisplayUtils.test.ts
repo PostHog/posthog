@@ -5,7 +5,6 @@ const rawToolCall: ToolInvocation = {
     toolCallId: 'tc-1',
     rawServerName: 'posthog',
     rawToolName: 'exec',
-    resolvedKey: 'execute-sql',
     input: {},
     status: 'pending',
     contentBlocks: [],

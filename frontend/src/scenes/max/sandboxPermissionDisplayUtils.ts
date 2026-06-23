@@ -1,4 +1,5 @@
 import { POSTHOG_EXEC_TOOL_RE, formatPostHogExecBody, getPostHogExecDisplay } from './sandbox/posthogExecDisplay'
+import { resolveToolCall } from './sandbox/sandboxToolResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
 
 // Re-exported so existing importers (and tests) keep resolving the exec display from here.
@@ -49,15 +50,14 @@ export function getSandboxPermissionDisplay(request: PermissionRequestRecord): S
                 payload: formatPostHogExecBody(posthogDisplay.input),
             }
         }
+        const resolved = resolveToolCall(request.rawToolCall)
         const resolvedName =
-            request.rawToolCall.innerToolName ??
-            (request.rawToolCall.resolvedKey.startsWith('__posthog_exec_')
-                ? undefined
-                : request.rawToolCall.resolvedKey)
+            resolved.innerToolName ??
+            (resolved.resolvedKey.startsWith('__posthog_exec_') ? undefined : resolved.resolvedKey)
         if (resolvedName) {
             return {
                 title: `posthog - ${resolvedName} (MCP)`,
-                payload: formatInput(request.rawToolCall.innerInput ?? request.rawToolCall.input),
+                payload: formatInput(resolved.innerInput ?? request.rawToolCall.input),
             }
         }
     }

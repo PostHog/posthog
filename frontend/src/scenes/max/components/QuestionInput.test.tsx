@@ -116,7 +116,7 @@ describe('QuestionInput', () => {
         it('shows the stop affordance while streaming and not cancelling', async () => {
             threadLogicInstance.actions.reconnectToStream()
             await waitFor(() => expect(stopButton()).not.toBeNull())
-            expect(sendButton()).toBeNull()
+            expect(sendButton()).toHaveAttribute('aria-disabled', 'true')
         })
 
         it('shows send (not stop) while cancelLoading is true', async () => {
