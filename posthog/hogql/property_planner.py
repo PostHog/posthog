@@ -5,7 +5,7 @@ from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import MaterializedColumnInfo
+from posthog.hogql.data_provider import MaterializedColumnInfo, PropertyTypeInfo
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -420,9 +420,7 @@ def _semantic_type_from_property_definition_type(property_type: str | None) -> a
     return None
 
 
-def _property_info_for_property_type(
-    property_type: ast.PropertyType, context: HogQLContext
-) -> dict[str, str | None] | None:
+def _property_info_for_property_type(property_type: ast.PropertyType, context: HogQLContext) -> PropertyTypeInfo | None:
     if context.property_swapper is None or len(property_type.chain) != 1:
         return None
 
