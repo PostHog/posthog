@@ -27,6 +27,8 @@ def make_job(
     run_attempt: int = 1,
     conclusion: str = "failure",
     failed_step: str = "Run Core tests",
+    started_at: str = "2026-06-05T21:00:00Z",
+    completed_at: str = "2026-06-05T21:10:00Z",
 ) -> Job:
     return Job(
         id=123,
@@ -34,11 +36,13 @@ def make_job(
         conclusion=conclusion,
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/1/job/123",
+        started_at=started_at,
+        completed_at=completed_at,
         steps=(Step(name=failed_step, conclusion="failure"),),
     )
 
 
-def make_workflow_run(run_attempt: int = 1) -> WorkflowRun:
+def make_workflow_run(run_attempt: int = 1, *, head_branch: str = "", event: str = "pull_request") -> WorkflowRun:
     return WorkflowRun(
         id=999,
         workflow_id=42,
@@ -47,6 +51,8 @@ def make_workflow_run(run_attempt: int = 1) -> WorkflowRun:
         head_sha="abc123",
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/999",
+        head_branch=head_branch,
+        event=event,
     )
 
 
@@ -119,7 +125,7 @@ def test_build_decision_events_one_event_per_decision() -> None:
         classify_job(make_job("Build and deploy", failed_step="Compile assets")),
     )
 
-    events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
+    events = build_decision_events("PostHog/posthog", make_workflow_run(head_branch="master"), decisions)
 
     assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT]
     assert all(event["distinct_id"] == "PostHog/posthog" for event in events)
@@ -128,7 +134,13 @@ def test_build_decision_events_one_event_per_decision() -> None:
     assert first["workflow_name"] == "Backend CI"
     assert first["job_name"] == "Django tests - Temporal (1/1)"
     assert first["$groups"] == {"workflow_run": "999"}
+    assert first["classified_via"] == "job_name"
+    assert first["job_conclusion"] == "failure"
+    assert first["failed_steps"] == ["Run Core tests"]
+    assert first["is_master"] is True
+    assert first["$insert_id"] == "decision:999:1:123"
     assert events[1]["properties"]["action"] == "skip non-test"
+    assert events[1]["properties"]["classified_via"] is None
 
 
 @pytest.mark.parametrize(
@@ -162,10 +174,11 @@ def test_report_rerun_outcomes_attributes_prior_test_failure(
 ) -> None:
     job_name = "Django tests - Temporal (1/1)"
 
-    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
         if attempt == 1:
-            return (make_job(job_name, conclusion="failure"),)
-        return (make_job(job_name, conclusion=current_conclusion),)
+            return (make_job(job_name, conclusion="failure", started_at="2026-06-05T21:00:00Z"),)
+        # Advanced started_at: this attempt genuinely re-executed the job.
+        return (make_job(job_name, conclusion=current_conclusion, started_at="2026-06-05T22:00:00Z"),)
 
     monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
 
@@ -176,12 +189,46 @@ def test_report_rerun_outcomes_attributes_prior_test_failure(
     props = events[0]["properties"]
     assert props["outcome"] == expected_outcome
     assert props["job_name"] == job_name
+    assert props["prior_conclusion"] == "failure"
     assert props["prior_attempt"] == 1
     assert props["attempt"] == 2
+    assert props["$insert_id"] == f"outcome:999:2:{job_name}"
+
+
+def test_report_rerun_outcomes_not_rerun_when_started_at_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The regression this fix targets: a failed job carried over (never re-executed) keeps its prior
+    # started_at and conclusion. It must read as `not_rerun`, never `still_failing`.
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        return (make_job(job_name, conclusion="failure", started_at="2026-06-05T21:00:00Z"),)
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "not_rerun"
+
+
+def test_report_rerun_outcomes_unknown_when_job_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        if attempt == 1:
+            return (make_job(job_name, conclusion="failure"),)
+        return ()  # job missing from the re-run attempt
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "unknown"
 
 
 def test_report_rerun_outcomes_ignores_non_test_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
         return (make_job("Build and deploy", conclusion="failure", failed_step="Compile assets"),)
 
     monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
