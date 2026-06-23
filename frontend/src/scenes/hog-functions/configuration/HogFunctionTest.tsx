@@ -174,6 +174,7 @@ export function HogFunctionTest(): JSX.Element {
         setTestResult,
         toggleExpanded,
         loadSampleGlobals,
+        regenerateSampleGlobals,
         deleteSavedGlobals,
         setSampleGlobals,
         saveGlobals,
@@ -238,37 +239,62 @@ export function HogFunctionTest(): JSX.Element {
                                         overlay={
                                             <>
                                                 {canMockFetchRequests && (
-                                                    <>
-                                                        <LemonField name="mock_async_functions">
-                                                            {({ value, onChange }) => (
-                                                                <LemonSwitch
-                                                                    onChange={(v) => onChange(!v)}
-                                                                    checked={!value}
-                                                                    data-attr="toggle-hog-test-mocking"
-                                                                    className="px-2 py-1"
-                                                                    label={
-                                                                        <Tooltip
-                                                                            title={
-                                                                                <>
-                                                                                    When disabled, async functions such
-                                                                                    as `fetch` will not be called.
-                                                                                    Instead they will be mocked out and
-                                                                                    logged.
-                                                                                </>
-                                                                            }
-                                                                        >
-                                                                            <span className="flex gap-2">
-                                                                                Make real HTTP requests
-                                                                                <IconInfo className="text-lg" />
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                    }
-                                                                />
-                                                            )}
-                                                        </LemonField>
-                                                        <LemonDivider />
-                                                    </>
+                                                    <LemonField name="mock_async_functions">
+                                                        {({ value, onChange }) => (
+                                                            <LemonSwitch
+                                                                onChange={(v) => onChange(!v)}
+                                                                checked={!value}
+                                                                data-attr="toggle-hog-test-mocking"
+                                                                className="px-2 py-1"
+                                                                label={
+                                                                    <Tooltip
+                                                                        title={
+                                                                            <>
+                                                                                When disabled, async functions such as
+                                                                                `fetch` will not be called. Instead they
+                                                                                will be mocked out and logged.
+                                                                            </>
+                                                                        }
+                                                                    >
+                                                                        <span className="flex gap-2">
+                                                                            Make real HTTP requests
+                                                                            <IconInfo className="text-lg" />
+                                                                        </span>
+                                                                    </Tooltip>
+                                                                }
+                                                            />
+                                                        )}
+                                                    </LemonField>
                                                 )}
+                                                {canLoadSampleGlobals && (
+                                                    <LemonButton
+                                                        fullWidth
+                                                        data-attr="load-real-hog-test-event"
+                                                        onClick={() => loadSampleGlobals()}
+                                                        disabledReason={
+                                                            sampleGlobalsLoadingAndNotCancelled
+                                                                ? 'Already loading a real event'
+                                                                : undefined
+                                                        }
+                                                        sideIcon={
+                                                            <Tooltip
+                                                                title={
+                                                                    <>
+                                                                        Try to load an actual matching event from your
+                                                                        data. On large datasets this can time out or
+                                                                        return no result — if it does, your generated
+                                                                        event stays in the editor.
+                                                                    </>
+                                                                }
+                                                            >
+                                                                <IconInfo className="text-lg" />
+                                                            </Tooltip>
+                                                        }
+                                                    >
+                                                        Load real event
+                                                    </LemonButton>
+                                                )}
+                                                {(canMockFetchRequests || canLoadSampleGlobals) && <LemonDivider />}
                                                 {savedGlobals.map(({ name, globals }, index) => (
                                                     <div className="flex justify-between w-full" key={index}>
                                                         <LemonButton
@@ -321,13 +347,19 @@ export function HogFunctionTest(): JSX.Element {
                                                 if (sampleGlobalsLoadingAndNotCancelled) {
                                                     cancelSampleGlobalsLoading()
                                                 } else {
-                                                    loadSampleGlobals()
+                                                    regenerateSampleGlobals()
                                                 }
                                             }}
-                                            tooltip="Find the last event matching filters, and use it to populate the globals below."
+                                            tooltip={
+                                                sampleGlobalsLoadingAndNotCancelled
+                                                    ? 'Cancel the in-flight real-event load and stay on the generated event.'
+                                                    : "Generate a fresh sample event from this configuration's filter and inputs — no ClickHouse query. Use the menu to the left to load a real event from your data instead."
+                                            }
                                             icon={sampleGlobalsLoadingAndNotCancelled ? <Spinner /> : undefined}
                                         >
-                                            {sampleGlobalsLoadingAndNotCancelled ? 'Cancel loading' : 'Load new event'}
+                                            {sampleGlobalsLoadingAndNotCancelled
+                                                ? 'Cancel loading'
+                                                : 'Generate new event'}
                                         </LemonButton>
                                     ) : null}
                                     <LemonButton

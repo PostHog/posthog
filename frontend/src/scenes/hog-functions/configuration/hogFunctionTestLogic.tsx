@@ -91,7 +91,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
+            [
+                'touchConfigurationField',
+                'loadSampleGlobalsSuccess',
+                'loadSampleGlobals',
+                'regenerateSampleGlobals',
+                'setSampleGlobals',
+            ],
         ],
     })),
     actions({

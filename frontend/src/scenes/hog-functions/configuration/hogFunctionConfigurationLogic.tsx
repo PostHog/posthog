@@ -376,6 +376,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 sparklineQuery,
             }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        regenerateSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
@@ -438,6 +439,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as null | string,
             {
                 loadSampleGlobals: () => null,
+                regenerateSampleGlobals: () => null,
                 setSampleGlobalsError: (_, { error }) => error,
             },
         ],
@@ -1337,6 +1339,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     listeners(({ actions, values, cache }) => ({
+        regenerateSampleGlobals: () => {
+            // Re-seed the JSON editor with a fresh synthesized event. The synth itself is
+            // memoized off the configuration, but we randomize the identity fields on each
+            // click so the user sees something visibly fresh and so the editor refreshes even
+            // when the configuration hasn't changed.
+            const fresh = JSON.parse(JSON.stringify(values.syntheticSampleGlobals))
+            fresh.event.uuid = uuid()
+            fresh.event.distinct_id = uuid()
+            if (fresh.person) {
+                fresh.person.id = uuid()
+            }
+            actions.setSampleGlobals(fresh)
+        },
         reportAIHogFunctionPrompted: () => {
             posthog.capture('ai_hog_function_prompted', { type: values.type })
         },
