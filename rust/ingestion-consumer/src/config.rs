@@ -165,6 +165,14 @@ pub struct Config {
     #[envconfig(from = "WORKER_PORT", default = "9001")]
     pub worker_port: u16,
 
+    /// When a worker leaves the pool (e.g. a draining pod during a deploy), it is
+    /// marked draining rather than removed: no new work is routed to it, but its
+    /// in-flight batches are allowed to finish and ACK. It is fully removed once
+    /// its in-flight count reaches zero, or after this timeout as a safety net
+    /// (milliseconds) — sized above the worst-case batch processing time.
+    #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
+    pub worker_drain_timeout_ms: u64,
+
     /// How unpinned routing keys are assigned to workers: `binpack` (default,
     /// least-loaded — accurate for the co-located sidecar) or `p2c`
     /// (power-of-two-choices — herd-resistant for a shared worker pool).

@@ -1583,6 +1583,11 @@ class JobNimbusSourceConfig(config.Config):
 
 
 @config.config
+class JobberSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class JotformSourceConfig(config.Config):
     pass
 
@@ -1653,6 +1658,11 @@ class KlaviyoSourceConfig(config.Config):
 
 
 @config.config
+class KnockSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KustomerSourceConfig(config.Config):
     org_name: str
     api_key: str
@@ -1676,6 +1686,11 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeadfeederSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LeexiSourceConfig(config.Config):
     pass
 
 
@@ -2461,6 +2476,11 @@ class QualtricsSourceConfig(config.Config):
 
 @config.config
 class QuickBooksSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class RB2BSourceConfig(config.Config):
     pass
 
 
@@ -3761,6 +3781,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.JAMFPRO: JamfProSourceConfig,
         ExternalDataSourceType.JIRA: JiraSourceConfig,
         ExternalDataSourceType.JOBNIMBUS: JobNimbusSourceConfig,
+        ExternalDataSourceType.JOBBER: JobberSourceConfig,
         ExternalDataSourceType.JOTFORM: JotformSourceConfig,
         ExternalDataSourceType.JUDGEMEREVIEWS: JudgeMeReviewsSourceConfig,
         ExternalDataSourceType.JUSTCALL: JustCallSourceConfig,
@@ -3775,11 +3796,13 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.KNOCK: KnockSourceConfig,
         ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
         ExternalDataSourceType.LAGO: LagoSourceConfig,
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,
         ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
+        ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
@@ -3928,6 +3951,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
         ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
         ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+        ExternalDataSourceType.RB2B: RB2BSourceConfig,
         ExternalDataSourceType.RDSTATIONMARKETING: RDStationMarketingSourceConfig,
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,

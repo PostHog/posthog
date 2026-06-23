@@ -50,6 +50,9 @@ tools:
     data-warehouse-deprovision-create:
         operation: data_warehouse_deprovision_create
         enabled: false
+    data-warehouse-enable-backfill-create:
+        operation: data_warehouse_enable_backfill_create
+        enabled: false
     data-warehouse-job-stats-retrieve:
         operation: data_warehouse_job_stats_retrieve
         enabled: false

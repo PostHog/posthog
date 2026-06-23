@@ -23,7 +23,6 @@ function makeCtx(store: S3MemoryStore | undefined): ToolContext {
         teamId: 42,
         applicationId: 'app-test',
         sessionId: 'sess-1',
-        integrations: {},
         secret: () => undefined,
         secretAllowedHosts: () => undefined,
         log: () => undefined,
