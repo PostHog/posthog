@@ -397,29 +397,11 @@ const AnyPropertyFilter = z.union([
     WorkflowVariablePropertyFilter,
 ])
 
-const QueryLogTags = z.object({
-    name: z.string().describe('Name of the query, preferably unique. For example web_analytics_vitals').optional(),
-    productKey: z
-        .string()
-        .describe(
-            "Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *"
-        )
-        .optional(),
-    scene: z
-        .string()
-        .describe(
-            "Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *"
-        )
-        .optional(),
-})
-
 const MCPHarnessBreakdownQuery = z.object({
     dateRange: DateRange.optional(),
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
     properties: z.array(AnyPropertyFilter).optional(),
-    tags: QueryLogTags.optional(),
-    version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {

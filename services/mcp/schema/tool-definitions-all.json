@@ -6059,7 +6059,7 @@
         "feature": "mcp_analytics",
         "summary": "Break down MCP tool calls by harness",
         "title": "Break down MCP tool calls by harness",
-        "required_scopes": ["query:read"],
+        "required_scopes": ["query:read", "mcp_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

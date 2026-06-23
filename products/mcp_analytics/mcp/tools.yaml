@@ -112,6 +112,7 @@ wrappers:
         enabled: true
         scopes:
             - query:read
+            - mcp_analytics:read
         annotations:
             readOnly: true
             destructive: false
@@ -127,4 +128,6 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+            - version
+            - tags
         feature_flag: mcp-analytics
