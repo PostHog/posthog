@@ -55,6 +55,11 @@ def _response_with(status_code: int, body: dict[str, Any] | None = None) -> requ
     return response
 
 
+# The undecorated function behind tenacity's retry wrapper — call it to exercise status handling
+# without the retry/backoff loop actually sleeping.
+_fetch_page_unwrapped = _fetch_page.__wrapped__  # type: ignore[attr-defined]
+
+
 class TestExtractRecords:
     @parameterized.expand(
         [
@@ -86,22 +91,20 @@ class TestFetchPage:
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = _response_with(status_code)
-        # `__wrapped__` is the undecorated function, so we exercise the status handling without
-        # tenacity's retry/backoff actually sleeping.
         with pytest.raises(ZendeskSellRetryableError):
-            _fetch_page.__wrapped__(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
+            _fetch_page_unwrapped(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise_http_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = _response_with(status_code)
         with pytest.raises(requests.HTTPError):
-            _fetch_page.__wrapped__(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
+            _fetch_page_unwrapped(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
 
     def test_ok_returns_parsed_json(self) -> None:
         session = MagicMock()
         session.get.return_value = _response_with(200, _envelope([{"id": 1}], next_page=None))
-        result = _fetch_page.__wrapped__(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
+        result = _fetch_page_unwrapped(session, "https://api.getbase.com/v2/contacts", {}, MagicMock())
         assert result["items"][0]["data"] == {"id": 1}
 
 

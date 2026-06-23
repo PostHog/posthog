@@ -11,6 +11,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.zendesk_sell import source as source_module
 from posthog.temporal.data_imports.sources.zendesk_sell.settings import ENDPOINTS
@@ -102,10 +103,11 @@ class TestResumableManager:
 class TestSourceForPipeline:
     def test_plumbs_config_and_inputs_into_source_response(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
+        sentinel = SourceResponse(name="deals", items=lambda: iter(()), primary_keys=["id"])
 
-        def fake_source(**kwargs: Any) -> str:
+        def fake_source(**kwargs: Any) -> SourceResponse:
             captured.update(kwargs)
-            return "source-response"
+            return sentinel
 
         monkeypatch.setattr(source_module, "zendesk_sell_source", fake_source)
 
@@ -116,7 +118,7 @@ class TestSourceForPipeline:
 
         result = ZendeskSellSource().source_for_pipeline(config, manager, inputs)
 
-        assert result == "source-response"
+        assert result is sentinel
         assert captured["access_token"] == "my-token"
         assert captured["endpoint"] == "deals"
         assert captured["resumable_source_manager"] is manager
