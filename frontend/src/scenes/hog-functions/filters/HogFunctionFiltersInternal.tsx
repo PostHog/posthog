@@ -176,6 +176,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'subscription-delivered') {
+            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])
