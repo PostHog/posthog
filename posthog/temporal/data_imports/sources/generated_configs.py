@@ -3233,7 +3233,8 @@ class VeeqoSourceConfig(config.Config):
 
 @config.config
 class VercelSourceConfig(config.Config):
-    pass
+    access_token: str
+    team_id: str | None = None
 
 
 @config.config

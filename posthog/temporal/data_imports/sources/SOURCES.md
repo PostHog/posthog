@@ -187,6 +187,7 @@ the row lists both.
 | trello            | HTTP                        | requests                                                        | ✅                          |
 | twilio            | HTTP                        | requests                                                        | ✅                          |
 | typeform          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vercel            | HTTP                        | requests                                                        | ✅                          |
 | vitally           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow           | HTTP                        | requests                                                        | ✅                          |
 | woocommerce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -677,7 +678,6 @@ doesn't conflict with concurrent PRs.
 - uservoice
 - vantage
 - veeqo
-- vercel
 - visma_economic
 - vwo
 - waiteraid
