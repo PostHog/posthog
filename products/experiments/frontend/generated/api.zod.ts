@@ -13,31 +13,37 @@ export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsCreateBodyNameMax),
-    description: zod.string().max(experimentHoldoutsCreateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(experimentHoldoutsCreateBodyNameMax),
+        description: zod.string().max(experimentHoldoutsCreateBodyDescriptionMax).nullish(),
+        filters: zod.unknown().optional(),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentHoldoutsUpdateBodyNameMax = 400
 
 export const experimentHoldoutsUpdateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsUpdateBodyNameMax),
-    description: zod.string().max(experimentHoldoutsUpdateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(experimentHoldoutsUpdateBodyNameMax),
+        description: zod.string().max(experimentHoldoutsUpdateBodyDescriptionMax).nullish(),
+        filters: zod.unknown().optional(),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().max(experimentHoldoutsPartialUpdateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(experimentHoldoutsPartialUpdateBodyNameMax).optional(),
+        description: zod.string().max(experimentHoldoutsPartialUpdateBodyDescriptionMax).nullish(),
+        filters: zod.unknown().optional(),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentSavedMetricsCreateBodyNameMax = 400
 
