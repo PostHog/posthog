@@ -6,7 +6,7 @@ from structlog import get_logger
 from posthog.schema import EndpointRunRequest, HogQLQuery
 
 from posthog.ducklake.client import execute_ducklake_query
-from posthog.ducklake.common import get_duckgres_server_for_organization
+from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 
@@ -16,6 +16,13 @@ from products.endpoints.backend.services.strategies import strategy_for
 logger = get_logger(__name__)
 
 SHADOW_EVENT = "ducklake_endpoint_exec_shadow"
+
+
+def shadow_target_exists(team: Team) -> bool:
+    # Local dev points at the dev duckgres config and has no provisioned DuckgresServer row.
+    if is_dev_mode():
+        return True
+    return get_duckgres_server_for_organization(str(team.organization_id)) is not None
 
 
 def build_ducklake_hogql_query(
@@ -71,7 +78,7 @@ def run_ducklake_shadow_comparison(
         )
         return
 
-    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
+    if not shadow_target_exists(team):
         logger.info("ducklake_shadow_skip_no_server", team_id=team_id)
         return
 

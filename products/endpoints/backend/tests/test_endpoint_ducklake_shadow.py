@@ -218,14 +218,17 @@ class TestShadowComparison(APIBaseTest):
 
         assert captured == []
 
-    def test_no_duckgres_server_is_noop(self):
+    def test_no_duckgres_server_is_noop_in_prod(self):
         endpoint = create_endpoint_with_version(
             name="cmp-noserver", team=self.team, query=HOGQL_QUERY, created_by=self.user
         )
         version = endpoint.get_version()
         captured = self._capture_events()
 
-        with mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None):
+        with (
+            mock.patch.object(ducklake_shadow, "is_dev_mode", return_value=False),
+            mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None),
+        ):
             ducklake_shadow.run_ducklake_shadow_comparison(
                 team_id=self.team.pk,
                 endpoint_id=str(endpoint.id),
@@ -240,3 +243,32 @@ class TestShadowComparison(APIBaseTest):
             )
 
         assert captured == []
+
+    def test_dev_mode_shadows_without_provisioned_server(self):
+        endpoint = create_endpoint_with_version(name="cmp-dev", team=self.team, query=HOGQL_QUERY, created_by=self.user)
+        version = endpoint.get_version()
+        captured = self._capture_events()
+
+        with (
+            mock.patch.object(ducklake_shadow, "is_dev_mode", return_value=True),
+            mock.patch.object(ducklake_shadow, "get_duckgres_server_for_organization", return_value=None),
+            mock.patch.object(
+                ducklake_shadow,
+                "execute_ducklake_query",
+                return_value=DuckLakeQueryResult(columns=["cnt"], types=["20"], results=[[1]], sql="", hogql=None),
+            ),
+        ):
+            ducklake_shadow.run_ducklake_shadow_comparison(
+                team_id=self.team.pk,
+                endpoint_id=str(endpoint.id),
+                version_id=str(version.id),
+                variables=None,
+                execution_type="inline",
+                clickhouse_cached=False,
+                clickhouse_ms=12.5,
+                clickhouse_row_count=1,
+                limit=None,
+                offset=None,
+            )
+
+        assert len(captured) == 1

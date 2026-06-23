@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
+from posthog.ducklake.common import is_dev_mode
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
@@ -389,6 +390,9 @@ class EndpointExecutionService(PydanticModelMixin):
         # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
         if version is None or version.query.get("kind") != "HogQLQuery":
             return False
+
+        if is_dev_mode():
+            return True
 
         return bool(
             posthoganalytics.feature_enabled(
