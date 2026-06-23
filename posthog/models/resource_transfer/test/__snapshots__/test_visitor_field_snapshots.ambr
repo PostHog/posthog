@@ -205,6 +205,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
     'description',
+    'excluded_variants',
     'exposure_criteria',
     'feature_flag_auto_archived',
     'filters',
@@ -787,6 +788,7 @@
     '__static_attributes__',
     '__str__',
     '_evaluation_tag_names',
+    '_has_experiment',
     '_meta',
     '_payloads',
     '_tombstone_suffix',

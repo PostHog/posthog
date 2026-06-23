@@ -170,7 +170,7 @@ impl HttpTransport {
         worker_url: &str,
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
-    ) -> Result<u32, TransportError> {
+    ) -> Result<u32, SendError> {
         let message_count = messages.len();
         let request = IngestBatchRequest {
             batch_id: batch_id.to_string(),
@@ -261,7 +261,10 @@ impl HttpTransport {
                         "Failed to send batch to worker"
                     );
                     if !err.is_retriable() {
-                        return Err(err);
+                        return Err(SendError {
+                            error: err,
+                            messages: request.messages,
+                        });
                     }
                     last_err = Some(err);
                 }
@@ -278,7 +281,10 @@ impl HttpTransport {
         );
         counter!("ingestion_consumer_transport_exhausted_total", "worker" => worker_url.to_string())
             .increment(1);
-        Err(err)
+        Err(SendError {
+            error: err,
+            messages: request.messages,
+        })
     }
 
     async fn do_send(
@@ -309,6 +315,15 @@ impl HttpTransport {
         let parsed: IngestBatchResponse = response.json().await?;
         Ok(parsed)
     }
+}
+
+/// Failure from [`HttpTransport::send_batch`], carrying back the batch's
+/// messages so the caller can defer/replay them (the worker may have died
+/// mid-send and the messages were never accepted).
+#[derive(Debug)]
+pub struct SendError {
+    pub error: TransportError,
+    pub messages: Vec<SerializedKafkaMessage>,
 }
 
 #[derive(Debug, thiserror::Error)]

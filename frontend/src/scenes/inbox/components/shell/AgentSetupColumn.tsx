@@ -18,6 +18,7 @@ import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
+import { InboxUsageWidget } from './InboxUsageWidget'
 
 type WidgetTone = 'todo' | 'done' | 'neutral'
 /** Visual weight reflecting how important / frequently edited a part of the setup is. */
@@ -328,6 +329,9 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
                 <CodeAccessWidget />
                 <NotificationsWidget />
                 <McpServersWidget />
+            </SetupSection>
+            <SetupSection title="Usage">
+                <InboxUsageWidget />
             </SetupSection>
             <SetupModal />
         </div>

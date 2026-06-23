@@ -60,7 +60,6 @@ import {
     IdentityCredentialStore,
     IdentityLinkStateStore,
     IdentityStore,
-    IntegrationCredentials,
     isDeltaEventKind,
     isSlackTriggerMetadata,
     LogLevel,
@@ -104,7 +103,6 @@ export interface RunSessionDeps {
     streamFn?: StreamFn
     bundle: BundleStore
     sandbox: Sandbox | null
-    integrations: Record<string, IntegrationCredentials>
     secrets: Record<string, string>
     broker?: SecretBroker
     /**
@@ -426,7 +424,6 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             rev,
             session,
             sandbox: deps.sandbox,
-            integrations: deps.integrations,
             secrets: deps.secrets,
             bundle: deps.bundle,
             log,
