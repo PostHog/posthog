@@ -21,6 +21,7 @@ _INITIATOR_PLACEHOLDER = "<original user message was here>"
 _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY`; choose adapter `slack_canvas`, `slack_message`, `document_connector`, or `s3`. To update a prior deliverable, GET the returned artifact id or POST new content to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead."""
 
 # Cap on how many messages a single follow-up update block can carry. Threads with

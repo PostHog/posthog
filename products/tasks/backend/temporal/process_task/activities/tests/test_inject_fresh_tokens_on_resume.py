@@ -277,4 +277,6 @@ class TestInjectFreshTokensOnResumeActivity:
 
         assert environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
         assert environment_variables["POSTHOG_API_URL"] == "https://sandbox.example.com"
+        assert environment_variables["POSTHOG_TASK_ID"] == str(test_task.id)
+        assert environment_variables["POSTHOG_TASK_RUN_ID"] == str(test_task_run.id)
         assert "SECRET_KEY" not in environment_variables

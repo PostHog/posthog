@@ -176,6 +176,7 @@ class TestRelaySlackMessage(TestCase):
         assert "user_activity_report.pdf" in posted
         assert "no file was attached to Slack for this run" in posted
 
+    @patch("posthog.storage.object_storage.get_presigned_url", return_value="https://example.com/report.pdf")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
@@ -184,6 +185,7 @@ class TestRelaySlackMessage(TestCase):
         _mock_delete_progress,
         mock_post,
         _mock_update,
+        mock_presign,
     ):
         self.task_run.artifacts = [
             {
@@ -204,7 +206,10 @@ class TestRelaySlackMessage(TestCase):
         )
 
         mock_post.assert_called_once()
-        assert "no file was attached to Slack for this run" not in mock_post.call_args.args[0]
+        posted = mock_post.call_args.args[0]
+        assert "no file was attached to Slack for this run" not in posted
+        assert "<https://example.com/report.pdf|user_activity_report.pdf>" in posted
+        mock_presign.assert_called_once_with("tasks/artifacts/report.pdf")
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):

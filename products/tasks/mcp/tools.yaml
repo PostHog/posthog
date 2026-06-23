@@ -149,6 +149,66 @@ tools:
     tasks-runs-create:
         operation: tasks_runs_create
         enabled: false
+    tasks-runs-living-artifacts-create:
+        operation: tasks_runs_living_artifacts_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create living artifact
+        description: >
+            Create a stable, editable deliverable for a task run. Use this before claiming that a Slack-facing report,
+            document, spreadsheet, canvas, or file has been delivered. Pass `content` for markdown/text deliverables, or
+            `source_artifact_id` / `source_storage_path` to turn an existing run artifact into a living artifact. Slack
+            adapters deliver into the mapped Slack thread; document artifacts use connector storage with S3 fallback.
+        feature_flag: tasks
+    tasks-runs-living-artifacts-edit:
+        operation: tasks_runs_living_artifacts_edit
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit living artifact
+        description: >
+            Commit a new version to an existing living artifact. Use the artifact id returned by
+            tasks-runs-living-artifacts-create or tasks-runs-living-artifacts-list. The adapter updates the backing Slack
+            message, Slack canvas, document connector fallback, or S3 object and records the new version.
+        feature_flag: tasks
+    tasks-runs-living-artifacts-list:
+        operation: tasks_runs_living_artifacts_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List living artifacts
+        description: >
+            List stable, versioned living artifact handles for a task run. Use this to find the artifact id to open or
+            edit when a user asks for a previous deliverable to be revised.
+        feature_flag: tasks
+    tasks-runs-living-artifacts-open:
+        operation: tasks_runs_living_artifacts_open
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Open living artifact
+        description: >
+            Open a living artifact by id and return its registry metadata plus current readable content when the adapter
+            supports it. Use this before editing a prior deliverable.
+        feature_flag: tasks
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
