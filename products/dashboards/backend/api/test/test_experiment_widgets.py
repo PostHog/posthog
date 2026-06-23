@@ -389,18 +389,21 @@ class TestExperimentResultsWidget(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("primary", "metrics", "metrics"),
-            ("secondary", "metrics_secondary", "secondaryMetrics"),
+            ("primary", "metrics"),
+            ("secondary", "secondaryMetrics"),
         ]
     )
     @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
     def test_metric_failure_is_isolated_and_sanitized(
-        self, _label: str, metrics_kwarg: str, result_key: str, mock_runner_cls: MagicMock
+        self, _label: str, result_key: str, mock_runner_cls: MagicMock
     ) -> None:
         mock_runner_cls.return_value.run.side_effect = Exception("SELECT * FROM secret_table")
+        broken = [_experiment_metric("uuid-1", "Broken metric")]
+        is_primary = result_key == "metrics"
         experiment = self._create_experiment(
             start_date=timezone.now(),
-            **{metrics_kwarg: [_experiment_metric("uuid-1", "Broken metric")]},
+            metrics=broken if is_primary else None,
+            metrics_secondary=None if is_primary else broken,
         )
 
         result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
