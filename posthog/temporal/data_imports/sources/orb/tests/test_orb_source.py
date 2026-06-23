@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +8,7 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
+    SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 
@@ -41,6 +42,7 @@ class TestOrbSourceConfig:
         assert fields is not None
         assert len(fields) == 1
         api_key_field = fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert api_key_field.secret is True
@@ -107,7 +109,7 @@ class TestSourceWiring:
 
         OrbSource().source_for_pipeline(_config(), manager, inputs)
 
-        kwargs: dict[str, Any] = mock_orb_source.call_args.kwargs
+        kwargs = cast(dict[str, Any], mock_orb_source.call_args.kwargs)
         assert kwargs["api_key"] == "orb-key"
         assert kwargs["endpoint"] == "Customers"
         assert kwargs["team_id"] == 7

@@ -1,9 +1,11 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.orb.orb import (
@@ -101,29 +103,37 @@ class TestFormatIncrementalValue:
 
 
 class TestGetResource:
+    @staticmethod
+    def _params(resource: Any) -> dict[str, Any]:
+        endpoint = cast(dict[str, Any], resource["endpoint"])
+        return cast(dict[str, Any], endpoint["params"])
+
     @parameterized.expand(list(ENDPOINTS))
     def test_resource_shape(self, endpoint: str) -> None:
         cfg = ORB_ENDPOINTS[endpoint]
         resource = get_resource(endpoint, should_use_incremental_field=False)
+        endpoint_config = cast(dict[str, Any], resource["endpoint"])
+        params = self._params(resource)
 
         assert resource["name"] == cfg.name
         assert resource["table_name"] == cfg.table_name
         assert resource["table_format"] == "delta"
-        assert resource["endpoint"]["path"] == cfg.path
-        assert resource["endpoint"]["data_selector"] == "data"
-        assert resource["endpoint"]["params"]["limit"] == 100
+        assert endpoint_config["path"] == cfg.path
+        assert endpoint_config["data_selector"] == "data"
+        assert params["limit"] == 100
         # Non-incremental call never sets a timestamp filter and replaces the table.
         assert resource["write_disposition"] == "replace"
         if cfg.incremental_param is not None:
-            assert cfg.incremental_param not in resource["endpoint"]["params"]
+            assert cfg.incremental_param not in params
 
     @parameterized.expand([e for e in ENDPOINTS if ORB_ENDPOINTS[e].incremental_param is not None])
     def test_incremental_resource_sets_filter_and_merges(self, endpoint: str) -> None:
         cfg = ORB_ENDPOINTS[endpoint]
+        assert cfg.incremental_param is not None
         resource = get_resource(endpoint, should_use_incremental_field=True)
 
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        param = resource["endpoint"]["params"][cfg.incremental_param]
+        param = cast(dict[str, Any], self._params(resource)[cfg.incremental_param])
         assert param["type"] == "incremental"
         assert param["cursor_path"] == cfg.incremental_field
         assert param["convert"] is _format_incremental_value
@@ -134,12 +144,13 @@ class TestGetResource:
         # stay full-refresh (replace) so we never silently emit a bogus filter param.
         resource = get_resource(endpoint, should_use_incremental_field=True)
         assert resource["write_disposition"] == "replace"
-        assert set(resource["endpoint"]["params"].keys()) == {"limit"}
+        assert set(self._params(resource).keys()) == {"limit"}
 
     def test_invoices_uses_invoice_date_filter(self) -> None:
         resource = get_resource("Invoices", should_use_incremental_field=True)
-        assert "invoice_date[gt]" in resource["endpoint"]["params"]
-        assert "created_at[gt]" not in resource["endpoint"]["params"]
+        params = self._params(resource)
+        assert "invoice_date[gt]" in params
+        assert "created_at[gt]" not in params
 
 
 class TestOrbSource:
@@ -244,3 +255,15 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = response
 
         assert validate_credentials("key") is expected
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    @patch("posthog.temporal.data_imports.sources.orb.orb.make_tracked_session")
+    def test_transient_errors_raise(self, _label: str, status_code: int, mock_session: MagicMock) -> None:
+        # Transient/unexpected statuses must not be reported as an invalid API key — they raise.
+        response = MagicMock()
+        response.status_code = status_code
+        response.raise_for_status.side_effect = HTTPError
+        mock_session.return_value.get.return_value = response
+
+        with pytest.raises(HTTPError):
+            validate_credentials("key")

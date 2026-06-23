@@ -121,6 +121,7 @@ def orb_source(
             },
             "paginator": OrbCursorPaginator(),
         },
+        "resource_defaults": None,
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
@@ -162,11 +163,19 @@ def orb_source(
 
 
 def validate_credentials(api_key: str) -> bool:
-    """Cheap probe against `/customers` to confirm the Bearer token is genuine."""
+    """Cheap probe against `/customers` to confirm the Bearer token is genuine.
+
+    Returns False only for auth failures (401/403). Transient or unexpected statuses
+    (429, 5xx, …) are raised via `raise_for_status()` so they surface as a real error
+    rather than being misreported to the user as an invalid API key.
+    """
     response = make_tracked_session().get(
         f"{ORB_API_BASE_URL}/customers",
         params={"limit": 1},
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=30,
     )
-    return response.status_code == 200
+    if response.status_code in (401, 403):
+        return False
+    response.raise_for_status()
+    return True
