@@ -244,6 +244,7 @@ async def test_skip_team_ids_drains_an_enrolled_team(ateam):
         (["*", 5], None, True, {5}),  # wildcard + a force-provisioned id
         ([5, 6], None, False, {5, 6}),  # no wildcard → today's allowlist behaviour
         (["*"], [5], True, set()),  # wildcard with a skip override
+        ([], None, False, set()),  # empty list → intentional drain-all, NOT the fallback (cf. None)
         (["*", "nope"], None, False, set(DEFAULT_ENROLLED_TEAM_IDS)),  # bad entry → whole list malformed → fallback
     ],
 )
