@@ -6,6 +6,7 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -437,6 +438,9 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        // second-window incremental for the multi-window case
+        const w2inc = (timestamp: number): RecordingSnapshot =>
+            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -560,6 +564,118 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
+
+        // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
+        // case above. Both sides of the ingestion grace boundary: while within it the missing
+        // FullSnapshot may still arrive, so the seek buffers (and keeps loading sources) instead
+        // of the terminal error; once past it the missing data is definitive and the seek errors.
+        it.each([
+            {
+                description: 'buffers and keeps polling while a recent recording is still ingesting',
+                withinGracePeriod: true,
+                expectedError: null,
+                expectedBuffering: true,
+                expectedWaitingForIngestion: true,
+            },
+            {
+                description: 'errors once the ingestion grace period has elapsed',
+                withinGracePeriod: false,
+                expectedError: 'noPlayableFullSnapshot',
+                expectedBuffering: false,
+                expectedWaitingForIngestion: false,
+            },
+        ])('$description', ({ withinGracePeriod, expectedError, expectedBuffering, expectedWaitingForIngestion }) => {
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(withinGracePeriod)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(START + 61500)
+
+                expect(logic.values.playerError).toBe(expectedError)
+                expect(logic.values.isBuffering).toBe(expectedBuffering)
+                expect(logic.values.isWaitingForIngestion).toBe(expectedWaitingForIngestion)
+                expect(logic.values.currentTimestamp).toBe(START + 61500)
+            } finally {
+                graceSpy.mockRestore()
+            }
+        })
+
+        it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
+            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs checkBufferingCompleted;
+            // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
+            // transitions to the terminal error the next time checkBufferingCompleted runs after the grace
+            // period has elapsed — without any new snapshot data arriving.
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.playerError).toBeNull()
+
+                // grace lapses, no new data arrives — the periodic nudge re-reads the now-definitive
+                // verdict and surfaces the terminal error
+                graceSpy.mockReturnValue(false)
+                logic.actions.checkBufferingCompleted()
+
+                expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+            } finally {
+                graceSpy.mockRestore()
+            }
+        })
+
+        it.each([
+            {
+                description: 'reports the leading unplayable span when the initial full snapshot is late',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'reports no unplayable span when a full snapshot exists at the start',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'reports no unplayable span when no full snapshot exists anywhere',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'measures the span but does not flag a late snapshot below the warning threshold',
+                firstSourceSnapshots: [inc(START), fs(START + 5000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 5000,
+                expectedHasLate: false,
+            },
+            {
+                // multi-window: the first window renders from its own start, so a later window
+                // lacking a full snapshot must not extend the leading unplayable span
+                description: 'does not flag when the first window renders but a later window lacks a full snapshot',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+        ])(
+            '$description',
+            ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
+            }
+        )
     })
 
     describe('delete session recording', () => {

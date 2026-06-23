@@ -47,7 +47,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
-from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    flag_payload_codec,
+    get_decrypted_flag_payload,
+)
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -2097,6 +2101,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
+    # Encrypted remote config payloads are decrypted only for personal API keys; project
+    # secret keys get the redacted marker. This is the parity oracle for the Rust port,
+    # which must replicate both.
+    @parameterized.expand(
+        [
+            ("project_secret_key", False),
+            ("personal_api_key", True),
+        ]
+    )
+    def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
+        plaintext = '{"secret": "value"}'
+        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        self._create_encrypted_flag(stored_payload=token)
+
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        else:
+            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            secret_token = self.team.secret_api_token
+            assert secret_token is not None
+            auth_token = secret_token
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
+
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
         self, _name: str, has_encrypted_payloads: bool
@@ -3645,13 +3682,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             feature_flag=flag,
+            name="My experiment",
             start_date=now(),
         )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
+            == f'Cannot delete a feature flag that is linked to running experiment(s): "My experiment" (ID: {exp.id}). Please stop the experiment(s) before deleting the flag.'
         )
 
     @parameterized.expand(
@@ -3706,6 +3744,96 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         assert response.status_code == 200
         assert response.json()["is_used_in_replay_settings"] is True
+
+    def test_archive_flag_requires_disabled(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="enabled-flag", active=True)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True})
+        assert response.status_code == 400
+        assert "Cannot archive an enabled feature flag" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.archived is False
+
+    def test_archive_disabled_flag(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="disabled-flag", active=False)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True})
+        assert response.status_code == 200, response.content
+        assert response.json()["archived"] is True
+        assert response.json()["status"] == "ARCHIVED"
+        flag.refresh_from_db()
+        assert flag.archived is True
+
+    def test_archive_and_disable_flag_in_one_request(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="enabled-flag", active=True)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True, "active": False}
+        )
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is True
+        assert flag.active is False
+
+    def test_cannot_enable_archived_flag(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"active": True})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cannot enable an archived feature flag. Unarchive it first."
+
+    def test_unarchive_flag_stays_disabled(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": False})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.archived is False
+        assert flag.active is False
+
+    @parameterized.expand(
+        [
+            ("default", "", True, False),
+            ("archived_true", "?archived=true", False, True),
+            ("archived_false", "?archived=false", True, False),
+        ]
+    )
+    def test_list_archived_filtering(self, _name, query, expect_visible, expect_archived):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="visible-flag")
+        FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{query}")
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert ("visible-flag" in keys) is expect_visible
+        assert ("archived-flag" in keys) is expect_archived
+
+    def test_list_excluded_tags_filtering(self):
+        for key, tags in [
+            ("deprecated-flag", ["deprecated"]),
+            ("multi-tag-flag", ["deprecated", "app"]),
+            ("app-flag", ["app"]),
+            ("untagged-flag", []),
+        ]:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "key": key,
+                    "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                    "tags": tags,
+                },
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/?excluded_tags={json.dumps(['deprecated'])}"
+        )
+        assert response.status_code == 200
+        keys = {flag["key"] for flag in response.json()["results"]}
+        assert "deprecated-flag" not in keys
+        assert "multi-tag-flag" not in keys
+        assert {"app-flag", "untagged-flag"} <= keys
 
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
@@ -10066,6 +10194,82 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         assert cached_flag is not None
         self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
 
+    @pytest.mark.ee
+    def test_cache_read_back_ignores_unknown_non_model_key(self):
+        from posthog.caching.flags_redis_cache import write_flags_to_cache
+
+        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="unknown-key-flag",
+            name="Unknown Key Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        [serialized] = serialize_feature_flags([flag])
+        # A future SDK-only serializer field that is not a model field must not break read-back.
+        serialized["some_future_sdk_field"] = {"anything": True}
+        write_flags_to_cache(
+            f"team_feature_flags_{self.team.project_id}",
+            json.dumps([serialized]),
+            FIVE_DAYS,
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
+        assert cached_flags is not None
+        self.assertEqual(len(cached_flags), 1)
+        self.assertEqual(cached_flags[0].key, "unknown-key-flag")
+
+    @parameterized.expand(
+        [
+            # (name, evaluation_contexts value, evaluation_tags value, expected)
+            ("current_key", ["app", "docs"], None, ["app", "docs"]),
+            ("legacy_key", None, ["app", "docs"], ["app", "docs"]),
+            # When both keys are present, the current `evaluation_contexts` key wins.
+            ("both_keys_current_wins", ["app", "docs"], ["legacy"], ["app", "docs"]),
+        ]
+    )
+    @pytest.mark.ee
+    def test_cache_read_back_accepts_evaluation_context_keys(
+        self,
+        _name: str,
+        contexts_value: Optional[list[str]],
+        tags_value: Optional[list[str]],
+        expected: list[str],
+    ):
+        from posthog.caching.flags_redis_cache import write_flags_to_cache
+
+        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"eval-context-key-{_name}",
+            name="Eval Context Key Flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            created_by=self.user,
+        )
+
+        [serialized] = serialize_feature_flags([flag])
+        # Exercise the current `evaluation_contexts` key, the legacy `evaluation_tags`
+        # key, and entries that carry both (where the current key must take precedence).
+        serialized.pop("evaluation_contexts", None)
+        if contexts_value is not None:
+            serialized["evaluation_contexts"] = contexts_value
+        if tags_value is not None:
+            serialized["evaluation_tags"] = tags_value
+        write_flags_to_cache(
+            f"team_feature_flags_{self.team.project_id}",
+            json.dumps([serialized]),
+            FIVE_DAYS,
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
+        assert cached_flags is not None
+        cached_flag = next(f for f in cached_flags if f.key == flag.key)
+        self.assertEqual(cached_flag.evaluation_tag_names, expected)
+
     def _get_eval_context_activity_entries(self, flag_id: int, activity: str = "updated") -> list:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -10699,6 +10903,59 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    # (name, filters, expected_rollout) — exercises the rollout summary end-to-end through the serializer.
+    @parameterized.expand(
+        [
+            (
+                "full_rollout",
+                {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": False,
+                },
+            ),
+            (
+                "targeted",
+                {"groups": [{"rollout_percentage": 50, "properties": [{"key": "email", "value": "x"}]}]},
+                {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": True,
+                    "max_rollout_percentage": 50,
+                    "is_multivariate": False,
+                },
+            ),
+            # Multivariate flag guards the is_multivariate field through the serializer path.
+            (
+                "multivariate",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                },
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": True,
+                },
+            ),
+        ]
+    )
+    def test_flag_status_includes_rollout_summary(self, name, filters, expected_rollout):
+        """The status response exposes a rollout summary so callers can determine full rollout / GA."""
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters=filters,
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["rollout"], expected_rollout)
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()
@@ -10844,6 +11101,34 @@ class TestFeatureFlagMatchingIds(APIBaseTest):
         data = response.json()
         assert data["total"] == 1
         assert data["ids"] == [active_flag.id]
+
+    def test_matching_ids_excludes_archived_by_default(self):
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="visible_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Default: archived flag is absent from the "select all matching" set.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+        assert response.status_code == 200
+        ids = response.json()["ids"]
+        assert visible_flag.id in ids
+        assert archived_flag.id not in ids
+
+        # ?archived=true returns only archived flags.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?archived=true")
+        assert response.status_code == 200
+        assert response.json()["ids"] == [archived_flag.id]
 
     def test_matching_ids_excludes_deleted_flags(self):
         flag = FeatureFlag.objects.create(
@@ -11003,6 +11288,36 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert active_flag.deleted is False
         assert inactive_flag.deleted is True
 
+    def test_bulk_delete_by_filter_excludes_archived_by_default(self):
+        """An archived flag must not be deleted by a filter-based bulk delete, even when it
+        matches the filter (archived flags are inactive, so an active=false filter matches them)."""
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_inactive_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        inactive_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="plain_inactive_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"active": "false"}},
+        )
+
+        assert response.status_code == 200
+        archived_flag.refresh_from_db()
+        inactive_flag.refresh_from_db()
+        assert archived_flag.deleted is False
+        assert inactive_flag.deleted is True
+
     def test_bulk_delete_by_ids_no_limit(self):
         """Test that ID-based deletion has no 100 limit (unlike the old endpoint)."""
         # Create 150 flags
@@ -11051,7 +11366,11 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         data = response.json()
         assert len(data["deleted"]) == 0
         assert len(data["errors"]) == 1
-        assert "experiment" in data["errors"][0]["reason"].lower()
+        # The error names the blocking experiment, matching the single-delete path's formatting.
+        assert (
+            'Cannot delete a feature flag linked to running experiment(s): "Test Experiment"'
+            in (data["errors"][0]["reason"])
+        )
 
         # Verify flag is NOT deleted
         flag.refresh_from_db()
@@ -11233,6 +11552,16 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Empty-variants block routes through the boolean branch: a 100% group is fully rolled out.
+        empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_variants",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": []},
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -11242,13 +11571,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     zero_rollout.id,
                     partial.id,
                     multivariate.id,
+                    empty_variants.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 4
+        assert len(data["deleted"]) == 5
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -11263,6 +11593,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
         assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+        assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["empty_variants"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""

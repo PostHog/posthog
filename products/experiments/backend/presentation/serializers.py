@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
+from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -32,13 +33,20 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricsRecalculation,
+    experiment_has_legacy_metrics,
+)
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+tracer = trace.get_tracer(__name__)
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -106,7 +114,17 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
     pass
 
 
-class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """Shared read-side fields for the full and list experiment serializers.
+
+    ``ExperimentSerializer`` (detail + write) and ``ExperimentBasicSerializer`` (list) both
+    declare the scalar, feature-flag, and method fields here, so they render identical types
+    for the fields they share. That keeps ``ExperimentApi`` a structural superset of
+    ``ExperimentBasicApi`` — which consumers rely on — by construction, not by hand-mirroring
+    field definitions across two classes. This base is abstract: subclasses supply their own
+    ``Meta`` (model + fields) and it is never instantiated on its own.
+    """
+
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
         help_text=(
@@ -117,33 +135,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = serializers.SerializerMethodField(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
-    holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(),
-        source="holdout",
-        required=False,
-        allow_null=True,
-        help_text="ID of a holdout group to exclude from the experiment.",
-    )
-    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(),
-        required=False,
-        allow_null=True,
-        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
-    )
-    allow_unknown_events = serializers.BooleanField(
-        required=False,
-        default=False,
-        write_only=True,
-        help_text=(
-            "Suppresses the validation that rejects metrics referencing events not yet "
-            "ingested by this project. REQUIRES explicit user confirmation before being "
-            "set to true — never flip this silently to retry a failed call. The default "
-            "validation catches typo'd event names and missing instrumentation. Set this "
-            "to true only when the user has confirmed the event is intentional (e.g. they "
-            "are about to instrument it)."
-        ),
-    )
     name = serializers.CharField(
         max_length=400,
         help_text="Name of the experiment.",
@@ -180,28 +171,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "during the deprecation window."
         ),
     )
-    metrics = ExperimentMetricsField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
-            "'mean' (set source to an EventsNode with an event name), "
-            "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
-            "'retention' (set start_event and completion_event). "
-            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
-        ),
-    )
-    metrics_secondary = ExperimentMetricsField(
-        required=False,
-        allow_null=True,
-        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
-    )
-    exposure_criteria = ExperimentExposureCriteriaField(
-        required=False,
-        allow_null=True,
-        help_text="Exposure configuration including filter test accounts and custom exposure events.",
-    )
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
         required=False,
@@ -225,6 +194,98 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         allow_null=True,
         help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
+            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
+            "feature_flag.active, not stored), 'stopped' (ended)."
+        ),
+    )
+    is_legacy = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or "
+            "ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support "
+            "them, such as duplicate and copy-to-project."
+        ),
+    )
+
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    def get_status(self, instance: Experiment) -> str:
+        return instance.status_label
+
+    @extend_schema_field(MinimalFeatureFlagSerializer)
+    def get_feature_flag(self, obj):
+        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_legacy(self, obj: Experiment) -> bool:
+        # The list queryset annotates is_legacy_annotation in SQL so the heavy metric columns stay
+        # deferred (see EnterpriseExperimentsViewSet.safely_get_queryset / list_is_legacy_annotation).
+        # On other paths (detail) the metrics are loaded, so fall back to computing it directly.
+        annotated = getattr(obj, "is_legacy_annotation", None)
+        if annotated is not None:
+            return annotated
+        return experiment_has_legacy_metrics(obj)
+
+
+class ExperimentSerializer(ExperimentBaseSerializer):
+    """Full experiment representation for the detail, create, and update endpoints.
+
+    Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+    definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+    fields, and refreshes stale action names while serializing. The list endpoint uses the
+    leaner ``ExperimentBasicSerializer`` instead.
+    """
+
+    holdout_id = TeamScopedPrimaryKeyRelatedField(
+        queryset=ExperimentHoldout.objects.all(),
+        source="holdout",
+        required=False,
+        allow_null=True,
+        help_text="ID of a holdout group to exclude from the experiment.",
+    )
+    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
+    allow_unknown_events = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "Suppresses the validation that rejects metrics referencing events not yet "
+            "ingested by this project. REQUIRES explicit user confirmation before being "
+            "set to true — never flip this silently to retry a failed call. The default "
+            "validation catches typo'd event names and missing instrumentation. Set this "
+            "to true only when the user has confirmed the event is intentional (e.g. they "
+            "are about to instrument it)."
+        ),
+    )
+    metrics = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
+        ),
+    )
+    metrics_secondary = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
+    )
+    exposure_criteria = ExperimentExposureCriteriaField(
+        required=False,
+        allow_null=True,
+        help_text="Exposure configuration including filter test accounts and custom exposure events.",
+    )
     update_feature_flag_params = serializers.BooleanField(
         required=False,
         default=False,
@@ -236,20 +297,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "for non-drafts."
         ),
     )
-    status = serializers.SerializerMethodField(
-        help_text=(
-            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
-            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
-        ),
-    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
-    def get_status(self, instance: Experiment) -> str:
-        if instance.is_paused:
-            return "paused"
-        return instance.status or instance.computed_status.value
 
     class Meta:
         model = Experiment
@@ -290,6 +338,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
+            "is_legacy",
             "user_access_level",
         ]
         read_only_fields = [
@@ -314,10 +363,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
-    @extend_schema_field(MinimalFeatureFlagSerializer)
-    def get_feature_flag(self, obj):
-        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
-
+    @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Normalize query date ranges to the experiment's current range
@@ -328,8 +374,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "explicitDate": True,
         }
 
-        # Refresh action names in inline metrics (metrics and metrics_secondary)
-        # The columns are nullable, so the keys can be present with a None value
+        # Refresh action names in inline metrics (metrics and metrics_secondary).
+        # The columns are nullable, so the keys can be present with a None value. Each call
+        # resolves the experiment's actions in a single query — fine here because this serializer
+        # only ever renders one experiment at a time (detail/launch/archive/…), never a list page.
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
@@ -345,23 +393,26 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
-        for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query"):
-                if saved_metric["query"].get("count_query", {}).get("dateRange"):
-                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
-                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+        saved_metrics = data.get("saved_metrics", [])
+        with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
+            span.set_attribute("saved_metric_count", len(saved_metrics))
+            for saved_metric in saved_metrics:
+                if saved_metric.get("query"):
+                    if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                        saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                    if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                        saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
 
-                # Add fingerprint to saved metric returned from API
-                # so that frontend knows what timeseries records to query
-                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                    saved_metric["query"],
-                    instance.start_date,
-                    get_experiment_stats_method(instance),
-                    instance.exposure_criteria,
-                    only_count_matured_users=instance.only_count_matured_users,
-                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
-                )
+                    # Add fingerprint to saved metric returned from API
+                    # so that frontend knows what timeseries records to query
+                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                        saved_metric["query"],
+                        instance.start_date,
+                        get_experiment_stats_method(instance),
+                        instance.exposure_criteria,
+                        only_count_matured_users=instance.only_count_matured_users,
+                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                    )
 
         return data
 
@@ -499,6 +550,67 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
 
+class ExperimentBasicSerializer(ExperimentBaseSerializer):
+    """Lightweight, read-only serializer for the experiment list endpoint.
+
+    The list view (and the MCP list tool) render only the scalar and feature-flag fields
+    shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+    ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+    JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+    belongs to the detail response served by ``ExperimentSerializer``.
+
+    Because the metric fields, the write-side machinery, and the action-name-refreshing
+    ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+    this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+    ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+    a plain ``ListSerializer`` that never touches the deferred columns. See
+    ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+    """
+
+    class Meta:
+        model = Experiment
+        fields = [
+            "id",
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "feature_flag_key",
+            "feature_flag",
+            "holdout",
+            "exposure_cohort",
+            "parameters",
+            "running_time_calculation",
+            "archived",
+            "deleted",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "type",
+            "conclusion",
+            "conclusion_comment",
+            "status",
+            "is_legacy",
+            "user_access_level",
+        ]
+        # Shared fields take their definitions from ExperimentBaseSerializer, so their types
+        # already match ExperimentSerializer. read_only_fields still has to mirror the full
+        # serializer for the model-derived fields (id/created_at/exposure_cohort/...) so each
+        # field's optionality matches and ExperimentApi stays a structural superset of
+        # ExperimentBasicApi, which consumers rely on.
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "feature_flag",
+            "exposure_cohort",
+            "holdout",
+            "status",
+            "user_access_level",
+        ]
+
+
 class EndExperimentSerializer(serializers.Serializer):
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
@@ -511,6 +623,16 @@ class EndExperimentSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ArchiveExperimentSerializer(serializers.Serializer):
+    disable_feature_flag = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When the linked feature flag is still enabled, also disable and archive it along with "
+            "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
+        ),
     )
 
 
@@ -658,7 +780,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
         required=False,
         default="manual",
         help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
@@ -697,8 +819,28 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    query_to = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). "
+            "Shared by every metric in the run; null until processing starts"
+        ),
+    )
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
+    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
+    # the metric_errors-vs-errors rename above.
+    result_source = serializers.ChoiceField(
+        choices=["recalculation", "timeseries_fallback"],
+        required=False,
+        default="recalculation",
+        read_only=True,
+        help_text=(
+            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
+            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
     )
     # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
     # per-metric results yet — the workflow has just started).

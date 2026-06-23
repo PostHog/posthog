@@ -16,12 +16,14 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     drop_slot,
     drop_slot_and_publication,
     get_max_slot_wal_keep_size_mb,
+    get_publication_tables,
     get_slot_lag_bytes,
     is_slot_invalidation_error,
     publication_exists,
     remove_table_from_publication,
     slot_exists,
 )
+from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
@@ -29,6 +31,15 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
+
+
+def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
+    """Split a ``schema.table`` name into ``(schema, table)``, falling back to
+    ``default_schema`` for a bare table name."""
+    if "." in qualified:
+        table_schema, table_name = qualified.split(".", 1)
+        return table_schema, table_name
+    return default_schema, qualified
 
 
 class PostgresCDCAdapter:
@@ -40,16 +51,21 @@ class PostgresCDCAdapter:
             PgCDCConnectionParams,
             PgCDCStreamReader,
         )
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         inputs = source.job_inputs or {}
         cdc_config = self.parse_cdc_config(source)
+        # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
+        # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
+        # is not force-upgraded on the data path.
+        config = PostgresSource().parse_config(inputs)
         params = PgCDCConnectionParams(
             host=inputs.get("host", ""),
             port=int(inputs.get("port", 5432)),
             database=inputs.get("database", ""),
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
-            sslmode=inputs.get("sslmode", "prefer"),
+            require_ssl=source_requires_ssl(source, config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )
@@ -96,14 +112,17 @@ class PostgresCDCAdapter:
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop the dead replication slot and create a fresh one against the existing
         publication, recreating the publication first when PostHog owns it and it's gone.
-        Returns the job_inputs updates (new consistent point). Raises when recreation
-        isn't possible (no slot configured, customer-owned publication missing).
+
+        ``tables`` are schema-qualified ``schema.table`` names — a publication can span
+        schemas, so each table keeps its own schema rather than inheriting the source's
+        default. Returns the job_inputs updates (new consistent point). Raises when
+        recreation isn't possible (no slot configured, customer-owned publication missing).
         """
         cdc_config = self.parse_cdc_config(source)
         if not cdc_config.slot_name:
             raise RuntimeError("Cannot recreate CDC replication slot: no slot name configured for this source")
 
-        schema = self._resolve_schema(source)
+        default_schema = self._resolve_schema(source)
         with cdc_pg_connection(source) as conn:
             drop_slot(conn, cdc_config.slot_name)
             if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
@@ -113,7 +132,10 @@ class PostgresCDCAdapter:
                         "Recreate it (see the CDC setup instructions), then resync the source."
                     )
                 consistent_point = create_slot_and_publication(
-                    conn, cdc_config.slot_name, cdc_config.publication_name, schema, tables=tables
+                    conn,
+                    cdc_config.slot_name,
+                    cdc_config.publication_name,
+                    tables=[_split_qualified_table(t, default_schema) for t in tables],
                 )
             else:
                 consistent_point = create_slot(conn, cdc_config.slot_name)
@@ -136,8 +158,6 @@ class PostgresCDCAdapter:
         default_pub_name = "posthog_pub" if management_mode == "self_managed" else f"posthog_pub_{source.id.hex[:12]}"
         pub_name = payload.get("cdc_publication_name") or default_pub_name
 
-        schema = self._resolve_schema(source)
-
         resource_fields: dict[str, Any] = {
             "cdc_management_mode": management_mode,
             "cdc_slot_name": slot_name,
@@ -153,7 +173,7 @@ class PostgresCDCAdapter:
                     if publication_exists(conn, pub_name):
                         return {}, f"A publication named '{pub_name}' already exists on your database."
                     resource_fields["cdc_consistent_point"] = create_slot_and_publication(
-                        conn, slot_name, pub_name, schema, tables=[]
+                        conn, slot_name, pub_name, tables=[]
                     )
             except Exception as e:
                 logger.exception("Failed to create CDC slot and publication: %s", e)
@@ -221,10 +241,16 @@ class PostgresCDCAdapter:
                 publication_exists(conn, cdc_config.publication_name) if cdc_config.publication_name else False
             )
             lag_bytes = get_slot_lag_bytes(conn, cdc_config.slot_name) if cdc_config.slot_name else None
+            published_tables = (
+                get_publication_tables(conn, cdc_config.publication_name)
+                if cdc_config.publication_name and pub_present
+                else []
+            )
         return {
             "slot_exists": slot_present,
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
+            "published_tables": published_tables,
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:

@@ -195,6 +195,15 @@ export interface PullRequestListItemApi {
     open_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
+    /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+    pushes: number
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    rerun_cycles: number
+    /**
+     * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+     * @nullable
+     */
+    estimated_cost_usd?: number | null
 }
 
 export interface PullRequestListApi {
@@ -204,6 +213,15 @@ export interface PullRequestListApi {
     truncated: boolean
     /** Maximum number of pull requests returned in `items`. */
     limit: number
+}
+
+export interface GitHubSourceApi {
+    /** Source id — pass as `source_id` to the other endpoints to read this source. */
+    id: string
+    /** Connected repository as 'owner/name', or '' if unknown. */
+    repo: string
+    /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+    prefix: string
 }
 
 export interface WorkflowHealthDayApi {

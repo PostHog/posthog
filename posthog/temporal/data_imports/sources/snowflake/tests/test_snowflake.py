@@ -702,6 +702,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "JWT token is invalid",
+            # The real shape from production: codes, host, and request id vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
+            "JWT token is invalid. [daf5b833-38d8-4aa9-9971-9d6bd736d978]",
+        ],
+    )
+    def test_invalid_jwt_token_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-JWT error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Table dropped/renamed or grant revoked (002003 / 42S02). Object name and query id vary.
             "002003 (42S02): 01c511e7-0307-1937-0000-7c994379a9c2: SQL compilation error:\n"
             "Table 'PRODUCTION.DBTNOVA.SCOPE_CATEGORIZATION' does not exist or not authorized.",
@@ -718,6 +732,47 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "but view query produces",
+            # The real shape from production: the view name and column counts vary, but the
+            # "but view query produces" substring is stable.
+            "002057 (42601): 01c5120c-0009-a976-0001-40ae0960c0a6: SQL compilation error: View definition for "
+            "'DB.PUBLIC.SOME_VIEW' declared 42 column(s), but view query produces 43 column(s).",
+        ],
+    )
+    def test_broken_view_column_count_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Broken-view error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Incorrect username or password was specified",
+            # The real shape from production: codes + host vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Incorrect username or password was specified.",
+        ],
+    )
+    def test_incorrect_credentials_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Incorrect-credentials error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. MalformedFraming",
+            "Unable to load PEM file.",
+        ],
+    )
+    def test_unparseable_private_key_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unparseable private-key error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
@@ -726,3 +781,34 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
+
+
+class TestSnowflakeValidateCredentials:
+    @pytest.fixture
+    def source(self):
+        return SnowflakeSource()
+
+    def test_unparseable_private_key_returns_friendly_message_without_capture(self, source):
+        pem_error = ValueError(
+            "Unable to load PEM file. See https://cryptography.io/en/latest/faq/"
+            "#why-can-t-i-import-my-pem-file for more details. MalformedFraming"
+        )
+        with (
+            patch.object(source, "get_schemas", side_effect=pem_error),
+            patch("posthog.temporal.data_imports.sources.snowflake.source.capture_exception") as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    def test_unexpected_value_error_is_still_captured(self, source):
+        with (
+            patch.object(source, "get_schemas", side_effect=ValueError("something unexpected")),
+            patch("posthog.temporal.data_imports.sources.snowflake.source.capture_exception") as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        mock_capture.assert_called_once()

@@ -193,6 +193,7 @@ async fn setup_ai_router_with_restriction(
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)
@@ -510,6 +511,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)
@@ -584,6 +586,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         Some(overflow_limiter), // overflow_limiter
         None,                   // replay_overflow_limiter
         None,                   // v1_sink_router
+        8,                      // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)

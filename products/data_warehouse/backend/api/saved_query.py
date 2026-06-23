@@ -62,7 +62,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    get_view_or_table_by_name,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +131,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(team_id=team_id)
+            database = Database.create_for(
+                team_id=team_id,
+                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+            )
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -605,8 +612,10 @@ class DataWarehouseSavedQuerySerializer(
             if self.instance.name == name:
                 return name
 
-        name_exists_in_hogql_database = self.context["database"].has_table(name)
-        if name_exists_in_hogql_database:
+        # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
+        # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+        # Otherwise a user with denied table could create another one with colliding name.
+        if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
             raise serializers.ValidationError("A table with this name already exists.")
 
         return name
@@ -718,7 +727,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id)
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
 
     def get_serializer_class(self):

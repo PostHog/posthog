@@ -5,6 +5,7 @@ from posthog.temporal.session_replay.export_recording.activities import (
     export_recording_data,
     export_recording_data_prefix,
     export_replay_clickhouse_rows,
+    mark_export_failed,
     store_export_data,
 )
 from posthog.temporal.session_replay.export_recording.workflow import ExportRecordingWorkflow
@@ -20,5 +21,6 @@ EXPORT_RECORDING_ACTIVITIES = [
     export_recording_data,
     export_recording_data_prefix,
     export_replay_clickhouse_rows,
+    mark_export_failed,
     store_export_data,
 ]

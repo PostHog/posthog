@@ -4,8 +4,9 @@ import { forwardRef } from 'react'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { ExporterFormat, OnlineExportContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat, OnlineExportContext } from '~/types'
 
 import { TriggerExportProps } from './exporter'
 
@@ -35,11 +36,18 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
             actions.startExport(triggerExportProps)
         }
 
+        // Creating an export requires editor access to the export resource.
+        const accessControlDisabledReason = getAccessControlDisabledReason(
+            AccessControlResourceType.Export,
+            AccessControlLevel.Editor
+        )
+
         return (
             <LemonButtonWithDropdown
                 ref={ref}
                 data-attr="export-button"
                 {...buttonProps}
+                disabledReason={buttonProps.disabledReason ?? accessControlDisabledReason ?? undefined}
                 dropdown={{
                     actionable: true,
                     placement: 'right-start',
