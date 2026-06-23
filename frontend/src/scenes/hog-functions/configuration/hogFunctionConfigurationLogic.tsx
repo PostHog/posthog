@@ -15,8 +15,8 @@ import {
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'

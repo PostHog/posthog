@@ -129,6 +129,9 @@ jobs:
                     - release: flags-cache-jumphost
                       digest_key: flags-cache-warmer
                       values_key: image
+                    - release: flags-cache-builder
+                      digest_key: flags-cache-builder
+                      values_key: image
                     - release: flags-consumer
                       digest_key: flags-consumer
                       values_key: image
@@ -137,9 +140,6 @@ jobs:
                       values_key: image
                     - release: cymbal
                       digest_key: cymbal
-                      values_key: image
-                    - release: cymbal-resolution
-                      digest_key: cymbal-resolution
                       values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker

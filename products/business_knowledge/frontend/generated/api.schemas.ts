@@ -174,6 +174,7 @@ export interface KnowledgeSourceApi {
     readonly file_content_type: string
     /** @nullable */
     readonly file_size_bytes: number | null
+    readonly always_include: boolean
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -193,11 +194,13 @@ export interface CreateTextSourceApi {
     name: string
     /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
     text: string
+    /** When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction). */
+    always_include?: boolean
 }
 
 /**
- * PATCH payload for text sources. Both fields optional, at least one
- * required. `text` triggers a re-chunk; `name` alone does not.
+ * PATCH payload for text sources. All fields optional, at least one
+ * required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
  */
 export interface PatchedUpdateTextSourceApi {
     /**
@@ -207,6 +210,8 @@ export interface PatchedUpdateTextSourceApi {
     name?: string
     /** Replacement text. Omit to keep the existing content. */
     text?: string
+    /** When true, this source's content is injected into every support reply prompt as general context. */
+    always_include?: boolean
 }
 
 export type BusinessKnowledgeDocumentsWindowListParams = {
@@ -229,6 +234,10 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean
 }
 
 export type BusinessKnowledgeSourcesListParams = {

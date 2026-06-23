@@ -267,63 +267,6 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties
-  '''
-  WITH exposures AS
-    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
-     FROM events
-     LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id),
-       metric_events AS
-    (SELECT posthog_test_usage.userid AS entity_id,
-            posthog_test_usage.ds AS timestamp,
-            coalesce(accurateCastOrNull(posthog_test_usage.usage, 'Float64'), 0) AS value
-     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-     WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), and(equals(posthog_test_usage.plan, 'premium'), equals(posthog_test_usage.region, 'us-west')))),
-       entity_metrics AS
-    (SELECT exposures.entity_id AS entity_id,
-            exposures.variant AS variant,
-            sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
-     FROM exposures
-     LEFT JOIN metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')))
-     GROUP BY exposures.entity_id,
-              exposures.variant)
-  SELECT entity_metrics.variant AS variant,
-         count(entity_metrics.entity_id) AS num_users,
-         sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
-  FROM entity_metrics
-  GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
-                       grace_hash_join_initial_buckets=2,
-                       format_csv_allow_double_quotes=1,
-                       readonly=2,
-                       max_execution_time=600,
-                       allow_experimental_object_type=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=39728447488,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       optimize_rewrite_aggregate_function_with_if=0,
-                       optimize_min_inequality_conjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
-  '''
-# ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties
   '''
   WITH exposures AS
@@ -350,63 +293,6 @@
             coalesce(accurateCastOrNull(posthog_test_usage.usage, 'Float64'), 0) AS value
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
      WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))), equals(posthog_test_usage.plan, 'premium'))),
-       entity_metrics AS
-    (SELECT exposures.entity_id AS entity_id,
-            exposures.variant AS variant,
-            sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
-     FROM exposures
-     LEFT JOIN metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC')))
-     GROUP BY exposures.entity_id,
-              exposures.variant)
-  SELECT entity_metrics.variant AS variant,
-         count(entity_metrics.entity_id) AS num_users,
-         sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
-  FROM entity_metrics
-  GROUP BY entity_metrics.variant
-  LIMIT 50000 SETTINGS join_algorithm='grace_hash',
-                       grace_hash_join_initial_buckets=2,
-                       format_csv_allow_double_quotes=1,
-                       readonly=2,
-                       max_execution_time=600,
-                       allow_experimental_object_type=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=39728447488,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       optimize_rewrite_aggregate_function_with_if=0,
-                       optimize_min_inequality_conjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1,
-                       use_hive_partitioning=0
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_no_properties
-  '''
-  WITH exposures AS
-    (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-            if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-            max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-            argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_identifier
-     FROM events
-     LEFT OUTER JOIN
-       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-     GROUP BY entity_id),
-       metric_events AS
-    (SELECT posthog_test_usage.userid AS entity_id,
-            posthog_test_usage.ds AS timestamp,
-            coalesce(accurateCastOrNull(posthog_test_usage.usage, 'Float64'), 0) AS value
-     FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
-     WHERE and(greaterOrEquals(posthog_test_usage.ds, assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC'))), less(posthog_test_usage.ds, plus(assumeNotNull(toDateTime('2023-01-31 00:00:00', 'UTC')), toIntervalSecond(0))))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,

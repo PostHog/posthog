@@ -30,8 +30,19 @@ class AppsFlyerRetryableError(Exception):
     pass
 
 
+class AppsFlyerCredentialsError(Exception):
+    """A credential check failed for a reason we can explain to the user (bad token, bad app id)."""
+
+    pass
+
+
 def _get_session(api_token: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"Bearer {api_token}"}, redact_values=(api_token,))
+    # the v5 docs are a bit ambiguous about whether the return format defaults to CSV
+    # or JSON, so we explicitly request CSV for safety.
+    return make_tracked_session(
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "text/csv"},
+        redact_values=(api_token,),
+    )
 
 
 def _validate_app_id(app_id: str) -> str:
@@ -79,22 +90,50 @@ def _parse_csv_rows(text: str, logger: FilteringBoundLogger | None = None) -> It
 def validate_credentials(api_token: str, app_id: str) -> bool:
     """Confirm the token and app id are valid with a one-day report probe.
 
-    Raises ``AppsFlyerRetryableError`` on rate-limit / 5xx responses and lets transport
-    errors propagate so the caller can tell a transient failure apart from a bad credential.
+    Returns ``True`` when the probe succeeds. Raises ``AppsFlyerCredentialsError`` with a
+    user-facing message when AppsFlyer rejects the token or app id (the status code tells the
+    two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
+    rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
+    transient failure apart from a bad credential. Never returns ``False`` — a non-200 always
+    raises so the failure is never silently conflated with a bad credential.
     """
     try:
         app = _validate_app_id(app_id)
     except ValueError:
-        return False
+        raise AppsFlyerCredentialsError(
+            "The AppsFlyer app id looks invalid. Use your app's identifier from the dashboard "
+            "(e.g. 'id123456789' for iOS or the package name for Android)."
+        ) from None
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     response = _get_session(api_token).get(
-        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/dailyreport/v5"
+        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
-    return response.status_code == 200
+    if response.status_code == 200:
+        return True
+    # 401 is an auth failure (bad token); 403/404 mean the token is fine but the app id or
+    # subscription is wrong — surface which one so the user isn't left guessing.
+    if response.status_code == 401:
+        raise AppsFlyerCredentialsError(
+            "AppsFlyer rejected the API token. Check that you pasted a valid API token (V2) from "
+            "your account's Security center → AppsFlyer API tokens."
+        )
+    if response.status_code == 403:
+        raise AppsFlyerCredentialsError(
+            "AppsFlyer denied access. Check that your account's subscription includes the aggregate "
+            "Pull API and that the app id is correct."
+        )
+    if response.status_code == 404:
+        raise AppsFlyerCredentialsError("AppsFlyer couldn't find an app with that app id. Please check the app id.")
+    # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
+    # code rather than blaming the token or app id, which sends users debugging the wrong thing.
+    raise AppsFlyerCredentialsError(
+        f"AppsFlyer returned an unexpected response (HTTP {response.status_code}) while validating credentials. "
+        "If your app id and API token (V2) look correct, please try again shortly or contact support."
+    )
 
 
 def get_rows(

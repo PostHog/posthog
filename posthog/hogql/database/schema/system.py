@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -22,6 +24,8 @@ from posthog.hogql.database.schema.account_aggregates import (
     account_tags_lazy_join,
 )
 from posthog.hogql.parser import parse_expr
+
+from posthog.scopes import APIScopeObject
 
 
 class IngestionWarningsTable(Table):
@@ -628,6 +632,28 @@ exports: PostgresTable = PostgresTable(
         "export_format": StringDatabaseField(name="export_format"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "export_context": StringJSONDatabaseField(name="export_context"),
+    },
+)
+
+# The project's virtual file tree (posthog_filesystem). Channels are folders and
+# tasks/canvases are filed under them by `path`; `surface` separates products
+# (e.g. "web" vs "desktop"). Scoped to a channel via startsWith(path, ...).
+file_system: PostgresTable = PostgresTable(
+    name="file_system",
+    postgres_table_name="posthog_filesystem",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "path": StringDatabaseField(name="path"),
+        "depth": IntegerDatabaseField(name="depth", nullable=True),
+        "type": StringDatabaseField(name="type"),
+        "ref": StringDatabaseField(name="ref", nullable=True),
+        "href": StringDatabaseField(name="href", nullable=True),
+        "meta": StringJSONDatabaseField(name="meta", nullable=True),
+        "surface": StringDatabaseField(name="surface", nullable=True),
+        "shortcut": BooleanDatabaseField(name="shortcut", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
     },
 )
 
@@ -1283,6 +1309,7 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
@@ -1314,4 +1341,15 @@ class SystemTables(TableNode):
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
+    }
+
+
+@lru_cache(maxsize=1)
+def access_controlled_system_tables() -> dict[str, APIScopeObject]:
+    """Access-controlled system tables as {table_name: resource}, e.g. {"notebooks": "notebook"}.
+    SystemTables().children is static, so this is computed once and reused."""
+    return {
+        name: node.table.access_scope
+        for name, node in SystemTables().children.items()
+        if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
     }

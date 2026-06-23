@@ -11,6 +11,7 @@ import {
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { experimentMetricsLogic } from '../../experimentMetricsLogic'
 import { isLaunched } from '../../experimentsLogic'
 import { resolveSequentialEnabled } from '../../ExperimentView/sequential'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
@@ -38,6 +39,7 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, exposuresLoading } = useValues(experimentLogic)
+    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
     const sequentialTestingEnabled = resolveSequentialEnabled(
@@ -109,6 +111,7 @@ export function MetricsTable({
                     axisRange={axisRange}
                     statsMethod={experiment.stats_config?.method || ExperimentStatsMethod.Bayesian}
                     sequentialTestingEnabled={sequentialTestingEnabled}
+                    loading={isRecalculating}
                 />
                 <tbody>
                     {metrics.map((metric, index) => {

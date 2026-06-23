@@ -14,9 +14,9 @@ import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { McpDateFilter } from './components/McpDateFilter'
 import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
-import { ToolQualityDateFilter } from './tool-quality/ToolQualityDateFilter'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
@@ -38,10 +38,11 @@ function FilterBar(): JSX.Element {
                     dataAttr="mcp-tool-quality-category-scope"
                 />
             </div>
-            <ToolQualityDateFilter
+            <McpDateFilter
                 dateFrom={dateFilter.dateFrom}
                 dateTo={dateFilter.dateTo}
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                dataAttr="mcp-tool-quality-date-filter"
             />
             {hasScope && sharePct !== null ? (
                 <Tooltip

@@ -17,9 +17,11 @@ import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
 import { EmailService } from '../messaging/email.service'
+import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
@@ -69,8 +71,10 @@ describe('Hogflow Executor', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
             },
             hub.integrationManager,
+            new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorService(
@@ -81,6 +85,7 @@ describe('Hogflow Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -1865,6 +1870,7 @@ describe('Hogflow Executor', () => {
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                             emailQueueRouting: '*',
+                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                         new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -1876,8 +1882,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2062,6 +2070,7 @@ describe('Hogflow Executor', () => {
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                             emailQueueRouting: '*',
+                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                         new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -2073,8 +2082,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )
@@ -2095,6 +2106,7 @@ describe('Hogflow Executor', () => {
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                             emailQueueRouting: '',
+                            selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                         new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -2106,8 +2118,10 @@ describe('Hogflow Executor', () => {
                                 sesEndpoint: hub.SES_ENDPOINT,
                             },
                             hub.integrationManager,
+                            new TeamWorkflowsConfigService(hub.postgres),
                             hub.ENCRYPTION_SALT_KEYS,
-                            hub.SITE_URL
+                            hub.SITE_URL,
+                            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
                         new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
                     )

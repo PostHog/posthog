@@ -123,6 +123,7 @@ jobs:
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
                         - 'posthog/ducklake/**'
+                        - 'common/hogvm/**'
                         # Test infrastructure used by dagster tests
                         - conftest.py
                         - 'posthog/conftest.py'
@@ -312,13 +313,6 @@ jobs:
                   toolchain: stable
                   components: cargo
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -379,13 +373,38 @@ jobs:
             - name: Run clickhouse migrations
               run: python manage.py migrate_clickhouse
 
+            - name: Restore test durations from cache
+              # pytest-split distributes Dagster tests across shards using .test_durations.
+              # Restore the newest cache (refreshed daily by ci-backend-update-test-timing.yml,
+              # which merges all segments into one file) over the committed file; a miss leaves
+              # the committed fallback and pytest-split still runs.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
             - name: Run Dagster tests
               run: |
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                  fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                      "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml

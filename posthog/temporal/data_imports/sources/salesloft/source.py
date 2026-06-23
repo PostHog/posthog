@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALES_LOFT,
+            category=DataWarehouseSourceCategory.SALES,
             label="Salesloft",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Salesloft API key to pull your Salesloft data into the PostHog Data warehouse.

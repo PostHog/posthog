@@ -29,13 +29,15 @@ def _token_count(text: str) -> int:
     return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
 
 
-def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
+def dismiss_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> bool:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
+    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:

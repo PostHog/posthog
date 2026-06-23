@@ -1,13 +1,20 @@
-import { cleanup } from '@testing-library/react'
+import { cleanup, fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import { getHogChart, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
-const THEME: ChartTheme = { colors: ['#111', '#222', '#333'], backgroundColor: '#ffffff' }
+const THEME: ChartTheme = {
+    colors: ['#111', '#222', '#333'],
+    backgroundColor: '#ffffff',
+}
 const LABELS = ['Mon', 'Tue', 'Wed']
 const SERIES: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3] }]
+const MULTI_SERIES: Series[] = [
+    { key: 'a', label: 'A', data: [1, 2, 3] },
+    { key: 'b', label: 'B', data: [3, 2, 1] },
+]
 
 describe('TimeSeriesLineChart', () => {
     let teardownJsdom: () => void
@@ -69,7 +76,11 @@ describe('TimeSeriesLineChart', () => {
                     labels={['2024-06-10', '2024-06-11', '2024-06-12']}
                     theme={THEME}
                     config={{
-                        xAxis: { tickFormatter: explicit, timezone: 'UTC', interval: 'day' },
+                        xAxis: {
+                            tickFormatter: explicit,
+                            timezone: 'UTC',
+                            interval: 'day',
+                        },
                     }}
                 />
             )
@@ -122,10 +133,186 @@ describe('TimeSeriesLineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit, format: 'percentage' } }}
+                    config={{
+                        yAxis: {
+                            tickFormatter: explicit,
+                            format: 'percentage',
+                        },
+                    }}
                 />
             )
             expect(chart.yTicks().every((t) => t.startsWith('y:'))).toBe(true)
+        })
+    })
+
+    describe('config.yAxis startAtZero', () => {
+        // An offset, all-positive series: clamping to 0 leaves a big empty gutter below the data,
+        // while floating zooms the axis onto the 50–70 band — so the lowest tick distinguishes them.
+        const OFFSET_SERIES: Series[] = [{ key: 'a', label: 'A', data: [50, 60, 70] }]
+        const lowestTick = (chart: ReturnType<typeof renderHogChart>['chart']): number =>
+            Math.min(...chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
+
+        it.each([
+            ['by default', undefined],
+            ['when startAtZero is true', { yAxis: { startAtZero: true } }],
+        ])('clamps the baseline to 0 %s', (_name, config) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={OFFSET_SERIES} labels={LABELS} theme={THEME} config={config} />
+            )
+            expect(lowestTick(chart)).toBe(0)
+        })
+
+        it('floats the axis to the data range when startAtZero is false', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { startAtZero: false } }}
+                />
+            )
+            expect(lowestTick(chart)).toBeGreaterThan(0)
+        })
+
+        it('ignores startAtZero=false on a log scale, where there is no zero baseline to drop', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { startAtZero: false, scale: 'log' } }}
+                />
+            )
+            // A log axis can't include 0 regardless; this just guards against a crash / NaN domain.
+            expect(lowestTick(chart)).toBeGreaterThan(0)
+        })
+    })
+
+    describe('config.yAxis array (dual y-axis)', () => {
+        const LEFT_RIGHT_SERIES: Series[] = [
+            { key: 'rev', label: 'Revenue', data: [1000, 1500, 1200] },
+            { key: 'conv', label: 'Conversion', data: [0.01, 0.02, 0.015], yAxisId: 'right' },
+        ]
+        const DUAL_CONFIG = { yAxis: [{ id: 'left' }, { id: 'right', position: 'right' as const }] }
+        const num = (t: string): number => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))
+
+        it('renders both a left and a right y-axis when a series targets each', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={LEFT_RIGHT_SERIES} labels={LABELS} theme={THEME} config={DUAL_CONFIG} />
+            )
+            expect(chart.hasRightAxis).toBe(true)
+            expect(chart.yTicks().length).toBeGreaterThan(0)
+            expect(chart.yRightTicks().length).toBeGreaterThan(0)
+        })
+
+        it('formats each axis with its own tick formatter', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={LEFT_RIGHT_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        yAxis: [
+                            { id: 'left', tickFormatter: (v) => `L${v}` },
+                            { id: 'right', position: 'right', tickFormatter: (v) => `R${v}` },
+                        ],
+                    }}
+                />
+            )
+            expect(chart.yTicks().every((t) => t.startsWith('L'))).toBe(true)
+            expect(chart.yRightTicks().every((t) => t.startsWith('R'))).toBe(true)
+        })
+
+        it('builds an independent scale per axis — left covers the large series, right the small one', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={LEFT_RIGHT_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        yAxis: [
+                            { id: 'left', tickFormatter: (v) => `L${v}` },
+                            { id: 'right', position: 'right', tickFormatter: (v) => `R${v}` },
+                        ],
+                    }}
+                />
+            )
+            expect(Math.max(...chart.yTicks().map(num))).toBeGreaterThanOrEqual(1000)
+            expect(Math.max(...chart.yRightTicks().map(num))).toBeLessThanOrEqual(1)
+        })
+
+        it('renders a title per axis, each from its own entry label', () => {
+            const threeAxisSeries: Series[] = [
+                { key: 'rev', label: 'Revenue', data: [1000, 1500, 1200] },
+                { key: 'signups', label: 'Signups', data: [50, 80, 65], yAxisId: 'right' },
+                { key: 'conv', label: 'Conversion', data: [0.01, 0.02, 0.015], yAxisId: 'right2' },
+            ]
+            const { container, chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={threeAxisSeries}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Revenue' },
+                            { id: 'right', position: 'right', label: 'Signups' },
+                            { id: 'right2', position: 'right', label: 'Conversion' },
+                        ],
+                    }}
+                />
+            )
+            const rightTitles = Array.from(
+                container.querySelectorAll<SVGTextElement>('[data-attr="hog-chart-axis-title-yr"]')
+            ).map((el) => el.textContent)
+            expect(chart.yAxisLabel()).toBe('Revenue')
+            expect(rightTitles).toEqual(['Signups', 'Conversion'])
+        })
+
+        it('reserves right margin so right-axis tick labels are not clipped', () => {
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={LEFT_RIGHT_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        yAxis: [
+                            { id: 'left' },
+                            { id: 'right', position: 'right', tickFormatter: (v) => `${v} requests/s` },
+                        ],
+                    }}
+                />
+            )
+            const rightTicks = Array.from(
+                container.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-yr"]')
+            )
+            expect(rightTicks.length).toBeGreaterThan(0)
+            // The mocked canvas is 800px wide; each right-gutter label sits inside it with room to spare.
+            for (const el of rightTicks) {
+                const left = parseFloat(el.style.left)
+                expect(Number.isFinite(left)).toBe(true)
+                expect(left).toBeLessThan(800)
+                expect(800 - left).toBeGreaterThanOrEqual(12)
+            }
+        })
+
+        it('treats a single-object yAxis as one axis (no right gutter) — back-compat', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { format: 'percentage' } }}
+                />
+            )
+            expect(chart.hasRightAxis).toBe(false)
+            expect(chart.yRightTicks()).toHaveLength(0)
+        })
+
+        it('does not render a right axis when an array config has no right-axis series', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={SERIES} labels={LABELS} theme={THEME} config={DUAL_CONFIG} />
+            )
+            expect(chart.hasRightAxis).toBe(false)
         })
     })
 
@@ -171,7 +358,10 @@ describe('TimeSeriesLineChart', () => {
                     series={[{ key: 'a', label: 'A', data: [50] }]}
                     labels={['Mon']}
                     theme={THEME}
-                    config={{ yAxis: { format: 'percentage' }, valueLabels: true }}
+                    config={{
+                        yAxis: { format: 'percentage' },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['50%'])
@@ -184,7 +374,10 @@ describe('TimeSeriesLineChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ yAxis: { tickFormatter: explicit }, valueLabels: true }}
+                    config={{
+                        yAxis: { tickFormatter: explicit },
+                        valueLabels: true,
+                    }}
                 />
             )
             expect(chart.valueLabels().map((l) => l.text)).toEqual(['y:1', 'y:2', 'y:3'])
@@ -253,7 +446,12 @@ describe('TimeSeriesLineChart', () => {
 
     describe('derived-series wiring', () => {
         it.each([
-            ['confidenceIntervals', { confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }] }],
+            [
+                'confidenceIntervals',
+                {
+                    confidenceIntervals: [{ seriesKey: 'a', lower: [0, 1, 2], upper: [2, 3, 4] }],
+                },
+            ],
             ['movingAverage', { movingAverage: [{ seriesKey: 'a', window: 2 }] }],
             ['trendLines', { trendLines: [{ seriesKey: 'a', kind: 'linear' as const }] }],
         ])('plumbs config.%s through to the rendered series count', (_, derivedConfig) => {
@@ -267,7 +465,12 @@ describe('TimeSeriesLineChart', () => {
         it('skips comparison-period series count change while still rendering them', () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [1, 2, 3], color: '#112233' },
-                { key: 'a-prev', label: 'A (prev)', data: [1, 2, 3], color: '#112233' },
+                {
+                    key: 'a-prev',
+                    label: 'A (prev)',
+                    data: [1, 2, 3],
+                    color: '#112233',
+                },
             ]
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart
@@ -288,5 +491,31 @@ describe('TimeSeriesLineChart', () => {
             </TimeSeriesLineChart>
         )
         expect(container.querySelector('[data-attr="custom-overlay"]')).not.toBeNull()
+    })
+
+    describe('interactive legend', () => {
+        it('lists the raw series (not derived trend lines) and toggles one off on click', () => {
+            const { container, chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={MULTI_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        legend: { show: true },
+                        trendLines: [{ seriesKey: 'a', kind: 'linear' as const }],
+                    }}
+                />
+            )
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-timeseries-line-legend"] button'))
+            // The legend lists only the user's series, not the derived trend line.
+            expect(buttons().map((b) => b.textContent)).toEqual(['A', 'B'])
+
+            // A + B + trend-of-A are all drawn before any toggle.
+            expect(chart.seriesCount).toBe(3)
+            fireEvent.click(buttons()[0])
+            // Hiding A also suppresses its trend line, leaving only B.
+            expect(getHogChart(container).seriesCount).toBe(1)
+        })
     })
 })

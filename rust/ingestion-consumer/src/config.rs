@@ -2,7 +2,9 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -126,18 +128,48 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_retries: u32,
 
-    /// Maximum in-flight batches per worker. MUST match
-    /// `INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side, which is
-    /// passed into `BatchingPipeline.concurrentBatches`. The consumer caps
-    /// itself via a per-worker `Semaphore`; the worker still responds 503
-    /// if it sees `feed()` rejection, so any divergence is observable via
-    /// `ingestion_api_batch_capacity_rejections_total`.
+    /// Soft cap on in-flight batches per worker, enforced by a per-worker
+    /// `Semaphore`. Ideally aligned with the worker's
+    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
+    /// on the Node.js side) so the happy path backpressures by waiting for a
+    /// permit before the worker fills up. It need not match exactly: if the
+    /// worker still responds 503, the transport treats it as retriable
+    /// backpressure and retries with a longer, jittered backoff. Divergence
+    /// remains observable via `ingestion_api_batch_capacity_rejections_total`.
+    /// (A future adaptive-concurrency controller will replace this static cap.)
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ---- Worker discovery ----
+    /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the
+    /// co-located sidecar default) or `endpointslice` (watch a Kubernetes
+    /// Service's EndpointSlices for a separately-deployed, autoscaled worker pool).
+    #[envconfig(from = "WORKER_DISCOVERY_MODE", default = "static")]
+    pub worker_discovery_mode: DiscoveryMode,
+
+    /// EndpointSlice mode: Kubernetes Service name whose EndpointSlices list the
+    /// worker pods (label selector `kubernetes.io/service-name=<name>`).
+    #[envconfig(from = "WORKER_SERVICE_NAME", default = "")]
+    pub worker_service_name: String,
+
+    /// EndpointSlice mode: namespace of the worker Service. Defaults to the
+    /// pod's own namespace via the downward-API `POD_NAMESPACE` env var.
+    #[envconfig(from = "POD_NAMESPACE", default = "default")]
+    pub worker_namespace: String,
+
+    /// EndpointSlice mode: the worker pods' HTTP port (the ingestion-api port).
+    #[envconfig(from = "WORKER_PORT", default = "9001")]
+    pub worker_port: u16,
+
+    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// least-loaded — accurate for the co-located sidecar) or `p2c`
+    /// (power-of-two-choices — herd-resistant for a shared worker pool).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    pub routing_strategy: RoutingStrategy,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).

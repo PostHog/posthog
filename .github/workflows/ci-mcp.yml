@@ -4,6 +4,10 @@ on:
     push:
         branches: [master]
     pull_request:
+        # Draft PRs run build + unit tests only; the integration tests (which boot
+        # the full PostHog backend and trigger on any Python change) run when the
+        # PR is marked ready for review — that full run is the merge gate.
+        types: [opened, synchronize, reopened, ready_for_review]
     # Required so `MCP Tests Pass` (a required status check) reports on merge
     # queue entries — without it the queue would wait for the check until timeout.
     # The jobs themselves skip on merge_group (the suite already runs in full on
@@ -128,28 +132,16 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
 
-            - name: Type check
+            - name: Type check (tsgo)
               run: cd services/mcp && pnpm typecheck
-
-            - name: Type check (tsgo, shadow, non-blocking)
-              run: cd services/mcp && pnpm typecheck:tsgo
-              continue-on-error: true
 
             - name: Check MCP schema is up to date
               run: |
@@ -185,18 +177,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -256,7 +240,11 @@ jobs:
         runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
-        if: needs.changes.outputs.mcp == 'true'
+        # Skipped on drafts: these boot the full PostHog backend and trigger on any
+        # Python change, so they're the expensive half of this workflow. Build and
+        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
+        # skipped as success, and the ready-for-review run is the merge gate.
+        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
@@ -352,23 +340,15 @@ jobs:
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
             - name: Install Python dependencies
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install Node dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -43,6 +44,7 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAINTREE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Braintree",
             caption="""Enter your Braintree API keys to pull your payments data into the PostHog Data warehouse.
 

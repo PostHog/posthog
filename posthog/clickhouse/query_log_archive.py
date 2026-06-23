@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Buffer, Distributed, MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
@@ -505,6 +505,7 @@ def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
 # ============================================================================
 
 WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
+QUERY_LOG_ARCHIVE_BUFFER_TABLE = "query_log_archive_buffer"  # Buffer in front of sharded_query_log_archive, on OPS
 QUERY_LOG_ARCHIVE_OPS_MV = "ops_query_log_archive_mv"  # slim MV -> writable_query_log_archive, on every cluster
 
 # Curated JSON subset of log_comment. Keys not hinted here are still kept as
@@ -692,7 +693,9 @@ ORDER BY (team_id, event_date, event_time, query_id)
 PRIMARY KEY (team_id, event_date, event_time, query_id)"""
 
 
-def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, include_table_clauses=True):
+def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+    table_name, engine, include_aliases=True, include_table_clauses=True, settings=None
+):
     """JSON-backed query_log_archive table.
 
     include_aliases=True for the data table and read tables (exposes lc_* / ProfileEvents_*).
@@ -701,11 +704,12 @@ def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, in
     columns = _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS
     if include_aliases:
         columns = f"{columns},\n{_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS}"
-    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses}".format(
+    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses} {settings}".format(
         table_name=table_name,
         columns=columns,
         engine=engine,
         table_clauses=_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES if include_table_clauses else "",
+        settings=settings if settings else "",
     )
 
 
@@ -718,6 +722,7 @@ def SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
         engine=SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE(),
+        settings="SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'",
     )
 
 
@@ -733,12 +738,39 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
+def QUERY_LOG_ARCHIVE_BUFFER_OPS_TABLE_SQL():
+    """Buffer table on OPS, sitting in front of sharded_query_log_archive.
+
+    Every cluster's writable Distributed routes inserts here; the Buffer batches the
+    many small per-cluster MV inserts in memory and flushes them to the underlying
+    ReplicatedMergeTree, cutting part churn. Physical (insertable) columns only — the
+    structure must match the destination's real columns, and the lc_* / ProfileEvents_*
+    aliases are read-time only. Rows still buffered are not yet visible through the
+    read path (query_log_archive -> sharded_query_log_archive).
+    """
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
+        engine=Buffer(
+            destination_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            num_layers=16,
+            min_time=10,
+            max_time=60,
+            min_rows=10_000,
+            max_rows=1_000_000,
+            min_bytes=10_000_000,
+            max_bytes=100_000_000,
+        ),
+        include_aliases=False,
+        include_table_clauses=False,
+    )
+
+
 def WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
-    """Distributed write table carrying physical columns only, pointing at OPS."""
+    """Distributed write table carrying physical columns only, pointing at the OPS Buffer."""
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
         engine=Distributed(
-            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            data_table=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
             cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER,
         ),
         include_aliases=False,

@@ -115,6 +115,30 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["source_type"] == "text"
 
+    def test_create_text_source_with_always_include(self, _ff) -> None:
+        response = self.client.post(
+            self.url,
+            {"name": "Tone guide", "text": "Be friendly.", "always_include": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["always_include"] is True
+
+    def test_patch_always_include_without_text(self, _ff) -> None:
+        create_resp = self.client.post(
+            self.url,
+            {"name": "Policy", "text": "Be nice."},
+            format="json",
+        )
+        source_id = create_resp.json()["id"]
+        patch_resp = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"always_include": True},
+            format="json",
+        )
+        assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.content
+        assert patch_resp.json()["always_include"] is True
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestEmbeddingStatusAPI(APIBaseTest):
@@ -379,6 +403,26 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         body = response.json()
         assert len(body) >= 1
         assert "kubernetes" in body[0]["content"].lower()
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    @patch("products.business_knowledge.backend.logic.rerank_chunks")
+    def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
+        self._ready_safe_source(text="Return policy details " * 60)
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k: list(reversed(results))
+
+        response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_rerank.assert_called_once()
+        assert mock_rerank.call_args.kwargs["top_k"] == 10
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_rerank_defaults_false(self, _embed, _ff) -> None:
+        self._ready_safe_source(text="Return policy details " * 60)
+
+        with patch("products.business_knowledge.backend.logic.rerank_chunks") as mock_rerank:
+            response = self.client.get(self.url, {"query": "return policy"})
+            assert response.status_code == status.HTTP_200_OK, response.content
+            mock_rerank.assert_not_called()
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

@@ -1995,32 +1995,6 @@ def patchable(fn):
     return inner
 
 
-def label_for_team_id_to_track(team_id: int) -> str:
-    """
-    LEGACY: Only used by flag_matching.py (cohort creation background task).
-    Returns empty string to avoid tracking specific team IDs in metrics.
-    """
-    team_id_as_string = str(team_id)
-    team_id_filter: list[str] = []  # No longer tracking specific teams
-
-    if "all" in team_id_filter:
-        return team_id_as_string
-
-    if team_id_as_string in team_id_filter:
-        return team_id_as_string
-
-    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
-    for range in team_id_ranges:
-        try:
-            start, end = range.split(":")
-            if int(start) <= team_id <= int(end):
-                return team_id_as_string
-        except Exception:
-            pass
-
-    return "unknown"
-
-
 def camel_to_snake_case(name: str) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 

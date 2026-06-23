@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -67,6 +68,34 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r.status_code, 200)
         self.assertIn('768.jpg"', r["Content-Disposition"])
         self.assertEqual(r.content, b"jpeg768")
+
+    def test_content_returns_501_when_only_content_location_set(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=None, content_location="s3://bucket/key")
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 501)
+
+    def test_content_served_increments_metric(self):
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
+
+        def _served_count() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_content_requests_total", {"outcome": "served"}) or 0.0
+
+        before = _served_count()
+        r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(_served_count() - before, 1)
 
     def test_saved_list_excludes_deleted_and_includes_created_by(self):
         SavedHeatmap.objects.create(team=self.team, url="https://a.example", created_by=self.user)
@@ -200,3 +229,30 @@ class TestHeatmapsAPI(APIBaseTest):
 
         r = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(r.status_code, 400)
+
+
+class TestSavedHeatmapRegeneratePersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    def test_regenerate_allowed_with_heatmap_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["heatmap:write"])
+        # Use a non-existent short_id; a 404 proves the scope gate was passed.
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code != 403, r.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["heatmap:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_regenerate_rejected_without_heatmap_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"/api/environments/{self.team.id}/saved/nonexistent-short-id/regenerate/"
+        r = self.client.post(url, **self._auth(key))
+        assert r.status_code == 403, r.json()
