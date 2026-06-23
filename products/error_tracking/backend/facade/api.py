@@ -20,6 +20,8 @@ ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidatio
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = logic.ErrorTrackingInvalidBytecodeError
 
+SOURCE_MAPS_DOCS_URL = weekly_digest.SOURCE_MAPS_DOCS_URL
+
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
     if assignment is None:
@@ -570,6 +572,10 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
         org_id=org_id,
         team_exception_counts=team_exception_counts,
     )
+
+
+def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.get_source_maps_recommendation_for_team(team)
 
 
 def build_ingestion_failures_url(team_id: int) -> str:

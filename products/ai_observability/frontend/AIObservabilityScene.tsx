@@ -8,14 +8,11 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
@@ -185,7 +182,6 @@ function AIObservabilityGenerations(): JSX.Element {
     const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } = useValues(
         aiObservabilityGenerationsLogic
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
@@ -195,12 +191,7 @@ function AIObservabilityGenerations(): JSX.Element {
             return null
         }
 
-        const columns =
-            generationsQuery.source.select ||
-            getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
-            )
+        const columns = generationsQuery.source.select || getDefaultGenerationsColumns()
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
@@ -231,10 +222,7 @@ function AIObservabilityGenerations(): JSX.Element {
             query={{
                 ...generationsQuery,
                 showSavedFilters: true,
-                defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
-                    !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
-                ),
+                defaultColumns: getDefaultGenerationsColumns(),
             }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
@@ -458,9 +446,7 @@ export function AIObservabilityScene(): JSX.Element {
 
 function AIObservabilitySceneContent(): JSX.Element {
     const { activeTab } = useValues(aiObservabilitySharedLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
-    const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
 
@@ -561,69 +547,54 @@ function AIObservabilitySceneContent(): JSX.Element {
         'data-attr': 'errors-tab',
     })
 
-    const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    tabs.push({
+        key: 'tools',
+        label: 'Tools',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <AIObservabilityTools />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
+        'data-attr': 'tools-tab',
+    })
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
-        tabs.push({
-            key: 'tools',
-            label: 'Tools',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilityTools />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilityTools(), searchParams).url,
-            'data-attr': 'tools-tab',
-        })
-    }
+    tabs.push({
+        key: 'sentiment',
+        label: 'Sentiment',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <Filters />
+                <AIObservabilitySentiment />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
+        'data-attr': 'llma-sentiment-tab',
+    })
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
-        tabs.push({
-            key: 'sentiment',
-            label: 'Sentiment',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <Filters />
-                    <AIObservabilitySentiment />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilitySentiment(), searchParams).url,
-            'data-attr': 'llma-sentiment-tab',
-        })
-    }
+    tabs.push({
+        key: 'sessions',
+        label: 'Sessions',
+        content: (
+            <AIObservabilitySetupPrompt>
+                <AIObservabilitySessionsScene />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
+        'data-attr': 'sessions-tab',
+    })
 
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] || isEarlyAdopter) {
-        tabs.push({
-            key: 'sessions',
-            label: 'Sessions',
-            content: (
-                <AIObservabilitySetupPrompt>
-                    <AIObservabilitySessionsScene />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
-            'data-attr': 'sessions-tab',
-        })
-    }
-
-    if (isTraceReviewEnabled) {
-        tabs.push({
-            key: 'reviews',
-            label: 'Reviews',
-            content: (
-                <AIObservabilitySetupPrompt thing="trace">
-                    <AIObservabilityHumanReviews />
-                </AIObservabilitySetupPrompt>
-            ),
-            link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
-            'data-attr': 'llma-reviews-tab',
-        })
-    }
-
-    if (activeTab === 'reviews' && !isTraceReviewEnabled) {
-        return <NotFound object="page" />
-    }
+    tabs.push({
+        key: 'reviews',
+        label: 'Reviews',
+        content: (
+            <AIObservabilitySetupPrompt thing="trace">
+                <AIObservabilityHumanReviews />
+            </AIObservabilitySetupPrompt>
+        ),
+        link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
+        'data-attr': 'llma-reviews-tab',
+    })
 
     return (
         <SceneContent>
