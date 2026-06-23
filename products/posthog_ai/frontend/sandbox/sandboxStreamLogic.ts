@@ -9,10 +9,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { getClaudeCodeMeta, resolveToolCall } from './sandbox/sandboxToolResolver'
 import { parseSandboxQuestions } from './sandboxQuestionUtils'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
+import { getClaudeCodeMeta, resolveToolCall } from './sandboxToolResolver'
 import type {
     ContextUsage,
     PermissionRequestRecord,
@@ -961,7 +961,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     // A read-only viewer keys under a `replay:` namespace so it never shares an instance with a live
     // stream of the same run — streaming can't bleed into a read-only thread.
     key((props) => (props.replayOnly ? `replay:${props.streamKey}` : props.streamKey)),
-    path((key) => ['scenes', 'max', 'sandboxStreamLogic', key]),
+    path((key) => ['products', 'posthog_ai', 'sandbox', 'sandboxStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),

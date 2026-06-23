@@ -30,13 +30,14 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { sandboxStreamLogic } from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
+
 import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
 import { MaxContextType } from './maxTypes'
-import { sandboxStreamLogic } from './sandboxStreamLogic'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,

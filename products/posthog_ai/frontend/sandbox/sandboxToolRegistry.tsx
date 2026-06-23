@@ -29,7 +29,7 @@ import {
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
 
-import type { SandboxToolCallMessage } from '../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
 
 export interface SandboxToolRendererProps {
     message: SandboxToolCallMessage
@@ -91,26 +91,28 @@ const BuiltinToolRenderer = lazy(() =>
     import('./components/tool/builtinToolRenderers').then((m) => ({ default: m.BuiltinToolRenderer }))
 )
 const EditToolRenderer = lazy(() =>
-    import('../messages/adapters/EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer }))
+    import('scenes/max/messages/adapters/EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer }))
 )
 const InsightRenderer = lazy(() =>
-    import('../messages/adapters/CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
+    import('scenes/max/messages/adapters/CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
 )
 const DashboardRenderer = lazy(() =>
-    import('../messages/adapters/UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
+    import('scenes/max/messages/adapters/UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
 )
 const SessionRecordingsRenderer = lazy(() =>
-    import('../messages/adapters/SearchSessionRecordingsWidget').then((m) => ({
+    import('scenes/max/messages/adapters/SearchSessionRecordingsWidget').then((m) => ({
         default: m.SearchSessionRecordingsWidget,
     }))
 )
 const ErrorTrackingRenderer = lazy(() =>
-    import('../messages/adapters/ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
+    import('scenes/max/messages/adapters/ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
 )
 const NotebookRenderer = lazy(() =>
-    import('../messages/adapters/CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
+    import('scenes/max/messages/adapters/CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
 )
-const QueryRenderer = lazy(() => import('../messages/adapters/QueryWidget').then((m) => ({ default: m.QueryWidget })))
+const QueryRenderer = lazy(() =>
+    import('scenes/max/messages/adapters/QueryWidget').then((m) => ({ default: m.QueryWidget }))
+)
 const QuestionRenderer = lazy(() =>
     import('./SandboxQuestionRenderer').then((m) => ({ default: m.SandboxQuestionRenderer }))
 )

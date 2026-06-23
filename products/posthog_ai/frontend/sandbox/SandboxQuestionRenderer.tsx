@@ -1,13 +1,13 @@
 import { IconAI } from '@posthog/icons'
 
+import { GenericMcpToolRenderer } from './components/tool/GenericMcpToolRenderer'
+import { SandboxToolActivity } from './components/tool/SandboxToolActivity'
+import { truncateText } from './components/tool/toolContentUtils'
 import {
     extractSandboxQuestionAnswer,
     parseSandboxQuestionAnswers,
     parseSandboxQuestions,
-} from '../sandboxQuestionUtils'
-import { GenericMcpToolRenderer } from './components/tool/GenericMcpToolRenderer'
-import { SandboxToolActivity } from './components/tool/SandboxToolActivity'
-import { truncateText } from './components/tool/toolContentUtils'
+} from './sandboxQuestionUtils'
 import type { SandboxToolRendererProps } from './sandboxToolRegistry'
 
 /**

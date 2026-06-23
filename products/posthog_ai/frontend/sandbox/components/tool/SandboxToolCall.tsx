@@ -1,6 +1,7 @@
 import { Suspense, memo } from 'react'
 
-import type { SandboxToolCallMessage } from '../../../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+
 import { lookupSandboxToolRenderer } from '../../sandboxToolRegistry'
 import { ToolCardSkeleton } from './ToolCardSkeleton'
 

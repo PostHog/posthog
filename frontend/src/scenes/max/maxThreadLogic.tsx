@@ -64,6 +64,12 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import {
+    SANDBOX_INITIAL_PERMISSION_MODE,
+    isTerminalRunStatus,
+    sandboxStreamLogic,
+} from 'products/posthog_ai/frontend/sandbox/sandboxStreamLogic'
+import { getRandomThinkingMessage } from 'products/posthog_ai/frontend/sandbox/utils/thinkingMessages'
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
@@ -82,7 +88,6 @@ import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
-import { SANDBOX_INITIAL_PERMISSION_MODE, isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
@@ -94,7 +99,6 @@ import {
     isSubagentUpdateEvent,
     threadEndsWithMultiQuestionForm,
 } from './utils'
-import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 // On a dashboard, the first message can fire before the dashboard has loaded, when
 // dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the

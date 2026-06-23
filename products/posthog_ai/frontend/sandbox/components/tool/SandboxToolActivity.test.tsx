@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen } from '@testing-library/react'
 
-import type { SandboxToolCallMessage } from '../../../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+
 import { SandboxToolActivity } from './SandboxToolActivity'
 
 function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {

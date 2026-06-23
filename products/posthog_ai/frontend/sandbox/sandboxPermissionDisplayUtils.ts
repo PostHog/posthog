@@ -1,9 +1,9 @@
-import { POSTHOG_EXEC_TOOL_RE, formatPostHogExecBody, getPostHogExecDisplay } from './sandbox/posthogExecDisplay'
-import { resolveToolCall } from './sandbox/sandboxToolResolver'
+import { POSTHOG_EXEC_TOOL_RE, formatPostHogExecBody, getPostHogExecDisplay } from './posthogExecDisplay'
+import { resolveToolCall } from './sandboxToolResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
 
 // Re-exported so existing importers (and tests) keep resolving the exec display from here.
-export { getPostHogExecDisplay } from './sandbox/posthogExecDisplay'
+export { getPostHogExecDisplay } from './posthogExecDisplay'
 
 export interface SandboxPermissionDisplay {
     title?: string

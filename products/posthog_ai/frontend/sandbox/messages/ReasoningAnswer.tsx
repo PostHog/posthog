@@ -1,10 +1,9 @@
 import { IconBrain } from '@posthog/icons'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
+import { LangGraphActivity } from 'scenes/max/components/Activity'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
-
-import { LangGraphActivity } from '../components/Activity'
 
 export interface ReasoningAnswerProps {
     content: string

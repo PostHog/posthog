@@ -4,7 +4,7 @@ import React, { useLayoutEffect, useState } from 'react'
 import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { MarkdownMessage } from '../../MarkdownMessage'
+import { MarkdownMessage } from './MarkdownMessage'
 
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 

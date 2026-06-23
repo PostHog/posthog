@@ -4,7 +4,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import type { ThreadItem } from '../types/sandboxStreamTypes'
+import type { ThreadItem } from './types/sandboxStreamTypes'
 
 /** Inline `_posthog/status` item — a spinner while compacting, a generic status line otherwise. */
 export function SandboxStatusItem({ item }: { item: ThreadItem }): JSX.Element {

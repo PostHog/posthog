@@ -108,6 +108,7 @@
         "@posthog/products-notebooks": "workspace:*",
         "@posthog/products-persons": "workspace:*",
         "@posthog/products-platform-features": "workspace:*",
+        "@posthog/products-posthog-ai": "workspace:*",
         "@posthog/products-product-analytics": "workspace:*",
         "@posthog/products-replay": "workspace:*",
         "@posthog/products-replay-vision": "workspace:*",

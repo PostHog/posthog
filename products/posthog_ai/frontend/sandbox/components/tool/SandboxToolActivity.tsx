@@ -2,9 +2,10 @@ import { type ReactNode } from 'react'
 
 import { IconWarning, IconWrench } from '@posthog/icons'
 
-import { Activity } from '../../../components/Activity'
-import type { ActivityStatus } from '../../../components/Activity'
-import type { SandboxToolCallMessage } from '../../../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+
+import { Activity } from '../../ActivityPrimitives'
+import type { ActivityStatus } from '../../ActivityPrimitives'
 import { resolveToolCallStatus } from './toolContentUtils'
 
 export interface SandboxToolActivityProps {

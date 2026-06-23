@@ -1,9 +1,9 @@
-import { isPostHogExecTool } from './sandbox/posthogExecDisplay'
-import { resolveToolCall } from './sandbox/sandboxToolResolver'
+import { isPostHogExecTool } from './posthogExecDisplay'
+import { resolveToolCall } from './sandboxToolResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
 
 // Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
-export { isPostHogExecTool } from './sandbox/posthogExecDisplay'
+export { isPostHogExecTool } from './posthogExecDisplay'
 
 /**
  * Default sandbox tool-permission policy, ported from Twig
