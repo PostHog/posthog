@@ -22427,6 +22427,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
         list[
             EventPropertyFilter
             | PersonPropertyFilter
+            | PersonMetadataPropertyFilter
             | ElementPropertyFilter
             | EventMetadataPropertyFilter
             | SessionPropertyFilter
