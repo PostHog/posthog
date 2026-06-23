@@ -12,7 +12,13 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
+import {
+    ACTIONABLE_ACTIONABILITY_VALUES,
+    INBOX_FLAT_LIST_TAB_KEYS,
+    InboxFlatListTabKey,
+    SignalReport,
+    SignalReportStatus,
+} from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 
 /**
@@ -56,7 +62,28 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         cardTitle: report.title ?? 'Untitled report',
         report,
         surface: 'detail_pane',
-        // Back to the list once archived – the suppressed report drops out on the list's refetch.
+        // Prefer the mounted list logic for the active tab so it optimistically drops the row and
+        // fixes its count + tab badge (it also fires the API call + error recovery), mirroring the
+        // list-row archive. Falls back to a direct API call for a deep-linked detail with no list.
+        onArchive: (reason, note) => {
+            const flatTab = INBOX_FLAT_LIST_TAB_KEYS.includes(activeTab as InboxFlatListTabKey)
+                ? (activeTab as InboxFlatListTabKey)
+                : null
+            const listLogic = flatTab
+                ? reportListLogic.findMounted({ tabKey: flatTab, listParams: INBOX_FLAT_TAB_LIST_PARAMS[flatTab] })
+                : null
+            if (listLogic) {
+                listLogic.actions.archiveReport(report.id, reason, note)
+                return
+            }
+            // No mounted list (e.g. cold deep-link) – persist directly; the list loads fresh on return.
+            void api.signalReports.setState(report.id, {
+                state: 'suppressed',
+                dismissal_reason: reason,
+                ...(note ? { dismissal_note: note } : {}),
+            })
+        },
+        // Back to the list once archived – the suppressed report is already gone from the list state.
         onArchived: () => router.actions.push(urls.inbox(activeTab)),
     })
 
