@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    emit_subscription_delivered_event,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -46,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
+    EmitSubscriptionDeliveredInputs,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
     ProcessSubscriptionWorkflowInputs,
@@ -205,11 +207,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_exported_asset_ids: list[int] = []
         delivery_recipient_results: list[dict] = []
-        # Hoisted so the finally block can always pass it to update_delivery_record,
-        # even on early returns (no-assets SKIPPED) or exceptions before the summary
-        # activity runs.
+        # Hoisted so the finally block can always reference them, even on early returns
+        # (no-assets SKIPPED) or exceptions before the summary/export activities run.
         change_summary: str | None = None
         summary_skipped_over_budget = False
+        successful_asset_ids: list[int] = []
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -399,6 +401,30 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
+            # Best-effort: announce a successful delivery as an internal event so users can
+            # hook it into CDP destinations (mirrors the alert flow). Runs only on COMPLETED
+            # and swallows its own errors, so it never flips an already-succeeded delivery.
+            if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        emit_subscription_delivered_event,
+                        EmitSubscriptionDeliveredInputs(
+                            subscription_id=inputs.subscription_id,
+                            team_id=inputs.team_id,
+                            delivery_id=delivery_id,
+                            trigger_type=inputs.trigger_type,
+                            recipient_count=len(delivery_recipient_results),
+                            successful_asset_ids=list(successful_asset_ids),
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.warning(
+                        "emit_subscription_delivered_event failed (best-effort)",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
+
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
             # just-auto-disabled sub doesn't get a misleading future delivery date.
@@ -564,6 +590,30 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         raise
+
+            # Best-effort: announce the delivery as an internal event for CDP destinations
+            # (mirrors the alert flow). AI subs carry no screenshots, so no asset URLs — the
+            # event carries the generated report markdown as its summary instead.
+            if final_status == DeliveryStatus.COMPLETED and delivery_id is not None:
+                try:
+                    await temporalio.workflow.execute_activity(
+                        emit_subscription_delivered_event,
+                        EmitSubscriptionDeliveredInputs(
+                            subscription_id=inputs.subscription_id,
+                            team_id=inputs.team_id,
+                            delivery_id=delivery_id,
+                            trigger_type=inputs.trigger_type,
+                            recipient_count=len(delivery_recipient_results),
+                            successful_asset_ids=[],
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.warning(
+                        "emit_subscription_delivered_event failed (best-effort)",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

@@ -3,6 +3,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    emit_subscription_delivered_event,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -32,5 +33,6 @@ ACTIVITIES = [
     advance_next_delivery_date,
     create_delivery_record,
     update_delivery_record,
+    emit_subscription_delivered_event,
     snapshot_subscription_insights,
 ]

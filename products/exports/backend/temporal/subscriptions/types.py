@@ -228,6 +228,23 @@ class SnapshotInsightsResult:
 
 
 @dataclasses.dataclass
+class EmitSubscriptionDeliveredInputs:
+    """Inputs for the best-effort `$subscription_delivered` internal CDP event.
+
+    Only IDs and counts cross the Temporal wire; the activity re-reads the summary
+    from the delivery row and signs the asset URLs itself, keeping this payload well
+    under the ~2 MiB cap.
+    """
+
+    subscription_id: int
+    team_id: int
+    delivery_id: uuid.UUID
+    trigger_type: str
+    recipient_count: int
+    successful_asset_ids: list[int] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
 class ScheduleAllSubscriptionsWorkflowInputs:
     buffer_minutes: int = 15
 
