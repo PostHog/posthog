@@ -42,6 +42,8 @@ export type WidgetCardHeaderProps = {
     isDashboardEditMode?: boolean
     shouldHideMoreButton?: boolean
     moreButtonOverlay?: MoreProps['overlay']
+    /** Refresh control revealed on tile hover (dashboard_tile layout only); forwarded to CardMeta. */
+    refreshControl?: JSX.Element | null
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
@@ -173,6 +175,7 @@ export function WidgetCardHeader({
     isDashboardEditMode,
     shouldHideMoreButton,
     moreButtonOverlay,
+    refreshControl,
     onDragHandleMouseDown,
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
@@ -236,6 +239,7 @@ export function WidgetCardHeader({
                 topHeading={(resolvedTopHeading as JSX.Element | null) ?? null}
                 onMouseDown={showEditingControls ? onDragHandleMouseDown : undefined}
                 moreButtons={moreButtonOverlay as JSX.Element | undefined}
+                refreshControl={refreshControl}
                 content={
                     <>
                         {titleEl}
