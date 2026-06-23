@@ -95,8 +95,6 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const bufferLength = toNumber(properties['$sdk_debug_replay_internal_buffer_length'])
     const flushedSize = toNumber(properties['$sdk_debug_replay_flushed_size'])
     const scriptNotLoaded = properties['$sdk_debug_recording_script_not_loaded']
-    const rrwebStartAttempted = properties['$sdk_debug_rrweb_start_attempted']
-    const rrwebAttached = properties['$sdk_debug_rrweb_attached']
     const rrwebError = properties['$sdk_debug_replay_rrweb_error']
 
     const settingsAction: SuggestedAction = {
@@ -147,6 +145,22 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
+    // A reported rrweb error is the unambiguous signal that the recorder failed. The recorder is
+    // started during buffering — before sampling/triggers resolve — so the attach flags alone
+    // can't tell a real failure apart from a normal sampled-out or torn-down session.
+    if (rrwebError) {
+        return {
+            verdict: 'recorder_error',
+            headline: 'The recorder failed to start',
+            reasons: [
+                'The SDK started the rrweb recorder for this session but it reported an error, so no snapshots were produced.',
+                `rrweb reported: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`,
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
     const triggers = [
         { key: 'URL trigger', status: urlTrigger },
         { key: 'event trigger', status: eventTrigger },
@@ -164,21 +178,6 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             ],
             rawSignals,
             suggestedActions: [settingsAction, troubleshootingAction],
-        }
-    }
-
-    if (rrwebStartAttempted === true && rrwebAttached === false) {
-        return {
-            verdict: 'recorder_error',
-            headline: 'The recorder was started but failed to attach',
-            reasons: [
-                'The SDK attempted to start the rrweb recorder for this session, but it never attached — so no snapshots were produced.',
-                rrwebError
-                    ? `rrweb reported an error: ${typeof rrwebError === 'string' ? rrwebError : JSON.stringify(rrwebError)}.`
-                    : 'No rrweb error was reported — the page may have navigated or torn down the recorder before it could attach.',
-            ],
-            rawSignals,
-            suggestedActions: [troubleshootingAction],
         }
     }
 

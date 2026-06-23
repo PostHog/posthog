@@ -48,13 +48,15 @@ const explainValue = (key: string, value: unknown): string | null => {
         case '$sdk_debug_recording_script_not_loaded':
             return 'The SDK reported the recorder script was not loaded on the page — often caused by ad blockers.'
         case '$sdk_debug_rrweb_start_attempted':
-            return value === false
-                ? 'The SDK never attempted to start the recorder for this session.'
-                : 'The SDK attempted to start the recorder.'
+            if (value === true) {
+                return 'The SDK attempted to start the recorder.'
+            }
+            return value === false ? 'The SDK never attempted to start the recorder for this session.' : null
         case '$sdk_debug_rrweb_attached':
-            return value === false
-                ? 'The recorder is not attached, so no snapshots are being captured.'
-                : 'The recorder is attached and capturing.'
+            if (value === true) {
+                return 'The recorder is attached and capturing.'
+            }
+            return value === false ? 'The recorder is not attached, so no snapshots are being captured.' : null
         case '$sdk_debug_replay_trigger_groups_count':
             return 'The number of V2 trigger groups configured for this project.'
         case '$replay_override_sampling':

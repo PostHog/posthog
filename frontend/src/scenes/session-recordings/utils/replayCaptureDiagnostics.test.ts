@@ -88,33 +88,33 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
-            name: 'rrweb start attempted but never attached → recorder_error',
+            name: 'reported rrweb error → recorder_error',
             properties: {
                 $recording_status: 'buffering',
-                $sdk_debug_rrweb_start_attempted: true,
-                $sdk_debug_rrweb_attached: false,
+                $sdk_debug_replay_rrweb_error: 'TypeError: boom',
             },
             expected: 'recorder_error',
         },
         {
-            name: 'rrweb start attempted and attached → not recorder_error',
-            properties: {
-                $recording_status: 'active',
-                $sdk_debug_rrweb_start_attempted: true,
-                $sdk_debug_rrweb_attached: true,
-                $sdk_debug_replay_flushed_size: 1024,
-            },
-            expected: 'captured',
-        },
-        {
-            name: 'pending trigger takes precedence over an unattached recorder',
+            name: 'rrweb error outranks a pending trigger',
             properties: {
                 $recording_status: 'buffering',
                 $sdk_debug_replay_event_trigger_status: 'trigger_pending',
+                $sdk_debug_replay_rrweb_error: 'boom',
+            },
+            expected: 'recorder_error',
+        },
+        {
+            // rrweb is started during buffering, so an unattached recorder with no reported error
+            // is a normal sampled-out / torn-down session, not a failure.
+            name: 'unattached recorder without an error is not mislabelled as recorder_error',
+            properties: {
+                $recording_status: 'buffering',
                 $sdk_debug_rrweb_start_attempted: true,
                 $sdk_debug_rrweb_attached: false,
+                $session_recording_start_reason: 'sampled_out',
             },
-            expected: 'trigger_pending',
+            expected: 'sampled_out',
         },
         {
             name: 'string-valued flushed size is coerced to a number',
@@ -277,8 +277,6 @@ describe('diagnoseReplayCapture', () => {
     it('recorder_error surfaces the rrweb error message when present', () => {
         const result = diagnoseReplayCapture({
             $recording_status: 'buffering',
-            $sdk_debug_rrweb_start_attempted: true,
-            $sdk_debug_rrweb_attached: false,
             $sdk_debug_replay_rrweb_error: 'boom',
         })
         expect(result.verdict).toBe('recorder_error')
