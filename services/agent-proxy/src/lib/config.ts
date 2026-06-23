@@ -81,8 +81,8 @@ export function loadConfig(): Config {
     const isProd = getEnv('NODE_ENV') === 'production'
 
     // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-    const redisUrl =
-        getEnv('TASKS_REDIS_URL') ?? (isProd ? requireEnv('TASKS_REDIS_URL', true) : 'redis://localhost:6379')
+    const localRedisFallbackUrl = 'redis://localhost:6379'
+    const redisUrl = getEnv('TASKS_REDIS_URL') ?? (isProd ? requireEnv('TASKS_REDIS_URL', true) : localRedisFallbackUrl)
 
     // Primary key (required) plus an optional secondary trusted during a key rotation overlap.
     const sandboxJwtPublicKeysPem = [
