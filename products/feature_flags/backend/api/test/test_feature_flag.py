@@ -5006,6 +5006,62 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json().items(),
         )
 
+    def test_creating_feature_flag_with_static_snapshot_cohort_that_preserves_behavioral_filters(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "event_type": "events",
+                            "explicit_datetime": "-14d",
+                            "key": "$pageview",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+
+        self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+
+    def test_creating_feature_flag_with_cohort_depending_on_static_snapshot_cohort(self) -> None:
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "event_type": "events",
+                            "explicit_datetime": "-14d",
+                            "key": "$pageview",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "id", "type": "cohort", "value": static_cohort.id}]}],
+        )
+
+        self._create_flag_with_properties(
+            "cohort-flag",
+            [{"key": "id", "type": "cohort", "value": cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+
     def test_creating_feature_flag_with_nested_behavioral_cohort(self):
         cohort_not_valid_for_ff = Cohort.objects.create(
             team=self.team,
