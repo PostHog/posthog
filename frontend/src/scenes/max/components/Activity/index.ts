@@ -6,7 +6,7 @@ export {
     ActivitySubsteps,
     ActivityToggleSection,
     ShimmeringContent,
-} from './ActivityPrimitives'
-export type { ActivityStatus } from './ActivityPrimitives'
+} from 'products/posthog_ai/frontend/sandbox/ActivityPrimitives'
+export type { ActivityStatus } from 'products/posthog_ai/frontend/sandbox/ActivityPrimitives'
 export { LangGraphActivity } from './LangGraphActivity'
-export { SandboxActivity } from './SandboxActivity'
+export { SandboxActivity } from 'products/posthog_ai/frontend/sandbox/SandboxActivity'

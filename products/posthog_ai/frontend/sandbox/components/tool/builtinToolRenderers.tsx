@@ -7,9 +7,9 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
 
-import { languageFromPath } from '../../../toolDiffContent'
 import { getPostHogExecDisplay } from '../../posthogExecDisplay'
 import type { SandboxToolRendererProps } from '../../sandboxToolRegistry'
+import { languageFromPath } from '../../toolDiffContent'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { SandboxFilePath } from './SandboxFilePath'
 import { SandboxToolActivity } from './SandboxToolActivity'

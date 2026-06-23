@@ -8,11 +8,16 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxFilePath } from '../../sandbox/components/tool/SandboxFilePath'
-import { SandboxToolActivity } from '../../sandbox/components/tool/SandboxToolActivity'
-import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
-import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from '../../toolDiffContent'
+import { GenericMcpToolRenderer } from 'products/posthog_ai/frontend/sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxFilePath } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxFilePath'
+import { SandboxToolActivity } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxToolActivity'
+import type { SandboxToolRendererProps } from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+import {
+    findAllDiffContent,
+    getDiffStats,
+    languageFromPath,
+    type ToolCallDiffContent,
+} from 'products/posthog_ai/frontend/sandbox/toolDiffContent'
 
 // A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
 // sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level

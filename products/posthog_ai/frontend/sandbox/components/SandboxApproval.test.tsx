@@ -3,8 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { SandboxModeBadge } from 'scenes/max/components/InputFormArea'
+
 import type { PermissionRequestRecord, ToolInvocation } from '../types/sandboxStreamTypes'
-import { SandboxModeBadge } from './InputFormArea'
 import { SandboxPermissionInput } from './SandboxPermissionInput'
 
 jest.mock('kea', () => ({
@@ -18,7 +19,7 @@ jest.mock('use-resize-observer', () => () => ({
     ref: { current: null },
 }))
 
-jest.mock('../maxThreadLogic', () => ({
+jest.mock('scenes/max/maxThreadLogic', () => ({
     maxThreadLogic: { __mock: 'maxThreadLogic' },
 }))
 

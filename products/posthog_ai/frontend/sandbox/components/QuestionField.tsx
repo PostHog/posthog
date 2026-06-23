@@ -4,10 +4,9 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
+import { OptionSelector, type Option } from 'scenes/max/components/OptionSelector'
 
 import type { MultiQuestionFormField, MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
-
-import { OptionSelector, type Option } from './OptionSelector'
 
 interface QuestionFieldProps {
     question: MultiQuestionFormQuestion

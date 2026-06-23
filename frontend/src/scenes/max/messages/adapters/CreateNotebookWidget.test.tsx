@@ -1,5 +1,9 @@
+import {
+    lookupSandboxToolRenderer,
+    sandboxToolRegistry,
+} from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+
 import type { SandboxToolCallMessage } from '../../maxTypes'
-import { lookupSandboxToolRenderer, sandboxToolRegistry } from '../../sandbox/sandboxToolRegistry'
 import { extractNotebook } from './CreateNotebookWidget'
 
 function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): SandboxToolCallMessage {

@@ -5,7 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { sandboxStreamLogic } from '../../sandboxStreamLogic'
+import { sandboxStreamLogic } from '../sandboxStreamLogic'
 import { SandboxThreadView } from './SandboxThreadView'
 
 export interface SandboxRunViewerProps {

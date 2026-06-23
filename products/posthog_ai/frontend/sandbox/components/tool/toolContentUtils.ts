@@ -1,4 +1,4 @@
-import type { SandboxToolCallMessage } from '../../../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
 
 /** Compact single-line preview length for a generic MCP tool's input JSON. */
 export const INPUT_PREVIEW_MAX_LENGTH = 60

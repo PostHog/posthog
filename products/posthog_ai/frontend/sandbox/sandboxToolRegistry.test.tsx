@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import type { SandboxToolCallMessage } from '../maxTypes'
+import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+
 import { SandboxToolCall } from './components/tool/SandboxToolCall'
 import { lookupSandboxToolRenderer, sandboxToolRegistry } from './sandboxToolRegistry'
 
