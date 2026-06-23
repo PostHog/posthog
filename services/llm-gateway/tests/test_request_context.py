@@ -1,11 +1,13 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.datastructures import Headers
 
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import (
     RequestContext,
     apply_posthog_context_from_headers,
+    extract_billing_team_id,
     get_posthog_flags,
     get_posthog_properties,
     record_cost,
@@ -169,3 +171,25 @@ class TestApplyPosthogContextFromHeaders:
 
         assert get_posthog_properties() == {"existing": "property"}
         assert get_posthog_flags() == {"experiment": "test"}
+
+
+class TestExtractBillingTeamId:
+    @pytest.mark.parametrize(
+        "headers,fallback,expected",
+        [
+            # Customer team supplied by a shared-key caller wins over the key owner's team.
+            ({"x-posthog-property-team_id": "42"}, 1, 42),
+            # No override falls back to the authenticated key owner's team.
+            ({}, 1, 1),
+            ({}, None, None),
+            # Unparseable override falls back rather than raising.
+            ({"x-posthog-property-team_id": "not-an-int"}, 7, 7),
+            ({"x-posthog-property-team_id": ""}, 7, 7),
+            # Header lookup is case-insensitive (starlette Headers).
+            ({"X-PostHog-Property-Team_Id": "99"}, 1, 99),
+        ],
+    )
+    def test_resolves_billing_team(self, headers: dict[str, str], fallback: int | None, expected: int | None) -> None:
+        request = MagicMock()
+        request.headers = Headers(headers)
+        assert extract_billing_team_id(request, fallback) == expected

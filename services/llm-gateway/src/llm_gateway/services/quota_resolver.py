@@ -28,8 +28,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_AI_CREDITS_RESOURCE = "ai_credits"
-
 # Cache window for the fail-open path (4xx from Django, or transient failure
 # after retries are exhausted). Long enough to keep a misconfigured client off
 # Django's neck during an auth-failure storm; short enough that a recovered
@@ -62,10 +60,13 @@ def _redis_key(resource_key: str, team_id: int) -> str:
     return f"quota:{resource_key}:team:{team_id}"
 
 
-async def resolve_quota_status(
-    request: Request, team_id: int | None, resource_key: str = _AI_CREDITS_RESOURCE
-) -> QuotaResourceStatus:
-    """Resolve the team's quota state for ``resource_key``, falling open on errors."""
+async def resolve_quota_status(request: Request, team_id: int | None, resource_key: str) -> QuotaResourceStatus:
+    """Resolve the team's quota state for ``resource_key``, falling open on errors.
+
+    ``resource_key`` is required and must be the calling product's configured
+    ``quota_resource`` — there is intentionally no default, so a new billable
+    product cannot silently gate on ``ai_credits`` instead of its own pool.
+    """
     if team_id is None:
         return QuotaResourceStatus(limited=False)
     auth_header = request.headers.get("Authorization", "")
