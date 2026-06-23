@@ -1,14 +1,21 @@
 from datetime import UTC, date, datetime
+from typing import Any
 
+import pytest
 from freezegun import freeze_time
+from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.klaviyo import klaviyo
 from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
+    KlaviyoResumeConfig,
     _build_filter,
     _build_initial_params,
     _clamp_future_value_to_now,
     _format_incremental_value,
+    get_rows,
 )
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
 from posthog.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
@@ -181,3 +188,154 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+
+def _response_with_status(status_code: int) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    return response
+
+
+class _FakeResumableManager:
+    def __init__(self, state: KlaviyoResumeConfig | None = None) -> None:
+        self._state = state
+        self.saved: list[KlaviyoResumeConfig] = []
+
+    def can_resume(self) -> bool:
+        return self._state is not None
+
+    def load_state(self) -> KlaviyoResumeConfig | None:
+        return self._state
+
+    def save_state(self, data: KlaviyoResumeConfig) -> None:
+        self.saved.append(data)
+
+
+class TestListProfilesFanOut:
+    @staticmethod
+    def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any]) -> list[dict]:
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            result = pages[url]
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+
+        rows: list[dict] = []
+        for table in get_rows(
+            api_key="pk_test",
+            endpoint="list_profiles",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+        return rows
+
+    def test_config_is_fan_out_full_refresh(self) -> None:
+        config = KLAVIYO_ENDPOINTS["list_profiles"]
+        assert config.fan_out_over_lists is True
+        assert config.should_sync_default is False
+        assert config.primary_keys == ["list_id", "profile_id"]
+        assert config.incremental_fields == []
+
+    def test_schema_is_full_refresh_only_and_off_by_default(self) -> None:
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        list_profiles = schemas["list_profiles"]
+        assert list_profiles.supports_incremental is False
+        assert list_profiles.supports_append is False
+        assert list_profiles.should_sync_default is False
+
+    def test_fans_out_over_every_list_into_membership_rows(self, monkeypatch: Any) -> None:
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=100": {
+                "data": [{"id": "L1"}, {"id": "L2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P1"}, {"type": "profile", "id": "P2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P3"}],
+                "links": {"next": None},
+            },
+        }
+        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        assert rows == [
+            {"list_id": "L1", "profile_id": "P1"},
+            {"list_id": "L1", "profile_id": "P2"},
+            {"list_id": "L2", "profile_id": "P3"},
+        ]
+
+    def test_follows_membership_pagination(self, monkeypatch: Any) -> None:
+        next_url = "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[cursor]=abc"
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=100": {
+                "data": [{"id": "L1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P1"}],
+                "links": {"next": next_url},
+            },
+            next_url: {
+                "data": [{"type": "profile", "id": "P2"}],
+                "links": {"next": None},
+            },
+        }
+        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        assert rows == [
+            {"list_id": "L1", "profile_id": "P1"},
+            {"list_id": "L1", "profile_id": "P2"},
+        ]
+
+    def test_resume_from_deleted_list_restarts_from_first(self, monkeypatch: Any) -> None:
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=100": {
+                "data": [{"id": "L1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P1"}],
+                "links": {"next": None},
+            },
+        }
+        manager = _FakeResumableManager(KlaviyoResumeConfig(next_url=None, list_id="DELETED"))
+        rows = self._collect(manager, monkeypatch, pages)
+        assert rows == [{"list_id": "L1", "profile_id": "P1"}]
+
+    def test_list_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
+        not_found = requests.HTTPError(response=_response_with_status(404))
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=100": {
+                "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/GONE/relationships/profiles?page[size]=1000": not_found,
+            "https://a.klaviyo.com/api/lists/L2/relationships/profiles?page[size]=1000": {
+                "data": [{"type": "profile", "id": "P2"}],
+                "links": {"next": None},
+            },
+        }
+        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+        assert rows == [
+            {"list_id": "L1", "profile_id": "P1"},
+            {"list_id": "L2", "profile_id": "P2"},
+        ]
+
+    def test_non_404_http_error_propagates(self, monkeypatch: Any) -> None:
+        server_error = requests.HTTPError(response=_response_with_status(500))
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=100": {
+                "data": [{"id": "L1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/lists/L1/relationships/profiles?page[size]=1000": server_error,
+        }
+        with pytest.raises(requests.HTTPError):
+            self._collect(_FakeResumableManager(), monkeypatch, pages)

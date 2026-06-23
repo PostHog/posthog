@@ -2,11 +2,13 @@ import json
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -18,7 +20,10 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.tasks.backend.models import Task, TaskRun
+from products.signals.backend.task_run_artefacts import append_task_run_artefact, record_implementation_task
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task, TaskRun
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -502,22 +507,54 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
+    def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
+        # suggested_reviewers is append-only: an older row listing the user must not keep them
+        # flagged after a newer row drops them (latest-wins).
+        UserSocialAuth.objects.create(
+            user=self.user,
+            provider="github",
+            uid="github-test-latest-wins",
+            extra_data={"login": "suggestedgh"},
+        )
+        report = self._create_report()
+        self._actionability_artefact(report, actionability="immediately_actionable")
+        old = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "suggestedgh"}]),
+        )
+        SignalReportArtefact.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        # Newer row no longer includes the user — the live reviewer set.
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "someoneelse"}]),
+        )
+
+        response = self.client.get(self._list_url(status="ready"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_suggested_reviewer"] is False
+
     # --- implementation_pr_url ---
 
     def _create_implementation_task_with_run(
         self, report: SignalReport, *, pr_url: str | None = None, output: dict | None = None
-    ) -> tuple[Task, TaskRun]:
+    ) -> "tuple[Task, TaskRun]":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="Implementation task",
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=report,
-            task=task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        record_implementation_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
         )
         run_output = output if output is not None else ({"pr_url": pr_url} if pr_url else None)
         run = TaskRun.objects.create(
@@ -546,6 +583,35 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
         assert response.json()["implementation_pr_url"] == response.json()["implementation_pr_url"].strip('"')
 
+    def test_implementation_pr_url_resolves_from_artefact_only_association(self):
+        # A task associated purely via a task_run artefact (no SignalReportTask gate row, e.g. a
+        # custom-agent run) still resolves its PR — the unified association covers both sources.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="implementation",
+            task_id=str(task.id),
+        )
+        assert not SignalReportTask.objects.filter(report=report).exists()
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/o/r/pull/7"},
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
+
     def test_implementation_pr_url_null_when_no_implementation_task(self):
         report = self._create_report()
 
@@ -573,6 +639,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_url"] is None
 
     def test_implementation_pr_url_uses_latest_task_run(self):
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
         task = Task.objects.create(
             team=self.team,
@@ -580,11 +648,10 @@ class TestSignalReportListAPI(APIBaseTest):
             description="Fix the bug",
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        SignalReportTask.objects.create(
-            team=self.team,
-            report=report,
-            task=task,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        record_implementation_task(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            task_id=str(task.id),
         )
         old_run = TaskRun.objects.create(
             team=self.team,
@@ -1431,3 +1498,143 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
     def test_bulk_rejects_invalid_requests(self, _name, body):
         response = self._post(body)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
+    """task_run artefacts ARE the task↔report association: associate-me defaults + the reports task_id filter."""
+
+    def _artefacts_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"
+
+    def _create_report(self, team=None) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=SignalReport.Status.READY,
+            title="Report",
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _create_task(self, team=None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
+        return Task.objects.create(
+            team=team or self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def _associate(self, report: SignalReport, content: dict, **extra):
+        return self.client.post(
+            self._artefacts_url(str(report.id)),
+            data=json.dumps({"artefact_type": "task_run", "content": content}),
+            content_type="application/json",
+            **extra,
+        )
+
+    def test_associate_task_by_body(self):
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self._associate(report, {"task_id": str(task.id)})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["content"]["task_id"] == str(task.id)
+        # product/type default to the generic agent-run identifiers.
+        assert body["content"]["product"] == "tasks"
+        assert body["content"]["type"] == "agent_run"
+        artefact = SignalReportArtefact.objects.get(id=body["id"])
+        # The entry is attributed to the task it records.
+        assert str(artefact.task_id) == str(task.id)
+
+    def test_associate_is_idempotent(self):
+        report = self._create_report()
+        task = self._create_task()
+
+        first = self._associate(report, {"task_id": str(task.id)})
+        second = self._associate(report, {"task_id": str(task.id)})
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert (
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count()
+            == 1
+        )
+
+    def test_associate_with_custom_product_and_type(self):
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self._associate(report, {"task_id": str(task.id), "product": "billing", "type": "anomaly_scan"})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
+        content = json.loads(artefact.content)
+        assert content["product"] == "billing"
+        assert content["type"] == "anomaly_scan"
+
+    def test_associate_with_invalid_product_returns_400(self):
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self._associate(report, {"task_id": str(task.id), "product": "Not Valid!"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).exists()
+
+    def test_associate_defaults_to_header_task(self):
+        # "Associate me with this report" — empty content, the agent's own task comes from the header.
+        report = self._create_report()
+        task = self._create_task()
+
+        response = self._associate(report, {}, headers={"X-PostHog-Task-Id": str(task.id)})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        artefact = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN)
+        assert json.loads(artefact.content)["task_id"] == str(task.id)
+        assert str(artefact.task_id) == str(task.id)
+
+    def test_associate_without_task_returns_400(self):
+        report = self._create_report()
+        response = self._associate(report, {})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_associate_foreign_team_task_returns_400(self):
+        report = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        foreign_task = self._create_task(team=other_team)
+
+        response = self._associate(report, {"task_id": str(foreign_task.id)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
+    def test_associate_on_deleted_report_returns_404(self):
+        report = self._create_report()
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status"])
+        task = self._create_task()
+
+        response = self._associate(report, {"task_id": str(task.id)})
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_reports_list_filters_by_task_id(self):
+        report = self._create_report()
+        other_report = self._create_report()
+        task = self._create_task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="tasks",
+            type="agent_run",
+            task_id=str(task.id),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(report.id)}
+        assert str(other_report.id) not in ids
+
+    def test_reports_list_rejects_malformed_task_id(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

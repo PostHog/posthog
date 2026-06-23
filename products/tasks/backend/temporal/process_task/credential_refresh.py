@@ -29,6 +29,9 @@ async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if result.sandbox_gone:
+                workflow.logger.info("Stopping credential refresh loop: sandbox is gone")
+                return
             next_refresh_seconds = result.next_refresh_seconds
         except Exception as e:
             # Non-fatal: keep the run alive and retry on the default cadence.

@@ -138,7 +138,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
-        windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
+        windowWidth: (window: Window) =>
+            Math.min(window.innerWidth, window.document.body?.clientWidth ?? window.innerWidth),
     })),
     reducers(() => ({
         element: [

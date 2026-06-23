@@ -139,6 +139,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
+ */
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
+        ),
+})
+
+/**
  * Copy an experiment into another project in the same organization as a new draft.
  */
 export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({

@@ -436,10 +436,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ? numericColumns[numericColumns.length - 1]
                     : null,
         ],
-        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and, in
-         * any-row mode, the label (first column that isn't evaluated — the backend fallback).
-         * Computed together so prefilling lands in a single form write with no ordering
-         * between the fields. Null when there's nothing to fill. */
+        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and the
+         * label (first column that isn't evaluated — the backend fallback). Both apply in every
+         * evaluation mode: the label names the evaluated row(s) in breach messages regardless of
+         * last/first/any-row. Computed together so prefilling lands in a single form write with
+         * no ordering between the fields. Null when there's nothing to fill. */
         hogqlConfigPrefill: [
             (s) => [
                 s.hogqlResultColumns,
@@ -459,7 +460,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     patch.column = suggestedColumn
                 }
                 const evaluated = config.column ?? suggestedColumn
-                if (config.evaluation === 'any_row' && config.label_column == null && evaluated != null) {
+                if (config.label_column == null && evaluated != null) {
                     const label = resultColumns?.find((column) => column !== evaluated)
                     if (label != null) {
                         patch.label_column = label

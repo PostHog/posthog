@@ -28,6 +28,12 @@ import { TaskLogicProps, taskLogic } from './taskLogic'
 import { tasksLogic } from './tasksLogic'
 
 const LOG_POLL_INTERVAL_MS = 1000
+// The server rotates stream connections on a fixed cap (clean EOF + Last-Event-ID
+// resume), so reconnect-after-EOF is a routine loop. If connections start dying
+// this quickly, something is wrong server-side — stop hammering it and fall back
+// to polling instead of reconnecting in a tight loop.
+const STREAM_MIN_HEALTHY_CONNECTION_MS = 5000
+const STREAM_MAX_CONSECUTIVE_SHORT_CONNECTIONS = 3
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
@@ -103,7 +109,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         markStreamingFailed: true,
         appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
         updateStreamEntries: (entries: LogEntry[]) => ({ entries }),
-        recordStreamProgress: (lastEventId: string | null, seenEventIds: string[]) => ({ lastEventId, seenEventIds }),
+        recordStreamProgress: (lastEventId: string) => ({ lastEventId }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
     }),
@@ -185,22 +191,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as string | null,
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? null : state),
-                recordStreamProgress: (state, { lastEventId }) => lastEventId ?? state,
-            },
-        ],
-        seenStreamEventIds: [
-            {} as Record<string, true>,
-            {
-                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? {} : state),
-                recordStreamProgress: (state, { seenEventIds }) => {
-                    if (seenEventIds.length === 0) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        ...Object.fromEntries(seenEventIds.map((eventId) => [eventId, true])),
-                    }
-                },
+                recordStreamProgress: (_, { lastEventId }) => lastEventId,
             },
         ],
         isStreaming: [
@@ -237,10 +228,19 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         return null
                     }
                     const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
-                    // Use proxy endpoint to avoid CORS issues with direct S3 access
-                    actions.loadLogs({
-                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/${phDebugQuerySuffix()}`,
-                    })
+                    const runActive = run?.status === TaskRunStatus.QUEUED || run?.status === TaskRunStatus.IN_PROGRESS
+                    // While live stream entries are rendered the log file isn't shown, so
+                    // skip refetching it on every stream rotation. Once the run is terminal
+                    // (or streaming has fallen back to polling) the fetch always happens —
+                    // it backs the non-streaming fallback view; any tail a rotation cut off
+                    // is recovered by the final drain connection in loadSelectedRunSuccess.
+                    const streamRendersEntries = !values.streamingFailed && values.streamEntries.length > 0
+                    if (!(runActive && streamRendersEntries)) {
+                        // Use proxy endpoint to avoid CORS issues with direct S3 access
+                        actions.loadLogs({
+                            url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/${phDebugQuerySuffix()}`,
+                        })
+                    }
                     return run
                 },
             },
@@ -317,6 +317,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             if (taskId !== props.taskId) {
                 return
             }
+            cache.seenStreamEventIds = new Set<string>()
+            cache.consecutiveShortStreamConnections = 0
+            cache.streamEndedWithRotation = false
+            cache.finalDrainAttempted = false
             actions.stopPolling()
             actions.stopStreaming()
             actions.loadSelectedRun()
@@ -341,6 +345,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 actions.loadSelectedRun()
             }
         },
+        loadSelectedRunFailure: () => {
+            // Stream rotation routes through loadSelectedRun (EOF → refresh → restart),
+            // so a transient failure here must not strand the run view with neither
+            // stream nor polling. Polling self-heals: the next successful load restarts
+            // streaming or stops everything once the run is terminal. Gate on the last
+            // loaded run still being active (shouldPoll) — a run that never loaded or
+            // already finished must not arm a forever-retrying poll loop against a
+            // permanently failing endpoint.
+            if (values.shouldPoll && !values.isStreaming) {
+                actions.startPolling()
+            }
+        },
         loadSelectedRunSuccess: ({ selectedRunData }) => {
             if (selectedRunData) {
                 actions.updateRun(selectedRunData)
@@ -354,7 +370,27 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 }
             } else {
                 actions.stopPolling()
-                actions.stopStreaming()
+                if (
+                    cache.streamEndedWithRotation &&
+                    !cache.finalDrainAttempted &&
+                    !values.isStreaming &&
+                    !values.streamingFailed &&
+                    values.streamEntries.length > 0
+                ) {
+                    // The rotation EOF raced run completion: events published after the
+                    // resume cursor would otherwise never render (streamEntries shadow the
+                    // log file). One final drain connection delivers them, then normally
+                    // EOFs via the completion sentinel — no rotation marker. But the
+                    // sentinel is best-effort and can be missing, in which case the drain
+                    // itself rotates and re-sets the flag; finalDrainAttempted makes the
+                    // drain one-shot so a finished run can't re-drain in 15-minute cycles
+                    // until the stream key expires.
+                    cache.streamEndedWithRotation = false
+                    cache.finalDrainAttempted = true
+                    actions.startStreaming()
+                } else {
+                    actions.stopStreaming()
+                }
             }
         },
         loadTaskSuccess: ({ task }) => {
@@ -383,8 +419,14 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
                 const toolMap = buildToolMap(values.streamEntries)
                 let eventIndex = values.streamEntries.length
+                // Dedupes events replayed across rotated connections. Lives in cache
+                // (reset per selected run) so it survives reconnects without an O(n)
+                // reducer copy per chunk batch on long runs.
+                const seenStreamEventIds: Set<string> = (cache.seenStreamEventIds ??= new Set<string>())
 
                 const consume = async (): Promise<void> => {
+                    const connectionStartedAt = performance.now()
+                    cache.streamEndedWithRotation = false
                     try {
                         const response = await fetch(streamUrl, {
                             signal: abortController.signal,
@@ -419,22 +461,24 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                             const batch: LogEntry[] = []
                             const updatedEntriesById = new Map<string, LogEntry>()
                             let lastProcessedEventId: string | null = null
-                            const newlySeenEventIds: string[] = []
 
                             for (const block of blocks) {
                                 const parsedEvent = parseSseEventBlock(block)
+                                if (parsedEvent?.eventType === 'end') {
+                                    // `event: end` marks a connection-cap rotation, not run
+                                    // completion — the EOF that follows triggers the restart.
+                                    cache.streamEndedWithRotation = true
+                                    continue
+                                }
                                 if (!parsedEvent || parsedEvent.eventType === 'keepalive' || !parsedEvent.data) {
                                     continue
                                 }
 
                                 if (parsedEvent.id) {
-                                    if (
-                                        values.seenStreamEventIds[parsedEvent.id] ||
-                                        newlySeenEventIds.includes(parsedEvent.id)
-                                    ) {
+                                    if (seenStreamEventIds.has(parsedEvent.id)) {
                                         continue
                                     }
-                                    newlySeenEventIds.push(parsedEvent.id)
+                                    seenStreamEventIds.add(parsedEvent.id)
                                     lastProcessedEventId = parsedEvent.id
                                 }
 
@@ -463,8 +507,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                                 }
                             }
 
-                            if (newlySeenEventIds.length > 0) {
-                                actions.recordStreamProgress(lastProcessedEventId, newlySeenEventIds)
+                            if (lastProcessedEventId) {
+                                actions.recordStreamProgress(lastProcessedEventId)
                             }
                             if (updatedEntriesById.size > 0) {
                                 actions.updateStreamEntries(Array.from(updatedEntriesById.values()))
@@ -474,9 +518,20 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                             }
                         }
 
+                        if (performance.now() - connectionStartedAt < STREAM_MIN_HEALTHY_CONNECTION_MS) {
+                            cache.consecutiveShortStreamConnections = (cache.consecutiveShortStreamConnections ?? 0) + 1
+                        } else {
+                            cache.consecutiveShortStreamConnections = 0
+                        }
                         // Clear streaming state before refreshing the run so in-progress
                         // runs can reconnect cleanly after an EOF.
                         actions.stopStreaming()
+                        if (cache.consecutiveShortStreamConnections >= STREAM_MAX_CONSECUTIVE_SHORT_CONNECTIONS) {
+                            console.warn('SSE stream ended immediately several times in a row, falling back to polling')
+                            actions.markStreamingFailed()
+                            actions.startPolling()
+                            return
+                        }
                         // Stream ended normally — do a final poll to get the latest run status
                         actions.loadSelectedRun()
                     } catch (e) {

@@ -92,6 +92,23 @@ def get_region_info() -> dict | None:
     return None
 
 
+# Substrings identifying transient database failures that OAuth clients should retry.
+# PgBouncer (port 6543) kills queries waiting too long for a backend connection with
+# `query_wait_timeout`, and surfaces dropped/reset backend connections as connection
+# failures. Both are retryable rather than permanent, so map them to a 503 instead of
+# letting them escape as an unhandled 500.
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def _is_transient_db_error(error: Exception) -> bool:
+    message = str(error)
+    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+
+
 def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
     """RFC 6749 `temporarily_unavailable` response with HTTP 503 and Retry-After.
 
@@ -1214,10 +1231,10 @@ class OAuthTokenView(TokenView):
                 status=400,
             )
         except OperationalError as e:
-            # PgBouncer kills queries that wait too long for a backend connection with
-            # `query_wait_timeout`. The resulting OperationalError otherwise bubbles up
-            # as an unhandled 500 — translate it into a retryable response.
-            if "query_wait_timeout" not in str(e):
+            # Transient database failures (PgBouncer `query_wait_timeout`, dropped/reset
+            # backend connections during client authentication) otherwise bubble up as an
+            # unhandled 500 — translate them into a retryable response.
+            if not _is_transient_db_error(e):
                 raise
             logger.warning(
                 "oauth_token_db_pool_pressure",
