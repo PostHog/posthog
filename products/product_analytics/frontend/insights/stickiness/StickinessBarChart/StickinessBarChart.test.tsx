@@ -113,7 +113,8 @@ describe('StickinessBarChart', () => {
             { timeout: 5000 }
         )
         expect(personsModal.title()).toMatch(/Stickiness on day 3/)
-        expect(personsModal.title()).toMatch(/Pageview/i)
+        // Case-sensitive: the core event must be humanized ("Pageview"), not the raw "$pageview".
+        expect(personsModal.title()).toMatch(/Pageview/)
     })
 
     it('click → context.onDataPointClick fires with the integer day instead of opening the modal', async () => {

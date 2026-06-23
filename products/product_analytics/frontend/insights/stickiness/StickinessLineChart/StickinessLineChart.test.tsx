@@ -97,7 +97,8 @@ describe('StickinessLineChart', () => {
             })
             // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
             expect(personsModal.title()).toMatch(/Stickiness on day 3/)
-            expect(personsModal.title()).toMatch(/Pageview/i)
+            // Case-sensitive: the core event must be humanized ("Pageview"), not the raw "$pageview".
+            expect(personsModal.title()).toMatch(/Pageview/)
         })
 
         it('fires context.onDataPointClick with the integer day instead of opening the modal', async () => {
