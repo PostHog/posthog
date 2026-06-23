@@ -496,6 +496,39 @@ class TestCreateMessage:
         assert exc_info.value.type == "APITimeoutError"
         assert "APITimeoutError" in str(exc_info.value)
         assert exc_info.value.__cause__ is None
+        # Transient (connection/timeout) errors stay retryable.
+        assert exc_info.value.non_retryable is False
+
+    @parameterized.expand(
+        [
+            # (anthropic class, status_code, expected non_retryable)
+            ("BadRequestError", 400, True),
+            ("PermissionDeniedError", 403, True),
+            ("NotFoundError", 404, True),
+            ("RateLimitError", 429, False),
+            ("InternalServerError", 500, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_marks_deterministic_4xx_non_retryable(self, class_name, status_code, expected_non_retryable):
+        import httpx
+        import anthropic
+        from temporalio.exceptions import ApplicationError
+
+        from products.conversations.backend.temporal.pipeline import _create_message
+
+        exc_cls = getattr(anthropic, class_name)
+        response = httpx.Response(status_code, request=httpx.Request("POST", "http://gw"))
+        client = MagicMock()
+        client.messages.create = AsyncMock(side_effect=exc_cls("boom", response=response, body=None))
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await _create_message(client, model="claude-sonnet-4-6", max_tokens=1, messages=[])
+
+        assert exc_info.value.type == class_name
+        assert exc_info.value.non_retryable is expected_non_retryable
+        # Status code is preserved in the message for debugging (e.g. which model was rejected).
+        assert str(status_code) in str(exc_info.value)
 
 
 class TestValidateActivity:
