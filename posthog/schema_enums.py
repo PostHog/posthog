@@ -1797,6 +1797,7 @@ class ExternalDataSourceType(StrEnum):
     TILE38 = "Tile38"
     CHATWOOT = "Chatwoot"
     SANITY = "Sanity"
+    METRONOME = "Metronome"
 
 
 class ExternalQueryErrorCode(StrEnum):

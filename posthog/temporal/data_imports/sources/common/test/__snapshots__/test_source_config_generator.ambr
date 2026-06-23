@@ -374,6 +374,7 @@
           ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
           ExternalDataSourceType.METABASE: MetabaseSourceConfig,
           ExternalDataSourceType.METRICOOL: MetricoolSourceConfig,
+          ExternalDataSourceType.METRONOME: MetronomeSourceConfig,
           ExternalDataSourceType.MICROSOFTDATAVERSE: MicrosoftDataverseSourceConfig,
           ExternalDataSourceType.MICROSOFTENTRAID: MicrosoftEntraIdSourceConfig,
           ExternalDataSourceType.MICROSOFTLISTS: MicrosoftListsSourceConfig,
