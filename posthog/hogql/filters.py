@@ -21,7 +21,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr_core
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.hogql_django_provider import DjangoDataProvider
+from posthog.hogql_django_provider import provider_for
 from posthog.utils import relative_date_parse
 
 if TYPE_CHECKING:
@@ -40,7 +40,7 @@ def replace_filters(node: T, filters: Optional[HogQLFilters], team: "Team", data
     """Django boundary wrapper around replace_filters_core; keeps the Team signature."""
     if database is None:
         database = Database.create_for(team=team)
-    return replace_filters_core(node, filters, DjangoDataProvider(team=team), database)
+    return replace_filters_core(node, filters, provider_for(team), database)
 
 
 def replace_filters_core(

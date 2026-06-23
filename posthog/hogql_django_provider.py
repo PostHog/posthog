@@ -13,6 +13,7 @@ from posthog.hogql.data_provider import (
     ActionScope,
     CohortRef,
     CohortRefKind,
+    DataProvider,
     InsightVariableInfo,
     MaterializedColumnInfo,
     PropertyKind,
@@ -363,3 +364,11 @@ class DjangoDataProvider:
     def restricted_properties(self) -> set[tuple[str, int]]:
         team_id = self._team_id if self._team_id is not None else self.team.id
         return get_restricted_properties_for_team(team_id=team_id, user=self._user)
+
+
+def provider_for(team: Team, user: Optional["User"] = None) -> DataProvider:
+    """Adapt a Django ``Team`` into the ``DataProvider`` the HogQL engine consumes.
+
+    The single Team→provider construction point outside ``HogQLContext``'s lazy default.
+    """
+    return DjangoDataProvider(team=team, user=user)

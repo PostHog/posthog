@@ -51,7 +51,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.hogql_django_provider import DjangoDataProvider
+from posthog.hogql_django_provider import provider_for
 from posthog.models import Property, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
@@ -648,7 +648,7 @@ def _expr_to_compare_op(
 
 
 def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
-    return apply_path_cleaning_core(path_expr, DjangoDataProvider(team=team))
+    return apply_path_cleaning_core(path_expr, provider_for(team))
 
 
 def apply_path_cleaning_core(path_expr: ast.Expr, data: DataProvider) -> ast.Expr:
@@ -710,7 +710,7 @@ def property_to_expr(
     strict: bool = False,
 ) -> ast.Expr:
     """Django boundary wrapper around property_to_expr_core; keeps the Team signature."""
-    return property_to_expr_core(property, DjangoDataProvider(team=team), scope, strict=strict)
+    return property_to_expr_core(property, provider_for(team), scope, strict=strict)
 
 
 def property_to_expr_core(
@@ -1230,7 +1230,7 @@ def property_to_expr_core(
 
 def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     """Django boundary wrapper around steps_to_expr_core; keeps the Team signature."""
-    return steps_to_expr_core(steps, DjangoDataProvider(team=team), events_alias)
+    return steps_to_expr_core(steps, provider_for(team), events_alias)
 
 
 def steps_to_expr_core(steps: list[ActionStepJSON], data: DataProvider, events_alias: Optional[str] = None) -> ast.Expr:
@@ -1358,7 +1358,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     """Django boundary wrapper around entity_to_expr_core; keeps the Team signature."""
-    return entity_to_expr_core(entity, DjangoDataProvider(team=team))
+    return entity_to_expr_core(entity, provider_for(team))
 
 
 def entity_to_expr_core(entity: RetentionEntity, data: DataProvider) -> ast.Expr:
