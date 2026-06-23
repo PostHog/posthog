@@ -7027,6 +7027,17 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
         "formatDateTime(now(), '%Y-%m-%d %H:%M:%S')",
         "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD HH24:MI:SS')",
     ),
+    # A literal double-quote is escaped as "" inside the quoted run, not dropped.
+    (
+        "formatDateTime_escapes_literal_quote",
+        "formatDateTime(now(), '%Y\"q\"')",
+        'TO_CHAR(CURRENT_TIMESTAMP(), \'YYYY"""q"""\')',
+    ),
+    (
+        "formatDateTime_escapes_lone_quote",
+        "formatDateTime(now(), '%H\"%M')",
+        'TO_CHAR(CURRENT_TIMESTAMP(), \'HH24""""MI\')',
+    ),
     # Conditional / null
     ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
     ("isNull", "isNull(1)", "(1 IS NULL)"),

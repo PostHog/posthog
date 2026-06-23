@@ -113,8 +113,11 @@ class SnowflakePrinter(PostgresPrinter):
                 return
             text = "".join(literal)
             literal.clear()
-            if any(ch.isalpha() for ch in text):
-                out.append('"' + text.replace('"', "") + '"')
+            # Letters would be read as format elements, and a literal double-quote would
+            # open a quoted section — both must sit inside a quoted block, with `"` escaped
+            # as `""` rather than dropped.
+            if any(ch.isalpha() or ch == '"' for ch in text):
+                out.append('"' + text.replace('"', '""') + '"')
             else:
                 out.append(text)
 
