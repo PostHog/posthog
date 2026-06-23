@@ -8566,6 +8566,8 @@ export namespace Schemas {
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
+      p999_duration_nano: number;
+      p99_duration_nano: number;
       service_name: string;
       total_duration_nano: number;
     }
@@ -25435,6 +25437,8 @@ export namespace Schemas {
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
+      p999_duration_nano: number;
+      p99_duration_nano: number;
       parent_name: string;
       parent_service: string;
       service_name: string;
