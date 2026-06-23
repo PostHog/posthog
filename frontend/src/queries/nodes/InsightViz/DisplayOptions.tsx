@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
@@ -222,6 +223,30 @@ function DecimalPrecision(): JSX.Element {
             }}
             className="mx-2 mb-1.5"
         />
+    )
+}
+
+export function SectionHeader({
+    children,
+    tooltip,
+    dataAttr,
+}: {
+    children: ReactNode
+    tooltip?: string
+    dataAttr?: string
+}): JSX.Element {
+    return (
+        <h5 className="mx-2 my-1" data-attr={dataAttr}>
+            {children}
+            {tooltip && (
+                <>
+                    {' '}
+                    <Tooltip title={tooltip}>
+                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                    </Tooltip>
+                </>
+            )}
+        </h5>
     )
 }
 
