@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
@@ -25,12 +25,14 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
             sandboxStreamLogic({ streamKey: props.runId }),
             ['currentRunStatus'],
         ],
-        actions: [sandboxStreamLogic({ streamKey: props.runId }), ['bootstrapRun', 'pushHumanMessage', 'reset']],
+        actions: [sandboxStreamLogic({ streamKey: props.runId }), ['pushHumanMessage']],
     })),
 
     actions({
         sendMessage: (content: string) => ({ content }),
         setSendingMessage: (sending: boolean) => ({ sending }),
+        setComposerDraft: (draft: string) => ({ draft }),
+        clearComposerDraft: true,
     }),
 
     reducers({
@@ -38,6 +40,13 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
             false,
             {
                 setSendingMessage: (_, { sending }) => sending,
+            },
+        ],
+        composerDraft: [
+            '',
+            {
+                setComposerDraft: (_, { draft }) => draft,
+                clearComposerDraft: () => '',
             },
         ],
     }),
@@ -62,6 +71,9 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
                     params: { content },
                 })
                 actions.pushHumanMessage(content)
+                // Only clear the draft once the send succeeds — a failed send (or missing project) keeps
+                // the user's text so they can retry without retyping.
+                actions.clearComposerDraft()
             } catch {
                 lemonToast.error('Failed to send message. Please try again.')
             } finally {
@@ -69,12 +81,4 @@ export const taskRunChatLogic = kea<taskRunChatLogicType>([
             }
         },
     })),
-
-    afterMount(({ props, actions }) => {
-        // sandboxStreamLogic is already bound (the BindLogic in TaskRunChat mounts it first), so a
-        // reset + bootstrapRun here re-bootstraps cleanly when a reused logic instance is remounted.
-        // Live vs. replay mode is resolved inside bootstrapRun from the run status the tasks API returns.
-        actions.reset()
-        actions.bootstrapRun({ taskId: props.taskId, runId: props.runId })
-    }),
 ])
