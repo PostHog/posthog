@@ -143,9 +143,7 @@ export function InboxUsageWidget(): JSX.Element | null {
         return null
     }
 
-    // Only org admins/owners can change billing — non-admins get a read-only view with a hint.
-    const canManageBilling = canAccessBilling
-
+    // Only org admins/owners can change billing (canAccessBilling) — others get a read-only view with a hint.
     return (
         <>
             <div className={CARD_CLASS}>
@@ -155,7 +153,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                         <LemonTag type="muted" size="small">
                             Free plan
                         </LemonTag>
-                    ) : canManageBilling && status !== 'limit' ? (
+                    ) : canAccessBilling && status !== 'limit' ? (
                         <button
                             type="button"
                             onClick={openModal}
@@ -175,7 +173,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
                 </div>
-                {canManageBilling ? (
+                {canAccessBilling ? (
                     !isSubscribed ? (
                         <UpgradeButton product={product} />
                     ) : (
@@ -195,7 +193,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                     )
                 )}
             </div>
-            {canManageBilling && <EditLimitModal />}
+            {canAccessBilling && <EditLimitModal />}
         </>
     )
 }

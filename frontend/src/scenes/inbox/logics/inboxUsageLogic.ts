@@ -66,9 +66,11 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                         ? 'Enter a number of PRs'
                         : !Number.isInteger(prs) || prs < 0
                           ? 'Enter a whole number'
-                          : prs > 10000
-                            ? 'Enter a smaller number'
-                            : undefined,
+                          : prs < values.freePrs
+                            ? `Minimum is ${values.freePrs} PRs (the free tier)`
+                            : prs > 10000
+                              ? 'Enter a smaller number'
+                              : undefined,
             }),
             submit: ({ prs }) => {
                 const { product, pricePerPrUsd, freePrs } = values
