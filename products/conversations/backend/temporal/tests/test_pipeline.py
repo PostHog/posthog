@@ -505,6 +505,14 @@ class TestDiagnosticScopes:
         assert "NEVER include raw emails" in prompt
         assert "prefer aggregates" in prompt
 
+    @pytest.mark.asyncio
+    async def test_diagnostic_prompt_forbids_external_connections(self):
+        # query:read exposes execute-sql's connectionId (external direct-query sources); the
+        # diagnostic prompt must keep the agent on the customer's own PostHog project data.
+        prompt, _ = await self._run_draft(needs_diagnostics=True)
+        assert "connectionId" in prompt
+        assert "external" in prompt.lower()
+
 
 class TestSafetyFilterActivity:
     """Input gate: blocks prompt-injection / exfil tickets before the draft loop."""
