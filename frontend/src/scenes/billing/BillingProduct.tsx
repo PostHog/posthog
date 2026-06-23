@@ -15,7 +15,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getProductIcon } from 'scenes/onboarding/utils'
+import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'

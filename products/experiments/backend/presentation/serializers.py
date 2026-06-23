@@ -32,8 +32,13 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric, resolve_action_names
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricsRecalculation,
+    experiment_has_legacy_metrics,
+)
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -109,37 +114,17 @@ class ExperimentRunningTimeCalculationField(serializers.JSONField):
     pass
 
 
-class ExperimentListSerializer(serializers.ListSerializer):
-    """Batches action-name resolution across a whole page of experiments.
+class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """Shared read-side fields for the full and list experiment serializers.
 
-    ``ExperimentSerializer.to_representation`` refreshes stale cached action names on every
-    metric, which would otherwise issue one ``Action`` query per metric per experiment. Here we
-    resolve every referenced action in a single query and hand the map down via the shared
-    serializer context, so a 100-experiment page does one action query instead of hundreds.
+    ``ExperimentSerializer`` (detail + write) and ``ExperimentBasicSerializer`` (list) both
+    declare the scalar, feature-flag, and method fields here, so they render identical types
+    for the fields they share. That keeps ``ExperimentApi`` a structural superset of
+    ``ExperimentBasicApi`` — which consumers rely on — by construction, not by hand-mirroring
+    field definitions across two classes. This base is abstract: subclasses supply their own
+    ``Meta`` (model + fields) and it is never instantiated on its own.
     """
 
-    @tracer.start_as_current_span("ExperimentListSerializer.to_representation")
-    def to_representation(self, data):
-        instances = list(data)
-        trace.get_current_span().set_attribute("experiment_count", len(instances))
-
-        metric_queries: list[dict[str, Any] | None] = []
-        team: Team | None = None
-        for instance in instances:
-            team = instance.team
-            metric_queries.extend(instance.metrics or [])
-            metric_queries.extend(instance.metrics_secondary or [])
-            # Saved metrics are prefetched via experimenttosavedmetric_set
-            for relation in instance.experimenttosavedmetric_set.all():
-                metric_queries.append(relation.saved_metric.query)
-
-        if team is not None:
-            self.context["actions_by_id"] = resolve_action_names(metric_queries, team)
-
-        return super().to_representation(instances)
-
-
-class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
         help_text=(
@@ -150,6 +135,110 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = serializers.SerializerMethodField(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the experiment.",
+    )
+    description = serializers.CharField(
+        max_length=3000,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Description of the experiment hypothesis and expected outcomes.",
+    )
+    parameters = ExperimentParametersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Experiment parameters JSON. Supported keys include "
+            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, "
+            "`custom_exposure_filter`, `excluded_variants` "
+            "(list of variant keys to drop from statistical analysis; "
+            "the baseline variant and holdout pseudo-variants cannot be excluded), "
+            "and `variant_notes` (free-text notes per variant, keyed by variant key). "
+            "The running-time calculator keys (`minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
+            "are deprecated here — prefer `running_time_calculation`."
+        ),
+    )
+    running_time_calculation = ExperimentRunningTimeCalculationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
+            "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
+            "which historically lived in `parameters`; values are kept in sync with `parameters` "
+            "during the deprecation window."
+        ),
+    )
+    conclusion = serializers.ChoiceField(
+        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
+    )
+    conclusion_comment = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=4000,
+        help_text="Comment about the experiment conclusion.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the experiment is archived.",
+    )
+    type = serializers.ChoiceField(
+        choices=["web", "product"],
+        required=False,
+        allow_null=True,
+        help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
+    )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
+            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
+            "feature_flag.active, not stored), 'stopped' (ended)."
+        ),
+    )
+    is_legacy = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or "
+            "ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support "
+            "them, such as duplicate and copy-to-project."
+        ),
+    )
+
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    def get_status(self, instance: Experiment) -> str:
+        return instance.status_label
+
+    @extend_schema_field(MinimalFeatureFlagSerializer)
+    def get_feature_flag(self, obj):
+        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_legacy(self, obj: Experiment) -> bool:
+        # The list queryset annotates is_legacy_annotation in SQL so the heavy metric columns stay
+        # deferred (see EnterpriseExperimentsViewSet.safely_get_queryset / list_is_legacy_annotation).
+        # On other paths (detail) the metrics are loaded, so fall back to computing it directly.
+        annotated = getattr(obj, "is_legacy_annotation", None)
+        if annotated is not None:
+            return annotated
+        return experiment_has_legacy_metrics(obj)
+
+
+class ExperimentSerializer(ExperimentBaseSerializer):
+    """Full experiment representation for the detail, create, and update endpoints.
+
+    Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+    definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+    fields, and refreshes stale action names while serializing. The list endpoint uses the
+    leaner ``ExperimentBasicSerializer`` instead.
+    """
+
     holdout_id = TeamScopedPrimaryKeyRelatedField(
         queryset=ExperimentHoldout.objects.all(),
         source="holdout",
@@ -177,42 +266,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "are about to instrument it)."
         ),
     )
-    name = serializers.CharField(
-        max_length=400,
-        help_text="Name of the experiment.",
-    )
-    description = serializers.CharField(
-        max_length=3000,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Description of the experiment hypothesis and expected outcomes.",
-    )
-    parameters = ExperimentParametersField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Experiment parameters JSON. Supported keys include "
-            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, "
-            "`custom_exposure_filter`, and `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded). "
-            "The running-time calculator keys (`minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
-            "are deprecated here — prefer `running_time_calculation`."
-        ),
-    )
-    running_time_calculation = ExperimentRunningTimeCalculationField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
-            "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
-            "which historically lived in `parameters`; values are kept in sync with `parameters` "
-            "during the deprecation window."
-        ),
-    )
     metrics = ExperimentMetricsField(
         required=False,
         allow_null=True,
@@ -235,29 +288,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         allow_null=True,
         help_text="Exposure configuration including filter test accounts and custom exposure events.",
     )
-    conclusion = serializers.ChoiceField(
-        choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
-        required=False,
-        allow_null=True,
-        help_text="Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.",
-    )
-    conclusion_comment = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Comment about the experiment conclusion.",
-    )
-    archived = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Whether the experiment is archived.",
-    )
-    type = serializers.ChoiceField(
-        choices=["web", "product"],
-        required=False,
-        allow_null=True,
-        help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
-    )
     update_feature_flag_params = serializers.BooleanField(
         required=False,
         default=False,
@@ -269,18 +299,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "for non-drafts."
         ),
     )
-    status = serializers.SerializerMethodField(
-        help_text=(
-            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
-            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
-        ),
-    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
-    def get_status(self, instance: Experiment) -> str:
-        return instance.status_label
 
     class Meta:
         model = Experiment
@@ -321,6 +340,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "only_count_matured_users",
             "update_feature_flag_params",
             "status",
+            "is_legacy",
             "user_access_level",
         ]
         read_only_fields = [
@@ -335,7 +355,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "status",
             "user_access_level",
         ]
-        list_serializer_class = ExperimentListSerializer
 
     def get_fields(self):
         fields = super().get_fields()
@@ -345,10 +364,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
-
-    @extend_schema_field(MinimalFeatureFlagSerializer)
-    def get_feature_flag(self, obj):
-        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -361,16 +376,14 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "explicitDate": True,
         }
 
-        # actions_by_id is preloaded once per page by ExperimentListSerializer to avoid an
-        # Action query per metric; None on detail/launch/archive paths (falls back to a query).
-        actions_by_id = self.context.get("actions_by_id")
-
-        # Refresh action names in inline metrics (metrics and metrics_secondary)
-        # The columns are nullable, so the keys can be present with a None value
+        # Refresh action names in inline metrics (metrics and metrics_secondary).
+        # The columns are nullable, so the keys can be present with a None value. Each call
+        # resolves the experiment's actions in a single query — fine here because this serializer
+        # only ever renders one experiment at a time (detail/launch/archive/…), never a list page.
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team, actions_by_id)
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
                     metric = refreshed_metric
@@ -539,6 +552,67 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
 
+class ExperimentBasicSerializer(ExperimentBaseSerializer):
+    """Lightweight, read-only serializer for the experiment list endpoint.
+
+    The list view (and the MCP list tool) render only the scalar and feature-flag fields
+    shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+    ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+    JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+    belongs to the detail response served by ``ExperimentSerializer``.
+
+    Because the metric fields, the write-side machinery, and the action-name-refreshing
+    ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+    this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+    ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+    a plain ``ListSerializer`` that never touches the deferred columns. See
+    ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+    """
+
+    class Meta:
+        model = Experiment
+        fields = [
+            "id",
+            "name",
+            "description",
+            "start_date",
+            "end_date",
+            "feature_flag_key",
+            "feature_flag",
+            "holdout",
+            "exposure_cohort",
+            "parameters",
+            "running_time_calculation",
+            "archived",
+            "deleted",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "type",
+            "conclusion",
+            "conclusion_comment",
+            "status",
+            "is_legacy",
+            "user_access_level",
+        ]
+        # Shared fields take their definitions from ExperimentBaseSerializer, so their types
+        # already match ExperimentSerializer. read_only_fields still has to mirror the full
+        # serializer for the model-derived fields (id/created_at/exposure_cohort/...) so each
+        # field's optionality matches and ExperimentApi stays a structural superset of
+        # ExperimentBasicApi, which consumers rely on.
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "feature_flag",
+            "exposure_cohort",
+            "holdout",
+            "status",
+            "user_access_level",
+        ]
+
+
 class EndExperimentSerializer(serializers.Serializer):
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
@@ -550,7 +624,18 @@ class EndExperimentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         allow_blank=True,
+        max_length=4000,
         help_text="Optional comment about the experiment conclusion.",
+    )
+
+
+class ArchiveExperimentSerializer(serializers.Serializer):
+    disable_feature_flag = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When the linked feature flag is still enabled, also disable and archive it along with "
+            "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
+        ),
     )
 
 
@@ -747,6 +832,18 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     )
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
+    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
+    # the metric_errors-vs-errors rename above.
+    result_source = serializers.ChoiceField(
+        choices=["recalculation", "timeseries_fallback"],
+        required=False,
+        default="recalculation",
+        read_only=True,
+        help_text=(
+            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
+            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
     )
     # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
     # per-metric results yet — the workflow has just started).

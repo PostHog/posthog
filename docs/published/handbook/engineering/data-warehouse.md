@@ -22,7 +22,7 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
    4. user = posthog
    5. password = posthog
    6. schema = public
-3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table)
+3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table). For the Postgres-specific `xmin` (cursorless incremental) sync type and its limitations, see the [Postgres source README](https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/postgres/README.md)
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
 ## Accessing object storage

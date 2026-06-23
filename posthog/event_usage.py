@@ -272,6 +272,7 @@ def report_user_organization_membership_level_changed(
 class EventSource(StrEnum):
     WEB = "web"
     API = "api"
+    CLI = "cli"
     POSTHOG_AI = "posthog_ai"
     POSTHOG_CODE = "posthog_code"
     TERRAFORM = "terraform"
@@ -319,14 +320,17 @@ def get_event_source(request) -> EventSource:
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
-    # Wizard, posthog-code etc. all wrap MCP — their UA tokens must win over the
-    # X-PostHog-Client header so the source reflects the outer caller.
+    # Wizard, posthog-code, posthog-cli etc. all wrap MCP — their UA tokens
+    # must win over the X-PostHog-Client header so the source reflects the
+    # outer caller.
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
+    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
+        return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return EventSource.MCP
     # DRF sets successful_authenticator during view dispatch; before that

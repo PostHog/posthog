@@ -1,6 +1,9 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
+
+from django.apps import apps
 
 from parameterized import parameterized
 
@@ -29,7 +32,6 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
-from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -50,6 +52,11 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models.account import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -488,7 +495,7 @@ def _create_survey(team: Team, label: str) -> Survey:
 
 
 def _create_task(team: Team, label: str):
-    from products.tasks.backend.models import Task
+    Task = apps.get_model("tasks", "Task")
 
     return Task.objects.create(
         team=team,
@@ -499,7 +506,8 @@ def _create_task(team: Team, label: str):
 
 
 def _create_task_run(team: Team, label: str):
-    from products.tasks.backend.models import Task, TaskRun
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
 
     task = Task.objects.create(
         team=team,
@@ -510,8 +518,20 @@ def _create_task_run(team: Team, label: str):
     return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED)
 
 
+def _create_file_system(team: Team, label: str):
+    from posthog.models.file_system.file_system import FileSystem
+
+    return FileSystem.objects.create(
+        team=team,
+        path=f"Channels/{label}",
+        type="task",
+        ref=label,
+        surface="desktop",
+    )
+
+
 def _create_sandbox_environment(team: Team, label: str):
-    from products.tasks.backend.models import SandboxEnvironment
+    SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
 
     # private=False so the row is queryable via HogQL — the privacy predicate
     # excludes private environments. Privacy filtering itself is covered by
@@ -605,6 +625,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
+    ("file_system", _create_file_system),
     ("groups", _create_group),
     ("group_type_mappings", _create_group_type_mapping),
     ("hog_flows", _create_hog_flow),
@@ -681,7 +702,7 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_private_environments_excluded(self):
-        from products.tasks.backend.models import SandboxEnvironment
+        SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
 
         public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
         private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
@@ -693,7 +714,7 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
         assert str(private_env.pk) not in ids
 
     def test_internal_environments_excluded(self):
-        from products.tasks.backend.models import SandboxEnvironment
+        SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
 
         regular_env = SandboxEnvironment.objects.create(
             team=self.team, name="regular_env", private=False, internal=False
@@ -727,7 +748,7 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_internal_tasks_excluded(self):
-        from products.tasks.backend.models import Task
+        Task = apps.get_model("tasks", "Task")
 
         regular_task = Task.objects.create(
             team=self.team,

@@ -562,8 +562,10 @@ export interface AssistantTrendsFilter {
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
 
     /**
-     * Only applies when `display` is `Metric`. Show the change pill next to the big number — the
-     * percentage change from the first to the last point of the series over the selected date range.
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
      * @default true
      */
     metricShowChange?: boolean
@@ -602,6 +604,16 @@ export interface AssistantTrendsFilter {
      * "lower is better" metric.
      */
     metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
@@ -1415,6 +1427,38 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+}
+
+/**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
 }
 
 /**

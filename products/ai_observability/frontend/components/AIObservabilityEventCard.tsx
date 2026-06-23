@@ -3,9 +3,6 @@ import { useValues } from 'kea'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
@@ -32,7 +29,6 @@ export function AIObservabilityEventCard({
     onToggleExpand,
     traceId,
 }: AIObservabilityEventCardProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
 
     const isGeneration = event.event === '$ai_generation'
@@ -111,7 +107,6 @@ export function AIObservabilityEventCard({
                     )}
                     {isGeneration &&
                         traceId &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] &&
                         (() => {
                             const genSentiment = getGenerationSentiment(event.id)
                             return genSentiment ? (

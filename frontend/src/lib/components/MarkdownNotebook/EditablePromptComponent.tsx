@@ -16,6 +16,7 @@ export function EditablePromptComponent({
     deleteNodeAndFocusAdjacent,
     updateAIPromptQuery,
     submitAIPrompt,
+    isAIPromptSubmitDisabled,
     isActive,
     focusRequest,
     restoreSelectionRef,
@@ -27,6 +28,7 @@ export function EditablePromptComponent({
     deleteNodeAndFocusAdjacent: () => void
     updateAIPromptQuery: (query: string) => void
     submitAIPrompt: (queryOverride?: string) => boolean
+    isAIPromptSubmitDisabled: boolean
     isActive: boolean
     focusRequest?: number
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
@@ -36,6 +38,11 @@ export function EditablePromptComponent({
     const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
     const isEmpty = question.length === 0
+    const submitDisabledReason = question.trim()
+        ? isAIPromptSubmitDisabled
+            ? 'AI is already running'
+            : undefined
+        : 'Write a prompt first'
 
     const setElementRef = useCallback(
         (element: HTMLTextAreaElement | null): void => {
@@ -100,6 +107,9 @@ export function EditablePromptComponent({
     }
 
     const submitPrompt = (query: string = question): void => {
+        if (isAIPromptSubmitDisabled) {
+            return
+        }
         submitAIPrompt(query)
     }
 
@@ -170,10 +180,10 @@ export function EditablePromptComponent({
                     </button>
                 </div>
                 {isCollapsed ? null : (
-                    <div className="MarkdownNotebook__ai-chat-reply MarkdownNotebook__ai-prompt-form">
+                    <div className="MarkdownNotebook__ai-prompt-form">
                         <LemonTextArea
                             ref={setElementRef}
-                            className="MarkdownNotebook__ai-chat-reply-input MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
+                            className="MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
                             data-attr="markdown-notebook-ai-prompt"
                             value={question}
                             onChange={updateQuestion}
@@ -194,7 +204,8 @@ export function EditablePromptComponent({
                             tooltip="Send prompt"
                             aria-label="Send prompt"
                             onClick={() => submitPrompt()}
-                            disabledReason={question.trim() ? undefined : 'Write a prompt first'}
+                            disabled={!!submitDisabledReason || mode !== 'edit'}
+                            disabledReason={submitDisabledReason}
                         />
                     </div>
                 )}

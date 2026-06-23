@@ -39,6 +39,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
+    "products.ai_gateway.backend.apps.AIGatewayConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
@@ -501,12 +502,51 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
+        # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
+        # generated names so the shared enums don't get component-prefixed auto-names on collision.
+        "ExperimentTypeEnum": ["web", "product", None],
+        "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
+        # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
+        # Pin both to stable names so neither gets a component-prefixed auto-name on collision.
+        # "SyncFrequencyEnum" keeps the source-schema enum at its pre-existing generated name.
+        "SyncFrequencyEnum": [
+            "never",
+            "1min",
+            "5min",
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
+        "SavedQuerySyncFrequencyEnum": [
+            "never",
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
+        # Signals now has two serializers (single SignalReportStateRequest + bulk
+        # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
+        # shared enum to a stable name so it doesn't collide with the other `state` enums
+        # (tasks, cdp) into a component-prefixed auto-name.
+        "SignalReportStateEnum": ["suppressed", "potential"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
@@ -573,6 +613,8 @@ SPECTACULAR_SETTINGS = {
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
+        # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
+        "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -792,6 +834,16 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 # Feature flag to enable HogFunctions daily digest email for specific teams
 # Comma-separated list of team IDs that should receive the digest
 HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
+
+# Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
+# opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 5000))
+# Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 50000))
+# Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
+HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
+    int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", "2"))
+}
 
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature

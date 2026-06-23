@@ -335,7 +335,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             incrementalField: string | null,
             incrementalFieldType: string | null,
             primaryKeyColumns: string[] | null,
-            cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+            cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+            incrementalFieldLookbackSeconds?: number | null
         ) => ({
             schema,
             syncType,
@@ -343,6 +344,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             incrementalFieldType,
             primaryKeyColumns,
             cdcTableMode,
+            incrementalFieldLookbackSeconds,
         }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({
@@ -485,7 +487,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 },
                 updateSchemaSyncType: (
                     state,
-                    { schema, syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode }
+                    {
+                        schema,
+                        syncType,
+                        incrementalField,
+                        incrementalFieldType,
+                        primaryKeyColumns,
+                        cdcTableMode,
+                        incrementalFieldLookbackSeconds,
+                    }
                 ) => {
                     return state.map((s) => ({
                         ...s,
@@ -493,6 +503,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
                         incremental_field_type:
                             s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
+                        incremental_field_lookback_seconds:
+                            s.table === schema.table
+                                ? (incrementalFieldLookbackSeconds ?? null)
+                                : s.incremental_field_lookback_seconds,
                         primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
                         ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
                             ? { cdc_table_mode: cdcTableMode }
@@ -595,12 +609,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 cancelSyncMethodModal: () => null,
                 updateSchemaSyncType: (
                     _,
-                    { schema, syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode }
+                    {
+                        schema,
+                        syncType,
+                        incrementalField,
+                        incrementalFieldType,
+                        primaryKeyColumns,
+                        cdcTableMode,
+                        incrementalFieldLookbackSeconds,
+                    }
                 ) => ({
                     ...schema,
                     sync_type: syncType,
                     incremental_field: incrementalField,
                     incremental_field_type: incrementalFieldType,
+                    incremental_field_lookback_seconds: incrementalFieldLookbackSeconds ?? null,
                     primary_key_columns: primaryKeyColumns,
                     ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
                 }),
@@ -1115,6 +1138,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const incrementalTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'incremental'
                 )
+                const xminTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'xmin'
+                )
                 const fullRefreshTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
                 )
@@ -1154,6 +1180,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             — Ideal. Syncs only changed rows using a field like{' '}
                             <span className="font-mono text-xs">updated_at</span>.
                         </div>
+
+                        {/* xmin - Good */}
+                        {xminTables.length > 0 && (
+                            <>
+                                <div className="font-bold text-success">xmin</div>
+                                <div>
+                                    <span className="text-muted">{tableCountFormatter(xminTables.length)}</span> — Syncs
+                                    only changed rows using Postgres' internal{' '}
+                                    <span className="font-mono text-xs">xmin</span> column. No cursor field required.
+                                </div>
+                            </>
+                        )}
 
                         {/* Append-only - Caution */}
                         <div className="font-bold text-warning">Append-only</div>
@@ -1204,6 +1242,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_type: schema.sync_type,
                                         incremental_field: schema.incremental_field,
                                         incremental_field_type: schema.incremental_field_type,
+                                        incremental_field_lookback_seconds:
+                                            schema.incremental_field_lookback_seconds ?? null,
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
@@ -1441,6 +1481,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 sync_type: schema.sync_type,
                                 incremental_field: schema.incremental_field,
                                 incremental_field_type: schema.incremental_field_type,
+                                incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
                                 sync_time_of_day: schema.sync_time_of_day ?? null,
                                 primary_key_columns: schema.primary_key_columns,
                                 ...(schema.sync_type === 'cdc' && schema.cdc_table_mode

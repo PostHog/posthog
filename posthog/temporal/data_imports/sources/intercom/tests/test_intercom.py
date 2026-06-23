@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.intercom.intercom import (
     _company_segments_generator,
     _conversation_parts_generator,
     _is_scroll_exists,
+    _is_server_error,
     _iter_companies,
     _make_intercom_session,
     get_resource,
@@ -311,15 +312,16 @@ class TestSubstreamGenerators:
             list(_conversation_parts_generator(mock_session, "updated_at", None))
 
     def test_company_segments_skips_404_parent(self):
-        # The parent companies walk (scroll) and the per-company segments fetch
-        # both go through GET, so the calls interleave on `session.get` in order:
-        # scroll page -> segments(co1) -> segments(co2) -> empty scroll page.
+        # The scroll is drained fully before any per-company segment fetch, so
+        # `session.get` is called in order: scroll page -> empty scroll page ->
+        # segments(co1) -> segments(co2). A 404 on a single segment fetch (the
+        # company vanished between listing and fetch) skips that company only.
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
             _make_response(None, status_code=404, text="Not Found"),
             _make_response({"data": [{"id": "s2"}]}),
-            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -328,9 +330,13 @@ class TestSubstreamGenerators:
         assert segments[0]["company_id"] == "co2"
 
     def test_company_segments_reraises_non_404(self):
+        # 500 is retried inline by `_scroll_companies_get`; a non-404 on the
+        # per-company segment fetch (not the scroll) must surface. Drain the
+        # scroll first, then fail the segment fetch with a 500.
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
             _make_response(None, status_code=500, text="Server Error"),
         ]
 
@@ -341,9 +347,9 @@ class TestSubstreamGenerators:
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
             _make_response({"data": [{"id": "s1"}]}),
             _make_response({"data": [{"id": "s2"}, {"id": "s3"}]}),
-            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -351,6 +357,28 @@ class TestSubstreamGenerators:
         assert [s["id"] for s in segments] == ["s1", "s2", "s3"]
         assert segments[0]["company_id"] == "co1"
         assert segments[1]["company_id"] == "co2"
+
+    def test_company_segments_drains_scroll_before_fetching_segments(self):
+        # Intercom expires an idle companies scroll after ~1 min. Fetching
+        # segments between scroll pages let the cursor lapse mid-walk, 404ing the
+        # next continuation. The scroll must be fully walked before any segment
+        # fetch, so the scroll requests stay back-to-back.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": [{"id": "co2"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+            _make_response({"data": [{"id": "seg1"}]}),
+            _make_response({"data": [{"id": "seg2"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1", "seg2"]
+        urls = [call.args[0] for call in mock_session.get.call_args_list]
+        last_scroll = max(i for i, u in enumerate(urls) if u.endswith("/companies/scroll"))
+        first_segments = min(i for i, u in enumerate(urls) if u.endswith("/segments"))
+        assert last_scroll < first_segments
 
     def test_iter_companies_walks_scroll(self):
         # `POST /companies/list` is capped at 10,000 companies (60 * 167 page
@@ -450,6 +478,77 @@ class TestCompaniesScrollExists:
 
         sleep.assert_not_called()
         assert mock_session.get.call_count == 1
+
+
+class TestCompaniesScrollServerError:
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [
+            (500, True),
+            (502, True),
+            (503, True),
+            (504, True),
+            (400, False),
+            (404, False),
+            (429, False),
+            (200, False),
+        ],
+    )
+    def test_is_server_error(self, status_code: int, expected: bool):
+        assert _is_server_error(_http_error(None, status_code=status_code, text="boom")) is expected
+
+    def test_iter_companies_retries_continuation_server_error(self):
+        # A transient 5xx mid-walk (the observed error: 500 on
+        # `/companies/scroll?scroll_param=...`) is retried inline against the same
+        # scroll_param, so the walk continues without re-opening or duplicating rows.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response(None, status_code=500, text="Server Error"),
+            _make_response({"data": [{"id": "co2"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep") as sleep:
+            companies = list(_iter_companies(mock_session))
+
+        assert [c["id"] for c in companies] == ["co1", "co2"]
+        sleep.assert_called_once_with(intercom_module._SCROLL_SERVER_ERROR_BACKOFF_SECONDS)
+        # The retried continuation reuses the same scroll_param — the cursor only
+        # advances once a page is returned.
+        assert mock_session.get.call_args_list[2].kwargs["params"] == {"scroll_param": "s1"}
+
+    def test_iter_companies_retries_open_server_error(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=503, text="Service Unavailable"),
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep"):
+            companies = list(_iter_companies(mock_session))
+
+        assert [c["id"] for c in companies] == ["co1"]
+        # The retried open carries no scroll_param.
+        assert mock_session.get.call_args_list[1].kwargs["params"] is None
+
+    def test_iter_companies_reraises_server_error_after_max_retries(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            *[
+                _make_response(None, status_code=500, text="Server Error")
+                for _ in range(intercom_module._SCROLL_SERVER_ERROR_MAX_RETRIES + 1)
+            ],
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep"):
+            with pytest.raises(HTTPError):
+                list(_iter_companies(mock_session))
+
+        # One open + every continuation attempt (initial + retries) before surfacing.
+        assert mock_session.get.call_count == intercom_module._SCROLL_SERVER_ERROR_MAX_RETRIES + 2
 
 
 class TestSubstreamSessionRetries:

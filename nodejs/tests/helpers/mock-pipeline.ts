@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipeline, BatchPipelineResultWithContext } from '../../src/ingestion/pipelines/batch-pipeline.interface'
+import { BatchPipeline, BatchPipelineResultWithContext } from '~/ingestion/framework/batch-pipeline.interface'
 
 /**
  * Creates a mock pipeline that returns pre-built results from next().

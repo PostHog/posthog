@@ -23,16 +23,16 @@ use common::{build_event, make_ctx};
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
-use cymbal::stages::resolution::symbol::SymbolResolver;
+use cymbal::modes::resolution::load_monitor::LoadMonitor;
+use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
 use cymbal::stages::resolution::ResolutionStage;
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
 
 /// Fake symbol resolver shared by both sides of the parity comparison. Every

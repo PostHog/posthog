@@ -214,6 +214,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = RevenueAnalyticsOverviewQueryRunner(
                 team=self.team,
                 query=query,
+                user=self.user,
             )
 
             response = runner.calculate()
