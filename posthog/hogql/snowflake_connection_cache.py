@@ -142,8 +142,8 @@ def cached_snowflake_connection(
         # we reuse its auth/keypair logic without closing the connection on block exit.
         cm = implementation.connect(config)
         connection = cm.__enter__()
+        # A fresh key lands at the tail (LRU-newest) already, so no move_to_end needed here.
         cache[key] = _Entry(cm=cm, connection=connection, opened_at=now)
-        cache.move_to_end(key)
         SNOWFLAKE_CONNECTION_CACHE_TOTAL.labels(result="opened").inc()
         while len(cache) > SNOWFLAKE_CONNECTION_CACHE_MAX_PER_THREAD:
             _old_key, old_entry = cache.popitem(last=False)
