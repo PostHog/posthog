@@ -696,6 +696,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Data Warehouse Table',
                         getIcon: () => <IconServer />,
                     },
+                    {
+                        name: 'Data warehouse tables',
+                        searchPlaceholder: 'data warehouse tables',
+                        type: TaxonomicFilterGroupType.DataWarehouseSourceTables,
+                        logic: dataWarehouseSettingsSceneLogic,
+                        value: 'externalDataSourceTables',
+                        valueLoading: 'databaseLoading',
+                        getName: (table: DatabaseSchemaTable) => table.name,
+                        getValue: (table: DatabaseSchemaTable) => table.name,
+                        getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
                     ...(schemaColumns.length > 0 || schemaColumnsLoading
                         ? [
                               {

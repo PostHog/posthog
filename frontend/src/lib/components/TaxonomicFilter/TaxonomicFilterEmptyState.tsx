@@ -257,6 +257,7 @@ const DefaultEmptyState = (): JSX.Element | null => {
 
 const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, React.ComponentType<TaxonomicFilterEmptyStateProps>>> = {
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.DataWarehouseSourceTables]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,

@@ -340,8 +340,13 @@ export function ActionFilterRow({
         )
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    // CDP destination/workflow filters (plugin-filters) restrict the picker to external-source tables.
+    const dataWarehouseGroupType =
+        typeKey === 'plugin-filters'
+            ? TaxonomicFilterGroupType.DataWarehouseSourceTables
+            : TaxonomicFilterGroupType.DataWarehouse
     const initialGroupType = isDataWarehouseFilter
-        ? TaxonomicFilterGroupType.DataWarehouse
+        ? dataWarehouseGroupType
         : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet

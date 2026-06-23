@@ -33,7 +33,15 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            [
+                'database',
+                'posthogTables',
+                'dataWarehouseTables',
+                'externalDataSourceTables',
+                'databaseLoading',
+                'views',
+                'viewsMapById',
+            ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],
