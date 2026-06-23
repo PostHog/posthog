@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -414,6 +416,55 @@ class TestUntrustedTicketGuard:
         assert injection not in before
 
 
+class TestDiagnosticScopes:
+    """PR3: diagnostic tickets get wider read scopes + a diagnostic prompt block; others don't."""
+
+    async def _run_draft(self, needs_diagnostics: bool) -> tuple[str, list[str]]:
+        from products.conversations.backend.temporal import pipeline
+
+        captured: dict[str, Any] = {}
+
+        async def fake_start(prompt, context, **kwargs):
+            captured["prompt"] = prompt
+            captured["scopes"] = context.posthog_mcp_scopes
+            result = pipeline.SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
+            return AsyncMock(), result
+
+        with (
+            patch(f"{PIPELINE_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{PIPELINE_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{PIPELINE_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{PIPELINE_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+        ):
+            await pipeline._draft_async(
+                team_id=1, ticket_context="exports failing", chunk_ids=[], needs_diagnostics=needs_diagnostics
+            )
+        return captured["prompt"], captured["scopes"]
+
+    @pytest.mark.asyncio
+    async def test_diagnostic_ticket_requests_extra_scopes(self):
+        from products.conversations.backend.temporal.pipeline import BASE_DRAFT_SCOPES, DIAGNOSTIC_DRAFT_SCOPES
+
+        prompt, scopes = await self._run_draft(needs_diagnostics=True)
+        assert scopes == [*BASE_DRAFT_SCOPES, *DIAGNOSTIC_DRAFT_SCOPES]
+        # execute-sql/HogQL needs both query:read AND insight:read.
+        assert "query:read" in scopes and "insight:read" in scopes
+        assert "error_tracking:read" in scopes
+        assert "session_recording:read" in scopes
+        assert "logs:read" in scopes
+        assert "DIAGNOSTIC INVESTIGATION" in prompt
+
+    @pytest.mark.asyncio
+    async def test_non_diagnostic_ticket_stays_base_scopes(self):
+        from products.conversations.backend.temporal.pipeline import BASE_DRAFT_SCOPES
+
+        prompt, scopes = await self._run_draft(needs_diagnostics=False)
+        assert scopes == BASE_DRAFT_SCOPES
+        for diag_scope in ("error_tracking:read", "query:read", "insight:read", "session_recording:read", "logs:read"):
+            assert diag_scope not in scopes
+        assert "DIAGNOSTIC INVESTIGATION" not in prompt
+
+
 class TestValidateActivity:
     @parameterized.expand(
         [
@@ -692,6 +743,8 @@ async def test_classify_runs_once_and_threads_ticket_type(
     assert mock_validate.call_args[0][6] == "diagnostic"
     # seed_queries threads into refine (arg 4).
     assert mock_refine.call_args[0][4] == ["export failures"]
+    # needs_diagnostics threads into draft (arg 7).
+    assert mock_draft.call_args[0][7] is True
 
 
 class TestClassifyActivity:

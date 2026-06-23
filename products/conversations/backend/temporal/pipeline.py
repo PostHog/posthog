@@ -75,6 +75,26 @@ VALIDATOR_MODEL = "claude-sonnet-4-6"
 # (spam, bare feedback, no question) short-circuits before the expensive draft loop.
 TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "unactionable")
 
+# Base read scopes every draft gets: BK search/window + docs-search (Inkeep RAG over the
+# official PostHog docs). Both read-only; persistence is a plain activity, no write scope needed.
+BASE_DRAFT_SCOPES = ["business_knowledge:read", "project:read"]
+
+# Extra read scopes granted only to `diagnostic` tickets so the agent can investigate the
+# customer's own data. All confirmed valid scope objects in posthog/scopes.py.
+# - query:read + insight:read together unlock execute-sql/HogQL (query:read alone does NOT;
+#   the execute-sql tool requires both, and there's no separate `events` scope — query:read
+#   "covers query and events endpoints").
+# - logs:read unlocks query-logs (a separate scope, not implied by query:read); harmless no-op
+#   on teams without the logs feature flag.
+# - error_tracking:read (issues list/get/events), session_recording:read (recording get/summaries).
+DIAGNOSTIC_DRAFT_SCOPES = [
+    "error_tracking:read",
+    "query:read",
+    "insight:read",
+    "session_recording:read",
+    "logs:read",
+]
+
 # One-line bias appended to refine/draft/validate prompts so each step focuses on what the
 # ticket type actually needs answered.
 TICKET_TYPE_HINTS: dict[str, str] = {
@@ -161,6 +181,9 @@ class DraftInput:
     prior_missing: list[str] = field(default_factory=list)
     always_on_context: str = ""
     ticket_type: str = "how_to"
+    # When true (diagnostic tickets), the draft sandbox gets the wider DIAGNOSTIC_DRAFT_SCOPES
+    # so the agent can investigate the customer's actual data instead of doc-lookup only.
+    needs_diagnostics: bool = False
 
 
 @dataclass
@@ -453,6 +476,7 @@ async def draft_activity(input: DraftInput) -> DraftOutput:
             input.prior_missing,
             input.always_on_context,
             input.ticket_type,
+            input.needs_diagnostics,
         )
 
 
@@ -464,20 +488,24 @@ async def _draft_async(
     prior_missing: list[str] | None = None,
     always_on_context: str = "",
     ticket_type: str = "how_to",
+    needs_diagnostics: bool = False,
 ) -> DraftOutput:
     chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
+
+    # Diagnostic tickets need to read the customer's own data; everyone else stays doc-lookup
+    # only. Reads only — safe under the CUSTOM/empty-allowlist egress lock in helpers.py.
+    mcp_scopes = list(BASE_DRAFT_SCOPES)
+    if needs_diagnostics:
+        mcp_scopes += DIAGNOSTIC_DRAFT_SCOPES
 
     context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
         repository=None,
         sandbox_environment_id=env_id,
-        # business_knowledge:read → BK search/window MCP tools (team's own knowledge).
-        # project:read → docs-search MCP tool (Inkeep RAG over the official PostHog docs).
-        # Both read-only; persistence happens in a plain activity, so no write scope is needed.
-        posthog_mcp_scopes=["business_knowledge:read", "project:read"],
+        posthog_mcp_scopes=mcp_scopes,
     )
 
     chunks_text = "\n\n".join(
@@ -507,6 +535,19 @@ COMPANY CONTEXT (always-on guidance — tone, policies, direction):
 
 """
 
+    diagnostic_block = ""
+    if needs_diagnostics:
+        diagnostic_block = """
+DIAGNOSTIC INVESTIGATION (this ticket reports something broken — investigate the customer's actual data):
+- Don't stop at documentation. Use your data tools to find out what is actually happening for THIS customer:
+  - error-tracking tools: list/get error-tracking issues and their events to see real exceptions and stack traces.
+  - execute-sql (HogQL): query the customer's events/persons to confirm or rule out what the ticket describes (e.g. whether events are arriving, when they stopped, error rates over time).
+  - session-recording tools: pull recording metadata/summaries to see what the user actually did.
+  - query-logs: inspect backend/ingestion logs for the relevant service when the ticket is about errors or ingestion.
+- Form a hypothesis from the ticket, verify it against the data, and base your reply on what the data shows — not on guesses.
+- For EVERY data-derived claim, put the supporting tool output into `sources` with the raw result (query + the values it returned, or the issue/log line) as the `excerpt`, so the validator can ground it. Without that excerpt, a correct data-based answer will be marked ungrounded.
+"""
+
     prompt = f"""You are a support agent drafting a reply to a customer ticket.
 
 SECURITY:
@@ -528,7 +569,7 @@ KNOWLEDGE BASE RESULTS:
 {chunks_text[:12000]}{refinement}
 
 TICKET TYPE: {ticket_type} — {TICKET_TYPE_HINTS.get(ticket_type, "")}
-
+{diagnostic_block}
 INSTRUCTIONS:
 - Draft a helpful, accurate reply to the customer's question.
 - Search for sources before answering. The KNOWLEDGE BASE RESULTS above may be empty — that's expected, so use your tools:
@@ -782,6 +823,7 @@ class SupportReplyWorkflow:
                     prior_missing=missing,
                     always_on_context=ctx_output.always_on_context,
                     ticket_type=ticket_type,
+                    needs_diagnostics=classify_output.needs_diagnostics,
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 retry_policy=RetryPolicy(maximum_attempts=2),
