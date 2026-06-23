@@ -37,8 +37,15 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
 )
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
-from products.notebooks.backend.facade import api as notebooks
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import (
+    api as notebooks,
+    contracts as notebook_contracts,
+)
+
+# ResourceNotebook stays a direct import for the account-list Prefetch only — prefetching the
+# account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
+# CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
+from products.notebooks.backend.models import ResourceNotebook
 
 from . import contracts
 
@@ -967,7 +974,25 @@ def _to_user_basic_info(user: "User | None") -> contracts.UserBasicInfo | None:
     )
 
 
-def _to_account_notebook_view(notebook: Notebook) -> contracts.AccountNotebookView:
+def _notebook_user_to_basic_info(
+    user: "notebook_contracts.NotebookUserInfo | None",
+) -> contracts.UserBasicInfo | None:
+    if user is None:
+        return None
+    return contracts.UserBasicInfo(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=user.distinct_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=user.hedgehog_config,
+        role_at_organization=user.role_at_organization,
+    )
+
+
+def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") -> contracts.AccountNotebookView:
     return contracts.AccountNotebookView(
         id=notebook.id,
         short_id=notebook.short_id,
@@ -975,9 +1000,9 @@ def _to_account_notebook_view(notebook: Notebook) -> contracts.AccountNotebookVi
         content=notebook.content,
         text_content=notebook.text_content,
         created_at=notebook.created_at,
-        created_by=_to_user_basic_info(notebook.created_by),
+        created_by=_notebook_user_to_basic_info(notebook.created_by),
         last_modified_at=notebook.last_modified_at,
-        last_modified_by=_to_user_basic_info(notebook.last_modified_by),
+        last_modified_by=_notebook_user_to_basic_info(notebook.last_modified_by),
     )
 
 
@@ -1000,16 +1025,7 @@ def list_account_notebooks(
     parent account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    notebooks = (
-        Notebook.objects.filter(
-            deleted=False,
-            visibility=Notebook.Visibility.INTERNAL,
-            resources__account_id=account_id,
-        )
-        .select_related("created_by", "last_modified_by")
-        .order_by("-last_modified_at")
-    )
-    return [_to_account_notebook_view(n) for n in notebooks]
+    return [_to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id)]
 
 
 def get_account_notebook(
@@ -1019,16 +1035,7 @@ def get_account_notebook(
     accessible or no such linked notebook exists (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    notebook = (
-        Notebook.objects.filter(
-            deleted=False,
-            visibility=Notebook.Visibility.INTERNAL,
-            resources__account_id=account_id,
-            short_id=short_id,
-        )
-        .select_related("created_by", "last_modified_by")
-        .first()
-    )
+    notebook = notebooks.get_account_notebook(account_id, short_id)
     return _to_account_notebook_view(notebook) if notebook is not None else None
 
 
@@ -1046,22 +1053,30 @@ def create_account_notebook(
     (markdown→tiptap) so the ``ee.hogai`` helper stays off the facade import path."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    save_kwargs: dict[str, Any] = {
-        "team": team,
-        "created_by": user,
-        "last_modified_by": user,
-        "visibility": Notebook.Visibility.INTERNAL,
-        "title": input.title,
-        "text_content": input.text_content,
-    }
-    if input.synthesized_content is not None:
-        save_kwargs["content"] = input.synthesized_content
-    elif input.content is not None:
-        save_kwargs["content"] = input.content
-    with transaction.atomic():
-        notebook = Notebook.objects.create(**save_kwargs)
-        ResourceNotebook.objects.create(notebook=notebook, account_id=account_id)
-    return _to_account_notebook_view(notebook)
+    content = input.synthesized_content if input.synthesized_content is not None else input.content
+    created = notebooks.create_account_notebook(
+        team_id,
+        account_id,
+        title=input.title,
+        content=content,
+        text_content=input.text_content,
+        created_by_id=user.id,
+        last_modified_by_id=user.id,
+    )
+    # The creator is also the (only) modifier of a just-created notebook, so the user the
+    # caller already holds is both `created_by` and `last_modified_by` — no extra fetch.
+    author = _to_user_basic_info(user)
+    return contracts.AccountNotebookView(
+        id=created.id,
+        short_id=created.short_id,
+        title=created.title,
+        content=created.content,
+        text_content=created.text_content,
+        created_at=created.created_at,
+        created_by=author,
+        last_modified_at=created.last_modified_at,
+        last_modified_by=author,
+    )
 
 
 def delete_account_notebook(
@@ -1071,17 +1086,7 @@ def delete_account_notebook(
     isn't accessible or no such notebook exists (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return False
-    notebook = Notebook.objects.filter(
-        deleted=False,
-        visibility=Notebook.Visibility.INTERNAL,
-        resources__account_id=account_id,
-        short_id=short_id,
-    ).first()
-    if notebook is None:
-        return False
-    with transaction.atomic():
-        notebook.delete()
-    return True
+    return notebooks.delete_account_notebook(account_id, short_id)
 
 
 # --- shared resolution / access helpers for the CRUD paths ---

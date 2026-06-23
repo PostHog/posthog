@@ -99,6 +99,34 @@ class TestNotebooksFacade(BaseTest):
         ResourceNotebook.objects.create(notebook=external, account=account)
         self.assertEqual(api.list_account_internal_notes(account.id), [])
 
+    def test_account_notebook_crud_surface(self):
+        account = _create_account(self.team)
+        created = api.create_account_notebook(
+            self.team.id, str(account.id), title="Q3", content=self._doc(), created_by_id=self.user.id
+        )
+
+        listed = api.list_account_notebooks(str(account.id))
+        self.assertEqual([n.short_id for n in listed], [created.short_id])
+        self.assertEqual(listed[0].title, "Q3")
+        assert listed[0].created_by is not None
+        self.assertEqual(listed[0].created_by.id, self.user.id)
+        self.assertEqual(listed[0].created_by.email, self.user.email)
+
+        fetched = api.get_account_notebook(str(account.id), created.short_id)
+        assert fetched is not None
+        self.assertEqual(fetched.short_id, created.short_id)
+
+        self.assertTrue(api.delete_account_notebook(str(account.id), created.short_id))
+        self.assertIsNone(api.get_account_notebook(str(account.id), created.short_id))
+        self.assertFalse(api.delete_account_notebook(str(account.id), "missing"))
+
+    def test_get_account_notebook_excludes_non_internal(self):
+        account = _create_account(self.team)
+        external = Notebook.objects.create(team=self.team, title="e", visibility=Notebook.Visibility.DEFAULT)
+        ResourceNotebook.objects.create(notebook=external, account=account)
+        self.assertEqual(api.list_account_notebooks(str(account.id)), [])
+        self.assertIsNone(api.get_account_notebook(str(account.id), external.short_id))
+
 
 class TestNotebooksFacadeAsync(BaseTest):
     def _doc(self, text: str = "hi") -> dict:

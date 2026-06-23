@@ -13,6 +13,7 @@ lives in ``facade.collab``.
 """
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from .. import logic
 from ..models import Notebook
@@ -168,7 +169,7 @@ def create_group_notebook(team_id: int, group_id: int, *, title: str | None, con
 
 def create_account_notebook(
     team_id: int,
-    account_id: int,
+    account_id: str | UUID,
     *,
     title: str | None,
     content: Any,
@@ -188,8 +189,51 @@ def create_account_notebook(
     return _to_notebook_data(notebook)
 
 
-def list_account_internal_notes(account_id: int) -> list[contracts.AccountNote]:
+def list_account_internal_notes(account_id: str | UUID) -> list[contracts.AccountNote]:
     return [
         contracts.AccountNote(title=link.notebook.title, short_id=link.notebook.short_id)
         for link in logic.list_account_internal_notes(account_id)
     ]
+
+
+def _to_notebook_user(user) -> contracts.NotebookUserInfo | None:
+    if user is None:
+        return None
+    return contracts.NotebookUserInfo(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=user.distinct_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=user.hedgehog_config,
+        role_at_organization=user.role_at_organization,
+    )
+
+
+def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
+    return contracts.AccountNotebook(
+        id=notebook.id,
+        short_id=notebook.short_id,
+        title=notebook.title,
+        content=notebook.content,
+        text_content=notebook.text_content,
+        created_at=notebook.created_at,
+        last_modified_at=notebook.last_modified_at,
+        created_by=_to_notebook_user(notebook.created_by),
+        last_modified_by=_to_notebook_user(notebook.last_modified_by),
+    )
+
+
+def list_account_notebooks(account_id: str | UUID) -> list[contracts.AccountNotebook]:
+    return [_to_account_notebook(notebook) for notebook in logic.list_account_notebooks(account_id)]
+
+
+def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.AccountNotebook | None:
+    notebook = logic.get_account_notebook(account_id, short_id)
+    return _to_account_notebook(notebook) if notebook is not None else None
+
+
+def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
+    return logic.delete_account_notebook(account_id, short_id)

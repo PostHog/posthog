@@ -7,6 +7,7 @@ should import this module — cross-product callers go through ``facade.api``.
 """
 
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F
@@ -162,7 +163,7 @@ def create_group_notebook(team_id: int, group_id: int, *, title: str | None, con
 
 def create_account_notebook(
     team_id: int,
-    account_id: int,
+    account_id: str | UUID,
     *,
     title: str | None,
     content: Any,
@@ -184,7 +185,7 @@ def create_account_notebook(
     return notebook
 
 
-def list_account_internal_notes(account_id: int) -> list[ResourceNotebook]:
+def list_account_internal_notes(account_id: str | UUID) -> list[ResourceNotebook]:
     return list(
         ResourceNotebook.objects.filter(
             account_id=account_id,
@@ -194,3 +195,27 @@ def list_account_internal_notes(account_id: int) -> list[ResourceNotebook]:
         .select_related("notebook")
         .order_by("-notebook__last_modified_at")
     )
+
+
+def _account_notebook_queryset(account_id: str | UUID) -> Any:
+    return Notebook.objects.filter(
+        deleted=False,
+        visibility=Notebook.Visibility.INTERNAL,
+        resources__account_id=account_id,
+    ).select_related("created_by", "last_modified_by")
+
+
+def list_account_notebooks(account_id: str | UUID) -> list[Notebook]:
+    return list(_account_notebook_queryset(account_id).order_by("-last_modified_at"))
+
+
+def get_account_notebook(account_id: str | UUID, short_id: str) -> Notebook | None:
+    return _account_notebook_queryset(account_id).filter(short_id=short_id).first()
+
+
+def delete_account_notebook(account_id: str | UUID, short_id: str) -> bool:
+    notebook = _account_notebook_queryset(account_id).filter(short_id=short_id).first()
+    if notebook is None:
+        return False
+    notebook.delete()
+    return True

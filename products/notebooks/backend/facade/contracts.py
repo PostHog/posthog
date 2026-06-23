@@ -62,3 +62,37 @@ class AccountNote:
 
     title: str | None
     short_id: str
+
+
+@dataclass(frozen=True)
+class NotebookUserInfo:
+    """The creator/modifier of a notebook — raw user values, mirroring UserBasicSerializer's input."""
+
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: Any
+    role_at_organization: str | None
+
+
+@dataclass(frozen=True)
+class AccountNotebook:
+    """A full internal notebook linked to an account, with creator/modifier info.
+
+    The richer counterpart to :class:`AccountNote` — backs the account-notebooks CRUD
+    endpoints, where consumers render who created/edited each notebook.
+    """
+
+    id: UUID
+    short_id: str
+    title: str | None
+    content: dict[str, Any] | list[Any] | None
+    text_content: str | None
+    created_at: datetime
+    last_modified_at: datetime
+    created_by: NotebookUserInfo | None = None
+    last_modified_by: NotebookUserInfo | None = None
