@@ -552,6 +552,7 @@ from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
+from .superwall.source import SuperwallSource
 from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
