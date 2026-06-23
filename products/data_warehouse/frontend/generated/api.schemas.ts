@@ -1537,7 +1537,7 @@ export interface CredentialApi {
  * * `Chatwoot` - Chatwoot
  * * `Sanity` - Sanity
  * * `Metronome` - Metronome
- * * `Jobber` - Jobber,
+ * * `Jobber` - Jobber
  * * `Knock` - Knock
  */
 export type ExternalDataSourceTypeEnumApi =
