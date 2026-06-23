@@ -47,7 +47,14 @@ export const LogsSqlEditor = ({ id }: LogsSqlEditorProps): JSX.Element => {
 
     return (
         <div className="flex flex-col flex-1 min-h-0 min-w-0 border rounded overflow-hidden">
-            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} defaultShowDatabaseTree={false} />
+            {/* The {filters} menu only supports events/sessions/groups, so hide it here — logs attributes are
+                filtered via the structured filters tab, and an events-style `properties` filter errors on `logs`. */}
+            <SQLEditor
+                tabId={sqlEditorTabId}
+                mode={SQLEditorMode.Embedded}
+                defaultShowDatabaseTree={false}
+                showQueryFilters={false}
+            />
         </div>
     )
 }

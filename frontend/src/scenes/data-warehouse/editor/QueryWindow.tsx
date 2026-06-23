@@ -50,6 +50,11 @@ interface QueryWindowProps {
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    /**
+     * Whether to show the {filters} menu. Defaults to true. The menu only supports the events/sessions/groups tables,
+     * so embedders querying other tables (e.g. logs) should hide it to avoid emitting invalid `properties` references.
+     */
+    showQueryFilters?: boolean
 }
 
 export function QueryWindow({
@@ -66,6 +71,7 @@ export function QueryWindow({
     runQueryTooltip,
     onShareTab,
     autoFocusQueryPane,
+    showQueryFilters = true,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -179,7 +185,7 @@ export function QueryWindow({
                         <QueryVariablesMenu
                             disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                         />
-                        <QueryFiltersMenu />
+                        {showQueryFilters ? <QueryFiltersMenu /> : null}
                         {editingView ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}

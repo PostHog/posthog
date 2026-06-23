@@ -66,6 +66,11 @@ interface SQLEditorProps {
     queryPaneDefaultHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    /**
+     * Whether to show the {filters} menu. Defaults to true. The menu only supports the events/sessions/groups tables,
+     * so embedders querying other tables (e.g. logs) should pass false to avoid emitting invalid `properties` references.
+     */
+    showQueryFilters?: boolean
 }
 
 export function SQLEditor({
@@ -82,6 +87,7 @@ export function SQLEditor({
     onShareTab,
     queryPaneDefaultHeight,
     autoFocusQueryPane,
+    showQueryFilters = true,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -250,6 +256,7 @@ export function SQLEditor({
                                                             runQueryTooltip={runQueryTooltip}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
+                                                            showQueryFilters={showQueryFilters}
                                                         />
                                                     </div>
                                                 </div>
