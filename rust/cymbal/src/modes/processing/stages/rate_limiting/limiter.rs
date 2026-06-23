@@ -5,11 +5,11 @@ use chrono::Utc;
 use common_redis::{CustomRedisError, RedisClient};
 use uuid::Uuid;
 
-use crate::modes::processing::rules::rate_limit::TierParams;
+use crate::modes::processing::rules::rate_limit::BucketParams;
 
 /// Outcome of one fused rate-limit call for a single issue group of `n` events.
-/// `issue_admitted <= n` passed the per-issue tier; `team_admitted <= issue_admitted`
-/// additionally passed the project tier. Everything beyond is dropped.
+/// `issue_admitted <= n` passed the per-issue limit; `team_admitted <= issue_admitted`
+/// additionally passed the project limit. Everything beyond is dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateLimitDecision {
     pub issue_admitted: u32,
@@ -17,8 +17,8 @@ pub struct RateLimitDecision {
 }
 
 /// Position-independent rate-limit primitive: given a team, an (optional) issue,
-/// and the configured tier params, charge `n` events and report how many each
-/// tier admitted. Lives behind a trait so the pipeline stage can be tested with
+/// and the configured limit params, charge `n` events and report how many each
+/// limit admitted. Lives behind a trait so the pipeline stage can be tested with
 /// a fake, and so a future pre-resolution early-drop can reuse the same buckets.
 #[async_trait]
 pub trait RateLimiter: Send + Sync {
@@ -26,16 +26,16 @@ pub trait RateLimiter: Send + Sync {
         &self,
         team_id: i32,
         issue_id: Option<Uuid>,
-        per_issue: Option<TierParams>,
-        project: Option<TierParams>,
+        per_issue: Option<BucketParams>,
+        project: Option<BucketParams>,
         n: u32,
     ) -> Result<RateLimitDecision, CustomRedisError>;
 }
 
 /// Fused per-issue → per-team token bucket. Both keys carry a `{team_id}` hash
 /// tag so a Redis Cluster colocates them on one slot. Per-issue is charged
-/// first; the team bucket is debited only by what survives the per-issue tier,
-/// so a per-issue drop never costs project budget. A tier whose `max` is
+/// first; the team bucket is debited only by what survives the per-issue limit,
+/// so a per-issue drop never costs project budget. A limit whose `max` is
 /// negative is disabled (admits everything offered to it).
 pub const RATE_LIMIT_LUA: &str = r#"
 local function take(key, want, max, rate, ttl, now)
@@ -103,11 +103,11 @@ impl RateLimiter for RedisRateLimiter {
         &self,
         team_id: i32,
         issue_id: Option<Uuid>,
-        per_issue: Option<TierParams>,
-        project: Option<TierParams>,
+        per_issue: Option<BucketParams>,
+        project: Option<BucketParams>,
         n: u32,
     ) -> Result<RateLimitDecision, CustomRedisError> {
-        // Negative max disables a tier inside the script.
+        // Negative max disables a limit inside the script.
         let (issue_max, issue_rate) = per_issue.map_or((-1.0, 0.0), |t| (t.max, t.rate));
         let (team_max, team_rate) = project.map_or((-1.0, 0.0), |t| (t.max, t.rate));
         let now = Utc::now().timestamp();

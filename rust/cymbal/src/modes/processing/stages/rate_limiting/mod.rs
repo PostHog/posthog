@@ -25,7 +25,7 @@ use crate::{
 pub use limiter::{RateLimitDecision, RateLimiter, RedisRateLimiter, RATE_LIMIT_LUA};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Tier {
+enum LimitKind {
     PerIssue,
     Project,
 }
@@ -36,19 +36,19 @@ enum Outcome {
     RateLimited,
 }
 
-impl Tier {
+impl LimitKind {
     /// Suffix used in the `app_metrics2` `app_source_id`, matching the Node.js limiter.
     fn app_source_suffix(self) -> &'static str {
         match self {
-            Tier::PerIssue => "per_issue",
-            Tier::Project => "global",
+            LimitKind::PerIssue => "per_issue",
+            LimitKind::Project => "global",
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            Tier::PerIssue => "per_issue",
-            Tier::Project => "project",
+            LimitKind::PerIssue => "per_issue",
+            LimitKind::Project => "project",
         }
     }
 }
@@ -116,7 +116,7 @@ impl Stage for RateLimitingStage {
             .get_rate_limit_settings(&self.ctx.posthog_pool, team_ids)
             .await;
 
-        let mut outcomes: HashMap<(i32, Tier, Outcome), u32> = HashMap::new();
+        let mut outcomes: HashMap<(i32, LimitKind, Outcome), u32> = HashMap::new();
         let mut drops: Vec<(usize, EventError)> = Vec::new();
 
         for ((team_id, issue_id), indices) in groups {
@@ -124,7 +124,7 @@ impl Stage for RateLimitingStage {
                 continue; // no row → team hasn't opted in
             };
 
-            // Per-issue tier only applies when we actually have an issue to key on.
+            // Per-issue limit only applies when we actually have an issue to key on.
             let per_issue = issue_id.and(team_settings.per_issue());
             let project = team_settings.project();
             if per_issue.is_none() && project.is_none() {
@@ -156,10 +156,16 @@ impl Stage for RateLimitingStage {
             );
             drops.extend(group.drops);
             if let Some((allowed, limited)) = group.per_issue {
-                add_outcome(&mut outcomes, team_id, Tier::PerIssue, allowed, limited);
+                add_outcome(
+                    &mut outcomes,
+                    team_id,
+                    LimitKind::PerIssue,
+                    allowed,
+                    limited,
+                );
             }
             if let Some((allowed, limited)) = group.project {
-                add_outcome(&mut outcomes, team_id, Tier::Project, allowed, limited);
+                add_outcome(&mut outcomes, team_id, LimitKind::Project, allowed, limited);
             }
         }
 
@@ -180,7 +186,7 @@ impl Stage for RateLimitingStage {
 impl RateLimitingStage {
     async fn emit_metrics(
         &self,
-        outcomes: &HashMap<(i32, Tier, Outcome), u32>,
+        outcomes: &HashMap<(i32, LimitKind, Outcome), u32>,
         reporting_mode: bool,
     ) {
         if outcomes.is_empty() {
@@ -190,10 +196,10 @@ impl RateLimitingStage {
         let now = Utc::now();
         let mut app_metrics: Vec<AppMetric2> = Vec::with_capacity(outcomes.len());
 
-        for (&(team_id, tier, outcome), &count) in outcomes {
+        for (&(team_id, kind, outcome), &count) in outcomes {
             counter!(
                 RATE_LIMIT_OUTCOMES,
-                "tier" => tier.label(),
+                "limit" => kind.label(),
                 "outcome" => outcome.label(),
                 "reporting_mode" => reporting,
             )
@@ -203,7 +209,7 @@ impl RateLimitingStage {
                 team_id: team_id as u32,
                 timestamp: now,
                 app_source: Source::Exceptions,
-                app_source_id: format!("{team_id}:exceptions:{}", tier.app_source_suffix()),
+                app_source_id: format!("{team_id}:exceptions:{}", kind.app_source_suffix()),
                 instance_id: None,
                 metric_kind: Kind::RateLimiting,
                 metric_name: outcome.label().to_string(),
@@ -227,20 +233,20 @@ impl RateLimitingStage {
 
 struct GroupOutcome {
     drops: Vec<(usize, EventError)>,
-    /// `(allowed, rate_limited)` for the per-issue tier, when enabled.
+    /// `(allowed, rate_limited)` for the per-issue limit, when enabled.
     per_issue: Option<(u32, u32)>,
-    /// `(allowed, rate_limited)` for the project tier, when enabled. Only the
+    /// `(allowed, rate_limited)` for the project limit, when enabled. Only the
     /// per-issue survivors are offered to it.
     project: Option<(u32, u32)>,
 }
 
-/// Pure fan-out: given a tier decision, assign each of the `n` events (in input
-/// order) to keep / project-drop / per-issue-drop, and tally per-tier outcomes.
+/// Pure fan-out: given a limit decision, assign each of the `n` events (in input
+/// order) to keep / project-drop / per-issue-drop, and tally per-limit outcomes.
 ///
 /// Order within the group:
 ///   `[0, team_admitted)`              kept
-///   `[team_admitted, issue_admitted)` dropped by the project tier
-///   `[issue_admitted, n)`             dropped by the per-issue tier
+///   `[team_admitted, issue_admitted)` dropped by the project limit
+///   `[issue_admitted, n)`             dropped by the per-issue limit
 fn classify_group(
     team_id: i32,
     issue_id: Option<Uuid>,
@@ -285,20 +291,20 @@ fn classify_group(
 }
 
 fn add_outcome(
-    outcomes: &mut HashMap<(i32, Tier, Outcome), u32>,
+    outcomes: &mut HashMap<(i32, LimitKind, Outcome), u32>,
     team_id: i32,
-    tier: Tier,
+    kind: LimitKind,
     allowed: u32,
     limited: u32,
 ) {
     if allowed > 0 {
         *outcomes
-            .entry((team_id, tier, Outcome::Allowed))
+            .entry((team_id, kind, Outcome::Allowed))
             .or_insert(0) += allowed;
     }
     if limited > 0 {
         *outcomes
-            .entry((team_id, tier, Outcome::RateLimited))
+            .entry((team_id, kind, Outcome::RateLimited))
             .or_insert(0) += limited;
     }
 }
@@ -351,9 +357,9 @@ mod tests {
     }
 
     #[test]
-    fn per_issue_disabled_only_reports_project_tier() {
+    fn per_issue_disabled_only_reports_project_limit() {
         let indices = vec![0, 1, 2, 3];
-        // issue tier disabled => admits all 4; project keeps 2.
+        // issue limit disabled => admits all 4; project keeps 2.
         let out = classify_group(9, None, &indices, decision(4, 2), false, true, false);
         assert_eq!(out.per_issue, None);
         assert_eq!(out.project, Some((2, 2)));
