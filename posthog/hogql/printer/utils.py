@@ -32,6 +32,10 @@ from posthog.hogql.transforms.geoip_dict_fallback import (
     geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_property_pushdown import (
+    has_rewritable_json_extract,
+    rewrite_json_extract_to_property,
+)
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -159,6 +163,22 @@ def prepare_ast_for_printing(
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+
+    # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
+    # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
+    # property access and re-resolves, so the resolver assigns types rather than us building them.
+    # Must run after type resolution and before lazy-table resolution.
+    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
+        with context.timings.measure("rewrite_json_extract_to_property"):
+            node = rewrite_json_extract_to_property(node, context)
+        with context.timings.measure("resolve_types_after_json_pushdown"):
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
 
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
