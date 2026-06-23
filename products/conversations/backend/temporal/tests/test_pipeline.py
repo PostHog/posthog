@@ -465,6 +465,39 @@ class TestDiagnosticScopes:
         assert "DIAGNOSTIC INVESTIGATION" not in prompt
 
 
+class TestCreateMessage:
+    """The gateway call wrapper: bounded timeout + compact, storable failures."""
+
+    @pytest.mark.asyncio
+    async def test_passes_bounded_timeout(self):
+        from products.conversations.backend.temporal.pipeline import LLM_REQUEST_TIMEOUT_SECONDS, _create_message
+
+        client = _mock_gateway_client("ok")
+        await _create_message(client, model="claude-haiku-4-5", max_tokens=1, messages=[])
+
+        assert client.messages.create.call_args.kwargs["timeout"] == LLM_REQUEST_TIMEOUT_SECONDS
+
+    @pytest.mark.asyncio
+    async def test_wraps_api_error_in_compact_application_error(self):
+        import httpx
+        from anthropic import APITimeoutError
+        from temporalio.exceptions import ApplicationError
+
+        from products.conversations.backend.temporal.pipeline import _create_message
+
+        client = MagicMock()
+        client.messages.create = AsyncMock(side_effect=APITimeoutError(request=httpx.Request("POST", "http://gw")))
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await _create_message(client, model="claude-haiku-4-5", max_tokens=1, messages=[])
+
+        # Compact message + the anthropic class name as the failure type, and no giant chained
+        # cause (so the serialized Temporal Failure stays under the payload size limit).
+        assert exc_info.value.type == "APITimeoutError"
+        assert "APITimeoutError" in str(exc_info.value)
+        assert exc_info.value.__cause__ is None
+
+
 class TestValidateActivity:
     @parameterized.expand(
         [

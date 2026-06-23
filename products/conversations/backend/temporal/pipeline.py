@@ -8,6 +8,7 @@ from uuid import UUID
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 # These modules (Django models, langchain, pydantic models, etc.) are non-deterministic
 # and/or define classes the Temporal workflow sandbox proxies — importing them inside the
@@ -15,6 +16,7 @@ from temporalio.common import RetryPolicy
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     import structlog
+    from anthropic import APIError
     from pydantic import BaseModel, Field
 
     from posthog.llm.gateway_client import get_async_anthropic_gateway_client
@@ -70,6 +72,12 @@ MAX_EXCERPT_CHARS = 1000
 UTILITY_MODEL = "claude-haiku-4-5"
 VALIDATOR_MODEL = "claude-sonnet-4-6"
 
+# Bound each utility LLM call so a dropped/slow gateway connection fails fast and Temporal
+# retries (per each activity's retry policy) instead of the SDK hanging on its long default
+# timeout. Kept under the activities' 2-minute start_to_close so the SDK error wins (a retryable
+# ApplicationError) rather than a Temporal ActivityTaskTimeout.
+LLM_REQUEST_TIMEOUT_SECONDS = 90.0
+
 # One-shot triage of each ticket up front. `how_to`/`account_billing` are retrieval-solvable;
 # `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `unactionable`
 # (spam, bare feedback, no question) short-circuits before the expensive draft loop.
@@ -108,6 +116,22 @@ TICKET_TYPE_HINTS: dict[str, str] = {
 def _anthropic_text(message: Any) -> str:
     """Concatenate the text blocks of an Anthropic Messages response."""
     return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
+
+
+async def _create_message(client: Any, **kwargs: Any) -> Any:
+    """Call the gateway Messages API with a bounded timeout, re-raising transient API errors
+    as compact ApplicationErrors.
+
+    The raw anthropic exception (e.g. APITimeoutError) carries a huge stack trace plus a nested
+    cause; serialized into a Temporal Failure it overflows the per-failure payload size limit,
+    so the real error is replaced with "Failure exceeds size limit." in history. Raising a small
+    ApplicationError (with `from None` to drop the giant chained cause) keeps the failure storable
+    and still retryable by the activity's retry policy.
+    """
+    try:
+        return await client.messages.create(timeout=LLM_REQUEST_TIMEOUT_SECONDS, **kwargs)
+    except APIError as e:
+        raise ApplicationError(f"LLM gateway request failed: {type(e).__name__}", type=type(e).__name__) from None
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +327,8 @@ classify the customer's support question."""
     user_content = f"Ticket context (untrusted data):\n<ticket_context>\n{ticket_context[:4000]}\n</ticket_context>"
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
-    message = await client.messages.create(
+    message = await _create_message(
+        client,
         model=UTILITY_MODEL,
         max_tokens=512,
         system=system,
@@ -368,7 +393,8 @@ derive search queries about the customer's support question."""
         user_parts.append("\nMissing from previous attempt:\n" + "\n".join(f"- {m}" for m in missing))
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
-    message = await client.messages.create(
+    message = await _create_message(
+        client,
         model=UTILITY_MODEL,
         max_tokens=512,
         system=system,
@@ -681,7 +707,8 @@ CITED CHUNKS:
 {chunks_text[:6000]}"""
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
-    message = await client.messages.create(
+    message = await _create_message(
+        client,
         model=VALIDATOR_MODEL,
         max_tokens=1024,
         system=system,
