@@ -18,7 +18,6 @@ interface VisualizationArtifactProps {
     content: VisualizationArtifactContent
     status?: MessageStatus
     isEditingInsight: boolean
-    activeTabId?: string | null
     activeSceneId?: string | null
 }
 
@@ -58,7 +57,6 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
     content,
     status,
     isEditingInsight,
-    activeTabId,
     activeSceneId,
 }: VisualizationArtifactProps): JSX.Element | null {
     // Controlled collapse synced to edit mode — a key-remount would refetch the query instead.
@@ -73,7 +71,7 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
     }
 
     const target = getArtifactOpenTarget(message, content)
-    const showSuggestionButton = isEditingInsight && !!activeTabId && activeSceneId === Scene.Insight
+    const showSuggestionButton = isEditingInsight && activeSceneId === Scene.Insight
 
     return (
         <VisualizationWidget

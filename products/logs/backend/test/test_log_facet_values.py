@@ -36,6 +36,12 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
 
+    def _facet_attr(self, key: str, **filters) -> dict[str, int]:
+        body = {"query": {"facetResourceAttribute": key, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["value"]: r["count"] for r in response.json()["results"]}
+
     @parameterized.expand(
         [
             ("severity_text", "severityLevels"),
@@ -98,3 +104,50 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         body = {"query": {"facetField": "body", "dateRange": self.DATE_RANGE}}
         response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([("k8s.namespace.name",), ("k8s.pod.name",), ("k8s.node.name",)])
+    def test_facet_on_resource_attribute_returns_values(self, key):
+        """A resource attribute key can be faceted and returns its values with counts."""
+        result = self._facet_attr(key)
+        self.assertGreater(len(result), 0)
+        self.assertTrue(all(count > 0 for count in result.values()))
+
+    def test_resource_facet_excludes_blank_for_missing_key(self):
+        """Logs lacking the key read back '' from the map; that bucket must not appear as a facet value."""
+        # k8s.deployment.name is present on only some fixture rows (others carry a daemonset instead).
+        result = self._facet_attr("k8s.deployment.name")
+        self.assertGreater(len(result), 0)
+        self.assertNotIn("", result)
+
+    def test_resource_facet_ignores_its_own_filter(self):
+        """Selecting a value via a log_resource_attribute filter must not change that facet's own counts."""
+        base = self._facet_attr("k8s.namespace.name")
+        own_value = next(iter(base))
+        filter_group = [
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+        ]
+        self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
+
+    def test_resource_facet_honors_other_filter(self):
+        """A top-level filter re-scopes a resource-attribute facet's counts (strictly fewer)."""
+        base = self._facet_attr("k8s.namespace.name")
+        scoped = self._facet_attr("k8s.namespace.name", severityLevels=["error"])
+        self.assertLess(sum(scoped.values()), sum(base.values()))
+
+    @parameterized.expand([("argo",), ("ARGO",)])
+    def test_resource_facet_search_is_case_insensitive(self, term):
+        searched = self._facet_attr("k8s.namespace.name", facetSearch=term)
+        self.assertGreater(len(searched), 0)
+        self.assertTrue(all(term.lower() in value.lower() for value in searched))
+
+    def test_resource_facet_search_no_match_returns_empty(self):
+        self.assertEqual(self._facet_attr("k8s.namespace.name", facetSearch="no-such-namespace-xyz"), {})
+
+    def test_requires_exactly_one_facet_target(self):
+        for query in (
+            {},  # neither
+            {"facetField": "service_name", "facetResourceAttribute": "k8s.pod.name"},  # both
+        ):
+            body = {"query": {**query, "dateRange": self.DATE_RANGE}}
+            response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

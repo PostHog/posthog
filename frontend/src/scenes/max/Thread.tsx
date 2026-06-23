@@ -468,7 +468,7 @@ const Message = React.memo(function Message({
     isSlashCommandResponse,
 }: MessageProps): JSX.Element | null {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
 
@@ -757,7 +757,6 @@ const Message = React.memo(function Message({
                                     content={message.content}
                                     status={message.status}
                                     isEditingInsight={editInsightToolRegistered}
-                                    activeTabId={activeTabId}
                                     activeSceneId={activeSceneId}
                                 />
                             )
