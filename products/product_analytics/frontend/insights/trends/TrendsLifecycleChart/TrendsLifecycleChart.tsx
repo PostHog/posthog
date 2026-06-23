@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
-import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
+import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
@@ -28,7 +28,6 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -53,8 +52,6 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     // controlled: false — chart manages toggle state internally. Lifecycle statuses all share the
     // same resultCustomizationKey (same action.order), so the controlled path can't distinguish them.
-    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode, controlled: false })!
-
     const {
         indexedResults,
         interval,
@@ -69,8 +66,22 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         querySource,
         showValuesOnSeries,
         showPercentagesOnSeries,
+        showLegend,
+        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
+    const { canEditInsight } = useValues(insightLogic)
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
+
+    // controlled: false — chart manages toggle state internally (lifecycle statuses all share the
+    // same resultCustomizationKey, so the controlled path can't distinguish them).
+    const legendConfig = useMemo<ChartLegendConfig>(
+        () => ({
+            show: !!showLegend,
+            position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
+            interactive: canEditInsight && !inSharedMode,
+        }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode]
+    )
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
