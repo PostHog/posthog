@@ -16,8 +16,8 @@ from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,

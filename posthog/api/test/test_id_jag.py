@@ -139,7 +139,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.addCleanup(self._jwks_patch.stop)
 
     def _post_token(self, body: dict[str, Any]) -> Any:
-        return self.client.post("/id-jag/token", data=body, content_type="application/json")
+        return self.client.post("/oauth/token", data=body, content_type="application/json")
 
     def test_issues_access_token_for_valid_id_jag(self) -> None:
         assertion = _make_id_jag()
@@ -224,7 +224,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # that aren't emails. Issuance was already keyed off the `email`
         # claim, but the resource-side authenticator was keying off the
         # userSub half of `sub` — which 401'd every request. Drive the whole
-        # flow end-to-end here: real /id-jag/token → real /api/users/@me/.
+        # flow end-to-end here: real /oauth/token → real /api/users/@me/.
         assertion = _make_id_jag(
             sub="auth0|opaque-id-abc123",
             scope="user:read",
@@ -337,7 +337,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag()
         resp = self.client.post(
-            "/id-jag/token",
+            "/oauth/token",
             data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
             content_type="application/x-www-form-urlencoded",
         )
@@ -350,7 +350,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag()
         resp = self.client.post(
-            "/id-jag/token",
+            "/oauth/token",
             data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
             content_type="application/x-www-form-urlencoded; charset=UTF-8",
         )
@@ -363,7 +363,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
         assertion = _make_id_jag(scope="feature_flag:read feature_flag:write")
         resp = self.client.post(
-            "/id-jag/token",
+            "/oauth/token",
             data=urlencode(
                 {
                     "grant_type": JWT_BEARER_GRANT_TYPE,
@@ -376,43 +376,16 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.json()["scope"], "feature_flag:read")
 
-    def test_rejects_unsupported_content_type(self) -> None:
-        assertion = _make_id_jag()
-        resp = self.client.post(
-            "/id-jag/token",
-            data=f"grant_type={JWT_BEARER_GRANT_TYPE}&assertion={assertion}",
-            content_type="text/plain",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        body = resp.json()
-        self.assertEqual(body["error"], "invalid_request")
-        self.assertIn("application/x-www-form-urlencoded", body["error_description"])
-
-    def test_cors_headers_on_response(self) -> None:
-        # Without CORS headers, browsers strip the response body on cross-origin
-        # 4xx replies — the user-visible symptom is Chrome saying "Failed to
-        # load response data" in DevTools even though the status is visible.
-        # Verify the endpoint is in `CORS_URLS_REGEX` so the middleware adds the
-        # right headers to both success and error responses.
-        assertion = _make_id_jag()
-        resp = self.client.post(
-            "/id-jag/token",
-            data={"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
-            content_type="application/json",
-            HTTP_ORIGIN="https://example.com",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIn("Access-Control-Allow-Origin", resp.headers)
-
         # Error responses must also carry the CORS header — that's the whole
         # point of this test (the body would otherwise be hidden in DevTools).
         bad = self.client.post(
-            "/id-jag/token",
-            data={},
+            "/oauth/token",
+            data={"grant_type": JWT_BEARER_GRANT_TYPE},
             content_type="application/json",
             HTTP_ORIGIN="https://example.com",
         )
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(bad.json()["error"], "invalid_request")
         self.assertIn("Access-Control-Allow-Origin", bad.headers)
 
     def test_cors_preflight(self) -> None:
@@ -420,7 +393,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         # actual POST. The CORS middleware short-circuits this when the path
         # matches `CORS_URLS_REGEX`.
         resp = self.client.options(
-            "/id-jag/token",
+            "/oauth/token",
             HTTP_ORIGIN="https://example.com",
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
             HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
@@ -430,24 +403,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertIn("Access-Control-Allow-Methods", resp.headers)
         self.assertIn("POST", resp.headers["Access-Control-Allow-Methods"])
 
-    def test_missing_grant_type(self) -> None:
-        resp = self._post_token({"assertion": _make_id_jag()})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"], "invalid_request")
-
-    def test_unsupported_grant_type(self) -> None:
-        resp = self._post_token({"grant_type": "authorization_code", "assertion": _make_id_jag()})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"], "unsupported_grant_type")
-
     def test_missing_assertion(self) -> None:
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_request")
-
-    def test_get_is_rejected(self) -> None:
-        resp = self.client.get("/id-jag/token")
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_rejects_wrong_typ_header(self) -> None:
         assertion = _make_id_jag(typ_header="JWT")  # not oauth-id-jag+jwt

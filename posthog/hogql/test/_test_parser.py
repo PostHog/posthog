@@ -928,6 +928,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                     negated=True,
                 ),
             )
+            # MySQL null-safe equality is sugar for IS NOT DISTINCT FROM
+            self.assertEqual(
+                self._expr("1 <=> 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=True,
+                ),
+            )
+
+        def test_mysql_hash_comments(self):
+            self.assertEqual(
+                self._select("select 1 # mysql comment"),
+                ast.SelectQuery(select=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
+                self._select("select 1 # comment\n, 2"),
+                ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=2)]),
+            )
+            # `#<digit>` stays a positional reference, not a comment
+            self.assertEqual(
+                self._select("select #1"),
+                ast.SelectQuery(select=[ast.PositionalRef(index=1)]),
+            )
 
         def test_null_comparison_operations(self):
             self.assertEqual(
@@ -1814,6 +1838,31 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ),
                 ),
             )
+
+        def test_table_function_arg_rejects_bare_select_subquery(self):
+            # A table-function arg is a `columnExpr` (cpp's `tableArgList`), so a
+            # bare `SELECT …` is not valid — cpp rejects `FROM a(SELECT 1)`; only
+            # `(SELECT …)` paren-wrapped is. (A general call admits a bare subquery
+            # via `ColumnExprCallSelect`; a table-function arg does not.)
+            for src in (
+                "SELECT * FROM a(SELECT 1)",
+                "SELECT * FROM events(SELECT 1)",
+                "SELECT * FROM numbers(SELECT 1)",
+                "SELECT * FROM a(b, SELECT 1)",
+            ):
+                with self.assertRaises((ExposedHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend="cpp-json")
+                with self.assertRaises((ExposedHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+            # Guards: a paren-wrapped subquery, plain exprs, and named args are
+            # all valid table-function args.
+            for src in (
+                "SELECT * FROM a((SELECT 1))",
+                "SELECT * FROM a(1, 2)",
+                "SELECT * FROM a(b)",
+                "SELECT * FROM a(x := 1)",
+            ):
+                self._assert_ast(src, "select")
 
         def test_select_from_join_multiple(self):
             node = self._select(
@@ -5322,6 +5371,24 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
 
+        def test_parenthesized_between_high_end_position_with_hoist(self):
+            # A BETWEEN whose high operand is parenthesized spans through the
+            # trailing `)`, but the high AST node's `end` is paren-stripped. In
+            # the hoist case (an alias / ternary / etc. parsed past the parens),
+            # the BetweenExpr span must be recovered from the source — else rust's
+            # BetweenExpr.end dropped the closing paren and diverged from cpp.
+            for src in (
+                "0 between 0 and (0) as x",
+                "0 not between 0 and (0) as x",
+                "0 between 0 and ((0)) as x",
+                "1 between 2 and (3) ? 4 : 5",
+                "1 between 2 and (3 + 4) as x",
+            ):
+                self._assert_ast(src, "expr")
+            # Guards: simple (no hoist) and a non-parenthesized high are unaffected.
+            for src in ("0 between 0 and (0)", "0 between 0 and 5 as x"):
+                self._assert_ast(src, "expr")
+
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (
@@ -5811,6 +5878,71 @@ def parser_test_factory(backend: HogQLParserBackend):
             for src in cases:
                 self._assert_ast(src, "expr")
 
+        def test_hogqlx_tight_vs_loose_tags(self):
+            # cpp lexes `<ident…` ("tight") through dedicated tag/text lexer modes
+            # and `< ident…` ("loose") through the default mode, and the two
+            # diverge: tight captures child text (incl. whitespace); loose admits
+            # only nested tags / `{expr}` children (stray text rejected, whitespace
+            # dropped); loose attribute values may be `f'…'` templates (tight
+            # rejects them); a loose opening name may be quoted (`< "x" />`) but a
+            # closing name never is (so `< "x" ></ "x" >` rejects).
+            accept = (
+                "<a></a>",
+                "< a ></ a >",
+                "<a>x</a>",
+                "<a> </a>",
+                "< a > </ a >",
+                "< a b=f'x' />",
+                "<a b={1}/>",
+                "< a b={1} />",
+                "< a >< b /></ a >",
+                '< "x" />',
+            )
+            for src in accept:
+                self._assert_ast(src, "expr")
+            reject = (
+                "< a >x</ a >",
+                "<a b=f'x'/>",
+                '< "x" ></ "x" >',
+            )
+            for src in reject:
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        def test_cast_type_param_admits_date_literal_as_raw_text(self):
+            # A `date ''` / `timestamp ''` literal inside a `ColumnTypeExprParam`
+            # is `getText()`'d, never visited, so cpp accepts it as raw param
+            # text; the visitor-level "not supported" rejection must not fire.
+            for src in (
+                "cast(0 as a(date ''))",
+                "cast(0 as a(date '', date '', ))",
+                "cast(0 as a(a(date '', date '', ), ))",
+                "cast(0 as a(timestamp ''))",
+            ):
+                self._assert_ast(src, "expr")
+            # Guards: a genuine ColumnTypeExprEnum and a bare `date ''` cast type
+            # still reject on every backend.
+            for src in ("cast(0 as a(f''=0))", "cast(0 as a('x'=1))", "cast(0 as date '')"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        def test_placeholder_discarded_interpolate_must_be_terminated(self):
+            # A `{placeholder}` select's trailing ORDER BY is grammar-parsed but
+            # never visited, so its INTERPOLATE is consume-dropped. An
+            # unterminated clause — e.g. a `#`-comment swallowing the `)` to
+            # end-of-line — must still reject, matching cpp's "mismatched input
+            # '<EOF>'", not be silently accepted.
+            for src in (
+                "{x} order by 1 interpolate ( # 6 )",
+                "{x} order by 1 interpolate ( a # 6 )",
+                "{x} order by 1 interpolate ( a",
+            ):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+            # Guards: a well-formed interpolate (and a `#6` positional ref) parse.
+            for src in ("{x} order by 1 interpolate ( a )", "{x} order by 1 interpolate ( #6 )"):
+                self._assert_ast(src, "select")
+
         def test_join_expr_parens_does_not_take_outer_alias(self):
             # `JoinExprParens` isn't a `tableExpr`, so alias / FINAL / SAMPLE can't bind to a `(joinExpr)` from outside.
 
@@ -5938,6 +6070,15 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Guard: lowercase form remains a valid column expression.
             for src in ("f'hello'", "f'{1+2}'"):
                 self._assert_ast(src, "expr")
+
+        def test_full_template_string_empty_body_span(self):
+            # The standalone `parse_string_template` entry has no trailing quote,
+            # so an empty body spans the whole synthetic `F'` token `[0, len]`,
+            # not one byte past it like an inline `f''` would. Position-sensitive.
+            self._assert_ast("", "template")
+            # Guards: a non-empty literal body and a `{ … }` substitution.
+            self._assert_ast("x", "template")
+            self._assert_ast("{1}", "template")
 
         def test_empty_paren_only_clauses_rejected(self):
             # `columnAliases`, `interpolateClause`'s paren body, and `columnsReplaceList` each require ≥ 1 element when parens are present.
@@ -6404,6 +6545,37 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a, b",
             ):
                 self._assert_ast(src, "select")
+
+        def test_cross_join_after_join_on_constraint(self):
+            # A comma after `JOIN … ON expr` is a CROSS JOIN (single-expr ON) when
+            # the post-comma table carries an alias or `FINAL`: cpp reads
+            # `ON expr, t alias` / `…, t FINAL` that way, not as a multi-expr ON.
+            for src in (
+                "SELECT 0 FROM a JOIN a ON '', a a",
+                "SELECT 1 FROM a JOIN b ON 1, c c",
+                "SELECT 0 FROM a JOIN a ON x = y, b b",
+                "SELECT * FROM a JOIN b ON x, y FINAL",
+                "SELECT * FROM a JOIN b ON x, y z, w",
+                "SELECT * FROM a JOIN b ON x, (select 1) s",
+            ):
+                self._assert_ast(src, "select")
+            # The comma stays a multi-expression ON (rejected on all backends)
+            # when the post-comma element fully consumes as a columnExpr: a bare
+            # column / `AS` alias / field chain, or a trailing `SAMPLE` (taken at
+            # the statement level). `y team_id` is a reserved alias (rejected on
+            # both); `c JOIN d ON y` has no alias/FINAL so it stays multi-expr ON.
+            for src in (
+                "SELECT * FROM a JOIN b ON x, y AS z",
+                "SELECT * FROM a JOIN b ON x, y.z",
+                "SELECT * FROM a JOIN b ON x, y SAMPLE 0.1",
+                "SELECT * FROM a JOIN b ON x, y, z",
+                "SELECT * FROM a JOIN b ON x, y team_id",
+                "SELECT * FROM a JOIN b ON x, c JOIN d ON y",
+            ):
+                with self.assertRaises((ExposedHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend="cpp-json")
+                with self.assertRaises((ExposedHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
 
         def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
             # `columnTypeExpr`'s compound alt is `identifier identifier+`; NULL / INF / NAN aren't in `identifier`, so `cast(x as Int NULL)` rejects.
@@ -7486,6 +7658,23 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_select("SELECT DISTINCT FROM x", backend=backend)
 
+        def test_distinct_with_empty_parens_is_a_function_call(self):
+            # `distinct()` with EMPTY parens is the zero-arg call `Call(distinct,
+            # [])`, not the DISTINCT modifier: cpp can't read DISTINCT as the
+            # modifier with only `()` (no column) after, so it backs off to a call.
+            for src in ("SELECT distinct()", "SELECT distinct() FROM a"):
+                self._assert_ast(src, "select")
+            # Guard: non-empty parens keep DISTINCT the modifier on the column.
+            for src in ("SELECT distinct(x)", "SELECT distinct(x), y"):
+                self._assert_ast(src, "select")
+            # Same rule one level down: `count(distinct())` is `count` over a
+            # nested `distinct()` call, not the args DISTINCT-marker (empty `()` only).
+            for src in ("count(distinct())", "f(distinct())", "count(distinct() + 1)"):
+                self._assert_ast(src, "expr")
+            # Guards: non-empty parens / non-leading position keep the args-marker.
+            for src in ("count(distinct(x))", "count(distinct x)", "f(x, distinct())"):
+                self._assert_ast(src, "expr")
+
         def test_hogqlx_attribute_and_text_child_positions_match(self):
             # cpp positions each HogQLXAttribute (name start -> value end, or name end
             # for a bare attribute), the string value Constant over the string token,
@@ -7742,6 +7931,78 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
+        def test_window_filter_body_suppresses_visitor_rejections(self):
+            # A window function's FILTER body is grammar-parsed but never visited
+            # (the AST discards it), so visitor-level rejections inside it must be
+            # tolerated to match cpp: a no-column `select … from …` subquery (cpp's
+            # `ColumnExprInvalidFromImplicitAlias`) and a unit-less `interval
+            # '<str>'` (cpp's `ColumnExprIntervalString`). rust used to fatally
+            # reject both before the body could be discarded.
+            for query in (
+                "a() filter(where (select from x)) over a",
+                "\"\"() filter(where interval 'bm ') over ()",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Guards: the same forms reject when VISITED (at expr level), and a
+            # genuine grammar error in the body still rejects even when discarded.
+            strict = (
+                "(select from x)",
+                "interval 'bm '",
+                "a() filter(where (select where 1)) over a",
+            )
+            for query in strict:
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=query):
+                    parse_expr(query, backend=backend)
+
+        def test_nested_interval_value_skips_postfix_run_for_unit(self):
+            # `INTERVAL <value> <unit>` whose value is itself a nested INTERVAL
+            # carrying a postfix run (a `()` call, `[…]` index, `.id` access):
+            # cpp resolves the trailing unit keyword by looking PAST the postfix
+            # operators. rust used to stop at the postfix and miss the unit, so it
+            # mis-parsed the nesting (`interval interval 0 hour () hour`).
+            for query in (
+                "interval interval 0 week week",
+                "interval interval 0 hour () hour",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_nested_string_interval_dispatches_on_trailing_unit_count(self):
+            # A nested string-valued INTERVAL: cpp keeps the inner string
+            # self-contained (`'5 day'`) when ONE unit trails (it's the OUTER's),
+            # but reads it as the value-expr of an expr+unit inner when TWO trail —
+            # the value-expr reading sidesteps the string's count/unit validation,
+            # so `''` / `'bm '` parse there (`interval interval '' day month` →
+            # `INTERVAL (INTERVAL '' DAY) MONTH`). A window FILTER body, being
+            # grammar-parsed but never visited, also tolerates a bad inner string.
+            # rust used to always use the string-only reading and wrong-reject these.
+            for query in (
+                "interval interval '' day month",
+                "interval interval '5 day' hour month",
+                "a() filter(where interval interval 'bm ' day) over a",
+                "a() filter(where interval interval '' day month) over a",
+                # one trailing unit keeps the inner string-only — still parity
+                "interval interval '5 day' month",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Guard: a bad inner string with a SINGLE trailing unit has no
+            # value-expr escape hatch, so it rejects when VISITED. (The empty
+            # `''` single-unit form is left out — the legacy python backend
+            # surfaces it as a bare ValueError, an unrelated pre-existing quirk.)
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg="interval interval 'bm ' day"):
+                parse_expr("interval interval 'bm ' day", backend=backend)
+
         def test_stacked_table_alias_span_ends_at_first_alias(self):
             # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
             # the JoinExpr span at the INNERMOST (first) alias, while each outer
@@ -7897,6 +8158,39 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
 
+        def test_filter_where_body_grammar_parsed_visitor_discarded(self):
+            # cpp's window FILTER (with OVER) grammar-parses the WHERE body but
+            # never visits it, so DATE/TIMESTAMP/INTERVAL string literals and
+            # ColumnTypeExprEnum cast types accept; aggregate FILTER (no OVER)
+            # visits and rejects them. Pin both arms of the cpp/rust boundary.
+            # python is excluded: its visitor visits the window-FILTER body
+            # (diverging from cpp) and has a pre-existing `interval ''` crash
+            # (`text.split(" ")` ValueError), neither of which this rust-parity
+            # test is about.
+            if backend == "python":
+                self.skipTest(
+                    "python visits the window-FILTER body and pre-existing interval-'' crash; cpp/rust are the parity targets"
+                )
+            for query in (
+                "f() FILTER (WHERE date '') OVER w",
+                "f() FILTER (WHERE timestamp '') OVER w",
+                "f() FILTER (WHERE interval '') OVER w",
+                "f() FILTER (WHERE cast(1 as q('a' = 1))) OVER w",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            for query in (
+                "f() FILTER (WHERE date '')",
+                "f() FILTER (WHERE timestamp '')",
+                "f() FILTER (WHERE interval '')",
+                "f() FILTER (WHERE cast(1 as q('a' = 1)))",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_expr(query, backend=backend)
+
         def test_cast_type_enum_vs_param_fallback(self):
             # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a
             # `string '=' numberLiteral` (the visitor then rejects it as unsupported).
@@ -7944,6 +8238,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(1 as Tuple(UInt8, String))",
                 "cast(1 as Array(Tuple(UInt8, String)))",
             ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_cast_type_enum_template_string_key_rejected(self):
+            # `enumValue: string '=' numberLiteral`, and `string` is
+            # STRING_LITERAL | templateString — so an `f'…'` key makes
+            # `cast(0 as a(f''=0))` a `ColumnTypeExprEnum` that cpp rejects as
+            # unsupported. rust used to check only STRING for the key and
+            # over-accept the template-keyed enum as a raw Param type name.
+            for query in (
+                "cast(0 as a(f''=0))",
+                "cast(0 as a(f'x'=1))",
+                "cast(0 as a(f'{1}'=2))",
+                "cast(0 as a('k'=1, f''=2))",
+                "try_cast(0 as a(f''=0))",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=f"{backend}: {query}"):
+                    parse_expr(query, backend=backend)
+            # Guard: a template not followed by `= numberLiteral` is a Param type
+            # (not an enum), still accepted on both.
+            for query in ("cast(0 as a(b))", "cast(0 as a(f''))"):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
                     parse_expr(query, backend=backend),

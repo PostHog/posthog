@@ -21,6 +21,7 @@ import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/t
 
 import { useTaxonomicAutocompleteItemDetails } from '../headless'
 import { TaxonomicFilterGroupType } from '../types'
+import { getMatchedValue } from './MatchedValueBadge'
 import { ActionMatchGroups } from './preview/ActionMatchGroups'
 import { MenuFilterEntry } from './types'
 import { VerificationBadge } from './VerificationBadge'
@@ -58,6 +59,7 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
     // for event first/last seen (handled later if needed).
     const isAction = entry.group.type === TaxonomicFilterGroupType.Actions
     const viewUrl = resolveViewUrl(entry)
+    const matchedValue = getMatchedValue(entry)
 
     return (
         <ScrollArea className="flex-1 min-h-0">
@@ -76,6 +78,13 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
                     <div className="flex flex-col gap-0.5 border-t pt-2">
                         <div className="text-xxs uppercase tracking-wide text-secondary">Property type</div>
                         <div className="text-xs">{details.propertyType}</div>
+                    </div>
+                )}
+
+                {matchedValue && (
+                    <div className="flex flex-col gap-0.5 border-t pt-2">
+                        <div className="text-xxs uppercase tracking-wide text-secondary">Matched on value</div>
+                        <code className="break-all font-mono text-xs text-tertiary">{matchedValue}</code>
                     </div>
                 )}
 

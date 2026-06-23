@@ -1,4 +1,4 @@
-import type { Series } from '../../core/types'
+import type { Series, TooltipContext } from '../../core/types'
 
 /** Per-series options read from `Series.meta` by the slope chart. Lets a consumer toggle the
  *  start/end value labels for an individual series without touching the shared `Series` type. */
@@ -42,6 +42,15 @@ export function slopeEnd(series: Pick<Series, 'data'>): number {
 
 export function slopeDelta(series: Pick<Series, 'data'>): number {
     return slopeEnd(series) - slopeStart(series)
+}
+
+/** Slope tooltips list one row per series; with many breakdowns an unsorted list is unreadable.
+ *  Order rows biggest-to-smallest by the hovered point's value so they match the lines' vertical
+ *  order at that x. */
+export function sortSlopeTooltipRows<Meta>(
+    rows: TooltipContext<Meta>['seriesData']
+): TooltipContext<Meta>['seriesData'] {
+    return [...rows].sort((a, b) => b.value - a.value)
 }
 
 export function defaultValueFormatter(value: number): string {

@@ -1,4 +1,4 @@
-import { hexToRGB } from 'lib/utils'
+import { hexToRGB } from 'lib/utils/colors'
 
 // Share of the base color kept for non-highlighted bars. Stronger dim when a filter is actually
 // applied (active), lighter when a choice is only "armed" for a follow-up click. Keeps must stay

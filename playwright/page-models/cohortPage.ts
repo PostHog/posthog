@@ -1,6 +1,6 @@
 import { Page } from '@playwright/test'
 
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import { expect } from '../utils/workspace-test-base'
 

@@ -29,6 +29,7 @@ class PRData:
     reviews: list[dict]
     review_comments: list[dict]
     check_runs: list[dict]
+    author_is_bot: bool = False
 
     @property
     def file_paths(self) -> list[str]:
@@ -52,6 +53,23 @@ class PRData:
 
 
 _TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}
+
+# Machine users that are real org members (type "User") but should still be
+# treated as bots. GitHub Apps already report type "Bot" and aren't listed here.
+_BOT_MACHINE_USERS = {"posthog-bot"}
+
+
+def is_bot_author(user: dict) -> bool:
+    """True when the PR author is a bot or machine account.
+
+    GitHub Apps (dependabot, mendral, other agents) report user.type == "Bot";
+    machine users like posthog-bot are type "User", so match them by login.
+    Mirrors the bot definition gating the jobs in pr-approval-agent.yml.
+    """
+    if user.get("type") == "Bot":
+        return True
+    login = (user.get("login") or "").lower()
+    return "[bot]" in login or login in _BOT_MACHINE_USERS
 
 
 def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> list[dict]:
@@ -280,6 +298,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
+        author_is_bot=is_bot_author(pr.get("user", {})),
     )
 
 

@@ -68,6 +68,12 @@ declare module '@storybook/types' {
              * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
              */
             skipDarkMode?: boolean
+            /**
+             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
+             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
+             * @default false
+             */
+            skipCanvasDraw?: boolean
         }
         msw?: {
             mocks?: Mocks

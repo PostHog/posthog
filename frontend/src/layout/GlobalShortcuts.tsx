@@ -10,7 +10,7 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { SidePanelTab } from '~/types'

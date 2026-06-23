@@ -7,8 +7,10 @@ playground flow:
   * 403 `This action does not support personal API key access` —
     happened because the GET variant maps to a separate `view.action`
     name (`preview_proxy_get`) and we only had the POST one
-    (`preview_proxy`) listed in `scope_object_read_actions`. Both names
-    must be declared or OAuth/PAT callers get bounced.
+    (`preview_proxy`) declared. Both names must appear in a scope list
+    or OAuth/PAT callers get bounced. The two now sit in *different*
+    lists: POST `preview_proxy` (run/send/cancel) is a mutating invoke
+    → `:write`; the GET `listen` tail is read-only → `:read`.
 
   * 406 `Could not satisfy the request Accept header` — happened
     because browser `EventSource` sends `Accept: text/event-stream` and
@@ -23,6 +25,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from ..presentation.serializers import PreviewProxyInvokeRequestSerializer
 from ..presentation.views import AgentApplicationViewSet, EventStreamRenderer
 
 
@@ -37,16 +40,17 @@ class TestPreviewProxyScope(APIBaseTest):
 
     @parameterized.expand(
         [
-            # POST verbs (run / send / cancel) route through `preview_proxy`.
-            ("preview_proxy",),
+            # POST verbs (run / send / cancel) route through `preview_proxy` —
+            # mutating invokes, so they require `:write`.
+            ("preview_proxy", "scope_object_write_actions"),
             # GET (SSE listen) routes through `preview_proxy_get` —
             # `view.action` resolves to the bound function name on the
-            # `@preview_proxy.mapping.get` handler.
-            ("preview_proxy_get",),
+            # `@preview_proxy.mapping.get` handler. Read-only tail → `:read`.
+            ("preview_proxy_get", "scope_object_read_actions"),
         ]
     )
-    def test_action_is_a_declared_read_action(self, action_name: str) -> None:
-        self.assertIn(action_name, AgentApplicationViewSet.scope_object_read_actions)
+    def test_action_is_declared_in_expected_scope_list(self, action_name: str, scope_list: str) -> None:
+        self.assertIn(action_name, getattr(AgentApplicationViewSet, scope_list))
 
 
 class TestPreviewProxyRendering(APIBaseTest):
@@ -73,3 +77,25 @@ class TestPreviewProxyRendering(APIBaseTest):
         self.assertIsNotNone(renderer_classes, "preview_proxy action should declare renderer_classes")
         assert renderer_classes is not None  # type narrowing for mypy
         self.assertIn(EventStreamRenderer, renderer_classes)
+
+
+class TestPreviewProxyInvokeBody(APIBaseTest):
+    """#4 — the proxy forwards the POST body to ingress (`run`/`send` carry
+    `message`), but the action shipped `request=None`, so drf-spectacular
+    published an empty body and the generated MCP tool had no way to pass a
+    message. The action now declares `PreviewProxyInvokeRequestSerializer`;
+    this pins the body shape it documents. (The OpenAPI wiring itself is
+    verified by `hogli build:openapi`.)"""
+
+    def test_invoke_serializer_documents_message_and_session_id(self) -> None:
+        fields = PreviewProxyInvokeRequestSerializer().fields
+        self.assertLessEqual({"message", "session_id"}, set(fields))
+        # Optional: `run` needs only `message`; `cancel`/`listen` need neither.
+        self.assertFalse(fields["message"].required)
+        self.assertFalse(fields["session_id"].required)
+
+    def test_invoke_serializer_validates_run_and_send_bodies(self) -> None:
+        self.assertTrue(PreviewProxyInvokeRequestSerializer(data={"message": "tell me a joke"}).is_valid())
+        self.assertTrue(
+            PreviewProxyInvokeRequestSerializer(data={"session_id": "s-1", "message": "another"}).is_valid()
+        )

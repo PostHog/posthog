@@ -10,8 +10,10 @@ import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { isAbortedRequest } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,7 +41,7 @@ import {
     coercePropertyValue,
     getHogqlQueryStringForPersonId,
     parsePersonFromHogQLRow,
-    scoreDistinctId,
+    pickBestPersonDistinctId,
 } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
@@ -413,12 +415,7 @@ export const personsLogic = kea<personsLogicType>([
         feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
-            (person): string | null => {
-                if (!person?.distinct_ids.length) {
-                    return null
-                }
-                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
-            },
+            (person): string | null => pickBestPersonDistinctId(person?.distinct_ids) ?? null,
         ],
         eventsQueryIsDirty: [
             (s) => [s.eventsQuery, s.person],

@@ -22,8 +22,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { stripMarkdown } from 'lib/utils/markdown'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -262,6 +262,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+    // `bulk` is a fresh object every render, but its members are individually stable
+    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
+    // stable members instead of the unstable wrapper object.
     const {
         selectedKeys,
         clearSelection,

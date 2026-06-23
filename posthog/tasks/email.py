@@ -674,10 +674,22 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
     # flag opens up the catch-up delivers their currently-failing schemas naturally.
+    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # without them, release conditions on the project/organization group can't match,
+    # because the analytics group records are keyed by uuid rather than team_id/org_id.
     if not settings.TEST and not posthoganalytics.feature_enabled(
         key="external-data-failure-digest-email",
         distinct_id=str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+        only_evaluate_locally=False,
+        # This gate fires once per failed-sync digest run; a $feature_flag_called
+        # event each time would be pure volume with no operational value (we monitor
+        # via the EXTERNAL_DATA_FAILURE_DIGEST_* metrics instead). Matches the v3 gate.
+        send_feature_flag_events=False,
     ):
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
         return False
@@ -1895,6 +1907,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "new_issues": error_tracking_api.get_new_issues_for_team(team),
             "daily_counts": error_tracking_api.get_daily_exception_counts(team),
             "crash_free": error_tracking_api.get_crash_free_sessions(team),
+            "source_maps_recommendation": error_tracking_api.get_source_maps_recommendation_for_team(team),
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
         }
@@ -1968,3 +1981,138 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
         f"({len(team_digest_data)} teams with exceptions)"
     )
+
+
+def get_integration_display_name(kind: str) -> str:
+    # Only kinds whose correct casing differs from the title-cased fallback need an override.
+    custom_casing = {"github": "GitHub", "gitlab": "GitLab"}
+    return custom_casing.get(kind, kind.replace("-", " ").title())
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_integration_access_request(team_id: int, requesting_user_id: int, kind: str, reason: str) -> None:
+    """Notify project admins that a member is requesting an integration be connected."""
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if team is None or requester is None:
+        return
+
+    log_context = {"team_id": team_id, "kind": kind, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_integration_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        team.organization.name,
+        fallback="your organization",
+        context={"task": "send_integration_access_request", "field": "organization_name", **log_context},
+    )
+    sanitized_reason = sanitize_message_body(
+        reason,
+        fallback="",
+        context={"task": "send_integration_access_request", "field": "reason", **log_context},
+    )
+    integration_name = get_integration_display_name(kind)
+
+    # Deterministic per requester + integration so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"integration_access_request_{team_id}_{kind}_{requesting_user_id}"
+    subject = f"{requester_name} requested the {integration_name} integration on PostHog"
+
+    # Org admins/owners always have access to every project, so the org-level filter is the access check.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="integration_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "integration_name": integration_name,
+            "integration_kind": kind,
+            "reason": sanitized_reason,
+            "org_name": org_name,
+            "team_name": team.name,
+            "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int) -> None:
+    """Notify org admins that a member is requesting PostHog AI be enabled."""
+    organization = Organization.objects.filter(id=organization_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if organization is None or requester is None:
+        return
+
+    log_context = {"organization_id": organization_id, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_posthog_ai_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        organization.name,
+        fallback="your organization",
+        context={"task": "send_posthog_ai_access_request", "field": "organization_name", **log_context},
+    )
+
+    # AI consent is an org-level setting reachable from any project; prefer the requester's
+    # current project so the link feels familiar, falling back to any project in the org.
+    current_team = requester.current_team
+    team = (
+        current_team
+        if current_team is not None and current_team.organization_id == organization.id
+        else organization.teams.first()
+    )
+    if team is None:
+        return
+    posthog_ai_url = (
+        f"{settings.SITE_URL}/project/{team.id}/settings/organization-details#setting=organization-ai-consent"
+    )
+
+    # Deterministic per requester so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"posthog_ai_access_request_{organization_id}_{requesting_user_id}"
+
+    # Org admins/owners can enable PostHog AI, so they're the recipients of the request.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=organization.id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"{requester_name} requested access to PostHog AI",
+        template_name="posthog_ai_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "organization_name": org_name,
+            "posthog_ai_url": posthog_ai_url,
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()

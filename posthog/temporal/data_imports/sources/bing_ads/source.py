@@ -106,6 +106,9 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads developer token not configured": None,
+            # PostHog's Bing Ads OAuth application credentials aren't configured — an empty client_id makes
+            # Microsoft reject the token request with AADSTS900144. Internal config, not customer-actionable.
+            "Bing Ads OAuth application credentials not configured": None,
         }
 
     @property
@@ -166,6 +169,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             self.get_oauth_integration(config.bing_ads_integration_id, team_id)
             return True, None
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 

@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { IconBug, IconCheckbox, IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, RefreshStatus, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -33,6 +33,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
+    EvaluationRuntime,
 } from './maxTypes'
 import {
     actionToMaxContextPayload,
@@ -111,7 +112,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             id: string
             name?: string | null
             description?: string | null
-            evaluation_type: 'hog' | 'llm_judge'
+            evaluation_type: EvaluationRuntime
             hog_source?: string | null
         }) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
@@ -227,7 +228,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             id: string
                             name?: string | null
                             description?: string | null
-                            evaluation_type: 'hog' | 'llm_judge'
+                            evaluation_type: EvaluationRuntime
                             hog_source?: string | null
                         }
                     }

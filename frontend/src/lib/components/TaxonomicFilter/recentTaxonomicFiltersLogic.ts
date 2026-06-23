@@ -1,8 +1,8 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { now } from 'lib/dayjs'
-import { isOperatorFlag } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { isOperatorFlag } from 'lib/utils/operators'
 
 import { AnyPropertyFilter } from '~/types'
 

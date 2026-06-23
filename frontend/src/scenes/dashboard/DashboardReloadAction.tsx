@@ -12,7 +12,7 @@ import { dayjs } from 'lib/dayjs'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 

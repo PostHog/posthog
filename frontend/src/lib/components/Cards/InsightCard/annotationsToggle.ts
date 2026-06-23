@@ -13,7 +13,7 @@ export function canToggleAnnotationsInInsightQuery(query: QueryBasedInsightModel
     const source = query.source
     if (isTrendsQuery(source)) {
         const display = source.trendsFilter?.display || ChartDisplayType.ActionsLineGraph
-        return !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
+        return display !== ChartDisplayType.Metric && !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
     }
 
     if (isFunnelsQuery(source)) {

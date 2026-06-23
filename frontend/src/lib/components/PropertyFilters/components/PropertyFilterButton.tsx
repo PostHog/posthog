@@ -8,7 +8,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

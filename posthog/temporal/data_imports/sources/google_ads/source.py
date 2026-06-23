@@ -63,6 +63,11 @@ class GoogleAdsSource(
             # recover — the user must reconnect their Google Ads account. Model-specific so we don't
             # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # gapic wraps a transport-level UNAUTHENTICATED into google.api_core.exceptions.Unauthenticated,
+            # whose str() is "401 Request is missing required authentication credential. ..." — it never
+            # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
+            # Retrying cannot recover — the user must reconnect their Google Ads account.
+            "Request is missing required authentication credential": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

@@ -1,18 +1,22 @@
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 
-import { getSeriesColor } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart as InsightPieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-import { InsightLogicProps, GraphType } from '~/types'
+import { ChartDisplayType, GraphType, InsightLogicProps } from '~/types'
 
-import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
+import { LineGraphProps } from './LineGraph'
+import { SqlPieGraph } from './SqlPieGraph'
+import { buildPieSlices, canRenderSqlPieGraph, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 export interface PieChartProps {
     xData: AxisSeries<string> | null
@@ -23,97 +27,27 @@ export interface PieChartProps {
     uniqueKey: string
 }
 
-export interface PieSlice {
-    label: string
-    value: number
-    color: string
-}
+export function PieChart(props: PieChartProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
-const isBreakdownSeries = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>
-): series is AxisBreakdownSeries<number | null> => {
-    return !('column' in series)
-}
-
-const toSliceLabel = (value: unknown): string => {
-    if (value === null || value === undefined || value === '') {
-        return '[No value]'
+    const sqlPieProps: LineGraphProps = {
+        xData: props.xData,
+        yData: props.yData,
+        visualizationType: ChartDisplayType.ActionsPie,
+        chartSettings: props.chartSettings,
+        presetChartHeight: props.presetChartHeight,
+        className: props.className,
     }
 
-    return String(value)
-}
-
-const sumValues = (values: (number | null)[]): number => {
-    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
-}
-
-const getSeriesLabel = (
-    series: AxisSeries<number | null> | AxisBreakdownSeries<number | null>,
-    index: number
-): string => {
-    if (isBreakdownSeries(series)) {
-        return series.name || `[Series ${index + 1}]`
+    if (newChartsEnabled && canRenderSqlPieGraph(sqlPieProps)) {
+        return <SqlPieGraph {...sqlPieProps} />
     }
 
-    return series.settings?.display?.label || series.column.name
+    return <LegacyPieChart {...props} />
 }
 
-export const buildPieSlices = (
-    xData: AxisSeries<string> | null,
-    yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
-): PieSlice[] => {
-    if (!yData.length) {
-        return []
-    }
-
-    if (yData.some(isBreakdownSeries)) {
-        return yData
-            .map((series, index) => ({
-                label: getSeriesLabel(series, index),
-                value: sumValues(series.data),
-                color: series.settings?.display?.color ?? getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    if (yData.length === 1 && xData && xData.column.name !== 'None') {
-        const totalsByLabel = new Map<string, number>()
-
-        xData.data.forEach((rawLabel, index) => {
-            const label = toSliceLabel(rawLabel)
-            const value = yData[0].data[index] ?? 0
-            totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
-        })
-
-        return Array.from(totalsByLabel.entries())
-            .map(([label, value], index) => ({
-                label,
-                value,
-                color: getSeriesColor(index),
-            }))
-            .filter((slice) => slice.value > 0)
-    }
-
-    return yData
-        .map((series, index) => ({
-            label: getSeriesLabel(series, index),
-            value: sumValues(series.data),
-            color: series.settings?.display?.color ?? getSeriesColor(index),
-        }))
-        .filter((slice) => slice.value > 0)
-}
-
-export const formatPieSliceCount = (value: number, total: number, settings?: AxisSeriesSettings): string => {
-    const formatted = String(formatDataWithSettings(value, settings) ?? value)
-    // Percent-styled values are already a share, so a share-of-total suffix would be confusing
-    if (!total || settings?.formatting?.style === 'percent') {
-        return formatted
-    }
-    const shareOfTotal = parseFloat(((value / total) * 100).toFixed(1))
-    return `${formatted} (${shareOfTotal}%)`
-}
-
-export function PieChart({
+function LegacyPieChart({
     xData,
     yData,
     chartSettings,

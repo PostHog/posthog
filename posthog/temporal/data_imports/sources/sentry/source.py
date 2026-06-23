@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.sources.sentry.settings import (
     DEFAULT_SENTRY_API_BASE_URL,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    REQUIRED_SENTRY_SCOPES,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -45,16 +46,12 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sentry",
             iconPath="/static/services/sentry.png",
-            caption="""Enter a Sentry auth token and your organization slug to sync Sentry organization, project, issue, and monitor datasets.
-
-Create a token in Sentry and make sure it includes the scopes below if you want to sync all datasets:
-- `alerts:read`
-- `event:read`
-- `member:read`
-- `org:read`
-- `project:read`
-- `team:read`
-""",
+            caption=(
+                "Enter a Sentry auth token and your organization slug to sync Sentry organization, "
+                "project, issue, and monitor datasets.\n\n"
+                "Create a token in Sentry and make sure it includes the scopes below if you want to "
+                "sync all datasets:\n" + "\n".join(f"- `{scope}`" for scope in REQUIRED_SENTRY_SCOPES) + "\n"
+            ),
             docsUrl="https://posthog.com/docs/cdp/sources/sentry",
             fields=cast(
                 list[FieldType],
@@ -96,7 +93,9 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid Sentry auth token. Please update your token and reconnect.",
-            "403 Client Error": "Sentry token is missing required scopes. Please make sure it includes all scopes required for your schemas.",
+            "403 Client Error": "Sentry token is missing required scopes. Make sure it includes the scopes required for your schemas — the full set is: "
+            + ", ".join(REQUIRED_SENTRY_SCOPES)
+            + ".",
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
         }
 

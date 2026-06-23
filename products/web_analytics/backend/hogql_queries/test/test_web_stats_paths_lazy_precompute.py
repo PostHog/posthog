@@ -19,6 +19,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -155,8 +156,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
 
@@ -490,7 +490,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     )
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
-        "lazy path returns None on `usedLazyPrecompute` despite jobs being created "
+        "lazy path returns None on `preComputeStrategy` despite jobs being created "
         "(`test_unfiltered_round_trip_creates_precompute_job` passes). Same root "
         "cause as `test_lazy_result_matches_raw_result`: suspected read-after-write "
         "visibility on the Distributed lazy read. `@unittest.skip` placed AFTER "
@@ -507,7 +507,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed_two_sessions()
         with self._enable_lazy():
             response = self._run(self._build_query(order_by=[field, direction]))
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
@@ -556,3 +556,114 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "prev_bounce_rate": row[3][1],
             }
         return out
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_creates_job_for_multi_non_host_filter(self):
+        # Filters the restricted gate would reject (multiple, non-`$host`,
+        # non-`exact`) precompute fine for an unrestricted team — no org flag
+        # needed, since membership in the unrestricted list implies enrollment.
+        self._seed_two_sessions()
+        props = [
+            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
+        ]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(properties=props))
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_distinct_filters_get_distinct_cache_entries(self):
+        self._seed_two_sessions()
+        chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(properties=chrome))
+            chrome_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(properties=firefox))
+            firefox_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert chrome_hashes and firefox_hashes, "both filtered runs should create jobs"
+        assert chrome_hashes.isdisjoint(firefox_hashes), (
+            f"distinct filter values must produce distinct cache keys, got overlap: {chrome_hashes & firefox_hashes}"
+        )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_untouched_toggle_creates_job(self):
+        # Unrestricted teams default to opt-out: an untouched toggle (None) still
+        # precomputes.
+        self._seed_two_sessions()
+        query = self._build_query()
+        query.useWebAnalyticsPrecompute = None
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(query)
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_explicit_opt_out_falls_through(self):
+        self._seed_two_sessions()
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(opt_in_precompute=False))
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_pathkey_mirror_runs_only_for_allowlisted_teams(self, _name: str, allowlisted: bool) -> None:
+        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
+
+        job_id = uuid.uuid4()
+        mirror_team_ids = [self.team.pk] if allowlisted else []
+        with (
+            self._enable_lazy(),
+            override_settings(WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS=mirror_team_ids),
+            patch.object(
+                mod,
+                "ensure_web_stats_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
+            ),
+            patch.object(mod, "execute_read_query", return_value=[]),
+            patch.object(mod, "mirror_jobs_to_pathkey") as mock_mirror,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+            mod.execute_lazy_precomputed_read(runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0)
+
+        if allowlisted:
+            mock_mirror.assert_called_once_with(team_id=self.team.pk, job_ids=[str(job_id)])
+        else:
+            mock_mirror.assert_not_called()
+
+    def test_mirror_jobs_to_pathkey_copies_rows_between_tables(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        job_id = uuid.uuid4()
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(job_id)])
+
+        mock_exec.assert_called_once()
+        sql, params = mock_exec.call_args.args
+        assert "INSERT INTO web_stats_paths_preaggregated_pathkey" in sql
+        assert "FROM web_stats_paths_preaggregated" in sql
+        assert params["team_id"] == self.team.pk
+        assert params["job_ids"] == [job_id]  # coerced from str back to UUID
+
+    def test_mirror_jobs_to_pathkey_swallows_errors(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute",
+            side_effect=ValueError("boom"),
+        ):
+            # Must not raise — a failed mirror cannot affect the primary read.
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(uuid.uuid4())])
+
+    def test_mirror_jobs_to_pathkey_noop_on_empty(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
+        mock_exec.assert_not_called()

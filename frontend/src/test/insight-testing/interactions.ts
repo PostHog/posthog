@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 
 import {
     clickAtIndex,
+    createDefaultTooltipAccessor,
+    type DefaultTooltipAccessor,
     getHogChartTooltip,
     hoverUntilTooltip,
     waitForHogChartTooltip,
@@ -165,5 +167,17 @@ export const chart = {
         const row = within(tooltip).getByText(label)
         const clickable = row.closest('tr') ?? row
         fireEvent.click(clickable)
+    },
+}
+
+/** Interactions for SQL (`DataVisualizationNode`) charts, which render quill's `DefaultTooltip`
+ *  instead of the InsightTooltip table — so the tooltip is read via quill's `createDefaultTooltipAccessor`.
+ *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
+export const sqlChart = {
+    async hoverTooltip(index: number, totalLabels: number): Promise<DefaultTooltipAccessor> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
+        const wrapper = canvas.parentElement!
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
+        return createDefaultTooltipAccessor(tooltip)
     },
 }

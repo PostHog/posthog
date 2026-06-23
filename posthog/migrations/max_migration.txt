@@ -1,1 +1,1 @@
-1223_remove_ducklakecatalog_cross_account_fields
+1234_oauthapplication_optional_scopes_and_more

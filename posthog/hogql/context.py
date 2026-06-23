@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -46,6 +47,14 @@ class HogQLContext:
 
     # User making the queries - used for access control on system tables
     user: Optional["User"] = None
+    # Preloaded access-control snapshot for `user`, shared so schema filtering and the query
+    # cache fingerprint resolve access from the same rows (one bulk preload per run).
+    user_access_control: Optional["UserAccessControl"] = None
+
+    # SECURITY-SENSITIVE: bypass for HogQL access control on warehouse tables.
+    # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
+    # Every call site that sets this MUST include an inline comment explaining why.
+    bypass_warehouse_access_control: bool = False
 
     # The engine's data port — answers mid-compile data questions (property types,
     # cohorts, catalogs). Defaults to the ORM-backed provider built from team/team_id;

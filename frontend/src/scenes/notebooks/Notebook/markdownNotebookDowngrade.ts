@@ -6,7 +6,7 @@
  * - Discussion `<Comment ref="…" replies={…} />` threads: the inline `<ref>` highlight survives as
  *   a v1 `comment` mark (so the anchor is preserved), but the thread node and its replies are
  *   dropped — v1 keeps discussion threads outside the document content.
- * - `<Chat />` (AI chat) and `<Prompt />` blocks are dropped — v1 has no equivalent node.
+ * - `<Prompt />` blocks are dropped — v1 has no equivalent node.
  * - Authorial `<!-- … -->` comments become plain paragraphs: the note text stays visible, but its
  *   comment framing is lost.
  * - Table column alignments are dropped — v1 tables do not store alignment.
@@ -45,7 +45,7 @@ const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeTyp
 }, {})
 
 // No v1 equivalent — dropped on downgrade (see module docstring).
-const DROPPED_COMPONENT_TAGS = new Set(['Chat', 'Prompt'])
+const DROPPED_COMPONENT_TAGS = new Set(['Prompt'])
 
 export function convertMarkdownToNotebookContent(markdown: string): JSONContent {
     const document = parseMarkdownNotebook(markdown)

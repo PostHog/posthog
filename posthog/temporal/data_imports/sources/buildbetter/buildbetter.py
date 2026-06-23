@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from typing import Any
 
@@ -5,14 +6,22 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.buildbetter.queries import QUERIES, VIEWER_QUERY
+from posthog.temporal.data_imports.sources.buildbetter.queries import OPTIONAL_QUERY_FIELDS, QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
+_MISSING_FIELD_RE = re.compile(r"field '([^']+)' not found in type")
+
 
 class BuildBetterRetryableError(Exception):
     pass
+
+
+class BuildBetterMissingFieldError(Exception):
+    def __init__(self, field_name: str) -> None:
+        self.field_name = field_name
+        super().__init__(field_name)
 
 
 @dataclasses.dataclass
@@ -35,6 +44,9 @@ def _make_paginated_request(
     query = QUERIES.get(endpoint_name)
     if not query:
         raise ValueError(f"No GraphQL query for endpoint: {endpoint_name}")
+
+    # Nested fields still present in the query that we will drop if the account's schema rejects them.
+    droppable_fields = dict(OPTIONAL_QUERY_FIELDS.get(endpoint_name, {}))
 
     graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
@@ -74,6 +86,10 @@ def _make_paginated_request(
             joined = "; ".join(error_messages)
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (BuildBetter API: {joined})")
+            for msg in error_messages:
+                match = _MISSING_FIELD_RE.search(msg)
+                if match and (field := match.group(1)) in droppable_fields:
+                    raise BuildBetterMissingFieldError(field)
             raise Exception(f"BuildBetter GraphQL error: {joined}")
 
         if not response.ok:
@@ -102,7 +118,14 @@ def _make_paginated_request(
     try:
         while True:
             logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
-            payload = execute(variables)
+            try:
+                payload = execute(variables)
+            except BuildBetterMissingFieldError as e:
+                query = query.replace(droppable_fields.pop(e.field_name), "")
+                logger.warning(
+                    f"BuildBetter: field '{e.field_name}' not available for {endpoint_name}, retrying without it"
+                )
+                continue
 
             data = payload["data"][graphql_query_name]
             if not data:
