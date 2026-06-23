@@ -81,6 +81,14 @@ class TestClassifyCDCError:
         assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
         assert info.retryable is False
 
+    def test_non_psycopg_exception_with_slot_message_is_not_classified(self):
+        # A non-psycopg exception whose message happens to contain slot/auth patterns must not be
+        # misclassified as non-retryable — only psycopg exceptions carry these patterns meaningfully.
+        exc = RuntimeError("replication slot my_slot does not exist")
+        info = classify_cdc_error(exc, PostgresCDCAdapter())
+        assert info.category is CDCErrorCategory.UNKNOWN
+        assert info.retryable is True
+
     def test_friendly_message_never_echoes_raw_exception(self):
         # A connection error carrying secrets must classify to the static friendly copy,
         # never interpolate the raw message — no credential/host leakage into latest_error.

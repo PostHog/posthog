@@ -39,6 +39,12 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     if isinstance(exc, struct.error):
         return CDCErrorCategory.WAL_DECODE_ERROR
 
+    # Guard all string-based checks: only psycopg exceptions carry these message patterns.
+    # A non-psycopg exception whose message happens to contain e.g. "does not exist" would
+    # otherwise be misclassified as non-retryable SLOT_MISSING, permanently stopping retries.
+    if not isinstance(exc, psycopg.Error):
+        return None
+
     message = str(exc).lower()
 
     # Slot held by another connection (e.g. a previous run still draining): "replication
