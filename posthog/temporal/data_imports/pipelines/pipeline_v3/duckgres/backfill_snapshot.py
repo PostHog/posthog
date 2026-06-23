@@ -7,6 +7,7 @@ table's own live parquet files bounded by bytes and file count.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
@@ -29,6 +30,13 @@ class BackfillChunk:
     paths: list[str]
     byte_size: int
     row_count: int
+
+
+@dataclass(frozen=True)
+class BackfillSnapshotPlan:
+    snapshot_version: int
+    chunks: list[BackfillChunk]
+    covered_batches: list[tuple[str, int]]
 
 
 def delta_table_uri(schema: ExternalDataSchema) -> str:
@@ -55,6 +63,11 @@ def _delta_storage_options() -> dict[str, str]:
 
 
 def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = None) -> tuple[int, list[BackfillChunk]]:
+    plan = resolve_snapshot_plan(schema, version=version)
+    return plan.snapshot_version, plan.chunks
+
+
+def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None) -> BackfillSnapshotPlan:
     from deltalake import DeltaTable
 
     uri = delta_table_uri(schema)
@@ -85,7 +98,11 @@ def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = No
         decoded = unquote(p)
         full = decoded if decoded.startswith(("s3://", "s3a://")) else f"{uri.rstrip('/')}/{decoded}"
         files.append((full, size or 0, rows or 0))
-    return resolved_version, _group_files_into_chunks(files)
+    return BackfillSnapshotPlan(
+        snapshot_version=resolved_version,
+        chunks=_group_files_into_chunks(files),
+        covered_batches=_committed_batch_keys(dt, snapshot_version=resolved_version),
+    )
 
 
 def _has_deletion_vectors(dt: Any) -> bool:
@@ -97,6 +114,47 @@ def _has_deletion_vectors(dt: Any) -> bool:
         return "deletionVectors" in features
     except Exception:
         return True  # unknown protocol shape: park, never lie
+
+
+def _committed_batch_keys(dt: Any, *, snapshot_version: int) -> list[tuple[str, int]]:
+    """Return live v3 batch keys committed at or before the pinned snapshot.
+
+    Delta commits are the only exact boundary for snapshot containment. Queue
+    timestamps can race the snapshot read, but a commit with version <= the
+    pinned version is necessarily represented in the files this backfill reads.
+    """
+    keys: list[tuple[str, int]] = []
+    for commit in dt.history():
+        commit_version = commit.get("version")
+        if isinstance(commit_version, int) and commit_version > snapshot_version:
+            continue
+
+        metadata = _commit_metadata(commit)
+        run_uuid = metadata.get("run_uuid")
+        batch_index = metadata.get("batch_index")
+        if run_uuid is None or batch_index is None:
+            continue
+        try:
+            keys.append((str(run_uuid), int(batch_index)))
+        except (TypeError, ValueError):
+            continue
+    return keys
+
+
+def _commit_metadata(commit: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = dict(commit)
+    raw = commit.get("userMetadata")
+    if isinstance(raw, str):
+        try:
+            nested = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            nested = {}
+    elif isinstance(raw, dict):
+        nested = raw
+    else:
+        nested = {}
+    metadata.update(nested)
+    return metadata
 
 
 def _group_files_into_chunks(files: list[tuple[str, int, int]]) -> list[BackfillChunk]:

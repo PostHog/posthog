@@ -155,9 +155,8 @@ class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     state = models.CharField(max_length=32, choices=State.choices, default=State.PENDING_BACKFILL)
     # Delta table version the backfill is pinned to.
     snapshot_version = models.BigIntegerField(null=True, blank=True)
-    # Queue-DB clock taken BEFORE the snapshot was resolved: only runs whose
-    # every batch was delta-succeeded by this instant are provably contained
-    # in the snapshot and safe to retire.
+    # Deprecated planning boundary retained for rows created by older planner
+    # revisions. New plans derive containment from Delta commit versions.
     plan_cutoff = models.DateTimeField(null=True, blank=True)
     backfill_run_uuid = models.CharField(max_length=200, null=True, blank=True)
     chunk_count = models.IntegerField(null=True, blank=True)

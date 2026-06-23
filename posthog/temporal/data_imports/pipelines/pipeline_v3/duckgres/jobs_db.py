@@ -35,12 +35,12 @@ RETIRE_KIND_SUPERSEDED_BY_REPLACE = "superseded_by_replace"
 BLOCKED_LIVE_BATCH_CONDITION = f"""(
                             %(blocked_schema_ids)s::varchar[] IS NOT NULL
                             AND b.schema_id = ANY(%(blocked_schema_ids)s)
-                            AND {{LIVE_BATCH_SQL_PREDICATE}}
+                            AND {LIVE_BATCH_SQL_PREDICATE}
                             AND NOT EXISTS (
                                 SELECT 1
-                                FROM {{BATCH_TABLE}} bh
+                                FROM {BATCH_TABLE} bh
                                 WHERE bh.run_uuid = b.run_uuid
-                                    AND bh.created_at > now() - interval '{{PARTITION_PRUNING_INTERVAL}}'
+                                    AND bh.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                     AND bh.batch_index = 0
                                     AND bh.is_final_batch = false
                                     AND bh.is_resume = false
@@ -204,12 +204,12 @@ class DuckgresBatchQueue:
                         AND (
                             -- Cross-run head-of-line: an older non-failed run of this
                             -- schema still has unapplied data batches. Applies to LIVE
-                            -- batches only: a backfill run is ordered manually — runs
-                            -- provably contained in its snapshot are retired at plan
-                            -- time, and anything newer (in-flight at the cutoff, or
-                            -- started later) must apply AFTER the swap, so it must not
-                            -- gate the chunks. Live batches still queue behind the
-                            -- backfill run itself via this same check.
+                            -- batches only: a backfill run is ordered manually —
+                            -- batches provably contained in its Delta snapshot are
+                            -- pre-applied at plan time, and anything not contained must
+                            -- apply AFTER the swap, so it must not gate the chunks. Live
+                            -- batches still queue behind the backfill run itself via
+                            -- this same check.
                             NOT EXISTS (
                                 SELECT 1
                                 FROM incomplete_runs ir

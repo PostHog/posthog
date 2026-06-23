@@ -15,7 +15,7 @@ consumer pod's maintenance tick with no leader election):
 
   PENDING_BACKFILL --lease CAS--> BACKFILLING(no run)   [lease-reset on crash]
   BACKFILLING(no run) --plan CAS--> BACKFILLING(run)    [the durable plan:
-        run_uuid + snapshot_version + plan_cutoff + chunk_count, written
+        run_uuid + snapshot_version + chunk_count, written
         BEFORE any queue rows; reconcile replays pre-apply/enqueue from it]
   BACKFILLING(run) --> PRIMED   when chunks_applied == chunk_count (the last
         chunk's apply marker shares the swap's transaction, so full
@@ -27,8 +27,8 @@ consumer pod's maintenance tick with no leader election):
         blocked gate precisely so that healing path can run.
 
 PRIMED always means "the duckgres table is complete"; nothing else ever sets
-it. Containment of pre-applied work is proven per batch against the
-plan_cutoff (see backfill_queue.preapply_covered_batches).
+it. Containment of pre-applied work is proven per batch from Delta commit
+metadata at the pinned snapshot version (see backfill_queue.preapply_covered_batches).
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_snapshot import (
     BackfillUnsupportedError,
-    resolve_snapshot_chunks,
+    resolve_snapshot_plan,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.batch_kind import LIVE_BATCH_SQL_PREDICATE
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import RETIRE_KIND_SUPERSEDED_BY_REPLACE
@@ -285,21 +285,18 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
     """Runs only on the pod that won the lease claim.
 
     Ordering is crash-safety-critical:
-    1. capture a queue-DB clock BEFORE resolving the snapshot (the cutoff),
-    2. resolve the snapshot (no side effects),
-    3. CAS the durable run plan onto the state row — the real claim,
-    4. pre-apply covered batches, 5. enqueue chunks.
-    A crash after step 3 is healed by _reconcile_one (replay 4-5 from the
+    1. resolve the snapshot (no side effects),
+    2. CAS the durable run plan onto the state row — the real claim,
+    3. pre-apply covered batches, 4. enqueue chunks.
+    A crash after step 2 is healed by _reconcile_one (replay 3-4 from the
     stored plan); a crash before it is healed by the planning lease.
     """
     schema = ExternalDataSchema.objects.select_related("source", "team").get(id=state.schema_id)
 
     with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-        cutoff_row = conn.execute("SELECT now()").fetchone()
-        assert cutoff_row is not None
-        cutoff = cutoff_row[0]
-
-        snapshot_version, chunks = resolve_snapshot_chunks(schema)
+        plan = resolve_snapshot_plan(schema)
+        snapshot_version = plan.snapshot_version
+        chunks = plan.chunks
         if not chunks:
             # Empty Delta table: nothing to prime.
             DuckgresSinkSchemaState.objects.filter(id=state.id).update(
@@ -316,7 +313,7 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
             backfill_run_uuid__isnull=True,
         ).update(
             snapshot_version=snapshot_version,
-            plan_cutoff=cutoff,
+            plan_cutoff=None,
             backfill_run_uuid=run_uuid,
             chunk_count=len(chunks),
             chunks_applied=0,
@@ -330,7 +327,7 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
             conn,
             team_id=schema.team_id,
             schema_id=str(state.schema_id),
-            cutoff=cutoff,
+            covered_batches=plan.covered_batches,
             reason=f"{REASON_COVERED_BY_SNAPSHOT} v{snapshot_version}",
         )
         inserted = enqueue_chunks(conn, schema, run_uuid, chunks)
@@ -450,15 +447,15 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     present = int(present_row[0]) if present_row else 0
     if state.chunk_count and present < state.chunk_count and state.snapshot_version is not None:
         schema = ExternalDataSchema.objects.select_related("source").get(id=state.schema_id)
-        if state.plan_cutoff is not None:
-            preapply_covered_batches(
-                conn,
-                team_id=state.team_id,
-                schema_id=str(state.schema_id),
-                cutoff=state.plan_cutoff,
-                reason=f"{REASON_COVERED_BY_SNAPSHOT} v{state.snapshot_version}",
-            )
-        _, chunks = resolve_snapshot_chunks(schema, version=state.snapshot_version)
+        plan = resolve_snapshot_plan(schema, version=state.snapshot_version)
+        preapply_covered_batches(
+            conn,
+            team_id=state.team_id,
+            schema_id=str(state.schema_id),
+            covered_batches=plan.covered_batches,
+            reason=f"{REASON_COVERED_BY_SNAPSHOT} v{state.snapshot_version}",
+        )
+        chunks = plan.chunks
         reinserted = enqueue_chunks(conn, schema, str(run_uuid), chunks)
         if reinserted:
             logger.info(

@@ -352,7 +352,7 @@ class TestDuckgresTeamFilterAndBacklog:
 
     @pytest.mark.asyncio
     async def test_backlog_stats(self, conn):
-        batch_id = await _insert_batch(conn)
+        batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
         count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
@@ -377,7 +377,7 @@ class TestDuckgresTeamFilterAndBacklog:
 class TestBackfillGating:
     @pytest.mark.asyncio
     async def test_blocked_schema_live_batches_are_excluded(self, conn):
-        batch_id = await _insert_batch(conn)
+        batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
         assert await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, blocked_schema_ids=["schema-1"]) == []
@@ -411,7 +411,7 @@ class TestBackfillGating:
         )
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        old = await _insert_batch(conn, run_uuid="run-0")
+        old = await _insert_batch(conn, run_uuid="run-0", sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=old, job_state="succeeded", attempt=1)
 
         assert await DuckgresBatchQueue.supersede_replaced_runs(conn) == 0
@@ -443,7 +443,7 @@ class TestBackfillQueueContracts:
         """The cross-run gate exempts backfill chunks from waiting on live
         runs: pre-snapshot runs are retired separately, and post-snapshot
         runs must apply AFTER the swap — neither may deadlock the backfill."""
-        live = await _insert_batch(conn, run_uuid="run-old")
+        live = await _insert_batch(conn, run_uuid="run-old", sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
 
         chunk = await _insert_batch(
@@ -478,32 +478,35 @@ class TestBackfillQueueContracts:
         assert [str(b.id) for b in batches] == [chunk]
 
     @pytest.mark.asyncio
-    async def test_preapply_covered_batches_respects_cutoff(self, conn, _db_url):
-        """Batches delta-succeeded before the cutoff are provably inside the
-        snapshot and get pre-applied (skipped, never failed); a post-cutoff
-        sibling survives, stays eligible, and its run is never poisoned."""
+    async def test_preapply_covered_batches_uses_snapshot_commit_keys(self, conn, _db_url):
+        """Batches committed into the pinned Delta snapshot get pre-applied
+        regardless of queue timing; siblings absent from the snapshot key set
+        survive, stay eligible, and their run is never poisoned."""
         from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill_queue
 
         covered_a = await _insert_batch(conn, run_uuid="run-straddling", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=covered_a, job_state="succeeded", attempt=1)
         late_b = await _insert_batch(conn, run_uuid="run-straddling", batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=late_b, job_state="succeeded", attempt=1)
 
         with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
-            cutoff_row = sync_conn.execute("SELECT now()").fetchone()
-            assert cutoff_row is not None
-            cutoff = cutoff_row[0]
-            # late_b's success lands only AFTER the cutoff.
             preapplied = backfill_queue.preapply_covered_batches(
-                sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
+                sync_conn,
+                team_id=1,
+                schema_id="schema-1",
+                covered_batches=[("run-straddling", 0)],
+                reason="covered v1",
             )
-        await BatchQueue.update_status(conn, batch_id=late_b, job_state="succeeded", attempt=1)
-        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
             preapplied_again = backfill_queue.preapply_covered_batches(
-                sync_conn, team_id=1, schema_id="schema-1", cutoff=cutoff, reason="covered v1"
+                sync_conn,
+                team_id=1,
+                schema_id="schema-1",
+                covered_batches=[("run-straddling", 0)],
+                reason="covered v1",
             )
 
         assert preapplied == 1  # covered_a only
-        assert preapplied_again == 0  # idempotent; late_b's success postdates the cutoff
+        assert preapplied_again == 0  # idempotent; late_b is absent from the snapshot key set
 
         # The straddling sibling is NOT lost: its head-of-line prev is satisfied
         # by the pre-apply marker, the run is not failed, and it remains the

@@ -47,30 +47,41 @@ def preapply_covered_batches(
     *,
     team_id: int,
     schema_id: str,
-    cutoff: Any,
+    covered_batches: list[tuple[str, int]],
     reason: str,
 ) -> int:
     """Mark snapshot-contained batches as already applied — skip, never fail.
 
-    Containment proof is per BATCH: the Delta consumer marks a batch succeeded
-    only after its Delta commit, and the cutoff clock was read from this same
-    database BEFORE the snapshot was resolved, so a batch with a succeeded
-    status older than the cutoff committed at or below the pinned version.
+    Containment proof is per BATCH: the planner reads the pinned Delta snapshot's
+    commit metadata and passes every (run_uuid, batch_index) whose commit version
+    is <= the snapshot version. Queue timestamps are deliberately not used here;
+    they can race the Delta snapshot read.
 
     "Applied" is the correct verb (not "failed"): a failed batch poisons its
-    whole run via the failed-run exclusion, which would (a) drop a mid-flight
-    run's later, post-snapshot batches — data loss — and (b) be impossible to
-    scope to a batch-level cutoff. Pre-applying instead composes with every
-    existing gate: the batch stops being claimable (succeeded status), its
-    siblings' head-of-line check sees it applied (apply marker), and the
-    run's post-cutoff remainder applies normally AFTER the swap.
+    whole run via the failed-run exclusion, which would drop a mid-flight run's
+    later, post-snapshot batches. Pre-applying instead composes with every
+    existing gate: the batch stops being claimable (succeeded status), and its
+    siblings' head-of-line check sees it applied (apply marker).
 
     Idempotent: the marker upserts on its natural key and the status insert
     guards on the latest-status view. Final markers are skipped (they never
     carry apply rows; their no-op pass after PRIMED converges them).
     """
+    if not covered_batches:
+        return 0
+
+    covered_batch_rows = [
+        {"run_uuid": run_uuid, "batch_index": batch_index} for run_uuid, batch_index in covered_batches
+    ]
     covered_scope = f"""
         FROM {BATCH_TABLE} b
+        JOIN (
+            SELECT *
+            FROM jsonb_to_recordset(%(covered_batches)s::jsonb)
+                AS covered(run_uuid text, batch_index int)
+        ) covered
+            ON covered.run_uuid = b.run_uuid
+            AND covered.batch_index = b.batch_index
         JOIN v_latest_source_batch_status ds ON b.id = ds.batch_id
         LEFT JOIN v_latest_source_batch_duckgres_status dgs ON b.id = dgs.batch_id
         WHERE b.team_id = %(team_id)s
@@ -79,13 +90,12 @@ def preapply_covered_batches(
             AND {LIVE_BATCH_SQL_PREDICATE}
             AND b.is_final_batch = false
             AND ds.job_state = 'succeeded'
-            AND ds.created_at <= %(cutoff)s
             AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
     """
     params = {
         "team_id": team_id,
         "schema_id": schema_id,
-        "cutoff": cutoff,
+        "covered_batches": psycopg.types.json.Jsonb(covered_batch_rows),
         "reason": reason,
         "kind": KIND_COVERED_BY_SNAPSHOT,
     }
@@ -102,7 +112,7 @@ def preapply_covered_batches(
         conn.execute(
             f"""
             INSERT INTO sourcebatchduckgresstatus (batch_id, job_state, attempt, error_response)
-            SELECT b.id, 'succeeded', 0, jsonb_build_object('note', %(reason)s, 'kind', %(kind)s)
+            SELECT b.id, 'succeeded', 0, jsonb_build_object('note', %(reason)s::text, 'kind', %(kind)s::text)
             {covered_scope}
             """,
             params,

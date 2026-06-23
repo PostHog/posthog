@@ -2,6 +2,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_snapshot import (
     CHUNK_TARGET_BYTES,
     BackfillChunk,
+    _committed_batch_keys,
     _group_files_into_chunks,
 )
 
@@ -47,3 +48,20 @@ def test_backfill_run_uuid_is_unique_per_planning_attempt():
 def test_chunk_dataclass_shape():
     c = BackfillChunk(0, ["s3://b/f"], 1, 2)
     assert (c.index, c.byte_size, c.row_count) == (0, 1, 2)
+
+
+def test_committed_batch_keys_filters_to_snapshot_version():
+    class FakeDeltaTable:
+        def history(self):
+            return [
+                {"version": 12, "run_uuid": "after-snapshot", "batch_index": "0"},
+                {"version": 11, "run_uuid": "flat-layout", "batch_index": "2"},
+                {"version": 10, "userMetadata": '{"run_uuid": "nested-layout", "batch_index": "3"}'},
+                {"version": 9, "operation": "CREATE TABLE"},
+                {"version": 8, "run_uuid": "bad-batch-index", "batch_index": "nan"},
+            ]
+
+    assert _committed_batch_keys(FakeDeltaTable(), snapshot_version=11) == [
+        ("flat-layout", 2),
+        ("nested-layout", 3),
+    ]
