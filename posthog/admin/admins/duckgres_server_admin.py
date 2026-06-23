@@ -12,10 +12,6 @@ from posthog.models import DuckgresServer, Organization, Team, User
 
 logger = structlog.get_logger(__name__)
 
-MANAGE_DUCKGRES_CONTROL_PLANE_PERMISSION = "posthog.manage_duckgresserver_control_plane"
-MANAGE_DUCKGRES_CONTROL_PLANE_APP_LABEL = "posthog"
-MANAGE_DUCKGRES_CONTROL_PLANE_CODENAME = "manage_duckgresserver_control_plane"
-
 
 @admin.register(DuckgresServer)
 class DuckgresServerAdmin(admin.ModelAdmin):
@@ -116,26 +112,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     def get_fieldsets(self, request: HttpRequest, obj: DuckgresServer | None = None) -> tuple:
         return self.add_fieldsets if obj is None else self.change_fieldsets
 
-    def changelist_view(self, request: HttpRequest, extra_context: dict | None = None) -> HttpResponse:
-        context = {
-            **(extra_context or {}),
-            "can_manage_duckgres_control_plane": self.can_manage_control_plane(request),
-        }
-        return super().changelist_view(request, extra_context=context)
-
-    def changeform_view(
-        self,
-        request: HttpRequest,
-        object_id: str | None = None,
-        form_url: str = "",
-        extra_context: dict | None = None,
-    ) -> HttpResponse:
-        context = {
-            **(extra_context or {}),
-            "can_manage_duckgres_control_plane": self.can_manage_control_plane(request),
-        }
-        return super().changeform_view(request, object_id, form_url, extra_context=context)
-
     def provision_view(self, request: HttpRequest) -> HttpResponse:
         """Provision a brand-new managed warehouse for an org + its first team.
 
@@ -144,8 +120,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         records. The org's feature flag is bypassed (require_enabled=False) so ops can
         provision before the org is entitled to the in-product UI.
         """
-        self._require_managed_warehouse_operator(request)
-
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
 
@@ -180,8 +154,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
     def enable_backfill_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         """Add another team to an already-provisioned org's warehouse with its own tables."""
-        self._require_managed_warehouse_operator(request)
-
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
 
@@ -217,8 +189,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
     def deprovision_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
         """Tear down an org's managed warehouse via the control-plane /deprovision call."""
-        self._require_managed_warehouse_operator(request)
-
         if request.method not in {"GET", "POST"}:
             return HttpResponseNotAllowed(["GET", "POST"])
 
@@ -250,26 +220,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             return get_object_or_404(DuckgresServer, pk=object_id)
         except ValidationError as exc:
             raise Http404("No DuckgresServer matches the given query.") from exc
-
-    def _require_managed_warehouse_operator(self, request: HttpRequest) -> None:
-        if not self.can_manage_control_plane(request):
-            raise PermissionDenied
-
-    def can_manage_control_plane(self, request: HttpRequest) -> bool:
-        if not request.user.is_authenticated:
-            return False
-
-        user = cast(User, request.user)
-        return (
-            user.user_permissions.filter(
-                content_type__app_label=MANAGE_DUCKGRES_CONTROL_PLANE_APP_LABEL,
-                codename=MANAGE_DUCKGRES_CONTROL_PLANE_CODENAME,
-            ).exists()
-            or user.groups.filter(
-                permissions__content_type__app_label=MANAGE_DUCKGRES_CONTROL_PLANE_APP_LABEL,
-                permissions__codename=MANAGE_DUCKGRES_CONTROL_PLANE_CODENAME,
-            ).exists()
-        )
 
     def _resolve_team(self, request: HttpRequest, organization_id: str, team_id: str) -> Team | None:
         """Look up the team and confirm it belongs to the given org, messaging on failure."""

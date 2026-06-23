@@ -5,14 +5,13 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
 
 from rest_framework.response import Response
 
-from posthog.admin.admins.duckgres_server_admin import MANAGE_DUCKGRES_CONTROL_PLANE_PERMISSION, DuckgresServerAdmin
+from posthog.admin.admins.duckgres_server_admin import DuckgresServerAdmin
 from posthog.models import DuckgresServer, Organization, Team
 
 MW = "products.data_warehouse.backend.api.managed_warehouse"
@@ -66,7 +65,6 @@ class TestDuckgresServerAdminProvision(BaseTest):
                 "add_duckgresserver",
                 "change_duckgresserver",
                 "delete_duckgresserver",
-                "manage_duckgresserver_control_plane",
             ],
         )
         self.user.user_permissions.add(*permissions)
@@ -83,15 +81,6 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         assert "username" in field_names
         assert "password" not in field_names
-
-    def test_managed_warehouse_actions_require_control_plane_permission(self) -> None:
-        app_label, codename = MANAGE_DUCKGRES_CONTROL_PLANE_PERMISSION.split(".")
-        permission = Permission.objects.get(content_type__app_label=app_label, codename=codename)
-        self.user.user_permissions.remove(permission)
-        request = self._get("/admin/posthog/duckgresserver/provision/")
-
-        with self.assertRaises(PermissionDenied):
-            self.admin.provision_view(request)
 
     def test_provision_post_calls_managed_warehouse_bypassing_flag(self) -> None:
         request = self._post(
