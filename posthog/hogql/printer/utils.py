@@ -40,7 +40,10 @@ from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.type_aware_simplification import (
+    simplify_argmax_over_non_nullable,
+    simplify_redundant_type_operations,
+)
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -294,6 +297,11 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
+    if dialect == "clickhouse":
+        with context.timings.measure("simplify_argmax_over_non_nullable"):
+            node = simplify_argmax_over_non_nullable(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
