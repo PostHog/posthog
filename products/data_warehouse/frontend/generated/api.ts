@@ -43,6 +43,8 @@ import type {
     QueryTabStateApi,
     QueryTabStateListParams,
     ResetPasswordResponseApi,
+    SQLVisualizationGenerationRequestApi,
+    SQLVisualizationGenerationResponseApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -747,6 +749,27 @@ export const queryTabStateUserRetrieve = async (
     return apiMutator<QueryTabStateApi>(getQueryTabStateUserRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSqlVisualizationCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sql_visualization/`
+}
+
+/**
+ * Generates a Vega-Lite JSON specification from a compact SQL result shape. The returned spec must be validated client-side before rendering.
+ * @summary Generate a Vega-Lite visualization for SQL results
+ */
+export const sqlVisualizationCreate = async (
+    projectId: string,
+    sQLVisualizationGenerationRequestApi: SQLVisualizationGenerationRequestApi,
+    options?: RequestInit
+): Promise<SQLVisualizationGenerationResponseApi> => {
+    return apiMutator<SQLVisualizationGenerationResponseApi>(getSqlVisualizationCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sQLVisualizationGenerationRequestApi),
     })
 }
 

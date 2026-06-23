@@ -437,6 +437,7 @@ class Display(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    GENERATED_VEGA_LITE = "GeneratedVegaLite"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
 
@@ -575,6 +576,7 @@ class ChartDisplayType(StrEnum):
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
+    GENERATED_VEGA_LITE = "GeneratedVegaLite"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
 
@@ -1942,6 +1944,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class SemanticType(StrEnum):
+    TEMPORAL = "temporal"
+    QUANTITATIVE = "quantitative"
+    NOMINAL = "nominal"
+    ORDINAL = "ordinal"
 
 
 class Position(StrEnum):

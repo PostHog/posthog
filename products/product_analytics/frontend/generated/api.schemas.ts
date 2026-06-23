@@ -1455,6 +1455,7 @@ export const ChartDisplayTypeApi = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    GeneratedVegaLite: 'GeneratedVegaLite',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
 } as const
@@ -6928,6 +6929,51 @@ export interface DataTableNodeApi {
     version?: number | null
 }
 
+export type SemanticTypeApi = (typeof SemanticTypeApi)[keyof typeof SemanticTypeApi]
+
+export const SemanticTypeApi = {
+    Temporal: 'temporal',
+    Quantitative: 'quantitative',
+    Nominal: 'nominal',
+    Ordinal: 'ordinal',
+} as const
+
+export interface GeneratedVegaLiteFieldApi {
+    /** Stable field name the Vega-Lite spec references */
+    field: string
+    /** Human-readable display label */
+    label: string
+    /** Best-effort Vega-Lite semantic type for validation */
+    semanticType?: SemanticTypeApi | null
+    /** Original SQL result column name */
+    sourceColumn: string
+    /** Database result type, when known */
+    type?: string | null
+}
+
+export interface GeneratedVegaLiteChartSettingsApi {
+    /** Short explanation of the generated visualization */
+    explanation?: string | null
+    /** Stable field aliases used by the generated spec */
+    fields?: GeneratedVegaLiteFieldApi[] | null
+    /** Timestamp when the spec was last generated */
+    lastGeneratedAt?: string | null
+    /** User-editable prompt used to generate the Vega-Lite spec */
+    prompt?: string | null
+    /** Last renderer failure for the generated spec */
+    renderError?: string | null
+    /** Original Vega-Lite spec returned by AI */
+    spec?: unknown
+    /** AI trace ID for the last generation request */
+    traceId?: string | null
+    /** Client-validated and normalized Vega-Lite spec */
+    validatedSpec?: unknown
+    /** Last validation failure for the generated spec */
+    validationError?: string | null
+    /** AI warnings for the last generated spec */
+    warnings?: string[] | null
+}
+
 export interface HeatmapGradientStopApi {
     color: string
     value: number
@@ -7034,6 +7080,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** AI-generated Vega-Lite chart configuration */
+    generatedVegaLite?: GeneratedVegaLiteChartSettingsApi | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null

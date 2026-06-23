@@ -226,6 +226,7 @@ from posthog.schema_enums import (
     RevenueAnalyticsOverviewItemKey as RevenueAnalyticsOverviewItemKey,
     RevenueAnalyticsTopCustomersGroupBy as RevenueAnalyticsTopCustomersGroupBy,
     Scale as Scale,
+    SemanticType as SemanticType,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
@@ -1452,6 +1453,19 @@ class FunnelTimeToConvertResults(BaseModel):
 
 class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
+
+
+class GeneratedVegaLiteField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: str = Field(..., description="Stable field name the Vega-Lite spec references")
+    label: str = Field(..., description="Human-readable display label")
+    semanticType: SemanticType | None = Field(
+        default=None, description="Best-effort Vega-Lite semantic type for validation"
+    )
+    sourceColumn: str = Field(..., description="Original SQL result column name")
+    type: str | None = Field(default=None, description="Database result type, when known")
 
 
 class GithubIssueSignalExtra(BaseModel):
@@ -5262,6 +5276,27 @@ class FunnelsFilterLegacy(BaseModel):
     funnel_window_interval_unit: FunnelConversionWindowTimeUnit | None = None
     hidden_legend_keys: dict[str, bool | Any] | None = None
     layout: FunnelLayout | None = None
+
+
+class GeneratedVegaLiteChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    explanation: str | None = Field(default=None, description="Short explanation of the generated visualization")
+    fields: list[GeneratedVegaLiteField] | None = Field(
+        default=None, description="Stable field aliases used by the generated spec"
+    )
+    lastGeneratedAt: str | None = Field(default=None, description="Timestamp when the spec was last generated")
+    prompt: str | None = Field(
+        default=None,
+        description="User-editable prompt used to generate the Vega-Lite spec",
+    )
+    renderError: str | None = Field(default=None, description="Last renderer failure for the generated spec")
+    spec: Any | None = Field(default=None, description="Original Vega-Lite spec returned by AI")
+    traceId: str | None = Field(default=None, description="AI trace ID for the last generation request")
+    validatedSpec: Any | None = Field(default=None, description="Client-validated and normalized Vega-Lite spec")
+    validationError: str | None = Field(default=None, description="Last validation failure for the generated spec")
+    warnings: list[str] | None = Field(default=None, description="AI warnings for the last generated spec")
 
 
 class GithubIssueSignalInput(BaseModel):
@@ -12931,6 +12966,9 @@ class CalendarHeatmapResponse(BaseModel):
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    generatedVegaLite: GeneratedVegaLiteChartSettings | None = Field(
+        default=None, description="AI-generated Vega-Lite chart configuration"
     )
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None

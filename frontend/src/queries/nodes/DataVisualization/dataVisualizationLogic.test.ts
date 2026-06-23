@@ -4,8 +4,17 @@ import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
+import { sqlVisualizationCreate } from 'products/data_warehouse/frontend/generated/api'
+
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import { DEFAULT_GENERATED_VEGA_LITE_PROMPT } from './generatedVegaLiteUtils'
+
+jest.mock('products/data_warehouse/frontend/generated/api', () => ({
+    sqlVisualizationCreate: jest.fn(),
+}))
+
+const mockSqlVisualizationCreate = jest.mocked(sqlVisualizationCreate)
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -24,6 +33,7 @@ describe('dataVisualizationLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        mockSqlVisualizationCreate.mockReset()
 
         logic = dataVisualizationLogic({
             key: testKey,
@@ -512,5 +522,168 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+
+    it('generates and saves a validated Vega-Lite spec when selecting Generate', async () => {
+        mockSqlVisualizationCreate.mockResolvedValue({
+            spec: {
+                data: { name: 'posthog_results' },
+                mark: 'bar',
+                encoding: {
+                    x: { field: 'name', type: 'nominal' },
+                    y: { field: 'count', type: 'quantitative' },
+                },
+            },
+            trace_id: 'trace-1',
+            explanation: 'Bar chart by name.',
+            warnings: [],
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['name', 'count'],
+            types: [
+                ['name', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [['A', 3]],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setVisualizationType(ChartDisplayType.GeneratedVegaLite)
+        })
+            .toDispatchActions(['generateVegaLiteChartSuccess'])
+            .toMatchValues({
+                visualizationType: ChartDisplayType.GeneratedVegaLite,
+                chartSettings: expect.objectContaining({
+                    generatedVegaLite: expect.objectContaining({
+                        prompt: DEFAULT_GENERATED_VEGA_LITE_PROMPT,
+                        traceId: 'trace-1',
+                        validationError: undefined,
+                        validatedSpec: expect.objectContaining({
+                            data: { name: 'posthog_results' },
+                            mark: 'bar',
+                        }),
+                    }),
+                }),
+            })
+
+        expect(mockSqlVisualizationCreate).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                query: 'select 1',
+                rowCount: 1,
+                sampleRows: [{ name: 'A', count: 3 }],
+            })
+        )
+    })
+
+    it('does not regenerate a saved Vega-Lite spec when query results load', async () => {
+        const savedSpec = {
+            data: { name: 'posthog_results' },
+            mark: 'bar',
+            encoding: {
+                x: { field: 'name', type: 'nominal' },
+                y: { field: 'count', type: 'quantitative' },
+            },
+        }
+        const queryWithSavedGeneratedChart: DataVisualizationNode = {
+            ...defaultQuery,
+            display: ChartDisplayType.GeneratedVegaLite,
+            chartSettings: {
+                generatedVegaLite: {
+                    prompt: 'Keep this chart.',
+                    spec: savedSpec,
+                    validatedSpec: savedSpec,
+                    fields: [
+                        {
+                            field: 'name',
+                            sourceColumn: 'name',
+                            label: 'name',
+                            type: 'String',
+                            semanticType: 'nominal',
+                        },
+                        {
+                            field: 'count',
+                            sourceColumn: 'count',
+                            label: 'count',
+                            type: 'Int64',
+                            semanticType: 'quantitative',
+                        },
+                    ],
+                },
+            },
+        }
+
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: queryWithSavedGeneratedChart,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({
+            key: testKey,
+            query: queryWithSavedGeneratedChart.source,
+            dataNodeCollectionId,
+        }).actions.setResponse({
+            columns: ['name', 'count'],
+            types: [
+                ['name', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [['A', 3]],
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSqlVisualizationCreate).not.toHaveBeenCalled()
+        expect(logic.values.chartSettings.generatedVegaLite?.validatedSpec).toEqual(savedSpec)
+    })
+
+    it('does not call generation when selecting Generate without results', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.GeneratedVegaLite)
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSqlVisualizationCreate).not.toHaveBeenCalled()
+        expect(logic.values.chartSettings.generatedVegaLite).toEqual(
+            expect.objectContaining({
+                validationError: 'Run a query before generating a visualization.',
+            })
+        )
+    })
+
+    it('stores a validation error instead of a validated spec when AI returns unsafe Vega-Lite', async () => {
+        mockSqlVisualizationCreate.mockResolvedValue({
+            spec: {
+                data: { name: 'posthog_results', url: 'https://example.com/data.json' },
+                mark: 'bar',
+                encoding: {
+                    y: { field: 'count', type: 'quantitative' },
+                },
+            },
+            trace_id: 'trace-2',
+            warnings: [],
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['count'],
+            types: [['count', 'Int64']],
+            results: [[3]],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setVisualizationType(ChartDisplayType.GeneratedVegaLite)
+        }).toDispatchActions(['generateVegaLiteChartSuccess'])
+
+        expect(logic.values.chartSettings.generatedVegaLite).toEqual(
+            expect.objectContaining({
+                spec: expect.any(Object),
+                traceId: 'trace-2',
+                validatedSpec: undefined,
+                validationError: expect.stringContaining('Unsupported key "url"'),
+            })
+        )
     })
 })

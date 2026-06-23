@@ -12,6 +12,7 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
@@ -34,20 +35,35 @@ import {
     ConditionalFormattingRule,
     DataVisualizationNode,
     HeatmapSettings,
+    HogQLQueryResponse,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
 
+import { sqlVisualizationCreate } from 'products/data_warehouse/frontend/generated/api'
+import type {
+    SQLVisualizationGenerationRequestApi,
+    SQLVisualizationGenerationResponseApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
+
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
+import {
+    DEFAULT_GENERATED_VEGA_LITE_PROMPT,
+    buildSQLVisualizationGenerationRequest,
+    getGeneratedVegaLiteViewDimensions,
+    validateVegaLiteSpec,
+} from './generatedVegaLiteUtils'
+import type { SQLVisualizationGenerationView } from './generatedVegaLiteUtils'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
     Series = 'series',
     Display = 'display',
     ConditionalFormatting = 'conditional_formatting',
+    Generated = 'generated',
 }
 
 export interface ColumnType {
@@ -359,7 +375,20 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.rightYAxisSettings,
                   }
                 : undefined,
+        generatedVegaLite:
+            state.generatedVegaLite || settings.generatedVegaLite
+                ? {
+                      ...state.generatedVegaLite,
+                      ...settings.generatedVegaLite,
+                  }
+                : undefined,
     }
+}
+
+const hasCachedGeneratedVegaLiteSpec = (chartSettings: ChartSettings): boolean => {
+    const settings = chartSettings.generatedVegaLite
+
+    return !!(settings?.validatedSpec || settings?.spec)
 }
 
 const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
@@ -383,6 +412,18 @@ const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
     const selectedYAxisNames = new Set(selectedYAxis.map((series) => series?.name))
 
     return numericalColumns.every((column) => selectedYAxisNames.has(column.name))
+}
+
+const isHogQLResponseWithColumns = (
+    response: AnyResponseType | null
+): response is HogQLQueryResponse & { columns: string[]; results: unknown[] } => {
+    return (
+        !!response &&
+        'results' in response &&
+        Array.isArray(response.results) &&
+        'columns' in response &&
+        Array.isArray(response.columns)
+    )
 }
 
 export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
@@ -769,6 +810,95 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return state.filter((k: string) => k !== columnName)
                     }
                     return [...state, columnName]
+                },
+            },
+        ],
+    })),
+    loaders(({ values, actions }) => ({
+        generatedVegaLiteResponse: [
+            null as SQLVisualizationGenerationResponseApi | null,
+            {
+                generateVegaLiteChart: async (payload?: { view?: SQLVisualizationGenerationView }) => {
+                    const prompt = values.chartSettings.generatedVegaLite?.prompt || DEFAULT_GENERATED_VEGA_LITE_PROMPT
+
+                    if (!values.currentTeamId) {
+                        actions.updateChartSettings({
+                            generatedVegaLite: {
+                                prompt,
+                                validationError: 'A project is required to generate a visualization.',
+                                renderError: undefined,
+                            },
+                        })
+                        return null
+                    }
+
+                    if (!isHogQLResponseWithColumns(values.response) || values.response.columns?.length === 0) {
+                        actions.updateChartSettings({
+                            generatedVegaLite: {
+                                prompt,
+                                validationError: 'Run a query before generating a visualization.',
+                                renderError: undefined,
+                            },
+                        })
+                        return null
+                    }
+
+                    actions.updateChartSettings({
+                        generatedVegaLite: {
+                            prompt,
+                            validationError: undefined,
+                            renderError: undefined,
+                        },
+                    })
+
+                    const request = buildSQLVisualizationGenerationRequest(
+                        values.query.source.query,
+                        prompt,
+                        values.response,
+                        { view: payload?.view ?? getGeneratedVegaLiteViewDimensions() }
+                    )
+                    const response = await sqlVisualizationCreate(
+                        String(values.currentTeamId),
+                        request as SQLVisualizationGenerationRequestApi
+                    )
+                    const responseWarnings = response.warnings ?? []
+
+                    try {
+                        const validation = validateVegaLiteSpec(response.spec, request.fields)
+                        actions.updateChartSettings({
+                            generatedVegaLite: {
+                                prompt,
+                                spec: response.spec,
+                                validatedSpec: validation.spec,
+                                validationError: undefined,
+                                renderError: undefined,
+                                lastGeneratedAt: dayjs().toISOString(),
+                                traceId: response.trace_id,
+                                warnings: [...responseWarnings, ...validation.warnings],
+                                explanation: response.explanation,
+                                fields: request.fields,
+                            },
+                        })
+                    } catch (error) {
+                        const validationError =
+                            error instanceof Error ? error.message : 'The generated Vega-Lite spec is invalid.'
+                        actions.updateChartSettings({
+                            generatedVegaLite: {
+                                prompt,
+                                spec: response.spec,
+                                validatedSpec: undefined,
+                                validationError,
+                                renderError: undefined,
+                                lastGeneratedAt: dayjs().toISOString(),
+                                traceId: response.trace_id,
+                                warnings: responseWarnings,
+                                explanation: response.explanation,
+                                fields: request.fields,
+                            },
+                        })
+                    }
+
+                    return response
                 },
             },
         ],
@@ -1251,6 +1381,26 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
 
+            if (visualizationType === ChartDisplayType.GeneratedVegaLite) {
+                actions.toggleChartSettingsPanel(true)
+                if (hasCachedGeneratedVegaLiteSpec(values.chartSettings)) {
+                    return
+                }
+                if (isHogQLResponseWithColumns(values.response) && values.response.columns.length > 0) {
+                    actions.generateVegaLiteChart()
+                } else {
+                    actions.updateChartSettings({
+                        generatedVegaLite: {
+                            prompt:
+                                values.chartSettings.generatedVegaLite?.prompt || DEFAULT_GENERATED_VEGA_LITE_PROMPT,
+                            validationError: 'Run a query before generating a visualization.',
+                            renderError: undefined,
+                        },
+                    })
+                }
+                return
+            }
+
             if (
                 [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&
                 shouldUseFirstNumericColumnAsContinuousChartXAxis(
@@ -1386,6 +1536,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             if (values.effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
                 applyAutoHeatmapSettings(actions, value, values.chartSettings.heatmap ?? {})
+            }
+
+            if (
+                values.visualizationType === ChartDisplayType.GeneratedVegaLite &&
+                value.length > 0 &&
+                !values.generatedVegaLiteResponseLoading &&
+                !hasCachedGeneratedVegaLiteSpec(values.chartSettings)
+            ) {
+                actions.generateVegaLiteChart()
             }
         },
     })),

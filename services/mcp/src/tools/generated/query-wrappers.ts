@@ -509,6 +509,7 @@ const AssistantTrendsFilter = z.object({
             'WorldMap',
             'CalendarHeatmap',
             'TwoDimensionalHeatmap',
+            'GeneratedVegaLite',
             'BoxPlot',
             'SlopeGraph',
         ])

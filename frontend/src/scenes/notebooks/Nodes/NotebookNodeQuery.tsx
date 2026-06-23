@@ -188,7 +188,7 @@ const Component = ({
                 <NotebookSQLEditorOutput
                     attributes={attributes}
                     updateAttributes={updateAttributes}
-                    showOutputToolbar={!!editingNodeIds[resolvedNodeId]}
+                    showOutputToolbar={!!editingNodeIds[resolvedNodeId] || !!attributes.showSettings}
                 />
             </div>
         )
@@ -291,7 +291,7 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
+    }, [query, canvasFiltersOverride, isDefaultFilterApplied, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(attributes.query)) {

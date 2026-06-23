@@ -106,6 +106,172 @@ export const QueryTabStatePartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Generates a Vega-Lite JSON specification from a compact SQL result shape. The returned spec must be validated client-side before rendering.
+ * @summary Generate a Vega-Lite visualization for SQL results
+ */
+export const sqlVisualizationCreateBodyQueryMax = 100000
+
+export const sqlVisualizationCreateBodyPromptMax = 4000
+
+export const sqlVisualizationCreateBodyColumnsItemNameMax = 256
+
+export const sqlVisualizationCreateBodyColumnsItemTypeMax = 128
+
+export const sqlVisualizationCreateBodyColumnsItemSampleValuesMax = 10
+
+export const sqlVisualizationCreateBodyColumnsItemNullCountMin = 0
+
+export const sqlVisualizationCreateBodyColumnsItemDistinctSampleCountMin = 0
+
+export const sqlVisualizationCreateBodyFieldsItemFieldMax = 128
+
+export const sqlVisualizationCreateBodyFieldsItemSourceColumnMax = 256
+
+export const sqlVisualizationCreateBodyFieldsItemLabelMax = 256
+
+export const sqlVisualizationCreateBodyFieldsItemTypeMax = 128
+
+export const sqlVisualizationCreateBodySampleRowsMax = 20
+
+export const sqlVisualizationCreateBodyRowCountMin = 0
+
+export const sqlVisualizationCreateBodyViewOneWidthMin = 120
+export const sqlVisualizationCreateBodyViewOneWidthMax = 2000
+
+export const sqlVisualizationCreateBodyViewOneHeightMin = 120
+export const sqlVisualizationCreateBodyViewOneHeightMax = 2000
+
+export const SqlVisualizationCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(sqlVisualizationCreateBodyQueryMax)
+        .describe('The SQL query that produced the result being visualized.'),
+    prompt: zod
+        .string()
+        .max(sqlVisualizationCreateBodyPromptMax)
+        .describe('User-editable visualization instructions for the AI generator.'),
+    columns: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyColumnsItemNameMax)
+                    .describe('Original SQL result column name.'),
+                type: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyColumnsItemTypeMax)
+                    .nullish()
+                    .describe('Database result type for the column, when known.'),
+                semanticType: zod
+                    .enum(['temporal', 'quantitative', 'nominal', 'ordinal'])
+                    .describe(
+                        '\* `temporal` - temporal\n\* `quantitative` - quantitative\n\* `nominal` - nominal\n\* `ordinal` - ordinal'
+                    )
+                    .optional()
+                    .describe(
+                        'Best-effort Vega-Lite semantic type inferred from the column type and sample values.\n\n\* `temporal` - temporal\n\* `quantitative` - quantitative\n\* `nominal` - nominal\n\* `ordinal` - ordinal'
+                    ),
+                sampleValues: zod
+                    .array(
+                        zod
+                            .union([
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.null(),
+                            ])
+                            .describe('A compact sample value from this column.')
+                    )
+                    .max(sqlVisualizationCreateBodyColumnsItemSampleValuesMax)
+                    .describe('Up to 10 compact, distinct sample values from this column.'),
+                nullCount: zod
+                    .number()
+                    .min(sqlVisualizationCreateBodyColumnsItemNullCountMin)
+                    .optional()
+                    .describe('Number of sampled rows where this column was null.'),
+                distinctSampleCount: zod
+                    .number()
+                    .min(sqlVisualizationCreateBodyColumnsItemDistinctSampleCountMin)
+                    .optional()
+                    .describe('Number of distinct values found in the sample for this column.'),
+            })
+        )
+        .describe('Compact per-column result shape, including types and sample values.'),
+    fields: zod
+        .array(
+            zod.object({
+                field: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyFieldsItemFieldMax)
+                    .describe('Stable field name the Vega-Lite spec must reference.'),
+                sourceColumn: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyFieldsItemSourceColumnMax)
+                    .describe('Original SQL result column name.'),
+                label: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyFieldsItemLabelMax)
+                    .describe('Human-readable display label for the field.'),
+                type: zod
+                    .string()
+                    .max(sqlVisualizationCreateBodyFieldsItemTypeMax)
+                    .nullish()
+                    .describe('Database result type for the source column, when known.'),
+                semanticType: zod
+                    .enum(['temporal', 'quantitative', 'nominal', 'ordinal'])
+                    .describe(
+                        '\* `temporal` - temporal\n\* `quantitative` - quantitative\n\* `nominal` - nominal\n\* `ordinal` - ordinal'
+                    )
+                    .optional()
+                    .describe(
+                        'Best-effort Vega-Lite semantic type inferred for this field.\n\n\* `temporal` - temporal\n\* `quantitative` - quantitative\n\* `nominal` - nominal\n\* `ordinal` - ordinal'
+                    ),
+            })
+        )
+        .optional()
+        .describe('Stable Vega field aliases. When present, generated specs must reference these field names.'),
+    sampleRows: zod
+        .array(
+            zod.record(
+                zod.string(),
+                zod
+                    .union([
+                        zod.string(),
+                        zod.number(),
+                        zod.boolean(),
+                        zod.record(zod.string(), zod.unknown()),
+                        zod.array(zod.unknown()),
+                        zod.null(),
+                    ])
+                    .describe('A compact sampled cell value keyed by Vega field alias.')
+            )
+        )
+        .max(sqlVisualizationCreateBodySampleRowsMax)
+        .describe('Up to 20 compact sample rows keyed by Vega field alias.'),
+    rowCount: zod
+        .number()
+        .min(sqlVisualizationCreateBodyRowCountMin)
+        .describe('Total number of rows returned by the SQL query.'),
+    view: zod
+        .object({
+            width: zod
+                .number()
+                .min(sqlVisualizationCreateBodyViewOneWidthMin)
+                .max(sqlVisualizationCreateBodyViewOneWidthMax)
+                .describe('Approximate visualization pane width in CSS pixels.'),
+            height: zod
+                .number()
+                .min(sqlVisualizationCreateBodyViewOneHeightMin)
+                .max(sqlVisualizationCreateBodyViewOneHeightMax)
+                .describe('Approximate visualization pane height in CSS pixels.'),
+        })
+        .optional()
+        .describe('Approximate visualization pane dimensions for choosing chart layout.'),
+})
+
+/**
  * Read and edit semantic descriptions of warehouse tables and columns surfaced to the AI agent.
  *
  * List can be filtered to one table with `?table_id=<uuid>`. Any create or update is treated as a

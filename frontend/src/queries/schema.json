@@ -4244,6 +4244,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "GeneratedVegaLite",
+                    "type": "string"
+                },
+                {
                     "const": "BoxPlot",
                     "type": "string"
                 },
@@ -4349,6 +4353,7 @@
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
+                        "GeneratedVegaLite",
                         "BoxPlot",
                         "SlopeGraph"
                     ],
@@ -11865,6 +11870,7 @@
                 "WorldMap",
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
+                "GeneratedVegaLite",
                 "BoxPlot",
                 "SlopeGraph"
             ],
@@ -11873,6 +11879,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "generatedVegaLite": {
+                    "$ref": "#/definitions/GeneratedVegaLiteChartSettings",
+                    "description": "AI-generated Vega-Lite chart configuration"
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -22811,6 +22821,84 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "GeneratedVegaLiteChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "explanation": {
+                    "description": "Short explanation of the generated visualization",
+                    "type": ["string", "null"]
+                },
+                "fields": {
+                    "description": "Stable field aliases used by the generated spec",
+                    "items": {
+                        "$ref": "#/definitions/GeneratedVegaLiteField"
+                    },
+                    "type": "array"
+                },
+                "lastGeneratedAt": {
+                    "description": "Timestamp when the spec was last generated",
+                    "type": "string"
+                },
+                "prompt": {
+                    "description": "User-editable prompt used to generate the Vega-Lite spec",
+                    "type": "string"
+                },
+                "renderError": {
+                    "description": "Last renderer failure for the generated spec",
+                    "type": "string"
+                },
+                "spec": {
+                    "description": "Original Vega-Lite spec returned by AI"
+                },
+                "traceId": {
+                    "description": "AI trace ID for the last generation request",
+                    "type": "string"
+                },
+                "validatedSpec": {
+                    "description": "Client-validated and normalized Vega-Lite spec"
+                },
+                "validationError": {
+                    "description": "Last validation failure for the generated spec",
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "AI warnings for the last generated spec",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "GeneratedVegaLiteField": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "description": "Stable field name the Vega-Lite spec references",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Human-readable display label",
+                    "type": "string"
+                },
+                "semanticType": {
+                    "description": "Best-effort Vega-Lite semantic type for validation",
+                    "enum": ["temporal", "quantitative", "nominal", "ordinal"],
+                    "type": "string"
+                },
+                "sourceColumn": {
+                    "description": "Original SQL result column name",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Database result type, when known",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["field", "sourceColumn", "label"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {

@@ -8,6 +8,7 @@ import { ChartDisplayType } from '~/types'
 import { SideBarTab, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ConditionalFormattingTab } from './ConditionalFormatting/ConditionalFormattingTab'
 import { DisplayTab } from './DisplayTab'
+import { GeneratedVegaLiteTab } from './GeneratedVegaLiteTab'
 import { SeriesTab } from './SeriesTab'
 
 type TabContent = {
@@ -20,7 +21,7 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Series]: {
         label: 'Series',
         content: <SeriesTab />,
-        shouldShow: (): boolean => true,
+        shouldShow: (displayType: ChartDisplayType): boolean => displayType !== ChartDisplayType.GeneratedVegaLite,
     },
     [SideBarTab.ConditionalFormatting]: {
         label: 'Conditional formatting',
@@ -33,7 +34,13 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         shouldShow: (displayType: ChartDisplayType): boolean =>
             displayType !== ChartDisplayType.ActionsTable &&
             displayType !== ChartDisplayType.BoldNumber &&
-            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
+            displayType !== ChartDisplayType.TwoDimensionalHeatmap &&
+            displayType !== ChartDisplayType.GeneratedVegaLite,
+    },
+    [SideBarTab.Generated]: {
+        label: 'Generated',
+        content: <GeneratedVegaLiteTab />,
+        shouldShow: (displayType: ChartDisplayType): boolean => displayType === ChartDisplayType.GeneratedVegaLite,
     },
 }
 
@@ -51,18 +58,21 @@ export const SideBar = (): JSX.Element => {
                 })),
         [effectiveVisualizationType]
     )
+    const activeTab = tabs.some((tab) => tab.key === activeSideBarTab) ? activeSideBarTab : tabs[0]?.key
 
     return (
         <div className="bg-surface-primary w-[18rem] flex flex-col">
             <LemonTabs
                 size="small"
-                activeKey={activeSideBarTab}
+                activeKey={activeTab}
                 onChange={(tab) => setSideBarTab(tab as SideBarTab)}
                 tabs={tabs}
                 className="pt-1"
                 barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+            <div className="flex-1 overflow-y-auto">
+                {activeTab ? TABS_TO_CONTENT[activeTab as SideBarTab].content : null}
+            </div>
         </div>
     )
 }

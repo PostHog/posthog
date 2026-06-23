@@ -276,6 +276,166 @@ export interface PatchedQueryTabStateApi {
     state?: unknown
 }
 
+export type SQLVisualizationGenerationRequestApiSampleRowsItem = {
+    [key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null
+}
+
+/**
+ * * `temporal` - temporal
+ * * `quantitative` - quantitative
+ * * `nominal` - nominal
+ * * `ordinal` - ordinal
+ */
+export type SemanticTypeEnumApi = (typeof SemanticTypeEnumApi)[keyof typeof SemanticTypeEnumApi]
+
+export const SemanticTypeEnumApi = {
+    Temporal: 'temporal',
+    Quantitative: 'quantitative',
+    Nominal: 'nominal',
+    Ordinal: 'ordinal',
+} as const
+
+/**
+ * A compact sample value from this column.
+ */
+export type SQLVisualizationColumnApiSampleValuesItem =
+    | string
+    | number
+    | boolean
+    | { [key: string]: unknown }
+    | unknown[]
+    | null
+
+export interface SQLVisualizationColumnApi {
+    /**
+     * Original SQL result column name.
+     * @maxLength 256
+     */
+    name: string
+    /**
+     * Database result type for the column, when known.
+     * @maxLength 128
+     * @nullable
+     */
+    type?: string | null
+    /** Best-effort Vega-Lite semantic type inferred from the column type and sample values.
+     *
+     * * `temporal` - temporal
+     * * `quantitative` - quantitative
+     * * `nominal` - nominal
+     * * `ordinal` - ordinal */
+    semanticType?: SemanticTypeEnumApi
+    /**
+     * Up to 10 compact, distinct sample values from this column.
+     * @maxItems 10
+     */
+    sampleValues: SQLVisualizationColumnApiSampleValuesItem[]
+    /**
+     * Number of sampled rows where this column was null.
+     * @minimum 0
+     */
+    nullCount?: number
+    /**
+     * Number of distinct values found in the sample for this column.
+     * @minimum 0
+     */
+    distinctSampleCount?: number
+}
+
+export interface SQLVisualizationFieldApi {
+    /**
+     * Stable field name the Vega-Lite spec must reference.
+     * @maxLength 128
+     */
+    field: string
+    /**
+     * Original SQL result column name.
+     * @maxLength 256
+     */
+    sourceColumn: string
+    /**
+     * Human-readable display label for the field.
+     * @maxLength 256
+     */
+    label: string
+    /**
+     * Database result type for the source column, when known.
+     * @maxLength 128
+     * @nullable
+     */
+    type?: string | null
+    /** Best-effort Vega-Lite semantic type inferred for this field.
+     *
+     * * `temporal` - temporal
+     * * `quantitative` - quantitative
+     * * `nominal` - nominal
+     * * `ordinal` - ordinal */
+    semanticType?: SemanticTypeEnumApi
+}
+
+export interface SQLVisualizationViewApi {
+    /**
+     * Approximate visualization pane width in CSS pixels.
+     * @minimum 120
+     * @maximum 2000
+     */
+    width: number
+    /**
+     * Approximate visualization pane height in CSS pixels.
+     * @minimum 120
+     * @maximum 2000
+     */
+    height: number
+}
+
+export interface SQLVisualizationGenerationRequestApi {
+    /**
+     * The SQL query that produced the result being visualized.
+     * @maxLength 100000
+     */
+    query: string
+    /**
+     * User-editable visualization instructions for the AI generator.
+     * @maxLength 4000
+     */
+    prompt: string
+    /** Compact per-column result shape, including types and sample values. */
+    columns: SQLVisualizationColumnApi[]
+    /** Stable Vega field aliases. When present, generated specs must reference these field names. */
+    fields?: SQLVisualizationFieldApi[]
+    /**
+     * Up to 20 compact sample rows keyed by Vega field alias.
+     * @maxItems 20
+     */
+    sampleRows: SQLVisualizationGenerationRequestApiSampleRowsItem[]
+    /**
+     * Total number of rows returned by the SQL query.
+     * @minimum 0
+     */
+    rowCount: number
+    /** Approximate visualization pane dimensions for choosing chart layout. */
+    view?: SQLVisualizationViewApi
+}
+
+/**
+ * Generated Vega-Lite JSON specification.
+ */
+export type SQLVisualizationGenerationResponseApiSpec = { [key: string]: unknown }
+
+export interface SQLVisualizationGenerationResponseApi {
+    /** Generated Vega-Lite JSON specification. */
+    spec: SQLVisualizationGenerationResponseApiSpec
+    /** Trace ID for the AI generation request. */
+    trace_id: string
+    /**
+     * Short explanation of the generated visualization.
+     * @nullable
+     */
+    explanation?: string | null
+    /** Warnings about limitations in the generated visualization. */
+    warnings?: string[]
+}
+
 /**
  * * `canonical` - Canonical
  * * `ai_generated` - AI generated

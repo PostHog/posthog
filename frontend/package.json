@@ -261,6 +261,9 @@
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
+        "vega": "^6.2.0",
+        "vega-embed": "^7.1.0",
+        "vega-lite": "^6.4.3",
         "zod": "^4.3.6",
         "zxcvbn": "^4.4.2"
     },

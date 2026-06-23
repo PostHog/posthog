@@ -2892,6 +2892,7 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
+    GeneratedVegaLite = 'GeneratedVegaLite',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
 }

@@ -192,6 +192,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.GeneratedVegaLite]: ChartDisplayType.ActionsBarValue,
 
     // separate: different breakdown limit (250)
     [ChartDisplayType.WorldMap]: ChartDisplayType.WorldMap,

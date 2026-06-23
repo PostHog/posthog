@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+import products.data_warehouse.backend.api.sql_visualization as sql_visualization
 from products.data_warehouse.backend.api import (
     column_annotation,
     data_modeling_job,
@@ -65,6 +66,9 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.register_legacy_dual_route(r"fix_hogql", fix_hogql.FixHogQLViewSet, "project_fix_hogql", ["team_id"])
+    routers.projects.register(
+        r"sql_visualization", sql_visualization.SQLVisualizationViewSet, "project_sql_visualization", ["team_id"]
+    )
     routers.register_legacy_dual_route(
         r"warehouse_saved_query_drafts",
         saved_query_draft.DataWarehouseSavedQueryDraftViewSet,

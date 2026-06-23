@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconSparkles, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
@@ -33,6 +33,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.WorldMap]: 'World map',
         [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
+        [ChartDisplayType.GeneratedVegaLite]: 'Generate',
         [ChartDisplayType.BoxPlot]: 'Box plot',
         [ChartDisplayType.SlopeGraph]: 'Slope graph',
     }
@@ -77,6 +78,12 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         {
             title: 'Charts',
             options: [
+                {
+                    value: ChartDisplayType.GeneratedVegaLite,
+                    icon: <IconSparkles />,
+                    label: 'Generate',
+                    disabledReason: columns.length === 0 ? 'Run a query first' : undefined,
+                },
                 {
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconTrends />,

@@ -43,6 +43,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { GeneratedVegaLiteVisualization } from '~/queries/nodes/DataVisualization/Components/Charts/GeneratedVegaLiteVisualization'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
@@ -919,6 +920,16 @@ function InternalDataTableVisualization(
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
                 embedded
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.GeneratedVegaLite) {
+        component = (
+            <GeneratedVegaLiteVisualization
+                uniqueKey={props.uniqueKey}
+                query={query}
+                context={props.context}
+                cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded={props.embedded}
             />
         )
     } else if (

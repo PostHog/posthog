@@ -1192,6 +1192,42 @@ export interface YAxisSettings {
     showTicks?: boolean
 }
 
+export interface GeneratedVegaLiteField {
+    /** Stable field name the Vega-Lite spec references */
+    field: string
+    /** Original SQL result column name */
+    sourceColumn: string
+    /** Human-readable display label */
+    label: string
+    /** Database result type, when known */
+    type?: string | null
+    /** Best-effort Vega-Lite semantic type for validation */
+    semanticType?: 'temporal' | 'quantitative' | 'nominal' | 'ordinal'
+}
+
+export interface GeneratedVegaLiteChartSettings {
+    /** User-editable prompt used to generate the Vega-Lite spec */
+    prompt?: string
+    /** Original Vega-Lite spec returned by AI */
+    spec?: any
+    /** Client-validated and normalized Vega-Lite spec */
+    validatedSpec?: any
+    /** Last validation failure for the generated spec */
+    validationError?: string
+    /** Last renderer failure for the generated spec */
+    renderError?: string
+    /** Timestamp when the spec was last generated */
+    lastGeneratedAt?: string
+    /** AI trace ID for the last generation request */
+    traceId?: string
+    /** AI warnings for the last generated spec */
+    warnings?: string[]
+    /** Short explanation of the generated visualization */
+    explanation?: string | null
+    /** Stable field aliases used by the generated spec */
+    fields?: GeneratedVegaLiteField[]
+}
+
 export interface ChartSettings {
     xAxis?: ChartAxis
     xAxisLabel?: string
@@ -1213,6 +1249,8 @@ export interface ChartSettings {
     showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    /** AI-generated Vega-Lite chart configuration */
+    generatedVegaLite?: GeneratedVegaLiteChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }

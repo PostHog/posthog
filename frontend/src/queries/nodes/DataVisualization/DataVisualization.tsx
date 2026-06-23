@@ -33,6 +33,7 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
+import { GeneratedVegaLiteVisualization } from './Components/Charts/GeneratedVegaLiteVisualization'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
@@ -242,6 +243,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <Table
+                uniqueKey={props.uniqueKey}
+                query={query}
+                context={props.context}
+                cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded={props.embedded}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.GeneratedVegaLite) {
+        component = (
+            <GeneratedVegaLiteVisualization
                 uniqueKey={props.uniqueKey}
                 query={query}
                 context={props.context}

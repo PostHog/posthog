@@ -2272,6 +2272,7 @@ export namespace Schemas {
       WorldMap: 'WorldMap',
       CalendarHeatmap: 'CalendarHeatmap',
       TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+      GeneratedVegaLite: 'GeneratedVegaLite',
       BoxPlot: 'BoxPlot',
       SlopeGraph: 'SlopeGraph',
     } as const;
@@ -6921,6 +6922,52 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type SemanticType = typeof SemanticType[keyof typeof SemanticType];
+
+
+    export const SemanticType = {
+      Temporal: 'temporal',
+      Quantitative: 'quantitative',
+      Nominal: 'nominal',
+      Ordinal: 'ordinal',
+    } as const;
+
+    export interface GeneratedVegaLiteField {
+      /** Stable field name the Vega-Lite spec references */
+      field: string;
+      /** Human-readable display label */
+      label: string;
+      /** Best-effort Vega-Lite semantic type for validation */
+      semanticType?: SemanticType | null;
+      /** Original SQL result column name */
+      sourceColumn: string;
+      /** Database result type, when known */
+      type?: string | null;
+    }
+
+    export interface GeneratedVegaLiteChartSettings {
+      /** Short explanation of the generated visualization */
+      explanation?: string | null;
+      /** Stable field aliases used by the generated spec */
+      fields?: GeneratedVegaLiteField[] | null;
+      /** Timestamp when the spec was last generated */
+      lastGeneratedAt?: string | null;
+      /** User-editable prompt used to generate the Vega-Lite spec */
+      prompt?: string | null;
+      /** Last renderer failure for the generated spec */
+      renderError?: string | null;
+      /** Original Vega-Lite spec returned by AI */
+      spec?: unknown;
+      /** AI trace ID for the last generation request */
+      traceId?: string | null;
+      /** Client-validated and normalized Vega-Lite spec */
+      validatedSpec?: unknown;
+      /** Last validation failure for the generated spec */
+      validationError?: string | null;
+      /** AI warnings for the last generated spec */
+      warnings?: string[] | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -7033,6 +7080,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** AI-generated Vega-Lite chart configuration */
+      generatedVegaLite?: GeneratedVegaLiteChartSettings | null;
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
@@ -45256,6 +45305,159 @@ export namespace Schemas {
       url: string;
       /** Form fields that must be submitted verbatim with the file upload */
       fields: S3PresignedPostFields;
+    }
+
+    /**
+     * A compact sample value from this column.
+     */
+    export type SQLVisualizationColumnSampleValuesItem = string | number | boolean | { [key: string]: unknown } | unknown[] | null;
+
+    /**
+     * * `temporal` - temporal
+     * * `quantitative` - quantitative
+     * * `nominal` - nominal
+     * * `ordinal` - ordinal
+     */
+    export type SemanticTypeEnum = typeof SemanticTypeEnum[keyof typeof SemanticTypeEnum];
+
+
+    export const SemanticTypeEnum = {
+      Temporal: 'temporal',
+      Quantitative: 'quantitative',
+      Nominal: 'nominal',
+      Ordinal: 'ordinal',
+    } as const;
+
+    export interface SQLVisualizationColumn {
+      /**
+         * Original SQL result column name.
+         * @maxLength 256
+         */
+      name: string;
+      /**
+         * Database result type for the column, when known.
+         * @maxLength 128
+         * @nullable
+         */
+      type?: string | null;
+      /** Best-effort Vega-Lite semantic type inferred from the column type and sample values.
+       *
+       * * `temporal` - temporal
+       * * `quantitative` - quantitative
+       * * `nominal` - nominal
+       * * `ordinal` - ordinal */
+      semanticType?: SemanticTypeEnum;
+      /**
+         * Up to 10 compact, distinct sample values from this column.
+         * @maxItems 10
+         */
+      sampleValues: SQLVisualizationColumnSampleValuesItem[];
+      /**
+         * Number of sampled rows where this column was null.
+         * @minimum 0
+         */
+      nullCount?: number;
+      /**
+         * Number of distinct values found in the sample for this column.
+         * @minimum 0
+         */
+      distinctSampleCount?: number;
+    }
+
+    export interface SQLVisualizationField {
+      /**
+         * Stable field name the Vega-Lite spec must reference.
+         * @maxLength 128
+         */
+      field: string;
+      /**
+         * Original SQL result column name.
+         * @maxLength 256
+         */
+      sourceColumn: string;
+      /**
+         * Human-readable display label for the field.
+         * @maxLength 256
+         */
+      label: string;
+      /**
+         * Database result type for the source column, when known.
+         * @maxLength 128
+         * @nullable
+         */
+      type?: string | null;
+      /** Best-effort Vega-Lite semantic type inferred for this field.
+       *
+       * * `temporal` - temporal
+       * * `quantitative` - quantitative
+       * * `nominal` - nominal
+       * * `ordinal` - ordinal */
+      semanticType?: SemanticTypeEnum;
+    }
+
+    export type SQLVisualizationGenerationRequestSampleRowsItem = {[key: string]: string | number | boolean | { [key: string]: unknown } | unknown[] | null};
+
+    export interface SQLVisualizationView {
+      /**
+         * Approximate visualization pane width in CSS pixels.
+         * @minimum 120
+         * @maximum 2000
+         */
+      width: number;
+      /**
+         * Approximate visualization pane height in CSS pixels.
+         * @minimum 120
+         * @maximum 2000
+         */
+      height: number;
+    }
+
+    export interface SQLVisualizationGenerationRequest {
+      /**
+         * The SQL query that produced the result being visualized.
+         * @maxLength 100000
+         */
+      query: string;
+      /**
+         * User-editable visualization instructions for the AI generator.
+         * @maxLength 4000
+         */
+      prompt: string;
+      /** Compact per-column result shape, including types and sample values. */
+      columns: SQLVisualizationColumn[];
+      /** Stable Vega field aliases. When present, generated specs must reference these field names. */
+      fields?: SQLVisualizationField[];
+      /**
+         * Up to 20 compact sample rows keyed by Vega field alias.
+         * @maxItems 20
+         */
+      sampleRows: SQLVisualizationGenerationRequestSampleRowsItem[];
+      /**
+         * Total number of rows returned by the SQL query.
+         * @minimum 0
+         */
+      rowCount: number;
+      /** Approximate visualization pane dimensions for choosing chart layout. */
+      view?: SQLVisualizationView;
+    }
+
+    /**
+     * Generated Vega-Lite JSON specification.
+     */
+    export type SQLVisualizationGenerationResponseSpec = { [key: string]: unknown };
+
+    export interface SQLVisualizationGenerationResponse {
+      /** Generated Vega-Lite JSON specification. */
+      spec: SQLVisualizationGenerationResponseSpec;
+      /** Trace ID for the AI generation request. */
+      trace_id: string;
+      /**
+         * Short explanation of the generated visualization.
+         * @nullable
+         */
+      explanation?: string | null;
+      /** Warnings about limitations in the generated visualization. */
+      warnings?: string[];
     }
 
     /**
