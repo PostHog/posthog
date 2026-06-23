@@ -33,7 +33,7 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    fn type_str(self) -> &'static str {
+    pub(crate) fn type_str(self) -> &'static str {
         match self {
             ErrorKind::Syntax => "SyntaxError",
             ErrorKind::NotImplemented => "NotImplementedError",

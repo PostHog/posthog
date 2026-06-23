@@ -22,7 +22,6 @@
     clippy::doc_lazy_continuation
 )]
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
 
@@ -180,17 +179,15 @@ fn parse_string_literal_text(py: Python<'_>, text: &str) -> PyResult<String> {
     }
 }
 
-/// Raise the matching Python exception for `err` via the shared [`pyobject::Converter`].
+/// Raise the matching `posthog.hogql.errors` exception for `err`, importing only the errors module (not the AST/enum-laden `Converter`).
 fn raise_parse_error(py: Python<'_>, err: error::ParseError) -> PyErr {
-    let value = err.to_json_value();
-    match pyobject::Converter::new(py) {
-        Ok(converter) => match converter.convert_root(&value) {
-            // Unreachable: an error envelope always raises; fall back without an FFI-crossing panic.
-            Ok(_) => PyValueError::new_err("internal: parser error envelope did not raise"),
-            Err(e) => e,
-        },
-        Err(e) => e,
-    }
+    pyobject::raise_error_envelope(
+        py,
+        err.kind.type_str(),
+        &err.message,
+        Some(err.start as u64),
+        Some(err.end as u64),
+    )
 }
 
 #[pymodule]
