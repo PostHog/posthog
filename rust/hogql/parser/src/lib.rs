@@ -169,7 +169,15 @@ fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObj
 /// Errors route through the shared converter so `SyntaxError`/`ParsingError` match the C++ wheel's classes.
 #[pyfunction]
 fn parse_string_literal_text(py: Python<'_>, text: &str) -> PyResult<String> {
-    parse::parse_string_literal_text(text).map_err(|err| raise_parse_error(py, err))
+    // catch_unwind like the other entry points: a future panic in the decoder must not cross FFI as a PanicException.
+    match std::panic::catch_unwind(AssertUnwindSafe(|| parse::parse_string_literal_text(text))) {
+        Ok(Ok(decoded)) => Ok(decoded),
+        Ok(Err(err)) => Err(raise_parse_error(py, err)),
+        Err(_) => Err(raise_parse_error(
+            py,
+            error::ParseError::not_implemented("internal panic in parse_string_literal_text", 0, 0),
+        )),
+    }
 }
 
 /// Raise the matching Python exception for `err` via the shared [`pyobject::Converter`].
