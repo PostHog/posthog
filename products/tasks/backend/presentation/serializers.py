@@ -32,6 +32,7 @@ from products.tasks.backend.facade.run_config import (
     RuntimeAdapter,
     get_reasoning_effort_error,
 )
+from products.tasks.backend.models import TaskArtifact
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -56,6 +57,8 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifact.ArtifactType.choices]
+TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifact.Adapter.choices]
 
 
 def get_task_run_artifact_max_size_bytes(
@@ -604,6 +607,106 @@ class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
 
 class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable living artifact id. Use this id when editing the artifact.")
+    task_id = serializers.CharField(help_text="Task id this living artifact belongs to.")
+    run_id = serializers.CharField(help_text="Task run id that created or currently owns this artifact.")
+    team_id = serializers.IntegerField(help_text="Project id that owns this artifact.")
+    name = serializers.CharField(help_text="Human-readable artifact name.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        help_text="Artifact format or delivery surface, such as document, slack_canvas, or slack_message.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES,
+        help_text="Adapter that currently stores or edits the artifact.",
+    )
+    status = serializers.ChoiceField(
+        choices=[choice for choice, _label in TaskArtifact.Status.choices],
+        help_text="Current registry status for the artifact.",
+    )
+    location = serializers.JSONField(help_text="Adapter-specific location, such as S3 key or Slack canvas id.")
+    metadata = serializers.JSONField(help_text="Adapter-specific metadata for connector fallback and source tracking.")
+    current_version = serializers.IntegerField(help_text="Current version number for the artifact.")
+    versions = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField()),
+        help_text="Chronological version records for this artifact.",
+    )
+    created_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when created.")
+    updated_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when last updated.")
+
+
+class TaskRunLivingArtifactsResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunLivingArtifactResponseSerializer(many=True, help_text="Living artifacts for this task run.")
+
+
+class TaskRunLivingArtifactOpenResponseSerializer(TaskRunLivingArtifactResponseSerializer):
+    content = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Current artifact content when the adapter can read it directly.",
+    )
+
+
+class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Human-readable artifact name, used as the title.")
+    artifact_type = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES,
+        default=TaskArtifact.ArtifactType.DOCUMENT,
+        help_text="Artifact format or delivery surface to create.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES,
+        required=False,
+        help_text="Optional preferred storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted document artifacts use connector storage with S3 fallback.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500000,
+        help_text="Markdown or text content for the initial artifact version.",
+    )
+    source_artifact_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact id to use as the initial content source.",
+    )
+    source_storage_path = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Existing run artifact storage_path to use as the initial content source.",
+    )
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to persist with the living artifact.",
+    )
+
+    def validate(self, attrs):
+        if not (attrs.get("content") or attrs.get("source_artifact_id") or attrs.get("source_storage_path")):
+            raise serializers.ValidationError(
+                {"content": "Provide content, source_artifact_id, or source_storage_path."}
+            )
+        return attrs
+
+
+class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=False,
+        help_text="Optional new human-readable artifact name.",
+    )
+    content = serializers.CharField(max_length=500000, help_text="Markdown or text content for the next version.")
+    metadata = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="Optional metadata to merge into the artifact registry record.",
+    )
 
 
 class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):

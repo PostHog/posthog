@@ -7783,6 +7783,66 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-runs-living-artifacts-create": {
+        "description": "Create a stable, editable deliverable for a task run. Use this before claiming that a Slack-facing report, document, spreadsheet, canvas, or file has been delivered. Pass `content` for markdown/text deliverables, or `source_artifact_id` / `source_storage_path` to turn an existing run artifact into a living artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use connector storage with S3 fallback.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Create living artifact",
+        "title": "Create living artifact",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-living-artifacts-edit": {
+        "description": "Commit a new version to an existing living artifact. Use the artifact id returned by tasks-runs-living-artifacts-create or tasks-runs-living-artifacts-list. The adapter updates the backing Slack message, Slack canvas, document connector fallback, or S3 object and records the new version.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Edit living artifact",
+        "title": "Edit living artifact",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-living-artifacts-list": {
+        "description": "List stable, versioned living artifact handles for a task run. Use this to find the artifact id to open or edit when a user asks for a previous deliverable to be revised.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List living artifacts",
+        "title": "List living artifacts",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-living-artifacts-open": {
+        "description": "Open a living artifact by id and return its registry metadata plus current readable content when the adapter supports it. Use this before editing a prior deliverable.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Open living artifact",
+        "title": "Open living artifact",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-runs-retrieve": {
         "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`, `state.sandbox_url`) and the presigned `log_url` are omitted from the response.",
         "category": "Tasks",

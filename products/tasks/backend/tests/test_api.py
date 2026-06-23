@@ -55,6 +55,7 @@ from products.tasks.backend.models import (
     CodeInviteRedemption,
     SandboxEnvironment,
     Task,
+    TaskArtifact,
     TaskAutomation,
     TaskRun,
 )
@@ -4068,6 +4069,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("storage_path", artifact)
         self.assertIn(f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run.id}/", artifact["storage_path"])
 
+        living_artifact = TaskArtifact.objects.for_team(self.team.id).get(task_run=run)
+        self.assertEqual(living_artifact.name, "plan.md")
+        self.assertEqual(living_artifact.adapter, TaskArtifact.Adapter.S3)
+        self.assertEqual(living_artifact.metadata["source_artifact_id"], artifact["id"])
+
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
     def test_upload_artifacts_accepts_base64_content(self, mock_tag, mock_write):
@@ -4226,6 +4232,62 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
             {"artifacts": []},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.storage.object_storage.read", return_value="# Living report")
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_living_artifact_create_open_and_edit(self, mock_tag, mock_write, mock_read):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        create_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            {
+                "name": "user_activity_report.md",
+                "artifact_type": "document",
+                "content": "# Living report",
+            },
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_200_OK)
+        artifact = create_response.json()
+        self.assertEqual(artifact["name"], "user_activity_report.md")
+        self.assertEqual(artifact["adapter"], TaskArtifact.Adapter.DOCUMENT_CONNECTOR)
+        self.assertEqual(artifact["current_version"], 1)
+        self.assertEqual(artifact["versions"][0]["document_connector_status"], "fallback_s3")
+
+        open_response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/"
+        )
+        self.assertEqual(open_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(open_response.json()["content"], "# Living report")
+
+        edit_response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact['id']}/edit/",
+            {"content": "# Updated report"},
+            format="json",
+        )
+
+        self.assertEqual(edit_response.status_code, status.HTTP_200_OK)
+        updated = edit_response.json()
+        self.assertEqual(updated["current_version"], 2)
+        self.assertEqual([version["version"] for version in updated["versions"]], [1, 2])
+        self.assertEqual(mock_write.call_count, 2)
+        self.assertEqual(mock_tag.call_count, 2)
+        mock_read.assert_called()
+
+    def test_living_artifact_create_requires_content_or_source(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            {"name": "empty.md", "artifact_type": "document"},
             format="json",
         )
 

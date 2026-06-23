@@ -87,6 +87,11 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunLivingArtifactCreateRequestSerializer,
+    TaskRunLivingArtifactEditRequestSerializer,
+    TaskRunLivingArtifactOpenResponseSerializer,
+    TaskRunLivingArtifactResponseSerializer,
+    TaskRunLivingArtifactsResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -756,7 +761,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._task_id()
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve", "logs", "session_logs", "stream", "stream_token")
+            and self.action
+            in (
+                "list",
+                "retrieve",
+                "logs",
+                "session_logs",
+                "stream",
+                "stream_token",
+                "living_artifacts",
+                "living_artifact",
+            )
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not tasks_facade.task_accessible_for_run_view(
@@ -1055,6 +1070,130 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if manifest is None:
             raise NotFound()
         serializer = TaskRunArtifactsUploadResponseSerializer({"artifacts": manifest})
+        return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactsResponseSerializer,
+                description="Living artifacts registered for this task run",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="List living artifacts for a task run",
+        description="Returns stable, versioned artifact handles created by a task run.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_list",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="living_artifacts",
+    )
+    def living_artifacts(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifacts = tasks_facade.list_task_run_living_artifacts(pk, task_id, self.team_id)
+        if artifacts is None:
+            raise NotFound()
+        serializer = TaskRunLivingArtifactsResponseSerializer({"artifacts": artifacts})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactCreateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactResponseSerializer,
+                description="Created living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Create a living artifact for a task run",
+        description=(
+            "Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. "
+            "Slack adapters deliver into the mapped Slack thread; document artifacts use connector storage when "
+            "available and S3 fallback otherwise."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_create",
+    )
+    @living_artifacts.mapping.post
+    def living_artifacts_create(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact, error = tasks_facade.create_task_run_living_artifact(
+            pk, task_id, self.team_id, artifact=request.validated_data
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactOpenResponseSerializer,
+                description="Living artifact with current readable content",
+            ),
+            404: OpenApiResponse(description="Living artifact not found"),
+        },
+        summary="Open a living artifact for a task run",
+        description="Return a stable living artifact handle and the current content when the adapter supports reads.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_open",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"living_artifacts/(?P<artifact_id>[^/.]+)",
+    )
+    def living_artifact(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact = tasks_facade.get_task_run_living_artifact(pk, task_id, self.team_id, artifact_id=artifact_id)
+        if artifact is None:
+            raise NotFound()
+        serializer = TaskRunLivingArtifactOpenResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactEditRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactResponseSerializer,
+                description="Updated living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact update"),
+            404: OpenApiResponse(description="Living artifact not found"),
+        },
+        summary="Edit a living artifact for a task run",
+        description="Commit a new version to an existing living artifact handle.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_edit",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"living_artifacts/(?P<artifact_id>[^/.]+)/edit",
+    )
+    def living_artifact_edit(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact, error = tasks_facade.edit_task_run_living_artifact(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_id=artifact_id,
+            content=request.validated_data["content"],
+            name=request.validated_data.get("name"),
+            metadata=request.validated_data.get("metadata"),
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error == "not_found":
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
 
     @validated_request(

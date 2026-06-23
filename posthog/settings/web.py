@@ -635,6 +635,7 @@ SPECTACULAR_SETTINGS = {
             "user_attachment",
             "skill_bundle",
         ],
+        "TaskArtifactStatusEnum": ["active", "failed"],
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],

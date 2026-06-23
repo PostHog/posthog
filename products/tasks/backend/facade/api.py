@@ -110,11 +110,13 @@ __all__ = [
     "create_task_automation",
     "create_task_without_run",
     "create_task_run_connection_token",
+    "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
     "delete_sandbox_environment",
     "delete_task_automation",
+    "edit_task_run_living_artifact",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -132,6 +134,7 @@ __all__ = [
     "get_task_run",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
+    "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
     "get_task_run_stream_info",
     "get_task_summaries",
@@ -142,6 +145,7 @@ __all__ = [
     "leave_task_presence",
     "list_sandbox_environments",
     "list_task_automations",
+    "list_task_run_living_artifacts",
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
@@ -1535,6 +1539,7 @@ def upload_task_run_artifacts(
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
+    _register_s3_manifest_artifacts(run, uploaded)
     return manifest
 
 
@@ -1662,7 +1667,113 @@ def finalize_task_run_artifact_uploads(
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
 
+    _register_s3_manifest_artifacts(run, finalized_entries)
     return finalized_entries, None
+
+
+def _register_s3_manifest_artifacts(run: TaskRun, manifest_entries: list[dict]) -> None:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        register_s3_manifest_artifact,
+    )
+
+    for entry in manifest_entries:
+        try:
+            register_s3_manifest_artifact(run, entry)
+        except Exception:
+            logger.exception(
+                "task_run.living_artifact_registry_failed",
+                extra={"run_id": str(run.id), "artifact_id": entry.get("id")},
+            )
+
+
+def list_task_run_living_artifacts(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict] | None:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifacts_for_run,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return [serialize_task_artifact(artifact) for artifact in get_task_artifacts_for_run(run)]
+
+
+def get_task_run_living_artifact(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID
+) -> dict | None:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        open_task_artifact,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None
+    serialized = serialize_task_artifact(artifact)
+    serialized["content"] = open_task_artifact(artifact)
+    return serialized
+
+
+def create_task_run_living_artifact(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifact: dict,
+) -> tuple[dict | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        create_living_artifact,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        created = create_living_artifact(run=run, **artifact)
+    except Exception as exc:
+        logger.warning("task_run.living_artifact_create_failed", run_id=str(run.id), error=str(exc))
+        return None, str(exc)
+    return serialize_task_artifact(created), None
+
+
+def edit_task_run_living_artifact(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifact_id: str | UUID,
+    content: str,
+    name: str | None = None,
+    metadata: dict | None = None,
+) -> tuple[dict | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        edit_living_artifact,
+        get_task_artifact_for_run,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        updated = edit_living_artifact(artifact=artifact, content=content, name=name, metadata=metadata)
+    except Exception as exc:
+        logger.warning(
+            "task_run.living_artifact_edit_failed",
+            run_id=str(run.id),
+            artifact_id=str(artifact_id),
+            error=str(exc),
+        )
+        return None, str(exc)
+    return serialize_task_artifact(updated), None
 
 
 def presign_task_run_artifact(
