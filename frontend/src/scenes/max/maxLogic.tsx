@@ -29,10 +29,10 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
 
 /** Maximum age for restored prompts (5 minutes) */

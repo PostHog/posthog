@@ -75,6 +75,7 @@ import {
     ToolRegistration,
     getModeDisplayName,
 } from './max-constants'
+import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
@@ -94,9 +95,6 @@ import {
     threadEndsWithMultiQuestionForm,
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
-
-/** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
-export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
 
 // On a dashboard, the first message can fire before the dashboard has loaded, when
 // dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
