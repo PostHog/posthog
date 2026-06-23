@@ -109,7 +109,7 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90 }],
+        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,
@@ -246,7 +246,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
         expect(logic.values.workflowHealth[0].daily).toEqual([
-            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90 },
+            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90, failures: 4 },
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
@@ -373,9 +373,16 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['a bad day spikes', { completed: 25, successes: 22 }, 0.12, 'Jun 5 · 3 of 25 non-passing'],
-        ['an all-green day stays flat', { completed: 25, successes: 25 }, 0, 'Jun 5 · 0 of 25 non-passing'],
-        ['a day with nothing completed stays flat', { completed: 0, successes: 0 }, 0, 'Jun 5 · no completed runs'],
+        ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
+        ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
+        ['skipped/cancelled runs are not failures', { completed: 25, successes: 20, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        [
+            'a day with nothing completed stays flat',
+            { completed: 0, successes: 0, failures: 0 },
+            0,
+            'Jun 5 · no completed runs',
+        ],
     ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
         const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
         expect(series).toEqual({ values: [value], labels: [label] })

@@ -296,8 +296,9 @@ class TestEndpointMapping(BaseTest):
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
             ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
         ]
-        # Must be inside the -30d window, which is relative to now.
-        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
+        # Must be inside the -30d window, which is relative to now. Columns:
+        # owner, name, workflow, day, run_count, completed, successes, failures.
+        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7, 1)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
@@ -306,7 +307,7 @@ class TestEndpointMapping(BaseTest):
         # The daily series spans the whole window, zero-filled except the day with runs.
         assert len(items[0].daily) >= 30
         seeded_day = next(entry for entry in items[0].daily if entry.run_count > 0)
-        assert (seeded_day.completed, seeded_day.successes) == (8, 7)
+        assert (seeded_day.completed, seeded_day.successes, seeded_day.failures) == (8, 7, 1)
         assert all(entry.run_count == 0 for entry in items[1].daily)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
@@ -563,6 +564,30 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.run_count == 2
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
+
+    def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
+        # The daily failure count is decisive failures only — skipped / cancelled / action_required
+        # runs are completed but neither successes nor failures, so they must not inflate the trend.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(30, "alice", "open", 0, _ago(1), head_sha="sha30")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(6001, "CI", "sha-a", "completed", "success", _ago(1), _ago(1)),
+                _run_row(6002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
+                _run_row(6003, "CI", "sha-c", "completed", "skipped", _ago(1), _ago(1)),
+                _run_row(6004, "CI", "sha-d", "completed", "cancelled", _ago(1), _ago(1)),
+                _run_row(6005, "CI", "sha-e", "completed", "action_required", _ago(1), _ago(1)),
+            ],
+        )
+        ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
+        day = next(entry for entry in ci.daily if entry.run_count > 0)
+        # 5 completed, 1 success, 1 failure — the 3 skipped/cancelled/action_required are neither.
+        assert (day.completed, day.successes, day.failures) == (5, 1, 1)
 
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(

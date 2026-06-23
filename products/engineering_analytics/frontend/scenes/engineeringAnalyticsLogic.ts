@@ -77,6 +77,8 @@ export interface WorkflowHealthDay {
     runCount: number
     completed: number
     successes: number
+    /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
+    failures: number
 }
 
 export interface WorkflowHealthRow {
@@ -94,15 +96,17 @@ export interface WorkflowHealthRow {
 }
 
 /**
- * Daily series for the trend sparkline. Bar height is the non-pass rate over runs
- * that completed that day, so healthy rows stay flat and bad days spike.
+ * Daily series for the trend sparkline. Bar height is the failure rate (decisive
+ * failures over runs that completed that day), so healthy rows stay flat and bad days
+ * spike. Skipped, cancelled, and action_required runs are not failures — counting them
+ * as non-passing made green workflows look broken.
  */
 export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: number[]; labels: string[] } {
-    const values = daily.map((d) => (d.completed > 0 ? (d.completed - d.successes) / d.completed : 0))
+    const values = daily.map((d) => (d.completed > 0 ? d.failures / d.completed : 0))
     const labels = daily.map((d) => {
         const date = dayjs(d.day).format('MMM D')
         return d.completed > 0
-            ? `${date} · ${d.completed - d.successes} of ${d.completed} non-passing`
+            ? `${date} · ${d.failures} of ${d.completed} failed`
             : `${date} · no completed runs`
     })
     return { values, labels }
@@ -302,6 +306,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     runCount: d.run_count,
                                     completed: d.completed,
                                     successes: d.successes,
+                                    failures: d.failures,
                                 })),
                             })
                         )

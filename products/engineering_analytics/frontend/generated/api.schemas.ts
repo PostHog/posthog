@@ -233,6 +233,8 @@ export interface WorkflowHealthDayApi {
     completed: number
     /** Completed runs with conclusion 'success' that day. */
     successes: number
+    /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+    failures: number
 }
 
 export interface WorkflowHealthItemApi {

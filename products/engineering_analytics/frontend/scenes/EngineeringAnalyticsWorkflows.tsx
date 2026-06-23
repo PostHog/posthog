@@ -120,7 +120,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     <Sparkline
                         className="h-8"
                         type="bar"
-                        name="Non-passing"
+                        name="Failing"
                         data={values}
                         labels={labels}
                         maximumIndicator={false}

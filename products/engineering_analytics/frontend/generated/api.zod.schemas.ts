@@ -358,6 +358,11 @@ export const WorkflowHealthDayApi = zod.object({
     run_count: zod.number().describe('Runs started that day.'),
     completed: zod.number().describe('Runs that completed that day.'),
     successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+    failures: zod
+        .number()
+        .describe(
+            "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+        ),
 })
 
 export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>

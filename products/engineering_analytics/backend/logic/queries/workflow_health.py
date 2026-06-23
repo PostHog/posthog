@@ -43,7 +43,8 @@ _DAILY_SELECT = f"""
         toDate(run_started_at) AS day,
         count() AS run_count,
         countIf(status = 'completed') AS completed,
-        countIf(status = 'completed' AND conclusion = 'success') AS successes
+        countIf(status = 'completed' AND conclusion = 'success') AS successes,
+        countIf(status = 'completed' AND conclusion IN ('failure', 'timed_out')) AS failures
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name, day
@@ -92,10 +93,12 @@ def query_workflow_health(
         placeholders=placeholders,
     )
     days_by_workflow: dict[tuple[str, str, str], dict[date, WorkflowHealthDay]] = {}
-    for repo_owner, repo_name, workflow_name, day, run_count, completed, successes in daily_response.results or []:
+    for repo_owner, repo_name, workflow_name, day, run_count, completed, successes, failures in (
+        daily_response.results or []
+    ):
         day = day.date() if isinstance(day, datetime) else day
         days_by_workflow.setdefault((repo_owner, repo_name, workflow_name), {})[day] = WorkflowHealthDay(
-            day=day, run_count=run_count, completed=completed, successes=successes
+            day=day, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
     window_days = _window_days(date_from, date_to)
@@ -110,7 +113,7 @@ def query_workflow_health(
             last_failure_at=last_failure_at,
             daily=[
                 days_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
-                    day, WorkflowHealthDay(day=day, run_count=0, completed=0, successes=0)
+                    day, WorkflowHealthDay(day=day, run_count=0, completed=0, successes=0, failures=0)
                 )
                 for day in window_days
             ],

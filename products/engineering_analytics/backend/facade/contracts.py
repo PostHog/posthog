@@ -226,12 +226,17 @@ class CICardSummary:
 
 @dataclass(frozen=True)
 class WorkflowHealthDay:
-    """One day of a workflow's run history; days without runs are zero-filled."""
+    """One day of a workflow's run history; days without runs are zero-filled.
+    ``failures`` is decisive failures only (failure / timed_out), matching the CI
+    rollup — skipped, cancelled, and action_required runs are neither successes nor
+    failures, so they must not be treated as non-passing.
+    """
 
     day: date
     run_count: int
     completed: int
     successes: int
+    failures: int
 
 
 @dataclass(frozen=True)
