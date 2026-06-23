@@ -211,9 +211,14 @@ def _collect_planned_runs(
             # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
             # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
             # of teams. Read only the live scout skill names (cheap) so a config whose skill was
-            # deleted/superseded isn't dispatched, and honor the holdback denylist. Trade-off:
-            # canonical SKILL.md content updates don't propagate to these teams every tick — they
-            # refresh when the team next hits `sync` (follow-up: a slower fleet-wide reconcile sweep).
+            # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
+            # SKILL.md updates still reach these teams: the runner cold-starts with its own
+            # `sync_canonical_skills` before loading the skill (runner.py), so a merged change lands
+            # on the scout's NEXT RUN for any harness-seeded row the team hasn't forked. What the
+            # per-tick skip drops is only the eager refresh on ticks where nothing dispatches, plus
+            # the `prune=True` tombstoning of disk-deleted canonicals and first-appearance of
+            # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
+            # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
