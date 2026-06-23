@@ -130,18 +130,20 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                 | Sizes                                                | Notes                                                                              |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable) |
-| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                    |
-| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                    |
-| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                 |
-| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                   |
-| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                             |
-| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                            |
-| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                          |
-| Progress     | —                                                        | —                                                    | value: 0-100                                                                       |
-| Slider       | —                                                        | —                                                    | value, min, max                                                                    |
+| Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
+| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
+| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                                                        |
+| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
+| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
+| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
+| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
+| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                                                                |
+| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
+| Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
+| Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
+| Avatar       | —                                                        | default, sm                                          | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| AvatarGroup  | —                                                        | default, sm                                          | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
 
@@ -676,6 +678,30 @@ Vertical: `<ButtonGroup orientation="vertical">`
 
 Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
+
+### Avatar
+
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="sm"` (1.5rem) or default (2rem).
+
+```tsx
+<Avatar>
+  <AvatarImage src={user.avatarUrl} alt={user.name} />
+  <AvatarFallback>{initials}</AvatarFallback>
+</Avatar>
+```
+
+`AvatarGroup` lays Avatars out in a row — gapped by default, or `stacked` to overlap them. The leftmost avatar sits on top (so a leading `+N` count reads in front). Hovering (or focusing) a stacked group spreads it back to the inline gap; the spread is a `transform`, so the container box never changes and nothing reflows — the avatars slide out over the space beside them. `reverse` mirrors it: the pile anchors to its right edge, the rightmost avatar sits on top, and it spreads left (use it at the right end of a row so it grows inward). `size` on the group forwards to bare Avatar children and tunes the overlap; a non-Avatar child (a `+N` count built from a styled `AvatarFallback`) passes through untouched — put it first (default) or last (`reverse`) so it sits on top. The stacked ring defaults to the app background; on a different surface (a `Card`), override `--quill-avatar-ring` so it matches, e.g. `className="[--quill-avatar-ring:var(--card)]"`.
+
+```tsx
+<AvatarGroup stacked size="sm">
+  {members.map((m) => (
+    <Avatar key={m.id}>
+      <AvatarImage src={m.avatarUrl} alt={m.name} />
+      <AvatarFallback>{m.initials}</AvatarFallback>
+    </Avatar>
+  ))}
+</AvatarGroup>
+```
 
 ### Keyboard Shortcuts
 
