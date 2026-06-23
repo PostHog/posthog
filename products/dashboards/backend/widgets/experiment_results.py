@@ -26,7 +26,9 @@ from products.experiments.backend.models.experiment import Experiment
 
 logger = logging.getLogger(__name__)
 
-# Cap on metrics computed per tile so one widget can't fan out into many ClickHouse queries.
+# Cap on metrics computed per section (primary, secondary) so one widget can't fan out into many
+# ClickHouse queries. Applied independently to each section, so a fully-loaded widget runs at most
+# 2x this many queries.
 MAX_EXPERIMENT_RESULTS_WIDGET_METRICS = 3
 
 _METRIC_BUILDERS: dict[str, type[BaseModel]] = {

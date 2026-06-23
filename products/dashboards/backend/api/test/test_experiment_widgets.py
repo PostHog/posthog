@@ -354,6 +354,27 @@ class TestExperimentResultsWidget(APIBaseTest):
         assert len(result["metrics"]) == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
         assert mock_runner_cls.return_value.run.call_count == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
 
+    @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
+    def test_caps_primary_and_secondary_independently(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.run.return_value = MagicMock(model_dump=lambda mode="json": {})
+        over_cap = MAX_EXPERIMENT_RESULTS_WIDGET_METRICS + 2
+        experiment = self._create_experiment(
+            start_date=timezone.now(),
+            metrics=[_experiment_metric(f"uuid-{index}", f"Metric {index}") for index in range(over_cap)],
+            metrics_secondary=[
+                _experiment_metric(f"secondary-{index}", f"Secondary {index}") for index in range(over_cap)
+            ],
+        )
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert result["totalMetricsCount"] == over_cap
+        assert result["totalSecondaryMetricsCount"] == over_cap
+        assert len(result["metrics"]) == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
+        assert len(result["secondaryMetrics"]) == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
+        # The cap is per-section, so a fully-loaded widget runs at most 2x the constant.
+        assert mock_runner_cls.return_value.run.call_count == 2 * MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
+
     def test_legacy_metric_reports_unsupported_error(self) -> None:
         experiment = self._create_experiment(
             start_date=timezone.now(),
@@ -366,17 +387,25 @@ class TestExperimentResultsWidget(APIBaseTest):
         assert entry["error"] == "Legacy metrics are not supported in this widget."
         assert entry["result"] is None
 
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "metrics"),
+            ("secondary", "metrics_secondary", "secondaryMetrics"),
+        ]
+    )
     @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
-    def test_metric_failure_is_isolated_and_sanitized(self, mock_runner_cls: MagicMock) -> None:
+    def test_metric_failure_is_isolated_and_sanitized(
+        self, _label: str, metrics_kwarg: str, result_key: str, mock_runner_cls: MagicMock
+    ) -> None:
         mock_runner_cls.return_value.run.side_effect = Exception("SELECT * FROM secret_table")
         experiment = self._create_experiment(
             start_date=timezone.now(),
-            metrics=[_experiment_metric("uuid-1", "Broken metric")],
+            **{metrics_kwarg: [_experiment_metric("uuid-1", "Broken metric")]},
         )
 
         result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
 
-        entry = result["metrics"][0]
+        entry = result[result_key][0]
         assert entry["error"] == "Could not compute results for this metric."
         assert "secret_table" not in str(entry)
 
