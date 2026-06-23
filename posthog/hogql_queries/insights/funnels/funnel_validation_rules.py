@@ -2,7 +2,7 @@ from itertools import pairwise
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import FunnelsQuery, FunnelVizType, StepOrderValue
+from posthog.schema import BreakdownAttributionType, FunnelsQuery, FunnelVizType, StepOrderValue
 
 from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -103,6 +103,27 @@ class ValidateFunnelExclusions:
                         "Exclusion steps cannot contain an event that's part of funnel steps.",
                         code=self.code,
                     )
+
+
+class ValidateUnorderedFunnelBreakdownAttribution:
+    """Unordered funnels only support breakdown attribution on the first step."""
+
+    code = "funnel_unordered_breakdown_attribution_invalid"
+
+    def validate(self, context: QueryValidationContext[FunnelsQuery]) -> None:
+        funnels_filter = context.query.funnelsFilter
+        if funnels_filter is None:
+            return
+
+        if (
+            funnels_filter.funnelOrderType == StepOrderValue.UNORDERED
+            and funnels_filter.breakdownAttributionType == BreakdownAttributionType.STEP
+            and funnels_filter.breakdownAttributionValue != 0
+        ):
+            raise ValidationError(
+                "Only the first step can be used for breakdown attribution in unordered funnels.",
+                code=self.code,
+            )
 
 
 class ValidateOptionalFunnelSteps:

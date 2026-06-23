@@ -41,6 +41,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
+    ValidateUnorderedFunnelBreakdownAttribution,
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
@@ -90,6 +91,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
             ValidateOptionalFunnelSteps(),
+            ValidateUnorderedFunnelBreakdownAttribution(),
             DisallowUnsupportedDataWarehouseSettings(),
         )
 
