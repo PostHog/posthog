@@ -19,6 +19,7 @@ class LLMProvider(models.TextChoices):
     FIREWORKS = "fireworks"
     AZURE_OPENAI = "azure_openai", "Azure OpenAI"
     TOGETHER_AI = "together_ai", "Together AI"
+    DEEPSEEK = "deepseek", "DeepSeek"
 
 
 class LLMProviderKey(UUIDTModel):

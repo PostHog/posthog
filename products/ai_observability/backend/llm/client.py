@@ -98,6 +98,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
 
     from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
     from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION, AzureOpenAIAdapter
+    from products.ai_observability.backend.llm.providers.deepseek import DeepSeekAdapter
     from products.ai_observability.backend.llm.providers.fireworks import FireworksAdapter
     from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter
     from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
@@ -117,6 +118,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
             return cast("Provider", OpenRouterAdapter())
         case "fireworks":
             return cast("Provider", FireworksAdapter())
+        case "deepseek":
+            return cast("Provider", DeepSeekAdapter())
         case "azure_openai":
             config = provider_key.encrypted_config if provider_key else {}
             return cast(
