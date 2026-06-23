@@ -13,6 +13,7 @@ from django.conf import settings
 
 import structlog
 from prometheus_client import Counter
+from requests.adapters import HTTPAdapter
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -23,10 +24,13 @@ logger = structlog.get_logger(__name__)
 
 # Internal call: trust_env=False so it skips the outbound proxy, like the live flags proxy.
 _SHADOW_SESSION = internal_requests_session()
+# Shared module-level session across workers: size the pool and disable retries so a slow Rust
+# never silently multiplies the work behind one shadow call.
+_SHADOW_SESSION.mount("http://", HTTPAdapter(pool_connections=1, pool_maxsize=20, max_retries=0))
+_SHADOW_SESSION.mount("https://", HTTPAdapter(pool_connections=1, pool_maxsize=20, max_retries=0))
 
-# (connect, read) seconds. The shadow result is never used, so a real SDK request must not wait on
-# it — keep this tight rather than reusing the live proxy's 3s. A slow Rust lands in `except` as
-# `error`, which is the signal we want, instead of adding seconds to the user's response.
+# (connect, read) seconds — deliberately tighter than the live proxy's 3s so a slow Rust lands in
+# `except` as `error` instead of adding latency to the user's response.
 _SHADOW_TIMEOUT = (0.3, 0.5)
 
 REMOTE_CONFIG_SHADOW_COMPARISONS = Counter(
@@ -41,7 +45,20 @@ _RUST_SUPPORTED_AUTH = (TeamSecretTokenAuthentication, PersonalAPIKeyAuthenticat
 
 
 def shadow_compare_remote_config(request: Request, django_response: Response, *, project_id: int, key: str) -> None:
+    # Off by default — flip REMOTE_CONFIG_SHADOW_ENABLED per environment to start (or stop) shadowing
+    # without a deploy. Returns silently so a disabled shadow emits no metrics at all.
+    if not getattr(settings, "REMOTE_CONFIG_SHADOW_ENABLED", False):
+        return
+
     if not isinstance(request.successful_authenticator, _RUST_SUPPORTED_AUTH):
+        REMOTE_CONFIG_SHADOW_COMPARISONS.labels(result="skipped").inc()
+        return
+
+    # Rust authenticates only the Bearer Authorization header, but Django also accepts the credential
+    # from the query string and request body. Replaying those reaches Rust with no usable credential
+    # (401), a false mismatch — so only compare header-authenticated requests.
+    authorization = request.headers.get("Authorization")
+    if not authorization:
         REMOTE_CONFIG_SHADOW_COMPARISONS.labels(result="skipped").inc()
         return
 
@@ -50,9 +67,12 @@ def shadow_compare_remote_config(request: Request, django_response: Response, *,
         # be an /api/environments or legacy alias). Rust resolves the project from ?token= when present,
         # else from this segment — both give the same flag.
         url = f"{settings.FEATURE_FLAGS_SERVICE_URL}/api/projects/{project_id}/feature_flags/{key}/remote_config"
-        authorization = request.headers.get("Authorization")
-        headers = {"Authorization": authorization} if authorization else {}
-        rust = _SHADOW_SESSION.get(url, params=request.query_params.dict(), headers=headers, timeout=_SHADOW_TIMEOUT)
+        rust = _SHADOW_SESSION.get(
+            url,
+            params=request.query_params.dict(),
+            headers={"Authorization": authorization},
+            timeout=_SHADOW_TIMEOUT,
+        )
         if _responses_match(django_response, rust):
             REMOTE_CONFIG_SHADOW_COMPARISONS.labels(result="match").inc()
         else:

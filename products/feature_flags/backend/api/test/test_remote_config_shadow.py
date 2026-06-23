@@ -31,6 +31,23 @@ def _rust_response(status_code=200, content=b"", json_value=None):
     return resp
 
 
+@pytest.fixture(autouse=True)
+def _enable_shadow(settings):
+    # The shadow is off by default in production; turn it on so these tests exercise the comparison.
+    settings.REMOTE_CONFIG_SHADOW_ENABLED = True
+
+
+def test_disabled_is_inert(settings):
+    settings.REMOTE_CONFIG_SHADOW_ENABLED = False
+    with (
+        patch.object(shadow, "_SHADOW_SESSION") as session,
+        patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS") as counter,
+    ):
+        shadow.shadow_compare_remote_config(_request(), Response("v"), project_id=1, key="f")
+        session.get.assert_not_called()
+        counter.labels.assert_not_called()
+
+
 @pytest.mark.parametrize("authenticator", [None, OAuthAccessTokenAuthentication])
 def test_unsupported_auth_is_skipped(authenticator):
     with (
@@ -54,6 +71,21 @@ def test_supported_auth_is_compared(authenticator):
         counter.labels.assert_called_once_with(result="match")
 
 
+@pytest.mark.parametrize("authenticator", [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication])
+def test_non_header_credential_is_skipped(authenticator):
+    # Django also authenticates via ?personal_api_key= / request body, but Rust reads only the
+    # Authorization header — so a non-header credential 401s on Rust. Skip rather than log a false mismatch.
+    with (
+        patch.object(shadow, "_SHADOW_SESSION") as session,
+        patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS") as counter,
+    ):
+        shadow.shadow_compare_remote_config(
+            _request(authenticator=authenticator, authorization=None), Response("v"), project_id=1, key="f"
+        )
+        session.get.assert_not_called()
+        counter.labels.assert_called_once_with(result="skipped")
+
+
 @override_settings(FEATURE_FLAGS_SERVICE_URL="http://rust:3001")
 def test_builds_canonical_rust_url():
     with patch.object(shadow, "_SHADOW_SESSION") as session, patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS"):
@@ -61,6 +93,7 @@ def test_builds_canonical_rust_url():
         shadow.shadow_compare_remote_config(_request(query={"token": "phc_x"}), Response("v"), project_id=7, key="flag")
         assert session.get.call_args.args[0] == "http://rust:3001/api/projects/7/feature_flags/flag/remote_config"
         assert session.get.call_args.kwargs["params"] == {"token": "phc_x"}
+        assert session.get.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_x"}
 
 
 @pytest.mark.parametrize(
@@ -84,6 +117,19 @@ def test_compare_outcomes(django_response, rust_response, expected):
         session.get.return_value = rust_response
         shadow.shadow_compare_remote_config(_request(), django_response, project_id=1, key="f")
         counter.labels.assert_called_once_with(result=expected)
+
+
+def test_mismatch_logs_only_metadata_not_bodies():
+    # Decrypted remote config payloads are secrets — the mismatch log carries only flag/project/statuses.
+    with (
+        patch.object(shadow, "_SHADOW_SESSION") as session,
+        patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS"),
+        patch.object(shadow, "logger") as log,
+    ):
+        session.get.return_value = _rust_response(404, b"", None)
+        shadow.shadow_compare_remote_config(_request(), Response("secret-plaintext", status=200), project_id=1, key="f")
+        log.warning.assert_called_once()
+        assert set(log.warning.call_args.kwargs) == {"flag", "project_id", "django_status", "rust_status"}
 
 
 def test_rust_error_is_swallowed():
