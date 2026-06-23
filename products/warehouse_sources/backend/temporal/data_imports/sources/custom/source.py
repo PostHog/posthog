@@ -881,7 +881,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             {
                 **manifest,
                 "resources": engine_resources,
-                "client": {**client, "session": _build_preview_session(preview_auth)},
+                "client": {**client, "session": _build_preview_session(preview_auth, redact_values=secret_values)},
             },
         )
 
@@ -936,12 +936,16 @@ class _PreviewSession(Session):
         return super().send(request, **kwargs)
 
 
-def _build_preview_session(auth: AuthBase | None) -> _PreviewSession:
+def _build_preview_session(auth: AuthBase | None, redact_values: tuple[str, ...] | None = None) -> _PreviewSession:
     """A tracked preview session: no transport retries, credentials registered
     for value-based redaction (auth may be injected under a manifest-chosen
-    param/header the denylist can't anticipate)."""
+    param/header the denylist can't anticipate). Pass ``redact_values`` when the
+    caller already computed them to avoid a second ``auth_secret_values`` pass."""
     session = _PreviewSession()
-    adapter = make_tracked_adapter(retry=Retry(total=0), redact_values=auth_secret_values(auth))
+    adapter = make_tracked_adapter(
+        retry=Retry(total=0),
+        redact_values=redact_values if redact_values is not None else auth_secret_values(auth),
+    )
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session

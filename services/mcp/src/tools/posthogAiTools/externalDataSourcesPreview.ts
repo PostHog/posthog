@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
+// Mirrors PREVIEW_MAX_ROWS in posthog/temporal/data_imports/sources/custom/source.py.
+// The backend serializer enforces the cap regardless; naming it here keeps the two greppable together.
+const PREVIEW_MAX_ROWS = 50
+
 const schema = z.object({
     source_type: ExternalDataSourceTypeSchema,
     payload: ExternalDataSourcePayloadSchema,
@@ -11,7 +15,13 @@ const schema = z.object({
         .describe(
             'Which manifest resource (table) to read a sample from — one of the resource names in manifest_json.'
         ),
-    limit: z.number().int().min(1).max(50).optional().describe('Maximum sample rows to return (1–50). Defaults to 10.'),
+    limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(PREVIEW_MAX_ROWS)
+        .optional()
+        .describe(`Maximum sample rows to return (1–${PREVIEW_MAX_ROWS}). Defaults to 10.`),
 })
 
 type Params = z.infer<typeof schema>
