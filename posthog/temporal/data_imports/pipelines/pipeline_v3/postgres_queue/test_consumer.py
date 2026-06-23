@@ -1,8 +1,9 @@
 import asyncio
+import dataclasses
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
 import structlog
@@ -633,6 +634,9 @@ class TestInFlightTaskRegistry:
         consumer = _make_consumer()
         consumer._process_batch = AsyncMock()
 
+        mock_gauge = MagicMock()
+        consumer._metrics = dataclasses.replace(consumer._metrics, active_groups=mock_gauge)
+
         with (
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
@@ -642,9 +646,6 @@ class TestInFlightTaskRegistry:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.ACTIVE_GROUPS",
-            ) as mock_gauge,
         ):
             await consumer._process_group_tracked((1, "schema-1"), [_make_batch()])
 
