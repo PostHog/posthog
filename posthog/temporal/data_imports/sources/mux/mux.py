@@ -125,13 +125,16 @@ def get_rows(
 
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
-                # primary key) rather than skipping it.
-                if has_next:
-                    resumable_source_manager.save_state(next_state)
 
         if not has_next or not items:
             break
+
+        # Save state on the page boundary, once the whole page is batched/yielded, pointing at the
+        # next page. The batcher can yield mid-page (its row threshold need not align with page_size),
+        # so advancing the bookmark only at page boundaries means a crash re-fetches at most the
+        # current page — merge dedupes the re-yielded rows — instead of skipping rows that were
+        # batched but not yet yielded when a mid-page batch fired.
+        resumable_source_manager.save_state(next_state)
 
         if config.use_cursor:
             cursor = next_cursor

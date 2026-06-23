@@ -1,6 +1,6 @@
-from typing import Any
+from typing import Any, Optional
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -49,22 +49,26 @@ class TestMuxSchemas:
 
 
 class TestMuxValidateCredentials:
-    def test_validate_credentials(self, monkeypatch: Any) -> None:
-        cases = [
-            (200, None, True),
-            (200, "assets", True),
-            (401, None, False),
-            (401, "assets", False),
+    @parameterized.expand(
+        [
+            ("ok_no_schema", 200, None, True),
+            ("ok_with_schema", 200, "assets", True),
+            ("unauthorized_no_schema", 401, None, False),
+            ("unauthorized_with_schema", 401, "assets", False),
             # 403 at source-create is accepted (token genuine, scope intentionally narrow)...
-            (403, None, True),
+            ("forbidden_source_create", 403, None, True),
             # ...but rejected when validating a specific schema the user picked.
-            (403, "assets", False),
-            (None, None, False),
+            ("forbidden_with_schema", 403, "assets", False),
+            ("transport_error", None, None, False),
         ]
-        for status, schema_name, expected_ok in cases:
-            monkeypatch.setattr(source_module, "get_validation_status", lambda *a, _s=status, **k: _s)
+    )
+    def test_validate_credentials(
+        self, _name: str, status: Optional[int], schema_name: Optional[str], expected_ok: bool
+    ) -> None:
+        # patch (not the monkeypatch fixture) because parameterized.expand can't inject pytest fixtures.
+        with patch.object(source_module, "get_validation_status", return_value=status):
             ok, _msg = MuxSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
-            assert ok is expected_ok, f"status={status}, schema={schema_name}"
+        assert ok is expected_ok
 
     def test_validate_credentials_uses_endpoint_path_for_known_schema(self, monkeypatch: Any) -> None:
         captured: dict[str, str] = {}
