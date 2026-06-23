@@ -137,6 +137,31 @@ class PropertyGroupManager:
         yield f"{prefix} " + ", ".join(commands)
 
 
+def _is_untyped_otel_attribute_key(key: str) -> bool:
+    """True for an OTel attribute key that carries no type suffix.
+
+    OTel attribute maps (`attributes_map_str` etc.) store each key with a 5-char type suffix (`__str`/`__float`/
+    `__datetime`), and the user-facing `attributes` alias strips it. A key without one of those suffixes — i.e. anything
+    a user actually types in HogQL, like `attributes.my_key` — can't resolve to a typed map column, so it must fall back
+    to the unsuffixed alias map. Without this it would resolve to a JSON extract, which is illegal on a Map column.
+    """
+    return not (key.endswith("__str") or key.endswith("__float") or key.endswith("__datetime"))
+
+
+# Fallback group for OTel attribute maps: resolves an untyped key (`attributes.my_key`) to the unsuffixed `attributes`
+# alias Map column. The typed `str`/`float`/`datetime` groups still take precedence for suffixed keys (the optimized
+# path used by the structured logs filters), so this only catches keys those groups don't.
+_otel_attributes_fallback_group = {
+    "all": PropertyGroupDefinition(
+        "key NOT LIKE '%__str' AND key NOT LIKE '%__float' AND key NOT LIKE '%__datetime'",
+        _is_untyped_otel_attribute_key,
+        column_type_name="map",
+        is_materialized=False,
+        column_name="attributes",
+    ),
+}
+
+
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
     # many teams, and should not be treated as custom properties and their use
@@ -246,6 +271,7 @@ property_groups = PropertyGroupManager(
                     column_type_name="map",
                     is_materialized=False,
                 ),
+                **_otel_attributes_fallback_group,
             },
             "resource_attributes": {
                 "all": PropertyGroupDefinition(
@@ -277,6 +303,7 @@ property_groups = PropertyGroupManager(
                     column_type_name="map",
                     is_materialized=False,
                 ),
+                **_otel_attributes_fallback_group,
             },
             "resource_attributes": {
                 "all": PropertyGroupDefinition(
