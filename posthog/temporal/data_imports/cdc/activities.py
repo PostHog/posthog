@@ -11,6 +11,7 @@ validate_cdc_prerequisites_activity: Wraps prerequisite validator for Temporal.
 
 from __future__ import annotations
 
+import time
 import uuid
 import typing
 import datetime as dt
@@ -25,6 +26,7 @@ from temporalio import activity
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.data_imports.cdc import metrics
 from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
@@ -137,6 +139,8 @@ class CDCExtractActivity:
         self.last_complete_txn_end_lsn: str | None = None
         self.event_count: int = 0
         self.all_table_names: set[str] = set()
+        # Wall-clock start, set in run(); drives cdc_extraction_duration_seconds.
+        self._run_started_at: float | None = None
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -144,6 +148,26 @@ class CDCExtractActivity:
     def _schema_log(self, schema: ExternalDataSchema) -> structlog.types.FilteringBoundLogger:
         """Logger bound with per-schema `log_source_id` so lines route under the schema in the Syncs UI."""
         return self.log.bind(log_source_id=str(schema.id))
+
+    # ------------------------------------------------------------------
+    # Metrics helpers
+    # ------------------------------------------------------------------
+    def _emit_run_duration(self, status: str) -> None:
+        if self._run_started_at is None:
+            return
+        metrics.get_extraction_duration_metric(self.inputs.team_id, str(self.inputs.source_id), status).record(
+            time.monotonic() - self._run_started_at
+        )
+
+    def _confirm_position(self, lsn: str) -> None:
+        """Advance the replication slot, recording success/failure metrics."""
+        source_id = str(self.inputs.source_id)
+        try:
+            self.reader.confirm_position(lsn)
+        except Exception:
+            metrics.get_slot_advance_failures_metric(self.inputs.team_id, source_id).add(1)
+            raise
+        metrics.get_slot_advance_metric(self.inputs.team_id, source_id).add(1)
 
     # ------------------------------------------------------------------
     # Schema fetching (kept as a method so tests can patch it on the class)
@@ -385,6 +409,7 @@ class CDCExtractActivity:
         entry["total_rows"] = tracker.total_rows
 
         schema.save(update_fields=["sync_type_config", "updated_at"])
+        metrics.get_deferred_runs_depth_metric(self.inputs.team_id, str(self.inputs.source_id)).set(len(deferred))
 
         self._schema_log(schema).info(
             "cdc_deferred_run_stored",
@@ -411,6 +436,7 @@ class CDCExtractActivity:
         Returns the set of write_resource_names that received data.
         """
         flushed: set[str] = set()
+        events_extracted = 0
 
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
@@ -418,6 +444,9 @@ class CDCExtractActivity:
                 continue
 
             activity.heartbeat()
+
+            # raw_table has one row per source change event (before SCD2/dedup fan-out).
+            events_extracted += raw_table.num_rows
 
             key_columns = self.pk_columns_by_table.get(table_name, [])
             cdc_table_mode = schema.cdc_table_mode
@@ -467,6 +496,9 @@ class CDCExtractActivity:
                 elif schema.cdc_mode == "snapshot":
                     self._store_deferred_batch(tracker, batch_result, schema)
 
+        if events_extracted:
+            metrics.get_events_extracted_metric(self.inputs.team_id, str(self.inputs.source_id)).add(events_extracted)
+
         return flushed
 
     # ------------------------------------------------------------------
@@ -486,6 +518,7 @@ class CDCExtractActivity:
         5. Update cdc_last_log_position per schema
         """
         close_old_connections()
+        self._run_started_at = time.monotonic()
         self.log.info("cdc_extract_started")
 
         if not self._setup():
@@ -707,6 +740,7 @@ class CDCExtractActivity:
                 tables = self.batcher.flush()
                 self.all_table_names.update(tables.keys())
                 self._process_flush(tables, is_final=False)
+                metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
                 # Advance only to the end of the last FULLY-yielded transaction, never to
                 # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
                 # threshold is checked per event), and every event of the in-flight
@@ -723,7 +757,7 @@ class CDCExtractActivity:
                     self.last_complete_txn_end_lsn is not None
                     and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
                 ):
-                    self.reader.confirm_position(self.last_complete_txn_end_lsn)
+                    self._confirm_position(self.last_complete_txn_end_lsn)
                     self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                 self.log.info(
                     "cdc_micro_batch_flushed",
@@ -794,7 +828,7 @@ class CDCExtractActivity:
         if truncated_tables:
             truncate_end_lsn = self.reader.last_commit_end_lsn
             if truncate_end_lsn is not None:
-                self.reader.confirm_position(truncate_end_lsn)
+                self._confirm_position(truncate_end_lsn)
                 self.log.info("slot_advanced_past_truncate", position=truncate_end_lsn)
 
         now = dt.datetime.now(tz=dt.UTC)
@@ -809,6 +843,7 @@ class CDCExtractActivity:
                 truncated_tables=truncated_tables,
             )
         self.log.info("no_wal_changes")
+        self._emit_run_duration("no_changes")
 
     # ------------------------------------------------------------------
     # Flush + finalization
@@ -878,7 +913,7 @@ class CDCExtractActivity:
         the last incremental advance.
         """
         if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-            self.reader.confirm_position(self.last_end_lsn)
+            self._confirm_position(self.last_end_lsn)
             self.log.info("slot_advanced", position=self.last_end_lsn)
 
     def _update_log_positions(self) -> None:
@@ -953,6 +988,7 @@ class CDCExtractActivity:
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             # Mirror the failure as a per-schema log line so it shows up in the Syncs panel.
             self._schema_log(schema).error("cdc_extract_schema_failed", error=str(exc))
+        self._emit_run_duration("failed")
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
@@ -965,6 +1001,7 @@ class CDCExtractActivity:
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:
                 self._schema_log(schema).info("cdc_extract_no_changes")
+        self._emit_run_duration("completed")
 
 
 @activity.defn
@@ -1010,6 +1047,7 @@ def cleanup_orphan_slots_activity() -> None:
 
     log = logger.bind()
     log.info("cleanup_orphan_slots_started")
+    sweep_started = time.monotonic()
 
     # The CDC fields live in `job_inputs`, an EncryptedJSONField: every leaf value is
     # Fernet-encrypted at rest, so `job_inputs__cdc_enabled=True` (and the slot/publication
@@ -1033,6 +1071,7 @@ def cleanup_orphan_slots_activity() -> None:
                 cdc_config = adapter.parse_cdc_config(source)
             except Exception:
                 log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+                metrics.get_sweeper_source_errors_metric().add(1)
                 continue
 
             # Restore the original filter semantics on decrypted values: skip sources that
@@ -1058,6 +1097,7 @@ def cleanup_orphan_slots_activity() -> None:
                     delete_cdc_extraction_schedule(str(source.id))
                 except Exception:
                     source_log.exception("failed_to_delete_cdc_extraction_schedule")
+                    metrics.get_sweeper_source_errors_metric().add(1)
 
                 if cdc_config.management_mode == "posthog":
                     source_log.info("cleaning_up_deleted_source_slot")
@@ -1066,6 +1106,7 @@ def cleanup_orphan_slots_activity() -> None:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
                     except Exception:
                         source_log.exception("failed_to_cleanup_deleted_source_slot")
+                        metrics.get_sweeper_source_errors_metric().add(1)
                 continue
 
             # 2. Active sources — check WAL lag
@@ -1075,12 +1116,14 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb = adapter.get_retention_cap_mb(conn)
             except Exception:
                 source_log.exception("failed_to_check_slot_lag")
+                metrics.get_sweeper_source_errors_metric().add(1)
                 continue
 
             if lag_bytes is None:
                 source_log.warning("slot_not_found_or_no_flush_lsn")
                 continue
 
+            metrics.get_wal_lag_metric(source.team_id, str(source.id)).set(lag_bytes)
             lag_mb = lag_bytes / (1024 * 1024)
 
             critical_threshold_mb = cdc_config.lag_critical_threshold_mb
@@ -1103,8 +1146,10 @@ def cleanup_orphan_slots_activity() -> None:
 
                         source.status = ExternalDataSource.Status.ERROR
                         source.save(update_fields=["status", "updated_at"])
+                        metrics.get_auto_drop_metric(source.team_id, str(source.id)).add(1)
                     except Exception:
                         source_log.exception("failed_to_auto_drop_slot")
+                        metrics.get_sweeper_source_errors_metric().add(1)
                 elif cdc_config.management_mode == "self_managed":
                     source.status = ExternalDataSource.Status.ERROR
                     source.save(update_fields=["status", "updated_at"])
@@ -1116,4 +1161,6 @@ def cleanup_orphan_slots_activity() -> None:
                     threshold_mb=cdc_config.lag_warning_threshold_mb,
                 )
 
+    metrics.get_sweeper_sources_checked_metric().add(sources_checked)
+    metrics.get_sweeper_duration_metric().record(time.monotonic() - sweep_started)
     log.info("cleanup_orphan_slots_completed", sources_checked=sources_checked)
