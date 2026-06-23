@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../../signalSourcesLogic'
 import { SignalScoutConfig } from '../../../types'
@@ -19,6 +20,7 @@ import {
     SCOUT_RUNS_WINDOW_SPAN,
     scoutRunsWindowLabel,
 } from '../../../utils/scoutRunsWindow'
+import { FleetMemoryCallout } from './FleetMemoryCallout'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
 
@@ -30,6 +32,7 @@ import { ScoutRowCard } from './ScoutRowCard'
 export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, expanded, enabledCount, lastRunAt } = useValues(scoutFleetLogic)
     const { setExpanded, loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { setScratchpadOpen } = useActions(inboxSceneLogic)
 
     // Poll the runs window only while the fleet list is open — the always-mounted setup
     // widget reads configs only and shouldn't trigger the paginated runs requests.
@@ -71,6 +74,7 @@ export function ScoutsFleetSection(): JSX.Element {
         <div className="flex flex-col gap-3">
             <ScoutAlphaBanner />
             <ScoutsSourceGate />
+            <FleetMemoryCallout onOpen={() => setScratchpadOpen(true)} />
             <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
