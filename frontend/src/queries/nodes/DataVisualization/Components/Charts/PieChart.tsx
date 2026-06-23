@@ -1,18 +1,22 @@
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { PieChart as InsightPieChart } from 'scenes/insights/views/LineGraph/PieChart'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-import { GraphType, InsightLogicProps } from '~/types'
+import { ChartDisplayType, GraphType, InsightLogicProps } from '~/types'
 
 import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
+import { LineGraphProps } from './LineGraph'
+import { SqlPieGraph } from './SqlPieGraph'
+import { buildPieSlices, canRenderSqlPieGraph, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 export interface PieChartProps {
     xData: AxisSeries<string> | null
@@ -23,7 +27,27 @@ export interface PieChartProps {
     uniqueKey: string
 }
 
-export function PieChart({
+export function PieChart(props: PieChartProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
+
+    const sqlPieProps: LineGraphProps = {
+        xData: props.xData,
+        yData: props.yData,
+        visualizationType: ChartDisplayType.ActionsPie,
+        chartSettings: props.chartSettings,
+        presetChartHeight: props.presetChartHeight,
+        className: props.className,
+    }
+
+    if (newChartsEnabled && canRenderSqlPieGraph(sqlPieProps)) {
+        return <SqlPieGraph {...sqlPieProps} />
+    }
+
+    return <LegacyPieChart {...props} />
+}
+
+function LegacyPieChart({
     xData,
     yData,
     chartSettings,

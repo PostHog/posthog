@@ -125,6 +125,7 @@ __all__ = [
     "get_task_run",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
+    "capture_relay_command_telemetry",
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
@@ -1729,6 +1730,64 @@ def get_task_run_sandbox_connection(
         sandbox_url=run_state.sandbox_url,
         sandbox_connect_token=run_state.sandbox_connect_token,
         connection_token=connection_token,
+    )
+
+
+# Relay control verbs whose outcome PostHog AI funnels track. Captured here (gated on
+# origin_product) so the generic relay stays product-agnostic while the conversation layer stops
+# firing them as the renderer drives permission/cancel through `runs/{run}/command/`.
+_POSTHOG_AI_RELAY_TELEMETRY_METHODS: frozenset[str] = frozenset({"cancel", "permission_response"})
+
+
+def capture_relay_command_telemetry(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    method: str,
+    params: dict | None,
+    success: bool,
+) -> None:
+    """Emit PostHog AI control-verb telemetry for a relayed agent command.
+
+    Preserves the ``task_run_cancelled`` / ``permission_responded`` funnels once the renderer moves
+    permission/cancel onto the generic relay. ``conversation_id`` is intentionally null (the relay
+    has no conversation); ``TaskRun.capture_event`` stamps ``origin_product``/``run_id`` so
+    generic-task usage stays out of the PostHog AI funnels. Mirrors the old conversation-layer
+    semantics: a cancel is recorded only when it actually reached the agent, while a permission
+    response is recorded with its forward ``success`` either way.
+    """
+    if method not in _POSTHOG_AI_RELAY_TELEMETRY_METHODS:
+        return
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
+        return
+
+    params = params or {}
+    if method == "cancel":
+        if not success:
+            return
+        run.capture_event(
+            "task_run_cancelled",
+            {
+                "execution_type": "sandbox",
+                "surface": "relay",
+                "conversation_id": None,
+                "cancel_source": "user",
+            },
+        )
+        return
+
+    run.capture_event(
+        "permission_responded",
+        {
+            "execution_type": "sandbox",
+            "surface": "relay",
+            "conversation_id": None,
+            "request_id": params.get("requestId"),
+            "option_id": params.get("optionId"),
+            "success": success,
+        },
     )
 
 

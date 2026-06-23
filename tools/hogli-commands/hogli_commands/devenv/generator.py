@@ -396,6 +396,15 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     # code, so running them unsandboxed doesn't widen the untrusted attack surface.
     _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
 
+    # Trusted helpers peeled out to run OUTSIDE the sandbox for a reason other than
+    # the docker socket. bin/dev-open-when-ready backgrounds a poller and opens the
+    # browser once a server is up — the OS browser-open path (open → LaunchServices)
+    # reads $HOME, which the sandbox denies. It self-backgrounds and returns 0
+    # immediately, so hoisting it to the front is safe. It takes a fixed URL from the
+    # proc def (never dependency input) and lives in $PROJECT/bin, which the profile
+    # write-denies, so a compromised dep can't tamper with it.
+    _SANDBOX_UNSANDBOXED_PREFIXES = ("bin/dev-open-when-ready",)
+
     # Procs excluded from the sandbox by default: they need the docker socket the
     # profile denies (e.g. temporal-worker running PostHog Code tasks with
     # SANDBOX_PROVIDER=docker). POSTHOG_DEV_SANDBOX_EXCLUDE adds more on top.
@@ -424,6 +433,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         unsandboxed, since it needs the very socket the sandbox denies; the actual
         server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
         is a no-op passthrough on non-macOS, so the generated config stays portable.
+
+        bin/dev-open-when-ready (``_SANDBOX_UNSANDBOXED_PREFIXES``) is peeled out the
+        same way so a proc can auto-open its browser once it's listening — the OS
+        browser-open path the sandbox denies runs outside it, not by widening the
+        profile.
         """
         # `sandbox` is a registry-only selector; pop it so it never leaks into the
         # emitted proc config (which phrocs/mprocs would otherwise see).
@@ -445,9 +459,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         # in place: _add_startup_message and _add_uv_groups prepend echo/uv-sync
         # preambles, so a gate is never the leading segment (a leading-run scan would
         # wrongly sandbox it). Hoisting reorders segments, which is safe because the
-        # only gates (wait-for-docker, wait-for-postgres-tables) just block until
-        # infra is ready and are order-independent w.r.t. install/echo/server steps.
-        # A future order-sensitive gate would need interleaving instead of hoisting.
+        # peeled-out helpers (wait-for-docker / wait-for-postgres-tables block until
+        # infra is ready; dev-open-when-ready self-backgrounds and returns at once)
+        # are all order-independent w.r.t. install/echo/server steps. A future
+        # order-sensitive helper would need interleaving instead of hoisting.
+        unsandboxed_prefixes = self._SANDBOX_DOCKER_GATES + self._SANDBOX_UNSANDBOXED_PREFIXES
         normalized = re.sub(r"\\\n\s*", " ", shell)
         gates: list[str] = []
         rest: list[str] = []
@@ -456,7 +472,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             if not stripped:
                 continue
             first_token = stripped.split(maxsplit=1)[0]
-            (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
+            (gates if first_token in unsandboxed_prefixes else rest).append(stripped)
 
         rest_cmd = " && ".join(rest)
         if not rest_cmd:

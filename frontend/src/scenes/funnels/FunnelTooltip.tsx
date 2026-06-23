@@ -22,7 +22,7 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelTooltipLogic } from './funnelTooltipLogic'
-import { funnelComparePeriodDateRange } from './funnelUtils'
+import { funnelComparePeriodDateRange, funnelTooltipHeaderLabel, hasBreakdown } from './funnelUtils'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
@@ -62,16 +62,21 @@ export function FunnelTooltip({
                 <strong>
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
-                    {series.compare_label
-                        ? `${series.compare_label === 'current' ? 'Current' : 'Previous'}${
-                              comparePeriodDateRange ? ` (${comparePeriodDateRange})` : ''
-                          }`
-                        : formatBreakdownLabel(
-                              series.breakdown_value,
-                              breakdownFilter,
-                              allCohorts.results,
-                              formatPropertyValueForDisplay
-                          )}
+                    {funnelTooltipHeaderLabel({
+                        // Pure compare bars (no real breakdown) show only the period; breakdown and
+                        // breakdown + compare bars show the breakdown value (plus the period if any).
+                        breakdownLabel:
+                            !series.compare_label || hasBreakdown(series.breakdown_value)
+                                ? formatBreakdownLabel(
+                                      series.breakdown_value,
+                                      breakdownFilter,
+                                      allCohorts.results,
+                                      formatPropertyValueForDisplay
+                                  )
+                                : null,
+                        compareLabel: series.compare_label,
+                        comparePeriodDateRange,
+                    })}
                 </strong>
             </LemonRow>
             <LemonDivider className="my-2" />

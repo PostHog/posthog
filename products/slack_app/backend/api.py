@@ -19,10 +19,10 @@ import requests
 import structlog
 import posthoganalytics
 from slack_sdk.errors import SlackApiError
-from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -59,7 +59,6 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
-from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
 from products.slack_app.backend.services.slack_user_info import (
     get_cached_bot_user_id,
     get_slack_user_info,
@@ -745,144 +744,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
-
-
-def _flatten_block_text(node: Any) -> list[str]:
-    """Best-effort plain-text extraction from a Slack block-kit subtree.
-
-    Slack alert posts (subscriptions, log alerts, hog-function destinations) often
-    put the substantive content in `blocks` while the top-level `text` field is a
-    short fallback (or empty). Walking the block tree lets us surface that content
-    to the agent. Always wrap call sites in try/except — Slack block schemas evolve.
-    """
-    if node is None:
-        return []
-    if isinstance(node, str):
-        stripped = node.strip()
-        return [stripped] if stripped else []
-    if isinstance(node, list):
-        out: list[str] = []
-        for item in node:
-            out.extend(_flatten_block_text(item))
-        return out
-    if isinstance(node, dict):
-        # `context` blocks can carry useful labels — recurse into `elements` only.
-        if node.get("type") == "context":
-            return _flatten_block_text(node.get("elements"))
-        # Skip interactive/decorative blocks that carry no information for the agent.
-        if node.get("type") in ("actions", "divider", "image"):
-            return []
-        out = []
-        for key in ("text", "fields", "elements", "title", "pretext", "fallback"):
-            if key in node:
-                out.extend(_flatten_block_text(node[key]))
-        return out
-    return []
-
-
-def _extract_message_text(msg: dict) -> str:
-    # Always include `text` and `blocks`/`attachments`: PostHog's own alert templates put
-    # the headline in `text` and the values/details in blocks. Dedup so a string repeated
-    # across both (e.g. text == header block) shows up once.
-    pieces: list[str] = []
-    text = (msg.get("text") or "").strip()
-    if text:
-        pieces.append(text)
-
-    blocks = msg.get("blocks") or []
-    attachments = msg.get("attachments") or []
-    try:
-        pieces.extend(_flatten_block_text(blocks))
-    except Exception:
-        logger.warning("slack_thread_block_flatten_failed", exc_info=True)
-    try:
-        pieces.extend(_flatten_block_text(attachments))
-    except Exception:
-        logger.warning("slack_thread_attachment_flatten_failed", exc_info=True)
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for piece in pieces:
-        if piece and piece not in seen:
-            seen.add(piece)
-            deduped.append(piece)
-    return "\n".join(deduped)
-
-
-def _resolve_bot_author_label(msg: dict) -> str:
-    bot_profile = msg.get("bot_profile") or {}
-    return bot_profile.get("name") or msg.get("username") or "Bot"
-
-
-def _collect_thread_messages(
-    slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, our_bot_id: str | None
-) -> list[dict[str, str]]:
-    """Fetch thread messages, strip bot mentions, and resolve user display names."""
-    client = slack.client
-    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
-    thread_response = client.conversations_replies(channel=channel, ts=thread_ts)
-    raw_messages: list[dict] = thread_response.get("messages", [])
-
-    user_cache: dict[str, str] = {}
-
-    def resolve_user(uid: str) -> str:
-        if uid not in user_cache:
-            try:
-                user_info = get_slack_user_info(slack, integration, uid)
-                profile = user_info.get("user", {}).get("profile", {})
-                user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
-            except Exception:
-                user_cache[uid] = "Unknown"
-        return user_cache[uid]
-
-    messages = []
-    for index, msg in enumerate(raw_messages):
-        # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
-        # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
-        # always the originating message (e.g. a PostHog alert) that's the actual context
-        # for the task. Filtering it by bot_id breaks workspaces where the alerting Slack
-        # app and the `@PostHog` code app share an installation identity.
-        if index > 0 and our_bot_id and msg.get("bot_id") == our_bot_id:
-            continue
-
-        user_id = msg.get("user")
-        if user_id:
-            username = resolve_user(user_id)
-        elif msg.get("bot_id"):
-            username = _resolve_bot_author_label(msg)
-        else:
-            username = "Unknown"
-
-        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg))
-        # `ts` lets downstream callers distinguish the initiator message from surrounding thread
-        # context, since `app_mention` events surface only the initiator's ts.
-        messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
-
-    return messages
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1258,14 +1121,6 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-# Slack ``users.info`` error codes that mean the stored bot token can no longer talk to
-# Slack on this workspace's behalf. Surfaced as ``token_broken=True`` on the failure log
-# so support can distinguish "needs reconnect" from other API failures at a glance.
-_SLACK_AUTH_FAILURE_CODES = frozenset(
-    {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
-)
-
-
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
@@ -1274,7 +1129,17 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
     Every termination path emits a distinct structured log so a silent ``None`` can
     still be diagnosed from logs alone — historically the failure modes collapsed
     onto a downstream ``user_not_found`` warning that hid the actual cause.
+
+    Auth-class ``SlackApiError`` outcomes flip the shared ``slack_auth`` cache to
+    ``ok=false`` so the resolver demotes this install on subsequent mentions
+    rather than pinning every one to a dead token. The success path deliberately
+    does NOT write ``ok=true``: the cache lives in the resolver's ``auth.test``
+    layer, and a DB-cache hit (``SlackUserProfileCache``) proves nothing about
+    the live token. Letting the resolver own the positive verdict keeps the
+    cache truthful.
     """
+    from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES, write_auth_state_broken
+
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
@@ -1304,7 +1169,9 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
         return slack_email
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
-        token_broken = isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES
+        token_broken = isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES
+        if token_broken and isinstance(error_code, str):
+            write_auth_state_broken(probe_integration.id, error_code)
         logger.warning(
             "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,

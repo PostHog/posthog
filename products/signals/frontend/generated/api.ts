@@ -23,6 +23,7 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMetadataApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportBulkStateRequestApi,
@@ -306,6 +307,21 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutMetadataGetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/metadata/current/`
+}
+
+/**
+ * Return the project's scout metadata: whether it is enrolled, the current announcement banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run limits with current usage. Limits reflect what the coordinator actually applies at dispatch, so a user can see the real throttle rather than what they assume they set. All values come from the `signals-scout` flag payload, so the banner and caps can change with no deploy.
+ * @summary Get scout metadata
+ */
+export const signalsScoutMetadataGet = async (projectId: string, options?: RequestInit): Promise<ScoutMetadataApi> => {
+    return apiMutator<ScoutMetadataApi>(getSignalsScoutMetadataGetUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
