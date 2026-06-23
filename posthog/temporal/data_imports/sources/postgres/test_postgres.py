@@ -4067,6 +4067,31 @@ class TestHasDuplicatePrimaryKeys:
             result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
+    def test_reraises_connection_errors_without_capturing(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
+        # remote connection couldn't be established, so the probe never ran. This must propagate
+        # (transient, stays retryable), not be swallowed as "no duplicate keys" + captured as noise.
+        cursor.execute.side_effect = psycopg.errors.SqlclientUnableToEstablishSqlconnection(
+            'could not connect to server "posthog_fdw_payment"\n'
+            'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
+            'FATAL:  too many connections for role "posthog_fdw_reader"'
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(psycopg.OperationalError):
+                _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
+        mock_capture.assert_not_called()
+
+    def test_captures_and_returns_false_on_non_connection_error(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "id" does not exist')
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
+        assert result is False
+        mock_capture.assert_called_once()
+
 
 class TestIsReadReplica:
     @pytest.mark.django_db
