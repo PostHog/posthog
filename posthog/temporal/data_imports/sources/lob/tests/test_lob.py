@@ -194,7 +194,7 @@ class TestFetchPage:
         # Call the undecorated function so a single attempt raises immediately instead of
         # exercising tenacity's exponential backoff.
         with pytest.raises(LobRetryableError):
-            _fetch_page.__wrapped__(session, "https://api.lob.com/v1/letters", "k", {}, MagicMock())
+            _fetch_page.__wrapped__(session, "https://api.lob.com/v1/letters", "k", {}, MagicMock())  # type: ignore[attr-defined]
 
     def test_client_error_raises_for_status(self) -> None:
         session = MagicMock()

@@ -2,7 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -51,6 +56,7 @@ class TestLobSourceConfig:
         fields = LobSource().get_source_config.fields
         assert len(fields) == 1
         field = fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
         assert field.name == "api_key"
         assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
