@@ -259,8 +259,7 @@ function EditSubscriptionForm({
         dashboardId,
     })
 
-    const { me, otherMembers, membersLoading } = useValues(membersLogic)
-    const members = me ? [me, ...otherMembers] : otherMembers
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
@@ -478,7 +477,7 @@ function EditSubscriptionForm({
                                             mode="multiple"
                                             allowCustomValues
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(members.map((x) => x.user))}
+                                            options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
                                             placeholder="Enter an email address"
                                         />

@@ -34,7 +34,7 @@ export function MemberSelect({
     children,
     ...buttonProps
 }: MemberSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { me, otherMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, otherMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -44,9 +44,8 @@ export function MemberSelect({
         if (!value) {
             return null
         }
-        const candidates = me ? [me, ...otherMembers] : otherMembers
-        return candidates.find((member) => member.user[propToCompare] === value)?.user ?? null
-    }, [value, me, otherMembers, propToCompare])
+        return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
+    }, [value, meFirstMembers, propToCompare])
 
     const _onChange = (value: UserBasicType | null): void => {
         setShowPopover(false)

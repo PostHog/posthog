@@ -32,7 +32,7 @@ export function MemberMultiSelect({
     children,
     ...buttonProps
 }: MemberMultiSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
-    const { me, otherMembers, search, membersLoading } = useValues(membersLogic)
+    const { me, otherMembers, meFirstMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
 
@@ -40,9 +40,8 @@ export function MemberMultiSelect({
         if (!value || value.length === 0) {
             return []
         }
-        const candidates = me ? [me, ...otherMembers] : otherMembers
-        return candidates.filter((member) => value.includes(member.user.id)).map((member) => member.user)
-    }, [value, me, otherMembers])
+        return meFirstMembers.filter((member) => value.includes(member.user.id)).map((member) => member.user)
+    }, [value, meFirstMembers])
 
     const _onChange = (newValues: number[]): void => {
         onChange(newValues)

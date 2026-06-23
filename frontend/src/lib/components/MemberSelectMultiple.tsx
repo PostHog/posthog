@@ -17,14 +17,12 @@ export type MemberSelectMultipleProps = {
 }
 
 export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMultipleProps): JSX.Element {
-    const { me, otherMembers, membersLoading } = useValues(membersLogic)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
 
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     useOnMountEffect(ensureAllMembersLoaded)
 
-    const members = me ? [me, ...otherMembers] : otherMembers
-
-    const options = members.map((member) => ({
+    const options = meFirstMembers.map((member) => ({
         key: member.user[idKey].toString(),
         label: fullName(member.user),
         value: member.user[idKey].toString(),
@@ -36,7 +34,9 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
             value={value.map((v) => v.toString())}
             loading={membersLoading}
             onChange={(newValues: UserIdType[]) => {
-                const selectedUsers = members.filter((member) => newValues.includes(member.user[idKey].toString()))
+                const selectedUsers = meFirstMembers.filter((member) =>
+                    newValues.includes(member.user[idKey].toString())
+                )
                 onChange(selectedUsers.map((member) => member.user))
             }}
             mode="multiple"
