@@ -367,7 +367,7 @@ class TestUsageEndpoint:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -382,7 +382,7 @@ class TestUsageEndpoint:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
 
         response = authenticated_usage_client.get(
             "/v1/usage/slack_app",

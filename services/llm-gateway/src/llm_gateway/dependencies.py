@@ -174,7 +174,7 @@ async def resolve_plan_and_quota(
     if product_config and product_config.billable:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
-            resolve_quota_status(request, team_id),
+            resolve_quota_status(request, team_id, product_config.quota_resource),
         )
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)

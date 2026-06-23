@@ -2235,6 +2235,7 @@ def _full_usage_counters(**overrides: int) -> UsageCounters:
         survey_responses=0,
         llm_events=0,
         ai_credits=0,
+        signals_credits=0,
         cdp_trigger_events=0,
         rows_exported=0,
         workflow_emails=0,

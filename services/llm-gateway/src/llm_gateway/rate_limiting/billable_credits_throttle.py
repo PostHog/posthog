@@ -29,10 +29,7 @@ class BillableCreditThrottle(Throttle):
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(
-            detail=(
-                "Your team has used its monthly PostHog AI credits. "
-                "Top up at https://us.posthog.com/organization/billing to continue."
-            ),
+            detail=config.quota_exhausted_message,
             scope=self.scope,
             retry_after=_RETRY_AFTER_SECONDS,
         )

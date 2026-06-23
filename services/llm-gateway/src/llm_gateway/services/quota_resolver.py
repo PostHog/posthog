@@ -62,8 +62,10 @@ def _redis_key(resource_key: str, team_id: int) -> str:
     return f"quota:{resource_key}:team:{team_id}"
 
 
-async def resolve_quota_status(request: Request, team_id: int | None) -> QuotaResourceStatus:
-    """Resolve the team's AI credits quota state, falling open on errors."""
+async def resolve_quota_status(
+    request: Request, team_id: int | None, resource_key: str = _AI_CREDITS_RESOURCE
+) -> QuotaResourceStatus:
+    """Resolve the team's quota state for ``resource_key``, falling open on errors."""
     if team_id is None:
         return QuotaResourceStatus(limited=False)
     auth_header = request.headers.get("Authorization", "")
@@ -72,9 +74,11 @@ async def resolve_quota_status(request: Request, team_id: int | None) -> QuotaRe
 
     quota_resolver: QuotaResolver = request.app.state.quota_resolver
     try:
-        return await quota_resolver.get_ai_credits_status(team_id=team_id, auth_header=auth_header)
+        return await quota_resolver.get_resource_status(
+            resource_key=resource_key, team_id=team_id, auth_header=auth_header
+        )
     except Exception:
-        logger.warning("quota_resolve_failed", team_id=team_id)
+        logger.warning("quota_resolve_failed", team_id=team_id, resource=resource_key)
         return QuotaResourceStatus(limited=False)
 
 
@@ -86,8 +90,8 @@ class QuotaResolver:
         self._http = http_client
         self._cache_ttl = get_settings().quota_cache_ttl
 
-    async def get_ai_credits_status(self, team_id: int, auth_header: str) -> QuotaResourceStatus:
-        return await self._get_resource_status(_AI_CREDITS_RESOURCE, team_id, auth_header)
+    async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
+        return await self._get_resource_status(resource_key, team_id, auth_header)
 
     async def _get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
         cached = await self._get_cached(resource_key, team_id)
