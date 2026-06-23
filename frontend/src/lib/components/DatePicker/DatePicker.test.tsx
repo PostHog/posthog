@@ -19,15 +19,26 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 }))
 
 const QUILL_STUB_DATE = new Date(2023, 0, 20)
+const mockQuillPanelProps: { maxDate?: Date } = {}
 jest.mock('@posthog/quill', () => {
     const react = require('react')
     return {
         ...jest.requireActual('@posthog/quill'),
-        DatePicker: ({ onApply, onCancel }: { onApply: (value: Date) => void; onCancel: () => void }) =>
-            react.createElement('div', null, [
+        DatePicker: ({
+            onApply,
+            onCancel,
+            maxDate,
+        }: {
+            onApply: (value: Date) => void
+            onCancel: () => void
+            maxDate?: Date
+        }) => {
+            mockQuillPanelProps.maxDate = maxDate
+            return react.createElement('div', null, [
                 react.createElement('button', { key: 'apply', onClick: () => onApply(QUILL_STUB_DATE) }, 'stub-apply'),
                 react.createElement('button', { key: 'cancel', onClick: onCancel }, 'stub-cancel'),
-            ]),
+            ])
+        },
     }
 })
 
@@ -120,6 +131,16 @@ describe('DatePicker', () => {
 
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(onChange.mock.calls[0][0].format('YYYY-MM-DD')).toBe('2023-01-20')
+        })
+
+        it('forwards maxDate to the Quill panel so future dates can be selected', async () => {
+            const max = dayjs('2024-01-15')
+            const { container } = renderDatePicker(dayjs('2023-01-15'), { maxDate: max })
+
+            await userEvent.click(within(container).getByText('January 15, 2023'))
+            await screen.findByText('stub-apply')
+
+            expect(mockQuillPanelProps.maxDate?.getTime()).toBe(max.toDate().getTime())
         })
 
         it('clears to null via the trigger clear control when clearable', async () => {

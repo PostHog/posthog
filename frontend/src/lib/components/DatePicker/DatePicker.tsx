@@ -46,6 +46,8 @@ export interface DatePickerProps {
     use24HourFormat?: boolean
     /** Number of calendar months to render side by side. */
     months?: number
+    /** Latest selectable date. Bounds the Quill panel; when omitted Quill caps at today, so future-date callers must pass this. The LemonUI fallback has no equivalent and stays unbounded above. */
+    maxDate?: dayjs.Dayjs
     /** Placeholder shown on the trigger when no value is set. */
     placeholder?: string
     /** Show a clear affordance on the trigger to reset the value to null. */
@@ -99,6 +101,7 @@ function DatePickerQuill({
     format,
     fullWidth = true,
     disabledReason,
+    maxDate,
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
     const [open, setOpen] = useState(false)
@@ -130,6 +133,7 @@ function DatePickerQuill({
                 <PopoverContent align="start" className="w-auto p-0">
                     <QuillDatePicker
                         value={value ? value.toDate() : new Date()}
+                        maxDate={maxDate?.toDate()}
                         onApply={applyDate}
                         onCancel={() => setOpen(false)}
                     />
