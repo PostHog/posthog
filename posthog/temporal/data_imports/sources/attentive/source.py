@@ -7,6 +7,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -85,6 +86,7 @@ class AttentiveSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ATTENTIVE,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Attentive",
             caption=(
                 "Connect your Attentive account using a private app API key (Marketplace > Create app). "

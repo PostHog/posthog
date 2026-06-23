@@ -115,7 +115,7 @@ class TestChannelApprovalInteractivity(_ChannelApprovalTestBase):
 
     def _stub_slack_user_email(self, email: str) -> Any:
         return patch(
-            "products.slack_app.backend.api._get_slack_user_info",
+            "products.slack_app.backend.api.get_slack_user_info",
             return_value={"user": {"profile": {"email": email}}},
         )
 
@@ -170,7 +170,7 @@ class TestChannelApprovalInteractivity(_ChannelApprovalTestBase):
         self._set_signing_secret(mock_slack_cls)
 
         with patch(
-            "products.slack_app.backend.api._get_slack_user_info",
+            "products.slack_app.backend.api.get_slack_user_info",
             return_value={"user": {"profile": {}}},
         ):
             response = self._post_interactivity(self._approve_payload("U_NO_EMAIL"))

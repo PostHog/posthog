@@ -30,8 +30,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
@@ -42,6 +42,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
@@ -54,7 +55,13 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, type ExportContext, ExporterFormat } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ChartDisplayType,
+    ExporterFormat,
+    type ExportContext,
+} from '~/types'
 
 import {
     copyTableToCsv,
@@ -398,6 +405,23 @@ function VisualizationActions({
     )
 }
 
+/**
+ * Transforms DataTable format back to DataTableRow format for clipboard operations
+ */
+function transformDataTableToDataTableRows(rows: Record<string, any>[], columns: string[]): DataTableRow[] {
+    if (!columns.length || !rows.length) {
+        return []
+    }
+
+    return rows.map((row) => ({
+        result: columns.map((col, index) => {
+            // Handle both direct column access and column_index format
+            const columnKey = `${col}_${index}`
+            return row[columnKey] !== undefined ? row[columnKey] : row[col]
+        }),
+    }))
+}
+
 interface ResultsActionsProps {
     response: HogQLQueryResponse | undefined
     rows: Record<string, any>[]
@@ -417,6 +441,12 @@ function ResultsActions({
     isEmbeddedMode,
     onShareTab,
 }: ResultsActionsProps): JSX.Element {
+    // Copying or exporting results requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     return (
         <>
             <LemonMenu
@@ -434,7 +464,11 @@ function ResultsActions({
             >
                 <LemonButton
                     id="sql-editor-copy-dropdown"
-                    disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
+                    disabledReason={
+                        (!response?.columns || !rows.length ? 'No results to copy' : undefined) ??
+                        exportAccessControlDisabledReason ??
+                        undefined
+                    }
                     type="secondary"
                     size="small"
                     icon={<IconCopy />}

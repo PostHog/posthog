@@ -35,8 +35,11 @@ DEFAULT_TEMPLATE = "posthog-linux"
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
 # with a concrete value -- either a preset the template defines, or the literal
 # NO_PRESET sentinel below.
-DEFAULT_PRESET = "Default (warm)"
 NO_PRESET = "none"
+# Opt out of presets by default so a vanilla `hogli devbox:start` never claims
+# from a prebuild warm pool (a Coder premium feature). Pass `--preset <name>` to
+# select a template preset explicitly where one is defined.
+DEFAULT_PRESET = NO_PRESET
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"

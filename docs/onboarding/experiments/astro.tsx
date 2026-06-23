@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getAstroSteps as getAstroStepsPA } from '../product-analytics/astro'
 import { StepDefinition } from '../steps'

@@ -5,10 +5,9 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -29,6 +28,7 @@ import {
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
@@ -172,31 +172,11 @@ export function Nav(): JSX.Element {
                     <div
                         className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
-                            // On mobile the fixed open/close toggle (PanelLayout.tsx, `fixed top-1 left-1`,
-                            // a default-size iconOnly button) overlaps the account menu trigger. Indent the
-                            // row past it so the toggle gets its own gutter — keep pl-10 ≥ the toggle's left
-                            // offset + width if either changes.
-                            'pl-10': isMobileLayout,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <ButtonPrimitive
-                            iconOnly
-                            data-attr="nav-search"
-                            tooltip={
-                                <>
-                                    <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
-                                </>
-                            }
-                            tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
-                            onClick={() => {
-                                posthog.capture('nav search clicked')
-                                toggleCommand()
-                            }}
-                        >
-                            <IconSearch className="size-4 text-secondary" />
-                        </ButtonPrimitive>
+                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive

@@ -6,6 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
+- `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 
 ## DataTable
@@ -35,7 +36,7 @@ Rules:
 - Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
 - Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
-- Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes.
+- Pagination is opt-in via `pageSize`; the component owns page state and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
 
@@ -61,6 +62,30 @@ Rules:
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
+
+## DatePicker
+
+Single-date sibling of `DateTimePicker` — one calendar, no quick ranges, value is a plain `Date`.
+
+```tsx
+import { DatePicker } from '@posthog/quill-components'
+;<DatePicker
+  value={date}
+  onApply={(next) => setDate(next)}
+  onCancel={() => close()}
+  minDate={minDate}
+  maxDate={new Date()}
+  dateFormat="MDY" // or 'DMY' | 'YMD'
+  showTime // adds hour/minute inputs + an "Include time" toggle
+/>
+```
+
+Rules:
+
+- `value`/`onApply` are a single `Date`, not `{ start, end, range }`. Use this for the single-date PostHog callers (currently `LemonCalendarSelect`); reach for `DateTimePicker` only when you need a start→end range.
+- Without `showTime` the applied value is floored to start-of-day. With `showTime`, the "Include time" toggle decides whether the applied value keeps its hour/minute or is floored.
+- Shares the calendar grid and `minDate`/`maxDate` day-granular bounds with `DateTimePicker` (both render `Calendar` from `calendar-grid.tsx`).
+- Always a single calendar; there is no `compact`/dual-calendar mode.
 
 ## useCalendar
 

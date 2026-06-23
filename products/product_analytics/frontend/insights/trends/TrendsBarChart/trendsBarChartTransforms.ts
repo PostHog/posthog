@@ -1,32 +1,10 @@
 import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
 import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
+import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
-
-// Compare-against-previous bars render at half opacity so they recede behind the current period.
-const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
-
-// Inlined from `lib/utils` so this module stays free of `lib/`/`~/`/`scenes/` deps and compiles in
-// the MCP Vite bundle, which only resolves `products/*` and `@posthog/*`. Returns the input unchanged
-// if it isn't a 3/6/8-digit hex (callers always pass palette hexes).
-function dimHexColor(hex: string, alpha: number): string {
-    let h = hex.replace(/^#/, '')
-    if (h.length === 3 || h.length === 4) {
-        h = h
-            .split('')
-            .map((char) => char + char)
-            .join('')
-    }
-    if (h.length !== 6 && h.length !== 8) {
-        return hex
-    }
-    const r = parseInt(h.slice(0, 2), 16)
-    const g = parseInt(h.slice(2, 4), 16)
-    const b = parseInt(h.slice(4, 6), 16)
-    return `rgba(${r},${g},${b},${alpha})`
-}
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsBarResultLike {

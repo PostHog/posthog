@@ -1,4 +1,3 @@
-import { Chart, ChartType, TooltipModel } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 
@@ -18,7 +17,7 @@ export function VariantTimeseriesChart({
     const colors = useChartColors()
     const { getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
-    const { canvasRef } = useChart({
+    const { canvasRef } = useChart<'line'>({
         getConfig: () => {
             if (!data) {
                 return null
@@ -90,7 +89,7 @@ export function VariantTimeseriesChart({
                         },
                         tooltip: {
                             enabled: false,
-                            external: ({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) => {
+                            external: ({ chart, tooltip }) => {
                                 const canvas = chart.canvas
                                 if (!canvas) {
                                     return

@@ -1,7 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { identifierToHuman } from 'lib/utils/strings'
+import { stripHTTP } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -25,7 +27,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             preflightLogic,
             ['preflight'],
             sceneLogic,
-            ['sceneConfig', 'activeSceneId', 'activeTabId'],
+            ['sceneConfig', 'activeSceneId'],
             userLogic,
             ['user', 'otherOrganizations'],
             organizationLogic,
@@ -74,14 +76,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeSceneId = s.activeSceneId(state, props)
-                    const activeTabId = s.activeTabId(state, props)
 
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                             return activeSceneLogic.selectors.breadcrumbs(state, {
                                 ...(activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props),
-                                tabId: activeTabId,
                             })
                         } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
@@ -99,17 +99,15 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         projectTreeRef: [
-            (s) => [
+            () => [
                 // Similar logic to the breadcrumbs above. This is used to find the object in the project tree.
                 (state, props): ProjectTreeRef | null => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    const activeTabId = s.activeTabId(state, props)
                     if (activeSceneLogic && 'projectTreeRef' in activeSceneLogic.selectors) {
                         try {
                             const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                             return activeSceneLogic.selectors.projectTreeRef(state, {
                                 ...(activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props),
-                                tabId: activeTabId,
                             })
                         } catch {
                             // If the breadcrumb selector fails, we'll just ignore it and return null below

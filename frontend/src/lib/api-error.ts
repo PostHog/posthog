@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */

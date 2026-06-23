@@ -1,9 +1,11 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
+from django.apps import apps
 from django.conf import settings
 from django.utils import timezone
 
@@ -15,7 +17,6 @@ from posthog.models import Team
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -25,6 +26,11 @@ from products.surveys.backend.models import Survey
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.entity_search import EntitySearchContext
 from ee.models.rbac.access_control import AccessControl
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 
 class TestEntitySearchContext(NonAtomicBaseTest):
@@ -50,7 +56,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
-            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts"),
+            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):

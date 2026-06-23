@@ -9,6 +9,8 @@ import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
+import { OAuthCallback } from 'lib/oauth/OAuthCallback'
+import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -51,8 +53,17 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+    // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
+    // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
+    useMountedLogic(oauthLogic)
 
     useThemedHtml()
+
+    // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
+    // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
+    if (window.location.pathname === '/oauth/callback') {
+        return <OAuthCallback />
+    }
 
     if (showApp) {
         return (
@@ -68,13 +79,8 @@ export function App(): JSX.Element | null {
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const {
-        activeSceneId,
-        activeExportedScene,
-        activeSceneComponentParamsWithTabId,
-        activeSceneLogicPropsWithTabId,
-        sceneConfig,
-    } = useValues(sceneLogic)
+    const { activeSceneId, activeExportedScene, activeSceneComponentParams, activeSceneLogicProps, sceneConfig } =
+        useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -110,8 +116,8 @@ function AppScene(): JSX.Element | null {
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
-                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
+            <SceneAnimationRoot key={`scene-${activeSceneId}`}>
+                <SceneComponent user={user} {...activeSceneComponentParams} />
             </SceneAnimationRoot>
         )
     } else {
@@ -119,11 +125,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const sceneContent = activeExportedScene?.logic ? (
-        <BindLogic
-            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-            logic={activeExportedScene.logic}
-            props={activeSceneLogicPropsWithTabId}
-        >
+        <BindLogic key={`bind-${activeSceneId}`} logic={activeExportedScene.logic} props={activeSceneLogicProps}>
             {sceneElement}
         </BindLogic>
     ) : (
@@ -131,10 +133,7 @@ function AppScene(): JSX.Element | null {
     )
 
     const wrappedSceneElement = (
-        <ErrorBoundary
-            key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
-            exceptionProps={{ feature: activeSceneId }}
-        >
+        <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
             {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AIRCALL,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Aircall",
             caption="""Enter your Aircall API credentials to pull your Aircall data into the PostHog Data warehouse.
 

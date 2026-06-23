@@ -18,8 +18,10 @@ import {
 } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isString, objectClean, objectsEqual, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { isString } from 'lib/utils/guards'
+import { objectClean, objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -175,6 +177,10 @@ export const getDefaultFilters = (
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
+        // When the surfacing score flag is on, default to sorting by relevance
+        order: posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE)
+            ? 'surfacing_score'
+            : DEFAULT_RECORDING_FILTERS.order,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
@@ -372,8 +378,10 @@ function sortRecordings(
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
-        const orderA = a[orderKey]
-        const orderB = b[orderKey]
+        // `surfacing_score` is ordered server-side and isn't carried on the recording object, so any
+        // key not present resolves to undefined here and the pair is treated as incomparable (order preserved).
+        const orderA = (a as Record<string, any>)[orderKey]
+        const orderB = (b as Record<string, any>)[orderKey]
         const incomparable = orderA === undefined || orderB === undefined
         const left_greater = order_direction === 'DESC' ? -1 : 1
         const right_greater = order_direction === 'DESC' ? 1 : -1

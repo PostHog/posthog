@@ -4,7 +4,7 @@ import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import {

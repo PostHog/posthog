@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 from bingads import AuthorizationData, OAuthTokens, OAuthWebAuthCodeGrant, ServiceClient
 from bingads.v13 import reporting
+from suds import WebFault
 
 from posthog.settings import integrations
 
@@ -18,6 +19,45 @@ from .utils import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def extract_webfault_detail(fault: Any) -> str:
+    """Pull the actionable error codes/messages out of a Bing Ads suds ``WebFault``.
+
+    The top-level ``faultstring`` is intentionally generic (e.g. "Invalid client data. Check the
+    SOAP fault details for more information."). The real, stable error codes — ``InvalidCredentials``,
+    ``AuthenticationTokenExpired``, ``WorkIdentityNotAvailable``, etc. — live in the SOAP fault
+    detail. Surfacing them lets the retry framework recognise auth/credential failures as
+    non-retryable and gives operators a real cause instead of the opaque umbrella message.
+
+    Detail shape mirrors the bingads SDK (see ``bingads.util.errorcode_of_exception``):
+    ``AdApiFaultDetail.Errors.AdApiError[]`` for auth/general errors and
+    ``ApiFaultDetail.OperationErrors.OperationError[]`` for operation-level errors.
+    """
+    detail = getattr(fault, "detail", None)
+    if detail is None:
+        return ""
+
+    ad_api_errors = getattr(getattr(getattr(detail, "AdApiFaultDetail", None), "Errors", None), "AdApiError", None)
+    operation_errors = getattr(
+        getattr(getattr(detail, "ApiFaultDetail", None), "OperationErrors", None), "OperationError", None
+    )
+
+    parts: list[str] = []
+    for err in _as_list(ad_api_errors) + _as_list(operation_errors):
+        code = getattr(err, "ErrorCode", None) or getattr(err, "Code", None)
+        message = getattr(err, "Message", None)
+        fragment = ": ".join(str(p) for p in (code, message) if p)
+        if fragment:
+            parts.append(fragment)
+
+    return "; ".join(parts)
 
 
 class BingAdsClient:
@@ -61,12 +101,21 @@ class BingAdsClient:
             user = service_client.GetUser(UserId=None).User
             self._customer_id = user.CustomerId
         except Exception as e:
-            logger.warning("Failed to fetch customer ID", error=str(e), error_type=type(e).__name__)
-            # Preserve the underlying exception's type and message so the retry framework
-            # can selectively recognise auth-related failures as non-retryable while
-            # transient SDK errors (network, Bing outage, rate limits) keep their original
-            # signature and remain retryable.
-            raise ValueError(f"Failed to fetch customer ID: {type(e).__name__}: {e}") from e
+            # For SOAP faults the str(e) is a generic umbrella message ("Invalid client data...");
+            # the actionable error code lives in the fault detail, so surface it explicitly.
+            fault_detail = extract_webfault_detail(e.fault) if isinstance(e, WebFault) else ""
+            logger.warning(
+                "Failed to fetch customer ID",
+                error=str(e),
+                error_type=type(e).__name__,
+                fault_detail=fault_detail,
+            )
+            # Preserve the underlying exception's type and message — plus any SOAP fault detail —
+            # so the retry framework can selectively recognise auth-related failures as
+            # non-retryable while transient SDK errors (network, Bing outage, rate limits) keep
+            # their original signature and remain retryable.
+            detail_suffix = f" ({fault_detail})" if fault_detail else ""
+            raise ValueError(f"Failed to fetch customer ID: {type(e).__name__}: {e}{detail_suffix}") from e
 
         return self._customer_id
 

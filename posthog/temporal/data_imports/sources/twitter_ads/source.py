@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class TwitterAdsSource(SimpleSource[TwitterAdsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TWITTER_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["x ads"],
             label="Twitter Ads",
             iconPath="/static/services/twitter_ads.png",
             fields=cast(list[FieldType], []),

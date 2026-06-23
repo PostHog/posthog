@@ -1,5 +1,7 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
-import type { TooltipConfig } from '@posthog/quill-charts'
+import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
+
+import { hexToRGBA } from 'lib/utils/colors'
 
 import { ChartDisplayType } from '~/types'
 
@@ -58,6 +60,18 @@ describe('stickinessChartTransforms', () => {
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
         })
+
+        it.each([
+            { compare_label: undefined, expectedColor: RED },
+            { compare_label: 'current' as const, expectedColor: RED },
+            { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5) },
+        ])(
+            'dims the compare-against-previous series to 0.5 alpha, leaving others full color (compare_label=$compare_label)',
+            ({ compare_label, expectedColor }) => {
+                const series = buildStickinessMainSeries(makeResult({ compare_label }), 0, { getColor: () => RED })
+                expect(series.color).toBe(expectedColor)
+            }
+        )
 
         it('never sets a partial-stroke / in-progress tail (stickiness has no incomplete buckets)', () => {
             const series = buildStickinessMainSeries(makeResult({ data: [1, 2, 3, 4, 5] }), 0, { getColor: () => RED })
@@ -178,17 +192,19 @@ describe('stickinessChartTransforms', () => {
 
         it('returns yAxis with percent tick formatter and a linear scale by default', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('linear')
-            expect(config.yAxis!.showGrid).toBe(true)
-            expect(config.yAxis!.tickFormatter).not.toBeUndefined()
-            expect(config.yAxis!.tickFormatter!(50)).toBe('50.0%')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('linear')
+            expect(yAxis.showGrid).toBe(true)
+            expect(yAxis.tickFormatter).not.toBeUndefined()
+            expect(yAxis.tickFormatter!(50)).toBe('50.0%')
         })
 
         it('switches the y-scale to log when yAxisScaleType is log10', () => {
             const config = buildStickinessLineTimeSeriesConfig({ yAxisScaleType: 'log10' })
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('log')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('log')
         })
 
         it('omits an xAxis date config — labels are pre-formatted interval counts', () => {

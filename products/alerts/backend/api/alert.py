@@ -1,11 +1,15 @@
 import uuid
+from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import OuterRef, QuerySet, Subquery
 
+import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
+from pydantic import (
+    Field as PydanticField,
+    RootModel,
+)
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -16,30 +20,29 @@ from posthog.schema import (
     AlertCondition,
     AlertState,
     DetectorConfig,
+    HogQLAlertConfig,
     InsightThreshold,
+    NodeKind,
     TrendsAlertConfig,
 )
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import User
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import (
-    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
-    next_check_at_after_schedule_restriction_change,
-    validate_alert_config,
-)
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
@@ -58,6 +61,13 @@ def _validate_every_15_minutes_interval(
         raise ValidationError({"calculation_interval": [error]})
 
 
+def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
+    # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
+    # explicitly — alert write/simulate access must not expose a restricted insight's results.
+    if not context["view"].user_access_control.check_access_level_for_object(insight, "viewer"):
+        raise ValidationError("Viewer access to this insight is required.")
+
+
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
 class ThresholdConfigurationField(serializers.JSONField):
     pass
@@ -68,8 +78,15 @@ class AlertConditionField(serializers.JSONField):
     pass
 
 
-@extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
-class TrendsAlertConfigField(serializers.JSONField):
+class AlertConfigUnion(RootModel):
+    """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+    generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
+
+    root: Annotated[TrendsAlertConfig | HogQLAlertConfig, PydanticField(discriminator="type")]
+
+
+@extend_schema_field(AlertConfigUnion)  # type: ignore[arg-type]
+class AlertConfigField(serializers.JSONField):
     pass
 
 
@@ -180,7 +197,7 @@ class RelativeDateTimeField(serializers.DateTimeField):
         return data
 
 
-class AlertSerializer(serializers.ModelSerializer):
+class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -199,10 +216,17 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.",
     )
-    config = TrendsAlertConfigField(
+    config = AlertConfigField(
         required=False,
         allow_null=True,
-        help_text="Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).",
+        help_text=(
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index "
+            "(which series to monitor) and check_ongoing_interval (whether to check the current incomplete "
+            "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
+            "the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, "
+            "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
+            "label_column (names the evaluated row(s) in breach messages, in every evaluation mode)."
+        ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
     insight = TeamScopedPrimaryKeyRelatedField(
@@ -301,6 +325,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "investigation_agent_enabled",
             "investigation_gates_notifications",
             "investigation_inconclusive_action",
+            "search_match_type",
         ]
         read_only_fields = [
             "id",
@@ -502,9 +527,38 @@ class AlertSerializer(serializers.ModelSerializer):
         return value
 
     def validate_insight(self, value):
-        if value and not value.are_alerts_supported:
-            raise ValidationError("Alerts are not supported for this insight.")
+        if not value:
+            return value
+        _require_insight_viewer_access(self.context, value)
+        self._enforce_alert_feature_flags(value)
         return value
+
+    def _enforce_alert_feature_flags(self, insight) -> None:
+        # Enforced from the object-level validate() so it runs on every create and update — including
+        # a PATCH that omits `insight` (which skips this field-level validator), so an alert can't be
+        # repointed at a flag-gated insight kind in an account where the flag is off. The model stays
+        # flag-agnostic so existing alerts keep working when the flag is off.
+        kind = insight.alertable_query_kind
+        if kind is None:
+            raise ValidationError("Alerts are not supported for this insight.")
+        if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
+            raise ValidationError("SQL insight alerts are not enabled for your account.")
+
+    def _hogql_alerts_enabled(self) -> bool:
+        # Scope the flag to the alert's organization (via team scope), not the user's current
+        # organization — otherwise a user in multiple orgs could flip their current org to a
+        # flag-on org and create a SQL alert in a team where the flag is disabled. get_organization
+        # is always injected by TeamAndOrgViewSetMixin; access it unconditionally so the org-scoping
+        # invariant can't silently degrade to an unscoped check.
+        user = self.context["request"].user
+        org = self.context["get_organization"]()
+        return bool(
+            posthoganalytics.feature_enabled(
+                "hogql-insight-alerts",
+                str(user.distinct_id),
+                groups={"organization": str(org.id)},
+            )
+        )
 
     def validate_subscribed_users(self, value):
         for user in value:
@@ -527,6 +581,7 @@ class AlertSerializer(serializers.ModelSerializer):
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
+        self._enforce_alert_feature_flags(insight)
         with upgrade_query(insight):
             query = insight.query
             if query is None:
@@ -640,6 +695,10 @@ class AlertSimulateSerializer(serializers.Serializer):
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
         "If not provided, uses the detector's minimum required samples.",
     )
+
+    def validate_insight(self, value):
+        _require_insight_viewer_access(self.context, value)
+        return value
 
     def validate_detector_config(self, value):
         if value is None:
@@ -780,6 +839,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             queryset = self._apply_search(queryset, search)
 
+        # Gate on viewer access to the linked insight. Alert read/write access does not imply access
+        # to the insight's results (carried in AlertCheck.triggered_metadata / calculated_value), and
+        # "alert" isn't an access-control resource — so without this an alert leaks a restricted
+        # insight's data via check history, or via a PATCH that omits `insight` (skipping the
+        # create-time check). Filtering here covers list, retrieve, update, delete, and the embedded
+        # checks, since get_object() resolves detail routes from this queryset.
+        viewable_insights = self.user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team_id=self.team_id)
+        )
+        queryset = queryset.filter(insight_id__in=viewable_insights.values("id"))
+
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
 
@@ -787,22 +857,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-            )
-            .filter(Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY) | Q(_name_full__gt=MIN_NAME_TRIGRAM_SIMILARITY))
-            .annotate(_search_score=F("_name_word") + F("_name_full"))
-            .order_by("-_search_score", "-created_at")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="alert.search",
+            fields=(NAME_FIELD,),
+            tiebreakers=("-created_at",),
         )
 
     CHECKS_DEFAULT_LIMIT = 5
@@ -931,6 +991,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 detector_config=detector_config,
                 series_index=series_index,
                 date_from=date_from,
+                user=cast(User, request.user),
             )
         except (ValueError, IndexError) as e:
             raise ValidationError(str(e))

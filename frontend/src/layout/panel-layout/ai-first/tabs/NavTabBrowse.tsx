@@ -24,10 +24,9 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -162,7 +161,6 @@ export function NavTabBrowse(): JSX.Element {
         activePanelIdentifierFromUrlAiFirst,
         pathname,
     } = useValues(panelLayoutLogic)
-    const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
@@ -184,9 +182,7 @@ export function NavTabBrowse(): JSX.Element {
 
     return (
         <ScrollableShadows
-            className={cn('flex-1', {
-                'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
-            })}
+            className="flex-1"
             innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars
@@ -229,6 +225,7 @@ export function NavTabBrowse(): JSX.Element {
                             icon={<IconNotification />}
                             isCollapsed={isLayoutNavCollapsed}
                             data-attr="nav-item-inbox"
+                            tag="beta"
                             onClick={() => posthog.capture('nav item clicked', { item: 'inbox' })}
                         />
                     )}

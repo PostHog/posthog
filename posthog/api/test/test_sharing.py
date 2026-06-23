@@ -7,14 +7,22 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 
-from posthog.api.sharing import _log_share_password_attempt, shared_url_as_png
+from posthog.api.sharing import (
+    SHARING_RESOURCE_EDIT_CHECKS,
+    _assert_every_shareable_resource_is_gated,
+    _log_share_password_attempt,
+    check_can_edit_sharing_configuration,
+    shared_url_as_png,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.filters.filter import Filter
@@ -1587,3 +1595,42 @@ class TestSharedCohortInlining(APIBaseTest):
         assert widget_data["widget_type"] == "error_tracking_list"
         assert widget_data["config"]["limit"] == 10
         assert "created_by" not in widget_data
+
+
+class TestSharingResourceEditChecks(APIBaseTest):
+    def test_every_shareable_resource_has_an_edit_check(self):
+        assert set(SHARING_RESOURCE_EDIT_CHECKS) == SharingConfiguration.shareable_resource_fields()
+
+    @parameterized.expand(
+        [
+            ("a shareable resource has no registered edit check", "recording", None),
+            ("the registry references a non-existent field", None, "made_up_resource"),
+        ]
+    )
+    def test_assertion_rejects_a_registry_out_of_sync_with_the_model(self, _name, drop_key, add_key):
+        mutated = dict(SHARING_RESOURCE_EDIT_CHECKS)
+        if drop_key:
+            mutated.pop(drop_key)
+        if add_key:
+            mutated[add_key] = None
+
+        with patch.dict("posthog.api.sharing.SHARING_RESOURCE_EDIT_CHECKS", mutated, clear=True):
+            with self.assertRaises(ImproperlyConfigured):
+                _assert_every_shareable_resource_is_gated()
+
+    @patch("posthog.api.sharing.UserAccessControl")
+    def test_gate_fails_closed_for_a_resource_with_no_edit_check(self, _mock_user_access_control):
+        sharing = Mock(spec=SharingConfiguration)
+        for field_name in SharingConfiguration.shareable_resource_fields():
+            setattr(sharing, field_name, None)
+        sharing.interviewee_context = Mock()
+        sharing.team = self.team
+
+        request = Mock(method="PATCH", data={})
+        request.user = self.user
+        view = Mock(team=self.team)
+
+        with self.assertRaises(PermissionDenied) as caught:
+            check_can_edit_sharing_configuration(view, request, sharing)
+
+        assert "cannot be shared through this endpoint" in str(caught.exception)

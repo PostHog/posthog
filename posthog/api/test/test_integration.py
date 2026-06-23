@@ -7,6 +7,7 @@ from datetime import timedelta
 from urllib.parse import quote
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings as django_settings
@@ -14,6 +15,7 @@ from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -39,6 +41,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
+from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
 
@@ -2199,25 +2202,21 @@ class TestStripeIntegrationOAuthTokens:
 
     @parameterized.expand(
         [
-            ("write_uses_sandbox_when_flag_set", "write_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
-            ("clear_uses_sandbox_when_flag_set", "clear_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
-            ("write_uses_live_when_flag_missing", "write_posthog_secrets", {}, "sk_live"),
+            ("write", "write_posthog_secrets"),
+            ("clear", "clear_posthog_secrets"),
         ]
     )
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_stripe_client_secret_selection(
-        self, _name, method_name, config, expected_key, mock_settings, MockStripeClient
-    ):
+    def test_stripe_client_uses_live_secret(self, _name, method_name, mock_settings, MockStripeClient):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
             team=self.team,
             kind="stripe",
-            config=config,
+            config={},
             sensitive_config={},
             integration_id=f"acct_{_name}",
             created_by=self.user,
@@ -2228,25 +2227,23 @@ class TestStripeIntegrationOAuthTokens:
         else:
             stripe_int.clear_posthog_secrets()
 
-        MockStripeClient.assert_called_once_with(expected_key)
+        MockStripeClient.assert_called_once_with("sk_live")
 
     @patch("posthog.models.integration.capture_exception")
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_write_posthog_secrets_skips_when_sandbox_keys_missing(self, mock_settings, MockStripeClient, mock_capture):
+    def test_write_posthog_secrets_skips_when_keys_missing(self, mock_settings, MockStripeClient, mock_capture):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_settings.STRIPE_APP_CLIENT_ID = "ca_live"
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_CLIENT_ID = None
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = None
+        mock_settings.STRIPE_APP_CLIENT_ID = None
+        mock_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
             team=self.team,
             kind="stripe",
-            config={"is_sandbox": True},
+            config={},
             sensitive_config={},
-            integration_id="acct_sandbox_missing_write",
+            integration_id="acct_missing_write",
             created_by=self.user,
         )
         stripe_int = StripeIntegration(integration)
@@ -2260,19 +2257,15 @@ class TestStripeIntegrationOAuthTokens:
     @patch("posthog.models.integration.capture_exception")
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_clear_posthog_secrets_skips_and_revokes_tokens_when_sandbox_keys_missing(
+    def test_clear_posthog_secrets_skips_and_revokes_tokens_when_keys_missing(
         self, mock_settings, MockStripeClient, mock_capture
     ):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_settings.STRIPE_APP_CLIENT_ID = "ca_live"
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_CLIENT_ID = None
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = None
+        mock_settings.STRIPE_APP_CLIENT_ID = None
+        mock_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration, access_token, refresh_token = self._create_integration_with_tokens()
-        integration.config = {"is_sandbox": True}
-        integration.save()
 
         stripe_int = StripeIntegration(integration)
         stripe_int.clear_posthog_secrets()
@@ -3559,3 +3552,264 @@ class TestIntegrationDeletionWorkflowGuard:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationDeletionHogFunctionGuard:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"team": {"id": "T123", "name": "Test workspace"}},
+            created_by=self.user,
+        )
+
+    def _create_function(
+        self,
+        *,
+        enabled: bool = True,
+        deleted: bool = False,
+        input_value: int | dict | None = None,
+        input_type: str = "integration",
+        name: str = "Slack notifier",
+    ) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=name,
+            type="destination",
+            hog="return event",
+            enabled=enabled,
+            deleted=deleted,
+            inputs_schema=[{"key": "slack_workspace", "type": input_type, "label": "Slack workspace"}],
+            inputs={
+                "slack_workspace": {"value": input_value if input_value is not None else self.integration.id},
+            },
+        )
+
+    def _delete(self, client: HttpClient):
+        client.force_login(self.user)
+        return client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+    @pytest.mark.parametrize("value_form", ["bare_id", "dict_value"])
+    def test_destroy_blocked_when_enabled_function_references_integration(self, value_form: str, client: HttpClient):
+        input_value: int | dict = (
+            self.integration.id if value_form == "bare_id" else {"integrationId": self.integration.id}
+        )
+        self._create_function(input_value=input_value)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Slack notifier" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("enabled,deleted", [(False, False), (True, True)])
+    def test_destroy_allowed_when_function_disabled_or_deleted(self, enabled: bool, deleted: bool, client: HttpClient):
+        self._create_function(enabled=enabled, deleted=deleted)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_function_references_other_integration(self, client: HttpClient):
+        self._create_function(input_value=self.integration.id + 1)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("input_type,value_form", [("string", "bare_id"), ("json", "dict_value")])
+    def test_destroy_allowed_when_integration_id_in_non_integration_input(
+        self, input_type: str, value_form: str, client: HttpClient
+    ):
+        # A matching ID in an input the runtime never resolves as an integration must not block deletion
+        input_value: int | dict = (
+            self.integration.id if value_form == "bare_id" else {"integrationId": self.integration.id}
+        )
+        self._create_function(input_type=input_type, input_value=input_value)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_message_includes_workflows_and_functions(self, client: HttpClient):
+        self._create_function(name="Slack notifier")
+        HogFlow.objects.create(
+            team=self.team,
+            name="Slack flow",
+            status="active",
+            actions=[
+                {
+                    "id": "action_function_1",
+                    "name": "Notify",
+                    "type": "function",
+                    "config": {"inputs": {"slack_workspace": {"value": {"integrationId": self.integration.id}}}},
+                }
+            ],
+            edges=[],
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "Slack flow" in content
+        assert "Slack notifier" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationRequestAccessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The endpoint is members-only, so default the requester to a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/integrations/request_access/"
+
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_member_can_request_access(self, mock_task, mock_report):
+        response = self.client.post(self._url(), {"kind": "slack", "reason": "We need Slack alerts"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"success": True}
+        mock_task.delay.assert_called_once_with(
+            team_id=self.team.id,
+            requesting_user_id=self.user.id,
+            kind="slack",
+            reason="We need Slack alerts",
+        )
+        mock_report.assert_called_once_with(
+            self.user,
+            "integration access requested",
+            {
+                "integration_kind": "slack",
+                "requester_level": OrganizationMembership.Level.MEMBER,
+                "reason_length": len("We need Slack alerts"),
+            },
+            team=self.team,
+        )
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_admins_cannot_request_access(self, _name, level, mock_task, mock_report):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        response = self.client.post(
+            self._url(), {"kind": "github", "reason": "Link issues from error tracking"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_task.delay.assert_not_called()
+        mock_report.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_reason", {"kind": "slack"}),
+            ("blank_reason", {"kind": "slack", "reason": "   "}),
+            ("missing_kind", {"reason": "We need it"}),
+            ("invalid_kind", {"kind": "not-a-real-kind", "reason": "We need it"}),
+        ]
+    )
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_invalid_payload_is_rejected(self, _name, payload, mock_task, mock_report):
+        response = self.client.post(self._url(), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+        mock_report.assert_not_called()
+
+
+class TestGoogleSearchConsoleSitesEndpoint:
+    _SESSION_PATH = (
+        "posthog.temporal.data_imports.sources.google_search_console."
+        "google_search_console.google_search_console_session"
+    )
+    _LIST_SITES_PATH = "posthog.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
+
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "gsc@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_gsc_integration(self) -> Integration:
+        # No refresh_token → `_ensure_oauth_token_valid` treats the access token as valid and skips refresh.
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-search-console",
+            config={},
+            sensitive_config={"access_token": "ya29.test"},
+            integration_id="gsc_test",
+            created_by=self.user,
+        )
+
+    def _url(self, integration_id: int) -> str:
+        return f"/api/environments/{self.team.pk}/integrations/{integration_id}/google_search_console_sites/"
+
+    @staticmethod
+    def _http_error(status_code: int) -> requests.HTTPError:
+        response = requests.Response()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_auth_error_returns_actionable_400(self, mock_session, mock_list_sites, client: HttpClient):
+        # 401 and 403 both mean the connected account can't read Search Console — the endpoint should
+        # turn either into an actionable 400 rather than letting it surface as an unhandled 500.
+        integration = self._create_gsc_integration()
+        client.force_login(self.user)
+
+        for status_code in (401, 403):
+            mock_list_sites.side_effect = self._http_error(status_code)
+
+            response = client.get(self._url(integration.id))
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "reconnect your account" in str(response.json()).lower()
+
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_success_returns_sites(self, mock_session, mock_list_sites, client: HttpClient):
+        integration = self._create_gsc_integration()
+        mock_list_sites.return_value = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+
+        client.force_login(self.user)
+        response = client.get(self._url(integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["sites"] == [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+
+    @patch(_LIST_SITES_PATH)
+    @patch(_SESSION_PATH)
+    def test_non_auth_http_error_is_not_swallowed(self, mock_session, mock_list_sites, client: HttpClient):
+        # Only 401/403 are converted to a 400 — any other status keeps surfacing as a server error so
+        # a genuine bug isn't masked by the auth handling.
+        integration = self._create_gsc_integration()
+        mock_list_sites.side_effect = self._http_error(500)
+
+        client.force_login(self.user)
+        response = client.get(self._url(integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content

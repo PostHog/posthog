@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -42,6 +43,7 @@ class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DIXA,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Dixa",
             caption="""Enter your Dixa API token to pull your Dixa customer service data into the PostHog Data warehouse.
 

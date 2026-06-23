@@ -10,11 +10,12 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
+import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,9 +30,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -59,6 +61,7 @@ from posthog.models.integration import (
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
+    PostgreSQLIntegration,
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
@@ -74,12 +77,17 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.email import send_integration_access_request
 
+from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
+GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -299,6 +307,44 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
+    siteUrl = serializers.CharField(
+        help_text=(
+            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
+            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
+        )
+    )
+    permissionLevel = serializers.CharField(
+        help_text=(
+            "The connected user's permission level for this site. One of `siteOwner`, "
+            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
+        )
+    )
+
+
+class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
+    sites = GoogleSearchConsoleSiteSerializer(many=True)
+
+
+class IntegrationAccessRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=Integration.IntegrationKind.choices,
+        help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
+    )
+    reason = serializers.CharField(
+        max_length=2000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Explanation from the requester of why this integration is needed. Shown to admins in the notification email.",
+    )
+
+
+class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the project admins were notified."
+    )
+
+
 @extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
@@ -511,6 +557,57 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "postgresql":
+            config = validated_data.get("config", {})
+            host = config.get("host")
+            port = config.get("port", 5432)
+            user = config.get("user")
+            password = config.get("password")
+            ssl_mode = config.get("ssl_mode", "require")
+            ssl_root_cert = config.get("ssl_root_cert")
+
+            if not (host and port and user and password):
+                raise ValidationError("Host, port, user, and password must be provided")
+
+            if not all(isinstance(value, str) for value in (host, user, password)):
+                raise ValidationError("Host, user, and password must be strings")
+
+            from products.batch_exports.backend.api.batch_export import resolve_and_validate_host
+
+            try:
+                resolve_and_validate_host(host)
+            except ValueError:
+                raise ValidationError(f"Invalid host: '{host}'")
+
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                raise ValidationError("Port must be an integer")
+
+            if port < 0 or port > 65535:
+                raise ValidationError("Port must be between 0 and 65535")
+
+            if ssl_mode not in ("require", "verify-ca", "verify-full"):
+                raise ValidationError("SSL mode must be one of: require, verify-ca, verify-full")
+
+            if ssl_mode in ("verify-ca", "verify-full"):
+                if not ssl_root_cert:
+                    raise ValidationError("Root certificate must be provided when verifying server certificates")
+                if not isinstance(ssl_root_cert, str):
+                    raise ValidationError("Root certificate must be a string")
+
+            instance = PostgreSQLIntegration.integration_from_config(
+                team_id=team_id,
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                ssl_mode=ssl_mode,
+                ssl_root_cert=ssl_root_cert,
+                created_by=request.user,
+            )
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -606,6 +703,11 @@ class IntegrationViewSet(
         "refresh_github_repos",
         "github_link_existing",
         "github_oauth_authorize",
+        # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
+        "request_access",
+        # Enumerates every Search Console property on the connected Google account — gate behind
+        # manage access so read-only members can't discover unrelated domains (info disclosure).
+        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -622,6 +724,14 @@ class IntegrationViewSet(
                 TeamMemberAccessPermission(),
                 TeamMemberLightManagementPermission(),
             ]
+        # Any project member may ask an admin to connect an integration — connecting still requires admin.
+        if self.action == "request_access":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+            ]
         raise NotImplementedError()
 
     def get_throttles(self):
@@ -633,11 +743,22 @@ class IntegrationViewSet(
         flows_using_integration = get_active_hog_flows_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        functions_using_integration = get_enabled_hog_functions_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+        used_by = []
         if flows_using_integration:
             flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            used_by.append(f"active workflows: {flow_names}")
+        if functions_using_integration:
+            function_names = ", ".join(
+                sorted(function.name or str(function.id) for function in functions_using_integration)
+            )
+            used_by.append(f"enabled data pipelines: {function_names}")
+        if used_by:
             raise ValidationError(
-                f"This integration is used by active workflows: {flow_names}. "
-                "Update those workflows to use a different integration before disconnecting it."
+                f"This integration is used by {' and '.join(used_by)}. "
+                "Update them to use a different integration before disconnecting it."
             )
 
         if instance.kind == "stripe":
@@ -684,12 +805,11 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
-        is_sandbox = request.GET.get("is_sandbox", "").lower() in ("true", "1", "yes")
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, is_sandbox=is_sandbox)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -868,6 +988,47 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
+        return Response(response_data)
+
+    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
+    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the Search Console properties the connected Google account has access to."""
+        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
+        # import path, mirroring how other ad-platform endpoints stay self-contained.
+        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            google_search_console_session,
+            list_sites,
+        )
+
+        instance = self.get_object()
+        if instance.kind != "google-search-console":
+            raise ValidationError(
+                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
+            )
+        _ensure_oauth_token_valid(instance)
+
+        cache_key = f"google_search_console/{instance.id}/sites"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        session = google_search_console_session(instance.id, instance.team_id)
+        try:
+            sites = list_sites(session)
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code in (401, 403):
+                # The token refreshed fine but the connected Google account isn't authorized to
+                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
+                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
+                raise ValidationError(
+                    "Google Search Console rejected the credentials. Please reconnect your account "
+                    "and ensure it has read access to the property."
+                )
+            raise
+        response_data = {"sites": sites}
+        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
@@ -1134,6 +1295,39 @@ class IntegrationViewSet(
             else None,
         )
         return Response({"oauth_url": oauth_url})
+
+    @extend_schema(
+        request=IntegrationAccessRequestSerializer,
+        responses={200: IntegrationAccessRequestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="request_access")
+    def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Notify project admins that a member is requesting an integration be connected."""
+        # Members only — admins can connect integrations themselves, so there's nobody to ask.
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level >= OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only members can request access; admins can connect integrations directly.")
+
+        serializer = IntegrationAccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        send_integration_access_request.delay(
+            team_id=self.team_id,
+            requesting_user_id=cast(User, request.user).id,
+            kind=serializer.validated_data["kind"],
+            reason=serializer.validated_data["reason"],
+        )
+        # Keep the free-text reason out of properties (PII + cardinality); a length signal is enough.
+        report_user_action(
+            cast(User, request.user),
+            "integration access requested",
+            {
+                "integration_kind": serializer.validated_data["kind"],
+                "requester_level": requesting_level,
+                "reason_length": len(serializer.validated_data["reason"]),
+            },
+            team=self.team,
+        )
+        return Response({"success": True})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")

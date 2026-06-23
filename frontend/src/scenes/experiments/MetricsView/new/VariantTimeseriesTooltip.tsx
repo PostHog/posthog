@@ -4,7 +4,7 @@ import { IconCalendar, IconClock, IconHome, IconLaptop } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { IconWeb } from 'lib/lemon-ui/icons'
-import { shortTimeZone } from 'lib/utils'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 
 const DATE_FORMAT = 'MMM D, YYYY'

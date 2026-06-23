@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -44,6 +45,7 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLAID,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Plaid",
             caption="""Connect a Plaid Item to pull its accounts and transactions into the PostHog Data warehouse.
 
