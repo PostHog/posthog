@@ -2,7 +2,6 @@ import { createHash, createHmac } from 'node:crypto'
 
 import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/schema/cyclotron'
 
-import { logger } from '../../utils/logger'
 import { HogFunctionType } from '../types'
 
 export type AwsSigV4Credentials = {
@@ -214,25 +213,6 @@ export function resolveAwsSigV4Credentials(
             error: `AWS SigV4 signing failed: input(s) ${missing.join(', ')} not found on hog function or not a string. Refusing to send an unsigned request to AWS.`,
         }
     }
-
-    // TEMPORARY DEBUG (revert before merging) — surface the resolved AKID
-    // shape so we can diagnose UnrecognizedClientException from live tests
-    // without leaking the secret.
-    const akid = accessKeyId as string
-    const sak = secretAccessKey as string
-    logger.info('🦔', '[aws-sigv4] resolved credentials', {
-        akid_first4: akid.slice(0, 4),
-        akid_last4: akid.slice(-4),
-        akid_len: akid.length,
-        akid_starts_with_AKIA: akid.startsWith('AKIA'),
-        akid_has_whitespace: /\s/.test(akid),
-        sak_len: sak.length,
-        sak_has_whitespace: /\s/.test(sak),
-        service: sigv4.service,
-        region: sigv4.region,
-        access_key_id_input: sigv4.access_key_id_input,
-        secret_access_key_input: sigv4.secret_access_key_input,
-    })
 
     return {
         ok: true,
