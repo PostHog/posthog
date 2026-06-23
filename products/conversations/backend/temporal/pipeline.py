@@ -63,9 +63,12 @@ MAX_CHUNKS = 25
 MAX_SOURCES = 25
 MAX_EXCERPT_CHARS = 1000
 
-# Plain-LLM utility calls (refine, validate) go through the internal LLM gateway via the
-# raw Anthropic SDK — the gateway captures $ai_generation itself, so no langchain wrapper.
+# Plain-LLM utility calls go through the internal LLM gateway via the raw Anthropic SDK —
+# the gateway captures $ai_generation itself, so no langchain wrapper.
+# UTILITY_MODEL (haiku) is cheap/fast for query refinement. Validation grounds correct replies
+# against sources, so it uses a stronger sonnet-class model to avoid under-scoring good answers.
 UTILITY_MODEL = "claude-haiku-4-5"
+VALIDATOR_MODEL = "claude-sonnet-4-5"
 
 
 def _anthropic_text(message: Any) -> str:
@@ -492,7 +495,7 @@ async def _validate(
 
     system = """You validate whether a support reply is grounded in the provided knowledge base chunks.
 Return a JSON object with these keys:
-- grounded: boolean — is every factual claim in the reply supported by the cited chunks?
+- grounded: boolean — true unless some factual claim in the reply CONTRADICTS the cited chunks. A claim does not need to appear verbatim in an excerpt; it only needs to be consistent with (not refuted by) the sources. Reasonable paraphrase, summary, and combination of the cited facts is grounded. Only mark grounded=false when the reply asserts something the sources actively contradict, or makes a specific factual claim with no support at all.
 - coverage: float 0-1 — what fraction of the customer's question does the reply address?
 - confidence: float 0-1 — overall confidence the reply is correct and complete.
 - missing: list of strings — topics the customer asked about that are NOT covered by the reply or chunks.
@@ -510,7 +513,7 @@ CITED CHUNKS:
 
     client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
     message = await client.messages.create(
-        model=UTILITY_MODEL,
+        model=VALIDATOR_MODEL,
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": user_content}],
