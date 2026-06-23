@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.plausible.plausible import PlausibleResumeConfig
 from posthog.temporal.data_imports.sources.plausible.settings import ENDPOINTS, PLAUSIBLE_ENDPOINTS
@@ -44,11 +46,16 @@ class TestSourceConfig:
         assert field_names == {"api_key", "site_id", "host"}
 
         by_name = {field.name: field for field in config.fields}
-        assert by_name["api_key"].required is True
-        assert by_name["api_key"].secret is True
-        assert by_name["site_id"].required is True
+        assert all(isinstance(field, SourceFieldInputConfig) for field in by_name.values())
+        api_key, site_id, host = by_name["api_key"], by_name["site_id"], by_name["host"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(site_id, SourceFieldInputConfig)
+        assert isinstance(host, SourceFieldInputConfig)
+        assert api_key.required is True
+        assert api_key.secret is True
+        assert site_id.required is True
         # Host is optional so Plausible Cloud users can leave it blank.
-        assert by_name["host"].required is False
+        assert host.required is False
 
     def test_connection_host_fields(self):
         # The API key is sent to `host`, so retargeting it must re-require secrets.
