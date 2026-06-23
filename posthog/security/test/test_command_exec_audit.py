@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.security import command_exec_audit
 from posthog.security.command_exec_audit import (
     _REDACTED as _R,
+    _is_volume_suppressed,
     _scrub_args,
     _scrub_command_string,
     _summarize_env,
@@ -115,6 +116,31 @@ class TestCommandExecAuditScrubbing(TestCase):
     def test_summarize_env_empty(self) -> None:
         self.assertEqual(_summarize_env(None), (None, 0))
 
+    @parameterized.expand(
+        [
+            # The high-volume introspection shapes we suppress to keep audit volume sane.
+            ("uname_flags", ["uname", "-rs"], False, True),
+            ("uname_single_flag", ["uname", "-p"], False, True),
+            ("lsb_release", ["lsb_release", "-a"], False, True),
+            ("ldd_version", ["ldd", "--version"], False, True),
+            ("file_brief", ["file", "-b", "/some/path"], False, True),
+            ("ldconfig_print", ["ldconfig", "-p"], False, True),
+            ("ldconfig_other_flag", ["ldconfig", "-v"], False, False),
+            # Absolute path still matches on basename.
+            ("absolute_path_uname", ["/usr/bin/uname", "-rs"], False, True),
+            # Anything that isn't the exact suppressed shape must fall through to a full audit entry.
+            ("uname_positional_arg", ["uname", "-a", "extra"], False, False),
+            ("ldd_on_a_binary", ["ldd", "/bin/ls"], False, False),
+            ("file_without_brief", ["file", "/some/path"], False, False),
+            ("unknown_binary", ["curl", "-s", "https://x"], False, False),
+            # shell=True can chain commands — never suppressed, even for a suppressed-looking program.
+            ("shell_string_uname", "uname -rs", True, False),
+            ("empty_command", [], False, False),
+        ]
+    )
+    def test_is_volume_suppressed(self, _name: str, command: Any, shell: bool, expected: bool) -> None:
+        self.assertEqual(_is_volume_suppressed(command, shell), expected)
+
 
 class TestCommandExecAuditPatching(TestCase):
     def setUp(self) -> None:
@@ -141,6 +167,20 @@ class TestCommandExecAuditPatching(TestCase):
         assert entry is not None
         self.assertTrue(entry["shell"])
         self.assertNotIn("hunter2", entry["command"])
+
+    def test_volume_suppressed_command_is_not_logged(self) -> None:
+        # The high-volume introspection commands are dropped to keep audit volume sane.
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["uname", "-rs"], check=False)
+        self.assertIsNone(self._find(logs, "subprocess.Popen"))
+
+    def test_non_suppressed_variant_is_still_logged(self) -> None:
+        # A positional operand on an otherwise suppressed program is not the suppressed shape — keep auditing.
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["uname", "-a", "extra"], check=False)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertEqual(entry["command"], ["uname", "-a", "extra"])
 
     def test_os_system_is_logged(self) -> None:
         with structlog.testing.capture_logs() as logs:

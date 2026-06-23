@@ -481,26 +481,6 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline],
             (sparkline): number => sparkline?.reduce((sum: number, item: any) => sum + item.count, 0) ?? 0,
         ],
-        // Per-severity totals for the facet rail's Level counts, summed from the already-loaded
-        // sparkline. Only available when the sparkline is broken down by severity (the default);
-        // returns null otherwise so the Level facet just omits counts rather than showing wrong ones.
-        severityTotals: [
-            (s) => [s.sparkline, s.sparklineBreakdownBy],
-            (
-                sparkline: any[] | null,
-                sparklineBreakdownBy: LogsSparklineBreakdownBy
-            ): Record<string, number> | null => {
-                if (!sparkline || sparklineBreakdownBy !== 'severity') {
-                    return null
-                }
-                return sparkline.reduce((acc: Record<string, number>, row: any) => {
-                    if (row.severity) {
-                        acc[row.severity] = (acc[row.severity] ?? 0) + row.count
-                    }
-                    return acc
-                }, {})
-            },
-        ],
         logsRemainingToLoad: [
             (s) => [s.totalLogsMatchingFilters, s.logs],
             (totalLogsMatchingFilters, logs): number => totalLogsMatchingFilters - logs.length,

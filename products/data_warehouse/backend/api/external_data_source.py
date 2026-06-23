@@ -44,6 +44,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
@@ -853,6 +854,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -972,7 +980,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1547,13 +1559,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 cdc_schema_name_by_location[(resolved_source_schema, resolved_source_table_name)] = schema_name
 
             if cdc_table_names_by_schema:
-                with cdc_pg_connection(new_source_model) as conn:
-                    for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                        queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
-                        for table_name, primary_key_columns in queried_pks.items():
-                            schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
-                            if schema_name is not None:
-                                pk_columns_by_table[schema_name] = primary_key_columns
+                try:
+                    with cdc_pg_connection(new_source_model) as conn:
+                        for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
+                            queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            for table_name, primary_key_columns in queried_pks.items():
+                                schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
+                                if schema_name is not None:
+                                    pk_columns_by_table[schema_name] = primary_key_columns
+                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                    # Connecting to the user's database to detect CDC primary keys is expected to
+                    # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
+                    # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
+                    # user/upstream connection problems, not bugs in our code, and capturing every
+                    # one floods error tracking. Mirrors the CDC-prerequisite handlers below.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Could not connect to your database to set up change data capture: {e}"},
+                    )
 
             # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_resources` doesn't
             # create replication state on the source for a config we're about to reject.
@@ -2188,7 +2212,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource) and source.supports_column_selection:
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
@@ -3583,6 +3609,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

@@ -141,7 +141,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
                 </span>
             }
             rightSlot={<SignalReportPriorityBadge priority={extra.severity} />}
-            hideWeight
         >
             {/* Confidence meter. */}
             <div className="mb-2">

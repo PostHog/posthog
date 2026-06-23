@@ -3,6 +3,7 @@
 // Do not edit by hand — run `tsx services/mcp/scripts/copy-instructions.ts`.
 export const PLAYBOOK_IDS = [
     'auditing-the-fleet',
+    'authenticating-as-the-user',
     'authoring-new-agents',
     'choosing-the-model',
     'cost-and-quota-analysis',
@@ -24,6 +25,7 @@ export type PlaybookId = (typeof PLAYBOOK_IDS)[number]
 
 export const PLAYBOOK_TITLES: Record<PlaybookId, string> = {
     'auditing-the-fleet': 'Auditing the fleet',
+    'authenticating-as-the-user': 'Authenticating as the user',
     'authoring-new-agents': 'Authoring new agents',
     'choosing-the-model': 'Choosing the model',
     'cost-and-quota-analysis': 'Cost and quota analysis',

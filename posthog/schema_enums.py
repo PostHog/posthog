@@ -1796,6 +1796,11 @@ class ExternalDataSourceType(StrEnum):
     CUSTOM = "Custom"
     TILE38 = "Tile38"
     CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
+    METRONOME = "Metronome"
+    JOBBER = "Jobber"
+    KNOCK = "Knock"
+    LEEXI = "Leexi"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1941,6 +1946,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2528,6 +2540,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -3286,13 +3299,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

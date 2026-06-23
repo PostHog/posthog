@@ -9,11 +9,11 @@ from rest_framework import serializers
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -233,13 +233,6 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
         }
 
 
-class SignalReportTaskSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportTask
-        fields = ["id", "relationship", "task_id", "created_at"]
-        read_only_fields = fields
-
-
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
     slack_notification_integration_id = serializers.IntegerField(
@@ -412,10 +405,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     content = serializers.SerializerMethodField()
+    created_by = _UserSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User the artefact is attributed to, when a user produced it. Null for task/system writes.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user/system writes.",
+    )
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at"]
+        fields = ["id", "type", "content", "created_at", "updated_at", "created_by", "task_id"]
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
@@ -494,3 +497,97 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if len(value) > self.MAX_ENTRIES:
             raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
         return value
+
+
+# Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
+# by the write API, so it must not be advertised as an option here.
+_WRITABLE_ARTEFACT_TYPES = sorted(set(SignalReportArtefact.ArtefactType.values) - NON_WRITABLE_ARTEFACT_TYPES)
+
+_ARTEFACT_TYPES_HELP = (
+    "The artefact type. One of: "
+    + ", ".join(_WRITABLE_ARTEFACT_TYPES)
+    + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
+    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "version supersedes the previous one as the report's canonical status."
+)
+
+
+def _validate_artefact_content_is_container(value: object) -> dict | list:
+    if not isinstance(value, dict | list):
+        raise serializers.ValidationError("content must be a JSON object or array.")
+    return value
+
+
+class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
+    """Body for appending an artefact to a report.
+
+    Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+    version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+    against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+    """
+
+    # Plain CharField (not ChoiceField) on purpose: the value is validated against
+    # `ArtefactType.values` in the view, and avoiding a `choices=` enum keeps this off the
+    # collision-prone enum-name path in the generated OpenAPI types.
+    artefact_type = serializers.CharField(help_text=_ARTEFACT_TYPES_HELP)
+    content = serializers.JSONField(
+        help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
+        "and is validated against its schema.",
+    )
+
+    def validate_content(self, value: object) -> dict | list:
+        # Shape-only here: the view is the schema boundary — it parses the payload into the
+        # type's content model (after normalizing task_run defaults) and 400s on a mismatch.
+        return _validate_artefact_content_is_container(value)
+
+
+class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):
+    """Body for replacing the content of an existing artefact (addressed by id).
+
+    Per-type schema validation happens in the view, which knows the artefact's type.
+    """
+
+    content = serializers.JSONField(
+        help_text="The new artefact payload as a JSON object or array, matching the artefact type's schema."
+    )
+
+    def validate_content(self, value: object) -> dict | list:
+        return _validate_artefact_content_is_container(value)
+
+
+class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
+    """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
+
+    id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    report_id = serializers.UUIDField(read_only=True, help_text="The id of the report this artefact belongs to.")
+    # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
+    # generated OpenAPI schema; the value is simply echoed back.
+    type = serializers.CharField(read_only=True, help_text="The artefact type.")
+    content = serializers.JSONField(read_only=True, help_text="The artefact payload, parsed from storage.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the artefact was created.")
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the artefact was last written — set on creation and refreshed on each edit. "
+        "Null only for rows created before this field existed.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+    )
+
+
+class CommitDiffResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+    repository default branch."""
+
+    diff = serializers.CharField(
+        read_only=True,
+        help_text="Unified diff (patch) text of the branch against the repository default branch, "
+        "from the GitHub compare API.",
+    )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the diff was too large to return in full and has been truncated.",
+    )

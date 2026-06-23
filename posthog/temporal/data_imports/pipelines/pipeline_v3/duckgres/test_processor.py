@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor import (
@@ -10,6 +11,17 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor impo
     _process_batch,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
+
+
+@pytest.fixture(autouse=True)
+def _stub_schema_resolver():
+    # _duckgres_schema_name now resolves the team's table_suffix via the ORM;
+    # these are no-DB unit tests, so pin a deterministic schema name.
+    with patch(
+        "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.duckgres_data_imports_schema",
+        return_value="posthog_data_imports_team_1",
+    ):
+        yield
 
 
 def _make_batch(**overrides: Any) -> PendingBatch:

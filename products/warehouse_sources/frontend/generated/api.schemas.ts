@@ -1007,6 +1007,11 @@ export const CreatedViaEnumApi = {
  * * `Custom` - Custom
  * * `Tile38` - Tile38
  * * `Chatwoot` - Chatwoot
+ * * `Sanity` - Sanity
+ * * `Metronome` - Metronome
+ * * `Jobber` - Jobber
+ * * `Knock` - Knock
+ * * `Leexi` - Leexi
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1645,6 +1650,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Custom: 'Custom',
     Tile38: 'Tile38',
     Chatwoot: 'Chatwoot',
+    Sanity: 'Sanity',
+    Metronome: 'Metronome',
+    Jobber: 'Jobber',
+    Knock: 'Knock',
+    Leexi: 'Leexi',
 } as const
 
 /**
@@ -2381,7 +2391,12 @@ export interface ExternalDataSourceCreateApi {
      * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot */
+     * * `Chatwoot` - Chatwoot
+     * * `Sanity` - Sanity
+     * * `Metronome` - Metronome
+     * * `Jobber` - Jobber
+     * * `Knock` - Knock
+     * * `Leexi` - Leexi */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3221,7 +3236,12 @@ export interface DatabaseSchemaRequestApi {
      * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot */
+     * * `Chatwoot` - Chatwoot
+     * * `Sanity` - Sanity
+     * * `Metronome` - Metronome
+     * * `Jobber` - Jobber
+     * * `Knock` - Knock
+     * * `Leexi` - Leexi */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -3865,7 +3885,12 @@ export interface SourceSetupApi {
      * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot */
+     * * `Chatwoot` - Chatwoot
+     * * `Sanity` - Sanity
+     * * `Metronome` - Metronome
+     * * `Jobber` - Jobber
+     * * `Knock` - Knock
+     * * `Leexi` - Leexi */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -4549,7 +4574,12 @@ export interface SourceCredentialCreateApi {
      * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      * * `Tile38` - Tile38
-     * * `Chatwoot` - Chatwoot */
+     * * `Chatwoot` - Chatwoot
+     * * `Sanity` - Sanity
+     * * `Metronome` - Metronome
+     * * `Jobber` - Jobber
+     * * `Knock` - Knock
+     * * `Leexi` - Leexi */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload

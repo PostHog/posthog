@@ -48,6 +48,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
+    flagCalledPersonlessDefaultTeams: string
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
 }
@@ -67,6 +68,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
+        flagCalledPersonlessDefaultTeams,
         hogTransformer,
         cdpHogWatcherSampleRate,
     } = config
@@ -110,11 +112,14 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled), {
-                tries: 5,
-                sleepMs: 100,
-                name: 'personless_distinct_ids',
-            })
+            .pipeBatchWithRetry(
+                processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                {
+                    tries: 5,
+                    sleepMs: 100,
+                    name: 'personless_distinct_ids',
+                }
+            )
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )

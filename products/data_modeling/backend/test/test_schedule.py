@@ -345,3 +345,39 @@ class TestGetV2ScheduledDagIds:
         assert captured["args"] == ()
         assert "query" not in captured["kwargs"]
         assert result == {"dag-on-v2"}
+
+    def test_scopes_listing_by_posthog_dag_id_when_candidates_given(self):
+        captured: dict = {}
+        listings = [
+            self._listing("dag-on-v2", "data-modeling-execute-dag"),
+            self._listing("sq-on-v1", "data-modeling-run"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids({"dag-on-v2"})
+
+        # Server-side filtering on the PostHogDagId search attribute (allowed, unlike WorkflowType)
+        # keeps us from paginating the whole namespace.
+        assert captured["kwargs"]["query"] == "PostHogDagId IN ('dag-on-v2')"
+        assert result == {"dag-on-v2"}
+
+    def test_empty_candidates_skips_temporal(self):
+        connect = mock.AsyncMock()
+        with mock.patch("products.data_modeling.backend.schedule.async_connect", new=connect):
+            result = get_v2_scheduled_dag_ids(set())
+        assert result == set()
+        connect.assert_not_called()
