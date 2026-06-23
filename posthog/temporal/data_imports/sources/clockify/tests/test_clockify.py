@@ -41,25 +41,28 @@ class TestFormatDatetimeZ:
 
 
 class TestClampFutureValueToNow:
+    @parameterized.expand(
+        [
+            # Future cursor caps at now; anything at/before now (and non-datetime) passes through.
+            ("future_datetime", datetime(2027, 2, 5, tzinfo=UTC), datetime(2026, 6, 15, 12, tzinfo=UTC)),
+            ("past_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)),
+            ("string_passthrough", "cursor", "cursor"),
+        ]
+    )
     @freeze_time("2026-06-15T12:00:00Z")
-    def test_future_datetime_is_clamped(self) -> None:
-        assert _clamp_future_value_to_now(datetime(2027, 2, 5, tzinfo=UTC)) == datetime(2026, 6, 15, 12, tzinfo=UTC)
-
-    @freeze_time("2026-06-15T12:00:00Z")
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    def test_string_passthrough(self) -> None:
-        assert _clamp_future_value_to_now("cursor") == "cursor"
+    def test_clamp(self, _name: str, value: Any, expected: Any) -> None:
+        assert _clamp_future_value_to_now(value) == expected
 
 
 class TestBuildUrl:
-    def test_no_params(self) -> None:
-        assert _build_url(f"{CLOCKIFY_BASE_URL}/workspaces", {}) == f"{CLOCKIFY_BASE_URL}/workspaces"
-
-    def test_with_params(self) -> None:
-        assert _build_url("http://x/y", {"page": 1, "page-size": 1000}) == "http://x/y?page=1&page-size=1000"
+    @parameterized.expand(
+        [
+            ("no_params", f"{CLOCKIFY_BASE_URL}/workspaces", {}, f"{CLOCKIFY_BASE_URL}/workspaces"),
+            ("with_params", "http://x/y", {"page": 1, "page-size": 1000}, "http://x/y?page=1&page-size=1000"),
+        ]
+    )
+    def test_build_url(self, _name: str, base: str, params: dict, expected: str) -> None:
+        assert _build_url(base, params) == expected
 
 
 class TestFlattenTimeEntry:
