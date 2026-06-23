@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+from urllib.parse import quote
 
 import pytest
 from unittest.mock import patch
@@ -70,32 +71,18 @@ class TestNotifyExternalDataSyncFailures:
         assert items[0]["source_type"] == "Stripe"
         assert f"managed-{source.id}/syncs?schema=Invoice" in items[0]["url"]
 
-    def test_prefers_label_over_name_for_display(self):
+    @pytest.mark.parametrize(
+        "name,label,expected_display",
+        [
+            ("C08LGV7UHS9", "#data-alerts", "#data-alerts"),  # label preferred for display
+            ("Charge", None, "Charge"),  # falls back to name when label is missing
+        ],
+    )
+    def test_display_uses_label_but_url_uses_name(self, name, label, expected_display):
         team, source = _create_team_and_source()
         ExternalDataSchema.objects.create(
-            name="C08LGV7UHS9",
-            label="#data-alerts",
-            team=team,
-            source=source,
-            status=ExternalDataSchema.Status.FAILED,
-            should_sync=True,
-            latest_error="rate limited",
-        )
-
-        with patch(SENDER_PATH) as mock_sender:
-            notify_external_data_sync_failures(team.pk)
-
-        (_, items) = mock_sender.call_args.args
-        # The displayed name uses the human-readable label...
-        assert items[0]["schema_name"] == "#data-alerts"
-        # ...but the deep link keeps using the raw identifier.
-        assert "?schema=C08LGV7UHS9" in items[0]["url"]
-
-    def test_falls_back_to_name_when_label_missing(self):
-        team, source = _create_team_and_source()
-        ExternalDataSchema.objects.create(
-            name="Charge",
-            label=None,
+            name=name,
+            label=label,
             team=team,
             source=source,
             status=ExternalDataSchema.Status.FAILED,
@@ -106,7 +93,10 @@ class TestNotifyExternalDataSyncFailures:
             notify_external_data_sync_failures(team.pk)
 
         (_, items) = mock_sender.call_args.args
-        assert items[0]["schema_name"] == "Charge"
+        # The displayed name prefers the human-readable label...
+        assert items[0]["schema_name"] == expected_display
+        # ...but the deep link always keeps using the raw identifier.
+        assert f"?schema={quote(name)}" in items[0]["url"]
 
     @pytest.mark.parametrize(
         "status,should_sync,deleted",
