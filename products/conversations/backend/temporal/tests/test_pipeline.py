@@ -764,7 +764,9 @@ async def test_classify_runs_once_and_threads_ticket_type(
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
-    mock_build.return_value = BuildContextOutput(ticket_context="my exports keep failing", ticket_title="Broken")
+    mock_build.return_value = BuildContextOutput(
+        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=True
+    )
     mock_classify.return_value = ClassifyOutput(
         ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
     )
@@ -809,8 +811,73 @@ async def test_classify_runs_once_and_threads_ticket_type(
     assert mock_validate.call_args[0][6] == "diagnostic"
     # seed_queries threads into refine (arg 4).
     assert mock_refine.call_args[0][4] == ["export failures"]
-    # needs_diagnostics threads into draft (arg 7).
+    # needs_diagnostics threads into draft (arg 7) — classifier said True AND the team opted in.
     assert mock_draft.call_args[0][7] is True
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._persist_reply_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._retrieve_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._classify", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._build_context_sync")
+async def test_diagnostics_gated_off_when_team_not_opted_in(
+    mock_build,
+    mock_classify,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_persist,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    # Classifier flags diagnostics, but the team did NOT opt in → draft must not get the wider scopes.
+    mock_build.return_value = BuildContextOutput(
+        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=False
+    )
+    mock_classify.return_value = ClassifyOutput(
+        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
+    )
+    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Partial.",
+        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+        confidence=0.3,
+    )
+    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=[
+                build_context_activity,
+                classify_activity,
+                refine_queries_activity,
+                retrieve_activity,
+                draft_activity,
+                validate_activity,
+                persist_reply_activity,
+            ],
+        ):
+            await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-diagnostics-gated-off",
+                task_queue="test-queue",
+            )
+
+    # needs_diagnostics into draft (arg 7) is False: classifier True AND team opt-in False.
+    assert mock_draft.call_args[0][7] is False
 
 
 class TestClassifyActivity:

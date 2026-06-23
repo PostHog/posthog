@@ -160,6 +160,9 @@ class BuildContextOutput:
     ticket_context: str
     ticket_title: str
     always_on_context: str = ""
+    # Team opted into letting the agent investigate the customer's own data (wider read scopes
+    # on diagnostic tickets). Off by default: a crafted ticket can't unlock those scopes alone.
+    diagnostics_allowed: bool = False
 
 
 @dataclass
@@ -304,7 +307,14 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
     always_on_chunks = get_always_on_context(team_id)
     always_on_text = "\n\n".join(c.content for c in always_on_chunks) if always_on_chunks else ""
 
-    return BuildContextOutput(ticket_context=context, ticket_title=title, always_on_context=always_on_text)
+    diagnostics_allowed = bool((team.conversations_settings or {}).get("ai_diagnostics_enabled", False))
+
+    return BuildContextOutput(
+        ticket_context=context,
+        ticket_title=title,
+        always_on_context=always_on_text,
+        diagnostics_allowed=diagnostics_allowed,
+    )
 
 
 @activity.defn
@@ -860,7 +870,9 @@ class SupportReplyWorkflow:
                     prior_missing=missing,
                     always_on_context=ctx_output.always_on_context,
                     ticket_type=ticket_type,
-                    needs_diagnostics=classify_output.needs_diagnostics,
+                    # Only widen scopes when the classifier flagged diagnostics AND the team
+                    # opted in — the toggle is the human consent gate for project-wide reads.
+                    needs_diagnostics=classify_output.needs_diagnostics and ctx_output.diagnostics_allowed,
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 retry_policy=RetryPolicy(maximum_attempts=2),
