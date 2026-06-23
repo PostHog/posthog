@@ -144,11 +144,64 @@ fn add_git_info_to_release_builder(directory: &Path, builder: &mut ReleaseBuilde
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::PathBuf};
-
-    use uuid::Uuid;
+    use std::{
+        fs,
+        sync::{Mutex, MutexGuard},
+    };
 
     use super::*;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    const GIT_INFO_ENV_VARS: &[&str] = &[
+        "GITHUB_ACTIONS",
+        "GITHUB_SHA",
+        "GITHUB_REF_NAME",
+        "GITHUB_REPOSITORY",
+        "GITHUB_SERVER_URL",
+        "VERCEL",
+        "VERCEL_GIT_PROVIDER",
+        "VERCEL_GIT_REPO_OWNER",
+        "VERCEL_GIT_REPO_SLUG",
+        "VERCEL_GIT_COMMIT_REF",
+        "VERCEL_GIT_COMMIT_SHA",
+    ];
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn remove_env_vars(names: &[&str]) -> Vec<(String, Option<String>)> {
+        names
+            .iter()
+            .map(|name| {
+                let value = std::env::var(name).ok();
+                std::env::remove_var(name);
+                ((*name).to_string(), value)
+            })
+            .collect()
+    }
+
+    struct EnvVarGuard(Vec<(String, Option<String>)>);
+
+    impl EnvVarGuard {
+        fn clear(names: &[&str]) -> Self {
+            Self(remove_env_vars(names))
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            for (name, value) in self.0.drain(..) {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
 
     fn release_args(name: Option<&str>, version: Option<&str>) -> ReleaseArgs {
         ReleaseArgs {
@@ -159,12 +212,9 @@ mod tests {
         }
     }
 
-    fn make_git_repo_without_branch_ref() -> PathBuf {
-        let temp_root = std::env::temp_dir().join(format!(
-            "posthog_cli_release_git_failure_test_{}",
-            Uuid::now_v7()
-        ));
-        let git_dir = temp_root.join(".git");
+    fn make_git_repo_without_branch_ref() -> tempfile::TempDir {
+        let temp_root = tempfile::tempdir().expect("failed to create temporary repo");
+        let git_dir = temp_root.path().join(".git");
 
         fs::create_dir_all(&git_dir).expect("failed to create .git directory");
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("failed to write HEAD");
@@ -174,27 +224,27 @@ mod tests {
 
     #[test]
     fn git_failure_is_not_fatal_when_release_fields_are_explicit() {
+        let _env_lock = lock_env();
+        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), Some("1.0.0")).into();
 
-        let result = add_git_info_to_release_builder(&temp_root, &mut builder);
+        let result = add_git_info_to_release_builder(temp_root.path(), &mut builder);
 
         assert!(result.is_ok());
         assert!(builder.can_create());
-
-        let _ = fs::remove_dir_all(temp_root);
     }
 
     #[test]
     fn git_failure_is_fatal_when_release_fields_need_git() {
+        let _env_lock = lock_env();
+        let _env_guard = EnvVarGuard::clear(GIT_INFO_ENV_VARS);
         let temp_root = make_git_repo_without_branch_ref();
         let mut builder: ReleaseBuilder = release_args(Some("my-app"), None).into();
 
-        let error = add_git_info_to_release_builder(&temp_root, &mut builder)
+        let error = add_git_info_to_release_builder(temp_root.path(), &mut builder)
             .expect_err("git failure should remain fatal when release fields are incomplete");
 
         assert!(format!("{error:#}").contains("Failed to determine git info for release"));
-
-        let _ = fs::remove_dir_all(temp_root);
     }
 }
