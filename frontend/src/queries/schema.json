@@ -3618,6 +3618,35 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantStickinessActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a stickiness insight to list the persons behind one bar — the users who were active in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days). Returned rows are `distinct_id`, `email`, and `name`.\n\nPair this with `query-stickiness`: run the stickiness query first to read the distribution (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.\n\nStickiness drilldown is membership-based and does not surface a matched-recordings column, so `includeRecordings` is intentionally omitted (as with lifecycle and retention).",
+            "properties": {
+                "compare": {
+                    "description": "Whether to pull from the previous period when `compareFilter` is enabled in the source.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer",
+                    "description": "0-based index of the series to drill into when the source has multiple series. Defaults to 0."
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantStickinessQuery",
+                    "description": "The source stickiness insight query whose bar we are drilling into."
+                }
+            },
+            "required": ["kind", "source", "day"],
+            "type": "object"
+        },
         "AssistantStickinessDisplayType": {
             "description": "Stickiness display types. Only time-series visualizations are supported:\n- `ActionsLineGraph` - line chart (default)\n- `ActionsBar` - bar chart\n- `ActionsAreaGraph` - area chart",
             "enum": ["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph"],
@@ -4184,6 +4213,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "Metric",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsPie",
                     "type": "string"
                 },
@@ -4297,7 +4330,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -4306,6 +4339,7 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
@@ -4323,6 +4357,38 @@
                         "$ref": "#/definitions/TrendsFormulaNode"
                     },
                     "type": "array"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a \"lower is better\" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a \"lower is better\" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when \"compare to previous\" is on (otherwise first→last of the series), and `latest` is always first→last of the series.",
+                    "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when \"compare to previous\" is on; `latest` compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -11703,6 +11769,7 @@
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
                 "BoldNumber",
+                "Metric",
                 "ActionsPie",
                 "ActionsBarValue",
                 "ActionsTable",
@@ -17914,6 +17981,10 @@
             "required": ["results"],
             "type": "object"
         },
+        "EvaluationRuntime": {
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -21247,7 +21318,14 @@
                 "Streamlabs",
                 "Datorama",
                 "Ahrefs",
-                "Custom"
+                "Lightfield",
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },
@@ -21456,6 +21534,7 @@
                 "default_icon_type",
                 "dashboard",
                 "llm_analytics",
+                "ai_gateway",
                 "product_analytics",
                 "revenue_analytics",
                 "revenue_analytics_metadata",
@@ -23264,6 +23343,35 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
+        "HogQLAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for HogQL/SQL-backed insights. The query owns its own time window.",
+            "properties": {
+                "column": {
+                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).",
+                    "type": ["string", "null"]
+                },
+                "evaluation": {
+                    "$ref": "#/definitions/HogQLAlertEvaluation",
+                    "description": "How to read the result rows — an explicit choice, no implicit default."
+                },
+                "label_column": {
+                    "description": "Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).",
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "HogQLAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "evaluation"],
+            "type": "object"
+        },
+        "HogQLAlertEvaluation": {
+            "description": "How a SQL alert reads the query result. `last_row` = the query is ordered oldest→newest and the last row is the current value; `first_row` = the query is ordered newest→oldest and the first row is the current value (this mode bounds the fetch with a LIMIT since only the head is read); `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only).",
+            "enum": ["last_row", "first_row", "any_row"],
+            "type": "string"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -24820,7 +24928,8 @@
                 "pinterest-ads",
                 "customerio-app",
                 "customerio-webhook",
-                "customerio-track"
+                "customerio-track",
+                "postgresql"
             ],
             "type": "string"
         },
@@ -25871,6 +25980,10 @@
         "LogValueResult": {
             "additionalProperties": false,
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of log records with this attribute value, over the current date range, service, and resource filters."
+                },
                 "id": {
                     "type": "string"
                 },
@@ -28338,8 +28451,7 @@
                     "type": ["string", "null"]
                 },
                 "evaluation_type": {
-                    "enum": ["hog", "llm_judge"],
-                    "type": "string"
+                    "$ref": "#/definitions/EvaluationRuntime"
                 },
                 "hog_source": {
                     "type": ["string", "null"]
@@ -30370,6 +30482,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "ai_gateway",
                 "llm_analytics",
                 "alerts",
                 "annotations",
@@ -37107,7 +37220,8 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl"
+                "recording_ttl",
+                "surfacing_score"
             ],
             "type": "string"
         },
@@ -40484,6 +40598,10 @@
                     },
                     "type": "array"
                 },
+                "task_id": {
+                    "description": "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the run in the Tasks UI. Absent on emissions made before this linkage was captured.",
+                    "type": "string"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -43528,6 +43646,44 @@
                 "hideWeekends": {
                     "default": false,
                     "type": "boolean"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Metric display: change pill color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Metric display: color the sparkline by whether the metric increased or decreased.",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Metric display: line color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Metric display: line color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Show the period-over-period change pill on the Metric display.",
+                    "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when \"compare to previous\" is on; latest compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "minDecimalPlaces": {
                     "type": "number"

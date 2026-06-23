@@ -714,7 +714,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
@@ -1560,10 +1560,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
@@ -1603,13 +1604,14 @@ export const experimentLogic = kea<experimentLogicType>([
             try {
                 const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
                 if (recalculationFlow) {
-                    // A config change (date / metric / exposure criteria / settings) invalidates the
-                    // cached results, so kick off a fresh recalculation. Page loads, manual reloads and
-                    // auto-refresh are handled elsewhere (afterMount / the reload button), so don't
-                    // re-trigger here for those. Fire BEFORE loading exposures so an exposures failure
-                    // can't skip the metric recalculation — the two are independent.
-                    if (triggeredBy === 'config_change' && values.experiment) {
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                    /**
+                     * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
+                     * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
+                     */
+                    if ((triggeredBy === 'config_change' || triggeredBy === 'auto_refresh') && values.experiment) {
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                            triggeredBy
+                        )
                     }
                     // Metric results come from experimentMetricsLogic (mounted by the metrics view);
                     // here we only refresh exposures, which still live in experimentLogic.
@@ -2481,7 +2483,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
                 if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
                     values.experiment &&
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                            'config_change'
+                        )
                 } else {
                     actions.loadPrimaryMetricsResults(true)
                     actions.loadSecondaryMetricsResults(true)
@@ -2627,7 +2631,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
+                    // Show the cached exposures immediately when the backend is recomputing in the
+                    // background, instead of hanging on the spinner until the recompute finishes.
+                    return await performQuery(
+                        query,
+                        undefined,
+                        getExperimentRefreshMode(values.featureFlags, refresh),
+                        undefined, // queryId
+                        undefined, // setPollResponse
+                        undefined, // filtersOverride
+                        undefined, // variablesOverride
+                        false, // pollOnly
+                        undefined, // limitContext
+                        true // acceptStaleCache
+                    )
                 },
             },
         ],

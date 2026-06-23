@@ -1,4 +1,4 @@
-import type { AllowedConfigKey } from '../outputs/kafka-producer-config'
+import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 // =============================================================================
 // Cluster-accurate producer slots: INGESTION_UPSTREAM / INGESTION_DOWNSTREAM

@@ -5,8 +5,12 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
+import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 import { OriginProduct } from 'products/tasks/frontend/types'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
@@ -15,6 +19,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
 } from '../utils/scoutRunsWindow'
@@ -23,7 +28,12 @@ import type { scoutFleetLogicType } from './scoutFleetLogicType'
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
+// The runs endpoint caps each page at 100 rows newest-first. To cover the whole
+// window we walk back page-by-page via a `date_to` cursor (the oldest run's
+// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a
+// pathologically busy fleet can't spin forever — hitting it flags the window truncated.
 const RUNS_PAGE_LIMIT = 100
+const MAX_RUNS_PAGES = 15
 
 /**
  * Cloud port of desktop's scouts fleet hooks (`useScoutConfigs`, `useScoutRuns`,
@@ -41,6 +51,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         setHideDisabled: (hideDisabled: boolean) => ({ hideDisabled }),
         setExpanded: (expanded: boolean) => ({ expanded }),
+        // Started/stopped by the fleet-list component so the always-mounted setup widget
+        // (which only reads configs) doesn't trigger the paginated runs-window polling.
+        startRunsPolling: true,
+        stopRunsPolling: true,
         startScoutChatTask: (prompt: string, taskLabel: string, fallbackTitle: string) => ({
             prompt,
             taskLabel,
@@ -59,6 +73,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 },
             },
         ],
+        scoutMetadata: [
+            null as ScoutMetadataApi | null,
+            {
+                loadScoutMetadata: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutMetadataGet(String(teamId))
+                },
+            },
+        ],
         runsWindow: [
             { runs: [] as SignalScoutRunSummary[], complete: true } as {
                 runs: SignalScoutRunSummary[]
@@ -66,10 +92,45 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
             {
                 loadRunsWindow: async () => {
-                    const runs = await api.signalScout.runs.list({ limit: RUNS_PAGE_LIMIT })
-                    // The endpoint caps at 100 rows; if it returned a full page there may be
-                    // older runs in the window we can't see, so flag the window as truncated.
-                    return { runs, complete: runs.length < RUNS_PAGE_LIMIT }
+                    // Walk the full window newest→oldest, paginating via a `date_to` cursor so
+                    // every scout shows its real run history (not just the fleet-wide newest 100).
+                    const windowStart = dayjs().subtract(SCOUT_RUNS_WINDOW_HOURS, 'hours').toISOString()
+                    const seen = new Set<string>()
+                    const runs: SignalScoutRunSummary[] = []
+                    let cursor: string | undefined
+                    let complete = false
+
+                    for (let page = 0; page < MAX_RUNS_PAGES; page++) {
+                        const pageRuns = await api.signalScout.runs.list({
+                            limit: RUNS_PAGE_LIMIT,
+                            date_from: windowStart,
+                            date_to: cursor,
+                        })
+                        for (const run of pageRuns) {
+                            // `date_to` is exclusive, so a boundary row can reappear on the next
+                            // page — dedupe by run_id to be safe.
+                            if (!seen.has(run.run_id)) {
+                                seen.add(run.run_id)
+                                runs.push(run)
+                            }
+                        }
+                        // A short page means we reached the start of the window — nothing older left.
+                        if (pageRuns.length < RUNS_PAGE_LIMIT) {
+                            complete = true
+                            break
+                        }
+                        // Cursor on `created_at` — the exact field the endpoint filters/orders on, so
+                        // the walk can't skip runs (`started_at` is the TaskRun's time and can differ).
+                        const oldest = pageRuns[pageRuns.length - 1]
+                        // No usable cursor, or the cursor can't advance (a full page of identical
+                        // timestamps): stop, but the page was full so the window is NOT complete.
+                        if (!oldest.created_at || oldest.created_at === cursor) {
+                            break
+                        }
+                        cursor = oldest.created_at
+                    }
+
+                    return { runs, complete }
                 },
             },
         ],
@@ -107,9 +168,25 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     state?.map((config) => (config.id === configId ? { ...config, ...updates } : config)) ?? state,
             },
         ],
+        // Flips true the first time the runs window loads *successfully* and stays true across the
+        // 60s polls. Consumers (e.g. the scout detail Signals section) use it to tell "not loaded
+        // yet" from "loaded, genuinely empty" without flickering a skeleton on polls. Deliberately
+        // NOT set on failure: a failed first load must keep showing loading (the poll retries),
+        // not latch and let a consumer render a false "no signals" empty state over no data.
+        runsWindowLoadedOnce: [
+            false,
+            {
+                loadRunsWindowSuccess: () => true,
+            },
+        ],
     }),
 
     selectors({
+        // Editorial alpha/announcement banner from the signals-scout flag, or null when unset.
+        scoutBannerMessage: [
+            (s) => [s.scoutMetadata],
+            (scoutMetadata): string | null => scoutMetadata?.banner_message ?? null,
+        ],
         rollups: [
             (s) => [s.runsWindow],
             (runsWindow): Map<string, ScoutRollup> => computeScoutRollups(runsWindow.runs),
@@ -150,7 +227,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         updateScoutConfig: async ({ configId, updates }) => {
             const previousConfig = values.scoutConfigs?.find((config) => config.id === configId)
             // Optimistic update so the toggle/select feels instant.
@@ -190,18 +267,28 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskFailure()
             }
         },
-    })),
-
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            actions.loadScoutConfigs()
+        startRunsPolling: () => {
+            // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
+            // fresh. The keyed disposable replaces any prior poll and is torn down on
+            // stopRunsPolling / unmount / tab hide.
             actions.loadRunsWindow()
-            // Slow poll keeps "running now" + recent emissions fresh. The keyed disposable
-            // is torn down automatically on unmount / tab hide.
             cache.disposables.add(() => {
                 const interval = setInterval(() => actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)
             }, 'runsPoll')
+        },
+        stopRunsPolling: () => {
+            cache.disposables.dispose('runsPoll')
+        },
+    })),
+
+    events(({ actions }) => ({
+        afterMount: () => {
+            // Configs are cheap and the always-mounted setup widget needs them. The paginated
+            // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
+            actions.loadScoutConfigs()
+            // Metadata carries the alpha banner; a one-shot read is enough (it changes rarely).
+            actions.loadScoutMetadata()
         },
     })),
 ])

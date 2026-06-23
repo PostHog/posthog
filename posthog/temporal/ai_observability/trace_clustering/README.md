@@ -101,7 +101,7 @@ graph TB
 
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum traces to sample (default: 2500)
+- `max_samples` (optional): Maximum traces to sample (default: 1500)
 - `min_k` (optional): Minimum clusters for k-means (default: 2)
 - `max_k` (optional): Maximum clusters for k-means (default: 10)
 - `embedding_normalization` (optional): L2 normalize embeddings - "none" or "l2" (default: "l2")
@@ -337,8 +337,8 @@ Key constants in `constants.py`:
 | `WORKFLOW_NAME`                     | llma-trace-clustering             | Temporal workflow name                        |
 | `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name            |
 | `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze              |
-| `DEFAULT_MAX_SAMPLES`               | 2500                              | Maximum traces to sample                      |
-| `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
+| `DEFAULT_MAX_SAMPLES`               | 1500                              | Maximum traces to sample                      |
+| `MIN_TRACES_FOR_CLUSTERING`         | 1000                              | Minimum items per level required for workflow |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
 | `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
 | `LABELING_AGENT_MODEL`              | gpt-5.4                           | OpenAI model for labeling agent               |
@@ -389,7 +389,7 @@ Key constants in `constants.py`:
 
 ## Error Handling
 
-- **Insufficient data**: Skip clustering if fewer than 20 traces
+- **Insufficient data**: Skip clustering if fewer than 1000 items (per analysis level)
 - **Compute activity retries**: 3 attempts with exponential backoff
 - **LLM activity retries**: 2 attempts with longer intervals (for rate limits)
 - **Emit activity retries**: 3 attempts with exponential backoff

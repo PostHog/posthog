@@ -99,6 +99,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 created_by_id=user.id,
                 name=serializer.validated_data["name"],
                 text=serializer.validated_data["text"],
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
@@ -117,6 +118,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name=serializer.validated_data["name"],
                 url=serializer.validated_data["url"],
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -139,6 +141,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 crawl_mode=serializer.validated_data["crawl_mode"],
                 crawl_config=serializer.validated_data["crawl_config"],
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except logic.SourceBusyError:
             raise _ConflictError("Another source is already being processed. Please wait and try again.")
@@ -193,6 +196,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 name=serializer.validated_data["name"],
                 file_data=file_data,
                 original_filename=uploaded.name or "unnamed",
+                always_include=serializer.validated_data.get("always_include", False),
             )
         except FileParseError as exc:
             raise exceptions.ValidationError({"file": str(exc) or "Unable to parse the uploaded file."})
@@ -246,6 +250,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 name=serializer.validated_data.get("name"),
                 text=None,
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
@@ -262,6 +267,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 name=serializer.validated_data.get("name"),
                 text=serializer.validated_data.get("text"),
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.TextTooLargeError:
             raise exceptions.ValidationError({"text": "Text exceeds the maximum allowed size."})
@@ -283,6 +289,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 crawl_mode=serializer.validated_data.get("crawl_mode"),
                 crawl_config=serializer.validated_data.get("crawl_config"),
                 refresh_interval=serializer.validated_data.get("refresh_interval"),
+                always_include=serializer.validated_data.get("always_include"),
             )
         except logic.InvalidUrlError:
             raise exceptions.ValidationError({"url": "URL is not reachable."})

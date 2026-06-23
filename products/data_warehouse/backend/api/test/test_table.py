@@ -11,6 +11,7 @@ import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from products.data_warehouse.backend.api.table import SimpleTableSerializer
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -167,13 +168,8 @@ class TestTable(APIBaseTest):
 
         assert table.name == "whatever"
         assert table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True, "position": 0},
-            "a_column": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": True,
-                "position": 1,
-            },
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         }
 
         assert credential.access_key, "_accesskey"
@@ -213,13 +209,8 @@ class TestTable(APIBaseTest):
 
         assert table.name == "whatever"
         assert table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 0},
-            "a_column": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": False,
-                "position": 1,
-            },
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
         assert credential.access_key, "_accesskey"
@@ -263,12 +254,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         columns = table.columns
         assert columns is not None
-        assert columns["id"] == {
-            "clickhouse": "Nullable(Float64)",
-            "hogql": "FloatDatabaseField",
-            "valid": True,
-            "position": 0,
-        }
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
@@ -291,12 +277,7 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         columns = table.columns
         assert columns is not None
-        assert columns["id"] == {
-            "clickhouse": "Nullable(Float64)",
-            "hogql": "FloatDatabaseField",
-            "valid": True,
-            "position": 0,
-        }
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
@@ -463,6 +444,62 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert table.deleted is False
+
+    @parameterized.expand(
+        [
+            # (label, prefix, access_method, storage_name, expected_hogql_name)
+            (
+                "warehouse_no_prefix",
+                "",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "googleanalytics_devices",
+                "googleanalytics.devices",
+            ),
+            (
+                "warehouse_multi_word_schema",
+                "",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "googleanalytics_daily_active_users",
+                "googleanalytics.daily_active_users",
+            ),
+            (
+                "warehouse_with_prefix",
+                "myprefix_",
+                ExternalDataSource.AccessMethod.WAREHOUSE,
+                "myprefix_googleanalytics_devices",
+                "googleanalytics.myprefix.devices",
+            ),
+            # Direct-query sources are referenced by their raw storage name, not a dotted form.
+            ("direct_access", "", ExternalDataSource.AccessMethod.DIRECT, "accounts", "accounts"),
+        ]
+    )
+    def test_simple_table_serializer_hogql_name(
+        self, _label: str, prefix: str, access_method: str, storage_name: str, expected: str
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_type="GoogleAnalytics",
+            prefix=prefix,
+            access_method=access_method,
+        )
+        table = DataWarehouseTable.objects.create(
+            name=storage_name,
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            external_data_source_id=source.pk,
+        )
+
+        assert SimpleTableSerializer().get_hogql_name(table) == expected
+
+    def test_simple_table_serializer_hogql_name_without_source(self):
+        table = DataWarehouseTable.objects.create(
+            name="self_managed_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+
+        assert SimpleTableSerializer().get_hogql_name(table) == "self_managed_table"
 
     def test_refresh_schema_direct_postgres_table_not_exposed_via_warehouse_tables_api(self):
         source = ExternalDataSource.objects.create(
@@ -836,14 +873,9 @@ class TestTable(APIBaseTest):
 
         # columns will be false as validation doesn't work for mocked fields
         assert existing_table.columns == {
-            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 0},
-            "new_name": {
-                "clickhouse": "Nullable(String)",
-                "hogql": "StringDatabaseField",
-                "valid": False,
-                "position": 1,
-            },
-            "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False, "position": 2},
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "value": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
         # Verify S3 client was called to upload the file

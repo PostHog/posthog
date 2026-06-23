@@ -4,6 +4,9 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
@@ -106,6 +109,29 @@ class TestErrorTracking(APIBaseTest):
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
+
+    @parameterized.expand(["user", "role"])
+    def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):
+        # The frontend resolves the assignee by strict-comparing the numeric member id with
+        # `assignee.id`; if retrieve serializes the user id as a string the issue renders as
+        # "Unassigned" despite being assigned. User ids must stay integers, role ids strings.
+        issue = self.create_issue(["fingerprint"])
+        expected_id: int | str
+        expected_python_type: type
+        if assignee_type == "user":
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+            expected_id, expected_python_type = self.user.id, int
+        else:
+            role = Role.objects.create(name="Eng role", organization=self.organization)
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role)
+            expected_id, expected_python_type = str(role.id), str
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+
+        assert response.status_code == 200
+        assignee = response.json()["assignee"]
+        assert assignee == {"id": expected_id, "type": assignee_type}
+        assert isinstance(assignee["id"], expected_python_type)
 
     @freeze_time("2025-01-01")
     def test_issue_update(self):
@@ -491,7 +517,7 @@ class TestErrorTracking(APIBaseTest):
         symbol_set.refresh_from_db()
         self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.object_storage.get_presigned_url")
+    @patch("products.error_tracking.backend.logic.symbol_sets.object_storage.get_presigned_url")
     def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
         patched_get_presigned_url.return_value = "https://example.com/source.map"
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -551,6 +577,14 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
 
+        # a malformed raw_id (non-integer part) is handled gracefully, not a 500
+        data = {"raw_ids": ["abc/not-an-int"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
     def test_assigning_issues(self):
         issue = self.create_issue()
 
@@ -606,8 +640,8 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.error_tracking.backend.presentation.views.issues.dispatch_issue_assigned_realtime")
-    @patch("products.error_tracking.backend.presentation.views.issues.send_error_tracking_issue_assigned")
+    @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
     def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
         issue = self.create_issue()
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
@@ -1025,7 +1059,7 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture")
     def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
@@ -1044,7 +1078,7 @@ class TestErrorTracking(APIBaseTest):
             "failure_code": "symbol_set_not_found",
         }
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture")
     @patch("posthog.storage.object_storage.head_object")
     def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
         self, patched_object_storage, patched_capture: Mock
@@ -1123,6 +1157,27 @@ class TestErrorTracking(APIBaseTest):
     def test_fetch_release_by_hash_id_not_found(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_releases_list_paginates_in_sql(self) -> None:
+        for i in range(5):
+            ErrorTrackingRelease.objects.create(team=self.team, hash_id=f"hash-{i}", version=f"1.0.{i}", project="proj")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/releases", data={"limit": 2, "offset": 1}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 5
+        assert len(body["results"]) == 2
+
+        # The page is sliced in SQL (LIMIT 2), not by materializing all rows and slicing in Python.
+        table = ErrorTrackingRelease._meta.db_table
+        limited_selects = [
+            q["sql"] for q in ctx.captured_queries if table in q["sql"] and "LIMIT 2" in q["sql"].upper()
+        ]
+        assert limited_selects, "expected a LIMIT 2 SELECT on the release table"
 
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):

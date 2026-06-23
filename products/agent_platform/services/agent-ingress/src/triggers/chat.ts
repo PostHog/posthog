@@ -17,6 +17,7 @@ import { buildClientToolResultMarker, CLIENT_KIND_HEADER, parseClientKind } from
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
+import { activeStreams } from '../metrics'
 import {
     ChatCancelBodySchema,
     ChatClientToolResultBodySchema,
@@ -210,10 +211,22 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
     res.flushHeaders()
+    activeStreams.labels({ transport: 'chat' }).inc()
     const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`)
     })
-    req.on('close', () => unsubscribe())
+    // Keepalive: a comment frame every 20s keeps bytes flowing while the agent
+    // is mid-turn and emitting no events, so a proxy idle/response timeout
+    // (Envoy stream-idle, ALB) can't reset the stream and surface as a "network
+    // error" in the client. The client's SSE parser keeps only `data:` lines,
+    // so comment frames are discarded. unref() so it never blocks shutdown.
+    const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 20_000)
+    heartbeat.unref()
+    req.on('close', () => {
+        clearInterval(heartbeat)
+        unsubscribe()
+        activeStreams.labels({ transport: 'chat' }).dec()
+    })
 }
 
 async function clientToolResultHandler(

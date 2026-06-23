@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconChevronDown, IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { signalSourcesLogic } from '../../../signalSourcesLogic'
 import { SignalScoutConfig } from '../../../types'
 import {
     FleetSummary,
@@ -27,7 +29,14 @@ import { ScoutRowCard } from './ScoutRowCard'
  */
 export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, expanded, enabledCount, lastRunAt } = useValues(scoutFleetLogic)
-    const { setExpanded, loadScoutConfigs } = useActions(scoutFleetLogic)
+    const { setExpanded, loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+
+    // Poll the runs window only while the fleet list is open — the always-mounted setup
+    // widget reads configs only and shouldn't trigger the paginated runs requests.
+    useEffect(() => {
+        startRunsPolling()
+        return () => stopRunsPolling()
+    }, [startRunsPolling, stopRunsPolling])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return <LemonSkeleton className="h-12 w-full rounded" />
@@ -50,11 +59,18 @@ export function ScoutsFleetSection(): JSX.Element {
     }
 
     if (scoutConfigs.length === 0) {
-        return <ScoutsEmptyState />
+        return (
+            <div className="flex flex-col gap-3">
+                <ScoutAlphaBanner />
+                <ScoutsEmptyState />
+            </div>
+        )
     }
 
     return (
         <div className="flex flex-col gap-3">
+            <ScoutAlphaBanner />
+            <ScoutsSourceGate />
             <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
@@ -81,6 +97,68 @@ export function ScoutsFleetSection(): JSX.Element {
                 />
             </button>
             {expanded ? <ScoutsFleetList /> : null}
+        </div>
+    )
+}
+
+/**
+ * Alpha/announcement banner for the scout troop, sourced from the `signals-scout` flag payload via
+ * the metadata endpoint — so the copy (e.g. a run-limit notice) can change with no deploy. Renders
+ * nothing when no message is set. Dismissal is remembered per-message, so a reworded notice resurfaces.
+ */
+function ScoutAlphaBanner(): JSX.Element | null {
+    const { scoutBannerMessage } = useValues(scoutFleetLogic)
+    if (!scoutBannerMessage) {
+        return null
+    }
+    return (
+        <LemonBanner type="info" dismissKey={`signals-scout-banner-${scoutBannerMessage}`}>
+            {scoutBannerMessage}
+        </LemonBanner>
+    )
+}
+
+/**
+ * Team-level gate that decides whether scout findings emit to the inbox. Backed by the single
+ * `signals_scout` / `cross_source_issue` source config row — the same gate the backend emit
+ * preflight requires and the Code app toggles — so there is one source of truth, not a parallel
+ * control. It governs emit only: scouts still run on their schedule when this is off, so the copy
+ * is deliberately about findings reaching the inbox rather than "running scouts".
+ *
+ * This is also the natural home for a future unified switch that drives enrolment (run + emit)
+ * from one user action, retiring the manual coordinator allowlist — keep new scout on/off wiring
+ * here rather than adding a second control elsewhere.
+ */
+function ScoutsSourceGate(): JSX.Element {
+    const { scoutsSourceConfig, isScoutsSourceToggling, sourceConfigs, sourceConfigsLoading } =
+        useValues(signalSourcesLogic)
+    const { toggleScoutsSource, loadSourceConfigs } = useActions(signalSourcesLogic)
+
+    useEffect(() => {
+        loadSourceConfigs()
+    }, [loadSourceConfigs])
+
+    const enabled = scoutsSourceConfig?.enabled ?? false
+    const initialLoading = sourceConfigsLoading && sourceConfigs === null
+
+    return (
+        <div className="flex items-center gap-3 rounded border border-primary bg-bg-light px-4 py-3.5">
+            <div className="flex flex-col min-w-0">
+                <span className="font-medium text-sm text-default">Surface findings in your inbox</span>
+                <span className="text-xs text-secondary leading-snug">
+                    Scouts run on their schedule regardless; this controls whether their findings reach your inbox.
+                </span>
+            </div>
+            <span className="flex-1" />
+            <LemonSwitch
+                aria-label="Surface scout findings in your inbox"
+                checked={enabled}
+                onChange={() => toggleScoutsSource()}
+                loading={isScoutsSourceToggling}
+                disabledReason={
+                    initialLoading || (!isScoutsSourceToggling && sourceConfigs === null) ? 'Loading…' : undefined
+                }
+            />
         </div>
     )
 }
