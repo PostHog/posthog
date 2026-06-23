@@ -110,6 +110,9 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     html: z.string(),
 })
 
+export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchAwsSigV4Schema
+>
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
 

@@ -1,5 +1,9 @@
 import { createHash, createHmac } from 'node:crypto'
 
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/schema/cyclotron'
+
+import { HogFunctionType } from '../types'
+
 export type AwsSigV4Credentials = {
     service: string
     region: string
@@ -7,6 +11,8 @@ export type AwsSigV4Credentials = {
     secret_access_key: string
     session_token?: string
 }
+
+export type ResolvedAwsSigV4Credentials = { ok: true; credentials: AwsSigV4Credentials } | { ok: false; error: string }
 
 export type SignAwsRequestArgs = {
     method: string
@@ -165,5 +171,57 @@ export function signAwsRequest({
     return {
         ...baseHeaders,
         Authorization: authorization,
+    }
+}
+
+/**
+ * Resolves the AWS credentials referenced by an `aws_sigv4` queue payload from a
+ * HogFunction's inputs.
+ *
+ * `secret: true` HogFunction inputs land in `encrypted_inputs` after Django's
+ * `move_secret_inputs` runs on save (and the Node manager decrypts that field in
+ * memory). The Kinesis credential inputs are flagged `secret: true`, so check
+ * `encrypted_inputs` first; fall back to `inputs` for the unusual case of a
+ * non-secret credential.
+ *
+ * Returns a tagged union so callers can fail closed on missing inputs without
+ * shipping an unsigned request to AWS. The error message lists the input keys
+ * that could not be resolved so the failure is debuggable from logs alone.
+ */
+export function resolveAwsSigV4Credentials(
+    sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Type,
+    hogFunction: Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'>
+): ResolvedAwsSigV4Credentials {
+    const lookup = (key: string): unknown =>
+        hogFunction.encrypted_inputs?.[key]?.value ?? hogFunction.inputs?.[key]?.value
+
+    const accessKeyId = lookup(sigv4.access_key_id_input)
+    const secretAccessKey = lookup(sigv4.secret_access_key_input)
+    const sessionToken = sigv4.session_token_input ? lookup(sigv4.session_token_input) : undefined
+
+    const missing: string[] = []
+    if (typeof accessKeyId !== 'string') {
+        missing.push(sigv4.access_key_id_input)
+    }
+    if (typeof secretAccessKey !== 'string') {
+        missing.push(sigv4.secret_access_key_input)
+    }
+
+    if (missing.length > 0) {
+        return {
+            ok: false,
+            error: `AWS SigV4 signing failed: input(s) ${missing.join(', ')} not found on hog function or not a string. Refusing to send an unsigned request to AWS.`,
+        }
+    }
+
+    return {
+        ok: true,
+        credentials: {
+            service: sigv4.service,
+            region: sigv4.region,
+            access_key_id: accessKeyId as string,
+            secret_access_key: secretAccessKey as string,
+            session_token: typeof sessionToken === 'string' ? sessionToken : undefined,
+        },
     }
 }

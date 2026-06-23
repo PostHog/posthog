@@ -1,4 +1,7 @@
-import { signAwsRequest } from './aws-sigv4'
+import { CyclotronInvocationQueueParametersFetchAwsSigV4Type } from '~/schema/cyclotron'
+
+import { HogFunctionType } from '../types'
+import { resolveAwsSigV4Credentials, signAwsRequest } from './aws-sigv4'
 
 describe('signAwsRequest', () => {
     const fixedNow = new Date('2015-08-30T12:36:00Z')
@@ -157,5 +160,142 @@ describe('signAwsRequest', () => {
                 now: fixedNow,
             })
         ).not.toThrow()
+    })
+})
+
+describe('resolveAwsSigV4Credentials', () => {
+    const sigv4Refs: CyclotronInvocationQueueParametersFetchAwsSigV4Type = {
+        service: 'kinesis',
+        region: 'us-east-1',
+        access_key_id_input: 'aws_access_key_id',
+        secret_access_key_input: 'aws_secret_access_key',
+    }
+
+    const hogFunctionWith = (
+        encrypted: Record<string, { value: unknown }> | null = null,
+        inputs: Record<string, { value: unknown }> | null = null
+    ): Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'> =>
+        ({
+            inputs: inputs as any,
+            encrypted_inputs: encrypted as any,
+        }) as Pick<HogFunctionType, 'inputs' | 'encrypted_inputs'>
+
+    it('resolves credentials from encrypted_inputs (the production path for secret: true)', () => {
+        const result = resolveAwsSigV4Credentials(
+            sigv4Refs,
+            hogFunctionWith({
+                aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+            })
+        )
+
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+            expect(result.credentials.access_key_id).toBe('AKIDEXAMPLE')
+            expect(result.credentials.secret_access_key).toBe('wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY')
+            expect(result.credentials.region).toBe('us-east-1')
+            expect(result.credentials.service).toBe('kinesis')
+            expect(result.credentials.session_token).toBeUndefined()
+        }
+    })
+
+    it('falls back to plaintext inputs when encrypted_inputs is missing the key', () => {
+        const result = resolveAwsSigV4Credentials(
+            sigv4Refs,
+            hogFunctionWith(null, {
+                aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+            })
+        )
+
+        expect(result.ok).toBe(true)
+    })
+
+    it('returns the encrypted_inputs value when both fields define the key', () => {
+        const result = resolveAwsSigV4Credentials(
+            sigv4Refs,
+            hogFunctionWith(
+                {
+                    aws_access_key_id: { value: 'FROM_ENCRYPTED' },
+                    aws_secret_access_key: { value: 'SECRET_ENCRYPTED' },
+                },
+                {
+                    aws_access_key_id: { value: 'FROM_PLAINTEXT' },
+                    aws_secret_access_key: { value: 'SECRET_PLAINTEXT' },
+                }
+            )
+        )
+
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+            expect(result.credentials.access_key_id).toBe('FROM_ENCRYPTED')
+            expect(result.credentials.secret_access_key).toBe('SECRET_ENCRYPTED')
+        }
+    })
+
+    it('reports both missing inputs in the error message', () => {
+        const result = resolveAwsSigV4Credentials(sigv4Refs, hogFunctionWith())
+        expect(result.ok).toBe(false)
+        if (!result.ok) {
+            expect(result.error).toContain('aws_access_key_id')
+            expect(result.error).toContain('aws_secret_access_key')
+            expect(result.error).toContain('Refusing to send an unsigned request')
+        }
+    })
+
+    it('reports only the missing input when only one is absent', () => {
+        const result = resolveAwsSigV4Credentials(
+            sigv4Refs,
+            hogFunctionWith({ aws_access_key_id: { value: 'AKIDEXAMPLE' } })
+        )
+        expect(result.ok).toBe(false)
+        if (!result.ok) {
+            expect(result.error).toContain('aws_secret_access_key')
+            expect(result.error).not.toContain('aws_access_key_id')
+        }
+    })
+
+    it('treats non-string values as missing (defensive: an int or null would silently break signing)', () => {
+        const result = resolveAwsSigV4Credentials(
+            sigv4Refs,
+            hogFunctionWith({
+                aws_access_key_id: { value: 12345 },
+                aws_secret_access_key: { value: null },
+            })
+        )
+        expect(result.ok).toBe(false)
+    })
+
+    it('includes session_token when session_token_input is provided and resolves', () => {
+        const result = resolveAwsSigV4Credentials(
+            { ...sigv4Refs, session_token_input: 'aws_session_token' },
+            hogFunctionWith({
+                aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+                aws_session_token: { value: 'session-token-value' },
+            })
+        )
+
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+            expect(result.credentials.session_token).toBe('session-token-value')
+        }
+    })
+
+    // A missing optional session token should not fail-closed — the request is
+    // still signable with just the long-term credentials.
+    it('skips session_token when session_token_input is set but the input is missing', () => {
+        const result = resolveAwsSigV4Credentials(
+            { ...sigv4Refs, session_token_input: 'aws_session_token' },
+            hogFunctionWith({
+                aws_access_key_id: { value: 'AKIDEXAMPLE' },
+                aws_secret_access_key: { value: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' },
+            })
+        )
+
+        expect(result.ok).toBe(true)
+        if (result.ok) {
+            expect(result.credentials.session_token).toBeUndefined()
+        }
     })
 })

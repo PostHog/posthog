@@ -28,7 +28,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
-import { signAwsRequest } from '../utils/aws-sigv4'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -798,50 +798,24 @@ export class HogExecutorService {
         // fetch (every attempt — including retries) so a request that sat in the
         // backoff queue or whose first attempt timed out cannot reach AWS with a
         // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
-        // regenerated here and never persisted back to queueParameters.
-        //
-        // Credentials are resolved by key name — never from the queue payload —
-        // so `secret: true` inputs stay out of the plaintext `cyclotron_jobs.state`
-        // blob. `secret: true` inputs land in `encrypted_inputs` (Django's
-        // `move_secret_inputs` strips them from `inputs` on save and the Node
-        // manager decrypts `encrypted_inputs` in memory). Check `encrypted_inputs`
-        // first so the typical Kinesis path resolves; fall back to `inputs` for
-        // the unusual case of a non-secret credential.
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
         let signedHeaders = headers
         if (params.aws_sigv4) {
-            const sigv4 = params.aws_sigv4
-            const lookupInput = (key: string): unknown =>
-                invocation.hogFunction.encrypted_inputs?.[key]?.value ?? invocation.hogFunction.inputs?.[key]?.value
-            const accessKeyId = lookupInput(sigv4.access_key_id_input)
-            const secretAccessKey = lookupInput(sigv4.secret_access_key_input)
-            const sessionToken = sigv4.session_token_input ? lookupInput(sigv4.session_token_input) : undefined
-
-            if (typeof accessKeyId !== 'string' || typeof secretAccessKey !== 'string') {
-                const missing = [
-                    typeof accessKeyId !== 'string' ? sigv4.access_key_id_input : null,
-                    typeof secretAccessKey !== 'string' ? sigv4.secret_access_key_input : null,
-                ]
-                    .filter(Boolean)
-                    .join(', ')
-                const message = `AWS SigV4 signing failed: input(s) ${missing} not found on hog function or not a string. Refusing to send an unsigned request to AWS.`
-                addLog('error', message)
-                result.error = new Error(message)
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
                 result.finished = true
                 return result
             }
-
             signedHeaders = signAwsRequest({
                 method,
                 url: params.url,
                 body: params.body ?? '',
                 headers,
-                credentials: {
-                    service: sigv4.service,
-                    region: sigv4.region,
-                    access_key_id: accessKeyId,
-                    secret_access_key: secretAccessKey,
-                    session_token: typeof sessionToken === 'string' ? sessionToken : undefined,
-                },
+                credentials: resolved.credentials,
             })
         }
 
