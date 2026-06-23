@@ -254,6 +254,33 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         self.assertIsNone(second.json()["next"])
         self.assertIsNotNone(second.json()["previous"])
 
+    def test_keys_pagination_urls_preserve_team_ids_and_search(self):
+        # The next/previous links must carry the same team_ids and search, or paging would
+        # silently switch to the wrong projects or drop the filter.
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=0"
+        )
+        next_url = first.json()["next"]
+        self.assertIsNotNone(next_url)
+        self.assertIn(f"team_ids={self.team_1.id}", next_url)
+        self.assertIn(f"team_ids={self.team_2.id}", next_url)
+        self.assertIn("search=only", next_url)
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=1"
+        )
+        previous_url = second.json()["previous"]
+        self.assertIsNotNone(previous_url)
+        self.assertIn(f"team_ids={self.team_1.id}", previous_url)
+        self.assertIn(f"team_ids={self.team_2.id}", previous_url)
+        self.assertIn("search=only", previous_url)
+
+    def test_keys_negative_limit_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=-5")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # A negative limit is clamped to 1, not passed to a negative slice (which would 500).
+        self.assertLessEqual(len(response.json()["results"]), 1)
+
     def test_keys_accepts_comma_separated_team_ids(self):
         response = self.client.get(self._keys_url(team_ids=f"{self.team_1.id},{self.team_2.id}"))
 

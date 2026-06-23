@@ -16,7 +16,7 @@ import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
 
-function cellStateFor(
+export function cellStateFor(
     flag: OrganizationFeatureFlagRow,
     teamId: number,
     currentTeamId: number,

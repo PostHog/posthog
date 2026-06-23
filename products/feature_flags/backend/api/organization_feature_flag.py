@@ -178,7 +178,7 @@ class OrganizationFeatureFlagView(
             requested_team_ids = [
                 int(part) for value in request.query_params.getlist("team_ids") for part in value.split(",") if part
             ]
-            limit = min(int(request.query_params.get("limit") or 25), 100)
+            limit = max(min(int(request.query_params.get("limit") or 25), 100), 1)
             offset = max(int(request.query_params.get("offset") or 0), 0)
         except ValueError:
             return Response({"error": "Invalid query parameter."}, status=status.HTTP_400_BAD_REQUEST)
@@ -208,7 +208,7 @@ class OrganizationFeatureFlagView(
         # Choose one representative flag per key, preferring earlier teams in the requested order.
         # Select from the search-filtered queryset so the representative always matches the search,
         # and let Postgres do the per-key dedup (DISTINCT ON key, ordered by team rank) so we load
-        # one row per key instead of every team's copy.
+        # one row per key instead of every team's copy. Ordering by key matches page_keys' order.
         rank_whens = [When(team_id=team_id, then=Value(rank)) for rank, team_id in enumerate(ordered_team_ids)]
         representatives = (
             flags_qs.filter(key__in=page_keys)
@@ -217,21 +217,8 @@ class OrganizationFeatureFlagView(
             .order_by("key", "_rank")
             .distinct("key")
         )
-        representative_by_key: dict[str, FeatureFlag] = {flag.key: flag for flag in representatives}
-
-        results = [
-            {
-                "id": flag.id,
-                "team_id": flag.team_id,
-                "key": flag.key,
-                "name": flag.name,
-                "active": flag.active,
-                "filters": flag.get_filters(),
-                "created_at": flag.created_at,
-                "created_by": UserBasicSerializer(flag.created_by).data if flag.created_by else None,
-            }
-            for flag in (representative_by_key[key] for key in page_keys)
-        ]
+        # OrganizationFeatureFlagRowSerializer is the single source of truth for the row shape.
+        results = OrganizationFeatureFlagRowSerializer(representatives, many=True).data
 
         next_url = (
             replace_query_param(request.build_absolute_uri(), "offset", offset + limit)
