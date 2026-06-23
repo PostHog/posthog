@@ -65,7 +65,7 @@ export const loadSkill = defineNativeTool({
         path: Type.String(),
         body: Type.String(),
     }),
-    requires: { integrations: [], scopes: [] },
+    requires: {},
     cost_hint: 'cheap',
     async run(args, ctx) {
         if (!ctx.skillIndex || !ctx.readBundleFile) {
@@ -78,7 +78,17 @@ export const loadSkill = defineNativeTool({
             )
         }
         const path = args.file ? resolveSkillFile(entry.path, args.file) : entry.path
-        const body = await ctx.readBundleFile(path)
+        let body: string | null
+        try {
+            body = await ctx.readBundleFile(path)
+        } catch (err) {
+            // readBundleFile returns null for a genuinely-absent file and only
+            // throws on an operational read failure (transient store error,
+            // auth, network). Surface that as retryable instead of a permanent
+            // "not found" so the model tries again rather than proceeding blind.
+            const reason = err instanceof Error ? err.message : String(err)
+            throw new Error(`load-skill: transient error reading skill "${args.id}" (${reason}). Retry the call.`)
+        }
         if (body === null) {
             throw new Error(`load-skill: skill "${args.id}" path "${path}" not found in the bundle`)
         }

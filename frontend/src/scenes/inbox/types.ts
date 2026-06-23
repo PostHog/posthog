@@ -6,6 +6,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from '~/queries/schema/schema-signals'
+import type { UserBasicType } from '~/types'
 
 export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }
@@ -46,6 +47,10 @@ export interface SignalReport {
     source_products?: string[]
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
+    dismissal_reason?: string | null
+    /** Free-form note from the latest dismissal artefact (when archived). */
+    dismissal_note?: string | null
 }
 
 export enum SignalReportStatus {
@@ -66,6 +71,12 @@ export interface SignalReportArtefact {
     type: string
     content: Record<string, any>
     created_at: string
+    /** Log artefacts are editable in place; null for write-once rows. */
+    updated_at?: string | null
+    /** Set when a human produced the artefact (drives the "by {name}" attribution byline). */
+    created_by?: UserBasicType | null
+    /** Set when an agent task produced the artefact (attribution reads "by agent"). */
+    task_id?: string | null
 }
 
 export interface SignalReportArtefactResponse {
@@ -89,6 +100,8 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
+    viaSetupWizard?: boolean
 }
 
 export enum SignalSourceConfigStatus {
@@ -99,15 +112,16 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'config']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
+    archived: 'Archive',
     config: 'Configuration',
 }
 
@@ -119,7 +133,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
 /** Tabs that show a report-count chip. */
-export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs']
+export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
 
 /**
  * Tabs only visible to staff users (internal). Non-staff see Pull requests + Reports.
@@ -127,8 +141,8 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
  */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
 
-/** The three flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
-export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable'] as const
+/** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
+export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
 
 export interface InboxTabCounts {
@@ -136,9 +150,10 @@ export interface InboxTabCounts {
     reports: number
     'not-actionable': number
     runs: number
+    archived: number
 }
 
-export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0 }
+export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0, archived: 0 }
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
 export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
@@ -147,19 +162,15 @@ export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
+// The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
+// relationship vocabulary below is retained only for the task-creation kickoff path, where the
+// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
 
 export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
-
-export interface SignalReportTask {
-    id: string
-    relationship: SignalReportTaskRelationship
-    task_id: string
-    created_at: string
-}
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
@@ -221,6 +232,8 @@ export interface SignalScoutRunSummary {
     skill_name: string
     skill_version: number
     status: SignalScoutRunStatus
+    /** Bridge-row creation timestamp — the field the runs endpoint filters/orders on (the pagination cursor). */
+    created_at: string
     started_at: string
     completed_at: string | null
     task_id?: string | null
@@ -243,6 +256,21 @@ export interface SignalScoutEmission {
     severity: SignalReportPriority | null
     source_id: string
     emitted_at: string
+}
+
+/** Minimal projection of the inbox report a scout finding grouped into (for the linked chip). */
+export interface LinkedSignalReport {
+    id: string
+    title: string | null
+}
+
+/** One finding a run emitted, paired with the inbox report (if any) its signal grouped into. */
+export interface SignalScoutEmissionReportLink {
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key — the stable key into the emission set. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved (not yet grouped, deduped, deleted). */
+    report: LinkedSignalReport | null
 }
 
 // ── Report state transitions (backend `state` action: dismiss / snooze) ──────

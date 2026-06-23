@@ -10,6 +10,11 @@ from typing import Any, Literal
 
 
 @dataclass
+class PostHogSlackInboxOnboardingInputs:
+    integration_id: int
+
+
+@dataclass
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int

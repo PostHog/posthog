@@ -335,6 +335,8 @@
     --color-product-llm-datasets-light: rgb(124 58 237);
     --color-product-llm-evaluations-light: rgb(167 139 250);
     --color-product-llm-prompts-light: rgb(196 181 253);
+    --color-product-ai-gateway-light: rgb(99 102 241);
+    --color-product-ai-gateway-dark: rgb(129 140 248);
     --color-product-links-light: rgb(143 7 255);
     --color-product-tracing-light: rgb(6 182 212);
     --color-product-tracing-dark: rgb(34 211 238);
@@ -2088,6 +2090,9 @@
         #fba000 83%,
         #0143cb 100%
     );
+
+    // Deliberately gentle so the scroll reads as a slow shimmer, not a strobe.
+    --rainbow-scroll-duration: 6s;
 }
 
 .rainbow-text,
@@ -2099,12 +2104,12 @@
 }
 
 .rainbow-text.rainbow-text-animating {
-    animation: rainbow-scroll 3s linear infinite;
+    animation: rainbow-scroll var(--rainbow-scroll-duration) linear infinite;
 }
 
 .rainbow-text-fading.rainbow-text-animating {
     animation:
-        rainbow-scroll 3s linear infinite,
+        rainbow-scroll var(--rainbow-scroll-duration) linear infinite,
         rainbow-fade-in 300ms ease-out;
 }
 

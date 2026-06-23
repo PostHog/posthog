@@ -14,12 +14,16 @@ from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    _MAX_CONNECT_ATTEMPTS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_drop,
+    _is_transient_tablet_unavailable,
     _release_streaming_cursor,
+    _retry_on_transient_tablet_unavailable,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
@@ -836,6 +840,184 @@ class TestIsBadPlanError:
         assert not _is_bad_plan_error(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectDrop:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Lost connection to MySQL server during query",
+            "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)",
+        ],
+    )
+    def test_matches_lost_connection(self, message):
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2013, message))
+
+    def test_does_not_match_ssl_version_mismatch(self):
+        # SSL wrong-version arrives wrapped in 2013 but is a deterministic config error
+        # (already non-retryable) — retrying just delays the friendly message.
+        assert not _is_transient_connect_drop(
+            pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError())
+
+
+class TestConnectTransientRetry:
+    @pytest.mark.parametrize(
+        "fail_count,expected_sleeps",
+        [
+            # A single blip recovers on the second attempt.
+            (1, [2]),
+            # A drop that recovers on the 4th attempt — past the old 3-attempt window — must still
+            # be absorbed in-process rather than surfacing as error-tracking noise.
+            (3, [2, 4, 6]),
+        ],
+    )
+    def test_retries_transient_drop_then_succeeds(self, mocker, fail_count, expected_sleeps):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        drop = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[drop] * fail_count + [conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == fail_count + 1
+        assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_ssl_version_mismatch(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            ),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
+
+
+class TestIsTransientTabletUnavailable:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape Vitess/PlanetScale vtgate surfaces when a backend tablet is briefly
+            # unreachable (failover/restart) — the target keyspace, host, and port vary, the
+            # `code = Unavailable` gRPC token is the stable signal.
+            "unknown: target: keyspace.-.primary: vttablet: rpc error: code = Unavailable "
+            'desc = connection error: desc = "transport: Error while dialing: dial tcp '
+            '0.0.0.0:0: connect: connection refused"',
+            "vttablet: rpc error: code = Unavailable desc = node is shutting down",
+        ],
+    )
+    def test_matches_grpc_unavailable(self, message):
+        assert _is_transient_tablet_unavailable(pymysql.err.OperationalError(1105, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other gRPC statuses ride the same 1105 ER_UNKNOWN_ERROR catch-all but are not the
+            # transient "tablet briefly down" class, so they must not be absorbed here.
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1105, "vttablet: rpc error: code = ResourceExhausted desc = grpc: trying to send too large"),
+            # Config/credential errors stay untouched.
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_non_unavailable_errors(self, code, message):
+        assert not _is_transient_tablet_unavailable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_tablet_unavailable(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_tablet_unavailable(ValueError("code = Unavailable"))
+
+
+class TestRetryOnTransientTabletUnavailable:
+    @staticmethod
+    def _unavailable() -> pymysql.err.OperationalError:
+        return pymysql.err.OperationalError(
+            1105,
+            "unknown: target: keyspace.-.primary: vttablet: rpc error: code = Unavailable "
+            'desc = connection error: desc = "transport: Error while dialing: connect: connection refused"',
+        )
+
+    @pytest.mark.parametrize(
+        "fail_count,expected_sleeps",
+        [
+            (1, [2]),
+            (3, [2, 4, 6]),
+        ],
+    )
+    def test_retries_then_succeeds(self, mocker, fail_count, expected_sleeps):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=[self._unavailable()] * fail_count + ["ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == fail_count + 1
+        assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=self._unavailable())
+
+        with pytest.raises(pymysql.err.OperationalError):
+            _retry_on_transient_tablet_unavailable(operation, MagicMock())
+
+        assert operation.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_non_transient_error(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=pymysql.err.OperationalError(1045, "Access denied for user"))
+
+        with pytest.raises(pymysql.err.OperationalError):
+            _retry_on_transient_tablet_unavailable(operation, MagicMock())
+
+        assert operation.call_count == 1
+        sleep.assert_not_called()
+
+
 class TestBuildQueryForceIndex:
     def test_force_index_hint_omitted_by_default(self):
         query, _ = _build_query(
@@ -1057,6 +1239,19 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "Could not establish session to SSH gateway",
+            # Temporal-wrapped form carrying the sshtunnel exception class name.
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+        ],
+    )
+    def test_ssh_gateway_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH gateway failure should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw pymysql str(error) form (classified in `_handle_import_error`).
             str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
             # Temporal-wrapped str(e.cause) form (classified in external_data_job).
@@ -1069,6 +1264,59 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.ProgrammingError(1146, "Table 'defaultdb.wealth_insights' doesn't exist")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "ProgrammingError: (1146, \"Table 'defaultdb.wealth_insights' doesn't exist\")",
+        ],
+    )
+    def test_table_not_found_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Table-not-found error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(
+                pymysql.err.OperationalError(
+                    1356, "View 'defaultdb.wealth_view' references invalid table(s) or column(s)"
+                )
+            ),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "OperationalError: (1356, \"View 'defaultdb.wealth_view' references invalid table(s) or column(s)\")",
+        ],
+    )
+    def test_invalid_view_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-view error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form.
+            str(
+                pymysql.err.OperationalError(
+                    1130,
+                    "Host 'ec2-52-4-194-122.compute-1.amazonaws.com' is not allowed to connect to this MySQL server",
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different host, same stable phrase.
+            "OperationalError: (1130, \"Host '10.0.1.5' is not allowed to connect to this MySQL server\")",
+        ],
+    )
+    def test_host_not_privileged_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-not-privileged error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1113,20 +1361,42 @@ class TestMySQLSourceValidateCredentials:
     @pytest.mark.parametrize(
         "raised,expected_error",
         [
-            # The exact error that fired this triage: an unreachable host surfaces as a
-            # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
-            # A connection failure keeps the generic "check connection details" message.
+            # pymysql collapses every connect-level failure into OperationalError(2003)
+            # wrapping an OSError; the OS detail is matched to give a specific, actionable
+            # message instead of the generic "check connection details" fallback.
             (
                 pymysql.err.OperationalError(
-                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno -2] Name or service not known)"
                 ),
-                "Could not connect to MySQL. Please check all connection details are valid.",
+                "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
             ),
             (
                 pymysql.err.OperationalError(
                     2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
                 ),
-                "Could not connect to MySQL. Please check all connection details are valid.",
+                "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
+            ),
+            (
+                pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
+                "Connection timed out. Does your database have our IP addresses allowed?",
+            ),
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 113] No route to host)"
+                ),
+                "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                ),
+                "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            # Server error 1049: the host/port/credentials are fine but the named database
+            # doesn't exist. Previously fell through to capture as an unexpected error.
+            (
+                pymysql.err.OperationalError(1049, "Unknown database 'nope'"),
+                "Database does not exist. Check the database name is correct.",
             ),
             # An auth failure (error 1045) must name the credentials, not the generic message
             # that sends the user to inspect the host/port instead. Mirrors Postgres.

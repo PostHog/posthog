@@ -1,26 +1,37 @@
 from collections.abc import AsyncIterable
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
+from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
+    _MAX_CONNECT_ATTEMPTS,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
+    ClickHouseConnectionError,
     _build_query,
+    _get_client,
     _get_incremental_row_count,
     _has_duplicate_primary_keys,
+    _is_transient_connect_drop,
     _parse_mv_target,
+    _project_columns,
     _quote_identifier,
     _strip_type_modifiers,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestQuoteIdentifier:
@@ -139,8 +150,12 @@ class TestBuildQuery:
     def _cols(*specs: tuple[str, str]) -> list[ClickHouseColumn]:
         return [ClickHouseColumn(name=n, data_type=t, nullable=False) for n, t in specs]
 
+    @staticmethod
+    def _filter(column: str, operator: str, value: object, category: ColumnTypeCategory) -> ValidatedRowFilter:
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
     def test_full_refresh(self):
-        query = _build_query(
+        query, params = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("name", "String")),
@@ -148,9 +163,10 @@ class TestBuildQuery:
             incremental_field=None,
         )
         assert query == "SELECT `id`, `name` FROM `default`.`events`"
+        assert params == {}
 
     def test_incremental(self):
-        query = _build_query(
+        query, params = _build_query(
             database="default",
             table_name="events",
             columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
@@ -160,9 +176,10 @@ class TestBuildQuery:
         assert "SELECT `id`, `created_at` FROM `default`.`events`" in query
         assert "WHERE `created_at` > %(last_value)s" in query
         assert "ORDER BY `created_at` ASC" in query
+        assert params == {}
 
     def test_incremental_quotes_field_with_special_chars(self):
-        query = _build_query(
+        query, _ = _build_query(
             database="my-db",
             table_name="weird table",
             columns=self._cols(("event time", "DateTime")),
@@ -183,7 +200,7 @@ class TestBuildQuery:
             )
 
     def test_wraps_arrow_unsupported_types_in_to_string(self):
-        query = _build_query(
+        query, _ = _build_query(
             database="default",
             table_name="events",
             columns=[
@@ -201,6 +218,87 @@ class TestBuildQuery:
         assert "toString(`ip`) AS `ip`" in query
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
+
+    def test_full_refresh_with_row_filters_binds_values_as_params(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("name", "String")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            row_filters=[
+                self._filter("id", ">", 21, ColumnTypeCategory.INTEGER),
+                self._filter("name", "=", "x'; DROP TABLE y; --", ColumnTypeCategory.STRING),
+            ],
+        )
+        assert query == (
+            "SELECT `id`, `name` FROM `default`.`events` WHERE `id` > %(row_filter_0)s AND `name` = %(row_filter_1)s"
+        )
+        assert params == {"row_filter_0": 21, "row_filter_1": "x'; DROP TABLE y; --"}
+        # The value binds as a param, so the injection payload never reaches the SQL string.
+        assert "DROP TABLE" not in query
+
+    def test_incremental_ands_row_filters_after_cursor(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            row_filters=[self._filter("id", ">=", 100, ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `created_at` > %(last_value)s AND `id` >= %(row_filter_0)s" in query
+        assert "ORDER BY `created_at` ASC" in query
+        assert params == {"row_filter_0": 100}
+
+    def test_row_filter_in_operator_expands_to_placeholders(self):
+        query, params = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("country", "String")),
+            should_use_incremental_field=False,
+            incremental_field=None,
+            row_filters=[self._filter("country", "IN", ["US", "CA"], ColumnTypeCategory.STRING)],
+        )
+        assert "WHERE `country` IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert params == {"row_filter_0_0": "US", "row_filter_0_1": "CA"}
+
+
+class TestProjectColumns:
+    @staticmethod
+    def _cols(*names: str) -> list[ClickHouseColumn]:
+        return [ClickHouseColumn(name=n, data_type="String", nullable=False) for n in names]
+
+    @staticmethod
+    def _names(cols: list[ClickHouseColumn]) -> list[str]:
+        return [c.name for c in cols]
+
+    def test_none_enabled_returns_all_columns(self):
+        cols = self._cols("a", "b", "c")
+        assert _project_columns(cols, None, ["a"], "b") == cols
+
+    def test_subset_keeps_only_enabled(self):
+        cols = self._cols("a", "b", "c", "d")
+        assert self._names(_project_columns(cols, ["b", "c"], None, None)) == ["b", "c"]
+
+    def test_always_includes_primary_keys_and_incremental(self):
+        cols = self._cols("id", "name", "created_at", "extra")
+        result = _project_columns(cols, ["name"], ["id"], "created_at")
+        assert set(self._names(result)) == {"name", "id", "created_at"}
+
+    def test_empty_enabled_selects_pk_and_incremental_only(self):
+        cols = self._cols("id", "name", "created_at")
+        result = _project_columns(cols, [], ["id"], "created_at")
+        assert set(self._names(result)) == {"id", "created_at"}
+
+    def test_unknown_enabled_names_are_ignored(self):
+        cols = self._cols("a", "b")
+        assert self._names(_project_columns(cols, ["a", "does_not_exist"], None, None)) == ["a"]
+
+    def test_empty_projection_falls_back_to_all_columns(self):
+        cols = self._cols("a", "b")
+        # enabled=[] with no PK/cursor resolves to nothing — never select zero columns.
+        assert _project_columns(cols, [], None, None) == cols
 
 
 class TestParseMvTarget:
@@ -559,6 +657,75 @@ class TestClickHouseSourceNonRetryableErrors:
         assert not is_non_retryable, f"Transient error should be retryable: {error_msg}"
 
 
+class TestIsTransientConnectDrop:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The exact wrapped message that reached error tracking from ClickHouse Cloud.
+            "Error HTTPSConnectionPool(host='h', port=8443): Max retries exceeded with url: /? "
+            "(Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred "
+            "in violation of protocol (_ssl.c:1032)'))) executing HTTP request attempt 1",
+            "EOF occurred in violation of protocol",
+            "Connection reset by peer",
+            "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+        ],
+    )
+    def test_matches_transient_drops(self, message):
+        assert _is_transient_connect_drop(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "certificate verify failed",
+            "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
+            "Code: 516. DB::Exception: Authentication failed",
+            "HTTPDriver for https://host:8443 returned response code 404",
+        ],
+    )
+    def test_does_not_match_deterministic_failures(self, message):
+        assert not _is_transient_connect_drop(message)
+
+
+class TestGetClientTransientRetry:
+    """`_get_client` retries a transient connection drop during connect in-process."""
+
+    def _connect(self):
+        return _get_client(
+            host="h", port=8443, database="default", user="default", password=None, secure=True, verify=True
+        )
+
+    def test_retries_transient_drop_then_succeeds(self):
+        client = MagicMock()
+        ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=[ssl_eof, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 2
+
+    def test_gives_up_after_max_attempts(self):
+        ssl_eof = ClickHouseError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol")
+        with (
+            patch.object(ch_module.time, "sleep"),
+            patch.object(ch_module, "get_client", side_effect=ssl_eof) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_deterministic_failure(self):
+        cert_error = ClickHouseError("certificate verify failed")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=cert_error) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError):
+                self._connect()
+        assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+
 class TestTranslateError:
     def test_matches_substring_inside_long_error(self):
         msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
@@ -903,3 +1070,30 @@ class TestGetRowsBatching:
 
     def test_empty_stream_yields_nothing(self):
         assert self._run_get_rows([]) == []
+
+
+class TestClickHouseReconcileSchemaMetadata(BaseTest):
+    """The ClickHouse-specific override that routes through the shared reconcile helper."""
+
+    def test_persists_schema_metadata_for_clickhouse_source(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.CLICKHOUSE)
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="events")
+
+        result = ClickHouseSource().reconcile_schema_metadata(
+            source=source,
+            source_schemas=[
+                SourceSchema(
+                    name="events",
+                    supports_incremental=False,
+                    supports_append=False,
+                    columns=[("uuid", "UUID", False), ("timestamp", "DateTime64(6)", False)],
+                )
+            ],
+            team_id=self.team.pk,
+        )
+
+        assert result == []
+        schema.refresh_from_db()
+        metadata = schema.schema_metadata
+        assert metadata is not None
+        assert [column["name"] for column in metadata["columns"]] == ["uuid", "timestamp"]

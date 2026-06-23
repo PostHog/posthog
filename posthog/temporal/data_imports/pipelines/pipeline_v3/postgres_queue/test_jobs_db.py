@@ -224,6 +224,36 @@ class TestBatchQueueGetUnprocessed:
         await BatchQueue.unlock_for_batches(conn, batches=batches)
 
     @pytest.mark.asyncio
+    async def test_exclude_keys_filters_matching_schemas(self, conn):
+        await _insert_batch(conn, team_id=1, schema_id="s1", run_uuid="run-1", batch_index=0)
+        await _insert_batch(conn, team_id=2, schema_id="s2", run_uuid="run-2", batch_index=0)
+        await _insert_batch(conn, team_id=3, schema_id="s3", run_uuid="run-3", batch_index=0)
+
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, exclude_keys={(1, "s1"), (3, "s3")})
+
+        assert [b.schema_id for b in batches] == ["s2"]
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_exclude_keys_empty_set_returns_all(self, conn):
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=0)
+        await _insert_batch(conn, team_id=2, schema_id="s2", batch_index=0)
+
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, exclude_keys=set())
+
+        assert len(batches) == 2
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_exclude_keys_none_returns_all(self, conn):
+        await _insert_batch(conn, team_id=1, schema_id="s1", batch_index=0)
+
+        batches = await BatchQueue.get_unprocessed_and_lock(conn, exclude_keys=None)
+
+        assert len(batches) == 1
+        await BatchQueue.unlock_for_batches(conn, batches=batches)
+
+    @pytest.mark.asyncio
     async def test_in_flight_gating_clears_after_terminal_status(self, conn):
         # Once the executing batch is superseded by a terminal status, the schema's
         # queued batches become selectable again.

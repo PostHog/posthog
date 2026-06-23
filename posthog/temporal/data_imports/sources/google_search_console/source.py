@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     google_search_console_source,
     list_sites,
     normalize_site_url,
+    suggest_registered_site,
 )
 from posthog.temporal.data_imports.sources.google_search_console.settings import (
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
@@ -149,9 +150,17 @@ class GoogleSearchConsoleSource(
         except Exception as e:
             return False, f"Failed to list Google Search Console sites: {e}"
 
-        normalized = {site.get("siteUrl"): site.get("permissionLevel") for site in sites}
+        normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)
         if site_url not in normalized:
+            suggestion = suggest_registered_site(site_url, normalized.keys())
+            if suggestion is not None:
+                return (
+                    False,
+                    f"'{site_url}' isn't a Search Console property, but the connected account has "
+                    f"'{suggestion}'. Enter the property exactly as Search Console lists it — '{suggestion}' — "
+                    f"and try again.",
+                )
             return (
                 False,
                 f"Site '{site_url}' is not visible to the connected Google account. Verify the property URL "
@@ -177,8 +186,7 @@ class GoogleSearchConsoleSource(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "
                 "(clicks, impressions, CTR, average position). Requires a Google account with read access to the property."
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-google-search-console",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-search-console.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-search-console",
             fields=cast(

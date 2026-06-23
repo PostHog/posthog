@@ -294,7 +294,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
+    @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
     @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
         index: GroupTypeIndex = 0
@@ -1616,6 +1616,11 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.json()), 0)
 
+    def test_delete_nonexistent(self):
+        response = self.client.delete(self.url + "/99")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_create_detail_dashboard(self):
         GroupTypeMapping.objects.create(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
@@ -1630,11 +1635,20 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNotNone(data["detail_dashboard"])
 
     def _seed_cache(self):
-        """Populate both cache keys so we can verify invalidation clears both."""
+        """Populate both cache keys with well-formed but stale data so we can verify invalidation."""
         cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}"
         stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}"
-        cache.set(cache_key, [{"stale": True}], 300)
-        cache.set(stale_cache_key, [{"stale": True}], 300)
+        stale_row = {
+            "group_type": "organization",
+            "group_type_index": 0,
+            "name_singular": None,
+            "name_plural": None,
+            "detail_dashboard": None,
+            "default_columns": None,
+            "created_at": None,
+        }
+        cache.set(cache_key, [stale_row], 300)
+        cache.set(stale_cache_key, [stale_row], 300)
         return cache_key, stale_cache_key
 
     def test_list_serves_from_group_types_cache(self):

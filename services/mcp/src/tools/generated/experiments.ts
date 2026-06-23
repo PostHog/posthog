@@ -9,7 +9,9 @@ import {
     ExperimentSavedMetricsPartialUpdateBody,
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
+    ExperimentsArchiveCreateBody,
     ExperimentsArchiveCreateParams,
+    ExperimentsCalculateRunningTimeCreateBody,
     ExperimentsCopyToProjectCreateBody,
     ExperimentsCopyToProjectCreateParams,
     ExperimentsCreateBody,
@@ -37,9 +39,9 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']),
-})
+const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
+    .extend(ExperimentsArchiveCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
 
 const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -47,13 +49,59 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
         schema: ExperimentArchiveSchema,
         handler: async (context: Context, params: z.infer<typeof ExperimentArchiveSchema>) => {
             const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.disable_feature_flag !== undefined) {
+                body['disable_feature_flag'] = params.disable_feature_flag
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/archive/`,
+                body,
             })
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
     })
+
+const ExperimentCalculateRunningTimeSchema = ExperimentsCalculateRunningTimeCreateBody
+
+const experimentCalculateRunningTime = (): ToolBase<
+    typeof ExperimentCalculateRunningTimeSchema,
+    Schemas.RunningTimeCalculationResult
+> => ({
+    name: 'experiment-calculate-running-time',
+    schema: ExperimentCalculateRunningTimeSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCalculateRunningTimeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.metric_type !== undefined) {
+            body['metric_type'] = params.metric_type
+        }
+        if (params.minimum_detectable_effect !== undefined) {
+            body['minimum_detectable_effect'] = params.minimum_detectable_effect
+        }
+        if (params.number_of_variants !== undefined) {
+            body['number_of_variants'] = params.number_of_variants
+        }
+        if (params.exposure_rate_per_day !== undefined) {
+            body['exposure_rate_per_day'] = params.exposure_rate_per_day
+        }
+        if (params.baseline_value !== undefined) {
+            body['baseline_value'] = params.baseline_value
+        }
+        if (params.variance !== undefined) {
+            body['variance'] = params.variance
+        }
+        if (params.baseline_stats !== undefined) {
+            body['baseline_stats'] = params.baseline_stats
+        }
+        const result = await context.api.request<Schemas.RunningTimeCalculationResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/calculate_running_time/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ExperimentCopyToProjectSchema = ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
     .extend(ExperimentsCopyToProjectCreateBody.shape)
@@ -107,6 +155,7 @@ const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
     running_time_calculation: true,
+    excluded_variants: true,
     secondary_metrics: true,
     saved_metrics_ids: true,
     filters: true,
@@ -206,7 +255,36 @@ const experimentDelete = (): ToolBase<typeof ExperimentDeleteSchema, Schemas.Exp
 })
 
 const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ project_id: true })
-    .extend(ExperimentsDuplicateCreateBody.omit({ _create_in_folder: true }).shape)
+    .extend(
+        ExperimentsDuplicateCreateBody.omit({
+            description: true,
+            start_date: true,
+            end_date: true,
+            holdout_id: true,
+            parameters: true,
+            running_time_calculation: true,
+            excluded_variants: true,
+            secondary_metrics: true,
+            saved_metrics_ids: true,
+            filters: true,
+            archived: true,
+            deleted: true,
+            type: true,
+            exposure_criteria: true,
+            metrics: true,
+            metrics_secondary: true,
+            stats_config: true,
+            scheduling_config: true,
+            allow_unknown_events: true,
+            _create_in_folder: true,
+            conclusion: true,
+            conclusion_comment: true,
+            primary_metrics_ordered_uuids: true,
+            secondary_metrics_ordered_uuids: true,
+            only_count_matured_users: true,
+            update_feature_flag_params: true,
+        }).shape
+    )
     .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
 
 const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unknown> => ({
@@ -218,80 +296,8 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
         if (params.name !== undefined) {
             body['name'] = params.name
         }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.start_date !== undefined) {
-            body['start_date'] = params.start_date
-        }
-        if (params.end_date !== undefined) {
-            body['end_date'] = params.end_date
-        }
         if (params.feature_flag_key !== undefined) {
             body['feature_flag_key'] = params.feature_flag_key
-        }
-        if (params.holdout_id !== undefined) {
-            body['holdout_id'] = params.holdout_id
-        }
-        if (params.parameters !== undefined) {
-            body['parameters'] = params.parameters
-        }
-        if (params.running_time_calculation !== undefined) {
-            body['running_time_calculation'] = params.running_time_calculation
-        }
-        if (params.secondary_metrics !== undefined) {
-            body['secondary_metrics'] = params.secondary_metrics
-        }
-        if (params.saved_metrics_ids !== undefined) {
-            body['saved_metrics_ids'] = params.saved_metrics_ids
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.archived !== undefined) {
-            body['archived'] = params.archived
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.exposure_criteria !== undefined) {
-            body['exposure_criteria'] = params.exposure_criteria
-        }
-        if (params.metrics !== undefined) {
-            body['metrics'] = params.metrics
-        }
-        if (params.metrics_secondary !== undefined) {
-            body['metrics_secondary'] = params.metrics_secondary
-        }
-        if (params.stats_config !== undefined) {
-            body['stats_config'] = params.stats_config
-        }
-        if (params.scheduling_config !== undefined) {
-            body['scheduling_config'] = params.scheduling_config
-        }
-        if (params.allow_unknown_events !== undefined) {
-            body['allow_unknown_events'] = params.allow_unknown_events
-        }
-        if (params.conclusion !== undefined) {
-            body['conclusion'] = params.conclusion
-        }
-        if (params.conclusion_comment !== undefined) {
-            body['conclusion_comment'] = params.conclusion_comment
-        }
-        if (params.primary_metrics_ordered_uuids !== undefined) {
-            body['primary_metrics_ordered_uuids'] = params.primary_metrics_ordered_uuids
-        }
-        if (params.secondary_metrics_ordered_uuids !== undefined) {
-            body['secondary_metrics_ordered_uuids'] = params.secondary_metrics_ordered_uuids
-        }
-        if (params.only_count_matured_users !== undefined) {
-            body['only_count_matured_users'] = params.only_count_matured_users
-        }
-        if (params.update_feature_flag_params !== undefined) {
-            body['update_feature_flag_params'] = params.update_feature_flag_params
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -390,13 +396,16 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
-const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<Schemas.PaginatedExperimentList>> =>
+const experimentList = (): ToolBase<
+    typeof ExperimentListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentBasicList>
+> =>
     withUiApp('experiment-list', {
         name: 'experiment-list',
         schema: ExperimentListSchema,
         handler: async (context: Context, params: z.infer<typeof ExperimentListSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedExperimentList>({
+            const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
@@ -726,7 +735,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
-            running_time_calculation: true,
+            excluded_variants: true,
             secondary_metrics: true,
             saved_metrics_ids: true,
             filters: true,
@@ -739,7 +748,12 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             only_count_matured_users: true,
         }).shape
     )
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']) })
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+        running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
+        ),
+    })
 
 const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
@@ -759,6 +773,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.parameters !== undefined) {
                 body['parameters'] = params.parameters
+            }
+            if (params.running_time_calculation !== undefined) {
+                body['running_time_calculation'] = params.running_time_calculation
             }
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
@@ -804,6 +821,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'running_time_calculation',
                 'metrics',
                 'metrics_secondary',
                 'conclusion',
@@ -815,6 +833,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
+    'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-delete': experimentDelete,

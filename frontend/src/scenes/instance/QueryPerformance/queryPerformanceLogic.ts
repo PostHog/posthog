@@ -30,6 +30,10 @@ export interface SlowestQuery {
     experiment_name: string
     experiment_metric_name: string
     experiment_execution_path: string
+    experiment_exposures_path: string
+    experiment_metric_events_path: string
+    experiment_query_surface: string
+    experiment_precompute_table: string
     experiment_metric_type: string
     experiment_id: number | null
 }

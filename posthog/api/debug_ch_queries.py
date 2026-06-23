@@ -38,10 +38,11 @@ class DebugCHQueries(viewsets.ViewSet):
     List recent CH queries initiated by this user.
     """
 
-    # `INTERNAL` (not `"query_performance"`) so a staff user's full-access (`*`) PAT
-    # cannot satisfy the scope check via the wildcard short-circuit in
-    # `APIScopePermission.has_permission`. The action below pins the explicit
-    # `query_performance:read` requirement, which only programmatically-minted PATs hold.
+    # `scope_object = "INTERNAL"` blocks a staff user's full-access (`*`) PAT via the
+    # wildcard short-circuit in `APIScopePermission.has_permission`. The action below pins
+    # `query_performance:read` — an OAuth-hidden, PAT-grantable scope (see
+    # OAUTH_HIDDEN_SCOPE_OBJECTS) that automation carries; the browser uses session auth,
+    # which bypasses scope checks. `is_staff` gates the action itself in every case.
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated, APIScopePermission]
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
@@ -417,7 +418,11 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
                 argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
-                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id
+                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id,
+                argMax(JSONExtractString(log_comment, 'experiment_exposures_path'), type) AS experiment_exposures_path,
+                argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
+                argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
+                argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table
             FROM (
                 SELECT
                     query_id, query, query_start_time, query_duration_ms, exception,
@@ -474,6 +479,10 @@ class DebugCHQueries(viewsets.ViewSet):
                     "experiment_execution_path": row[10],
                     "experiment_metric_type": row[11],
                     "experiment_id": row[12] or None,
+                    "experiment_exposures_path": row[13],
+                    "experiment_metric_events_path": row[14],
+                    "experiment_query_surface": row[15],
+                    "experiment_precompute_table": row[16],
                 }
                 for row in response
             ]

@@ -3,7 +3,7 @@
  *
  * Real everywhere except model invocation:
  *   - Postgres (agent_runtime_queue_test) — PgSessionQueue + PgRevisionStore.
- *     Schema is dropped + recreated per test.
+ *     Schema is Django-owned (migrated before the suite); reset() truncates per test.
  *   - SeaweedFS / S3 — `S3BundleStore` + `S3MemoryStore` against the
  *     `AGENT_MEMORY_TEST_S3_*` bucket, per-cluster random prefix. No fs/in-memory
  *     bundle store — every test exercises the real multipart write + signed-URL
@@ -30,7 +30,7 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import { IntegrationHostValidator, McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
@@ -45,6 +45,8 @@ import {
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -189,6 +191,13 @@ export interface Cluster {
      * so teardown wipes both at once.
      */
     tabularStore: S3JsonlTabularStore
+    /**
+     * The `EncryptedFields` instance the harness encrypts agent env with (and
+     * the runner's secret resolver decrypts). Exposed so cases can encrypt a
+     * value to stamp onto a revision's `encrypted_env`, or decrypt one to
+     * assert a round-trip.
+     */
+    encryption: EncryptedFields
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     ingress: Express
@@ -241,15 +250,6 @@ export interface BuildClusterOpts {
      */
     model?: Model<string>
     /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23
-     * step 3). The harness doesn't carry a real
-     * `posthog_organizationmembership` table, so tests stub the auth
-     * decision directly — typically by inspecting the latest user-turn's
-     * sender id. Omit to preserve B.2 v0 behaviour (every gated call
-     * queues regardless of asker).
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
-    /**
      * Override the MCP transport factory. Defaults to the runner's own
      * `StreamableHTTPClientTransport`. Pair an in-process `McpServer` via
      * `InMemoryTransport.createLinkedPair()` here to drive `spec.mcps[]`
@@ -295,11 +295,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const teamId = opts.teamId ?? 1
     const pool = await getPool()
 
-    // Single test DB holds both authoring (App, Revision — owned by Django
-    // in prod) and runtime tables (Session, User, SandboxInstance — owned
-    // by the worker). The production split happens at deploy time via two
-    // pool URLs. reset() drops the public schema and reapplies every
-    // migration from @posthog/agent-migrations — single source of truth.
+    // Single test DB holds both authoring (App, Revision) and runtime tables
+    // (Session, User, SandboxInstance) — all Django-owned (the agent_platform
+    // product DB). The production split happens at deploy time via two pool
+    // URLs. reset() resets the agent_* tables between cases (see test-reset.ts).
     await reset({ databaseUrl: TEST_DB_URL })
 
     // Real S3 bundle store against SeaweedFS, per-cluster prefix. Same impl
@@ -355,6 +354,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const credentialBroker = new PgCredentialBroker(pool, {
         encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
     })
+    // Persistent linked-credential + OAuth link-state stores for identity linking.
+    const identityCredentials = new PgIdentityCredentialStore(pool, {
+        encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+    })
+    const identityLinks = new PgIdentityLinkStateStore(pool)
     // Real S3 (SeaweedFS) memory store with a per-cluster random prefix —
     // teardown wipes it. Failing here means SeaweedFS isn't up; fix the dev
     // stack rather than mocking around it.
@@ -413,6 +417,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxInstances,
         broker,
         credentialBroker,
+        identityCredentials,
+        identityLinks,
+        identities,
+        linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
         analytics: analyticsSink,
@@ -421,7 +429,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         resolveModel: resolveModelForHarness,
         approvals,
         buildApprovalUrl: (requestId) => `/approvals?request=${requestId}`,
-        isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
         tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,
@@ -459,6 +466,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         authProvider: opts.authProvider,
         identities,
         credentialBroker,
+        // Identity-linking callback route (`GET /link/:provider/callback`).
+        identityCredentials,
+        identityLinks,
+        envEncryption: encryption,
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
@@ -493,6 +504,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         credentialBroker,
         memoryStore,
         tabularStore,
+        encryption,
         model,
         ingress,
         janitor,
@@ -528,7 +540,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 slug: input.slug,
                 name: input.name ?? input.slug,
                 description: input.description ?? '',
-                encrypted_env,
             })
             const rawSpec: Record<string, unknown> = {
                 // Default model is "faux/<name>"; tests can override via spec.model.
@@ -567,6 +578,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 created_by_id: null,
                 bundle_uri: `s3://${TEST_S3_BUCKET}/${bundlePrefix}/${app.id}/`,
                 spec,
+                encrypted_env,
             })
             for (const [p, content] of Object.entries(input.files ?? {})) {
                 await bundle.write(rev.id, p, content)
