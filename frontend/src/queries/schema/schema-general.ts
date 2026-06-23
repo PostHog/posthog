@@ -3182,6 +3182,8 @@ export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
 export interface LogValueResult {
     id: string
     name: string
+    /** Number of log records with this attribute value, over the current date range, service, and resource filters. */
+    count?: integer
 }
 
 export interface LogValuesQueryResponse extends AnalyticsQueryResponseBase {
@@ -3957,6 +3959,8 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
 /** Exposure estimate settings for the experiment running-time calculator. */

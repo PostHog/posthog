@@ -81,6 +81,7 @@ export const getStorybookAppContext = (): AppContext => ({
         revenue_analytics: 'manager',
         survey: 'manager',
         experiment: 'manager',
+        export: 'manager',
         external_data_source: 'manager',
         web_analytics: 'manager',
         activity_log: 'viewer',

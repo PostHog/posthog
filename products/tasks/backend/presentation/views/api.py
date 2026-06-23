@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import HttpResponse, JsonResponse
 
 import requests as http_requests
 from drf_spectacular.types import OpenApiTypes
@@ -24,6 +24,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission
@@ -106,6 +107,12 @@ logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
+# Long-lived SSE connections pin NGINX Unit processes during recycle-drain, so
+# cap each one: emit `event: end` so clients can tell rotation from run
+# completion, then close. Clients resume from their Last-Event-ID cursor.
+TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
+TASK_RUN_STREAM_END_EVENT_NAME = "end"
+TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
@@ -1263,6 +1270,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
+            # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
+            # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
+            # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
+            try:
+                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+            except Exception:
+                logger.warning("Failed to clear await_user_message for task run %s", pk)
+
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
                 "result": {"queued": True},
@@ -1309,6 +1324,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 payload=command_payload,
             )
 
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
+            )
             if agent_response.ok:
                 return Response(agent_response.json())
 
@@ -1333,18 +1351,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -1570,6 +1597,40 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parts.append(f"data: {json.dumps(data)}")
         return ("\n".join(parts) + "\n\n").encode()
 
+    @extend_schema(
+        description=(
+            "Server-Sent Events stream of task run events. Events carry an `id:` line "
+            "(a Redis stream id) usable as a resume cursor.\n\n"
+            f"The server caps each connection at {TASK_RUN_STREAM_CONNECTION_MAX_SECONDS} seconds: it emits "
+            '`event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run '
+            "finished — reconnect with the `Last-Event-ID` header set to the last received event id to "
+            "resume without gaps or duplicates. Only treat the stream as complete when the run itself "
+            "reaches a terminal status.\n\n"
+            "`?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting "
+            "without it re-resolves to the then-current latest event, silently skipping anything published "
+            "while disconnected.\n\n"
+            "**SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer "
+            "the entire stream. Use the URL builder (`getTasksRunsStreamRetrieveUrl`) with a streaming "
+            "`fetch`/`EventSource`-style consumer and the `Last-Event-ID` header instead."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Set to `latest` to skip the event backlog and only receive events published after connecting.",
+            ),
+            OpenApiParameter(
+                name="Last-Event-ID",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                required=False,
+                description="Resume cursor: the `id:` of the last event received on a previous connection. Events strictly after it are delivered.",
+            ),
+        ],
+        responses={(200, "text/event-stream"): OpenApiTypes.STR},
+    )
     @action(
         detail=True,
         methods=["get"],
@@ -1660,9 +1721,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                                 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
                                 event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
                             )
-                            continue
-                        event_id, event = stream_item
-                        yield format_sse_event(event, event_id=event_id)
+                        else:
+                            event_id, event = stream_item
+                            yield format_sse_event(event, event_id=event_id)
+                        if (
+                            asyncio.get_running_loop().time() - connection_started_at
+                            >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS
+                        ):
+                            outcome = "rotated"
+                            # Without this marker a rotation EOF would be
+                            # indistinguishable from run completion for API
+                            # consumers reading until EOF.
+                            yield format_sse_event(
+                                TASK_RUN_STREAM_ROTATED_PAYLOAD,
+                                event_name=TASK_RUN_STREAM_END_EVENT_NAME,
+                            )
+                            return
                     outcome = "completed"
                 except TaskRunStreamError as e:
                     outcome = "stream_error"
@@ -1673,10 +1747,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     duration = asyncio.get_running_loop().time() - connection_started_at
                     observe_stream_connection_closed(origin_product, outcome, duration)
 
-        return StreamingHttpResponse(
-            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
-            content_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # Releases the request-thread DB connection (auth, task lookup) before the
+        # long-lived stream begins — see sse_streaming_response. The stream body is
+        # Redis-only, so it never re-acquires one.
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream())
         )
 
     @staticmethod

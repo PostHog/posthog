@@ -253,6 +253,10 @@ procs:
         groups:
             layer: Product services
             tech: Node
+        # Dev: tee JSON logs to a tmp file a local agent can read. See
+        # products/agent_platform/AGENTS.md.
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-ingress.log'
 
     agent-runner:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
@@ -261,6 +265,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-runner.log'
 
     agent-janitor:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
@@ -269,6 +275,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
 
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
@@ -613,7 +621,9 @@ procs:
 
     storybook:
         sandbox: true
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        # dev-open-when-ready is peeled out to run unsandboxed (it opens the browser
+        # once :6006 is up — a path the sandbox denies); the rest stays sandboxed.
+        shell: 'bin/dev-open-when-ready http://localhost:6006 && pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
         groups:
@@ -638,6 +648,17 @@ procs:
             python manage.py run_warehouse_sources_load
         autostart: false
         ready_pattern: 'batch_consumer_started'
+        groups:
+            layer: Tools
+            tech: Python
+        # no capability - manual start
+
+    warehouse-sources-duckgres-load:
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py run_warehouse_sources_duckgres_load --health-port 8092
+        autostart: false
+        ready_pattern: 'duckgres_batch_consumer_started'
         groups:
             layer: Tools
             tech: Python

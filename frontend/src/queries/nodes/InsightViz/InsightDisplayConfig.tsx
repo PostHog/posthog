@@ -23,7 +23,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
-import { LegendPositionFilter } from 'scenes/insights/EditorFilters/LegendPositionFilter'
+import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import {
@@ -161,6 +161,9 @@ export function InsightDisplayConfig(): JSX.Element {
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+    // The in-chart quill legend supports placement, so it gets a single "Legend" select
+    // (Hide + position) instead of the legacy show/hide checkbox.
+    const useQuillLegendOptions = quillLegendEnabled && isTrends && isLineDisplay
 
     const {
         showValuesOnSeries,
@@ -268,13 +271,8 @@ export function InsightDisplayConfig(): JSX.Element {
                                         ]
                                       : []),
                                   ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
-                                  ...(hasLegend || showFunnelLegendConfig
+                                  ...((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions
                                       ? [{ label: () => <ShowLegendFilter /> }]
-                                      : []),
-                                  // The in-chart quill legend supports placement; the legacy side
-                                  // legend doesn't, so only offer it for trends line/area/cumulative.
-                                  ...(quillLegendEnabled && isTrends && isLineDisplay && showLegend
-                                      ? [{ label: () => <LegendPositionFilter /> }]
                                       : []),
                                   ...(display === ChartDisplayType.ActionsPie
                                       ? [{ label: () => <ShowPieTotalFilter /> }]
@@ -296,6 +294,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                       ? [{ label: () => <HideWeekendsFilter /> }]
                                       : []),
                                   ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
+                                  ...(useQuillLegendOptions ? [{ label: () => <LegendOptionsFilter /> }] : []),
                               ],
                   },
               ]

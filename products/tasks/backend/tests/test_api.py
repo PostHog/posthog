@@ -3,16 +3,18 @@ import time
 import uuid
 import base64
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 import jwt
@@ -43,7 +45,11 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
+from products.tasks.backend.logic.stream.redis_stream import (
+    TaskRunRedisStream,
+    TaskRunStreamEntryOrKeepalive,
+    get_task_run_stream_key,
+)
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
@@ -788,6 +794,32 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("latest_run", task2_data)
         self.assertIsNone(task2_data["latest_run"])
 
+    def test_list_tasks_latest_run_no_per_task_query(self):
+        # The list endpoint prefetches "runs"; latest_run must reuse that cache so the
+        # query count does not scale with the number of tasks (or runs per task).
+        url = "/api/projects/@current/tasks/"
+        task1 = self.create_task("Task 1")
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Warm the request first so one-time auth/access-control queries don't skew the count.
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        baseline = len(ctx.captured_queries)
+
+        # Add a second task with multiple runs; the query count must stay constant.
+        task2 = self.create_task("Task 2")
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        with self.assertNumQueries(baseline):
+            response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
 
@@ -935,6 +967,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_create_task_with_signal_report_same_team(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
@@ -944,18 +977,23 @@ class TestTaskAPI(BaseTaskAPITest):
                 "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
-                "signal_report_task_relationship": SignalReportTask.Relationship.IMPLEMENTATION.value,
+                # Legacy field old clients still send — accepted and ignored.
+                "signal_report_task_relationship": "implementation",
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
-        link = SignalReportTask.objects.get(
-            report=report,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        # A manual "start implementation" records the implementation task_run artefact (the
+        # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
+        # row that blocks the auto-start pipeline from double-starting.
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [data["id"]])
+        self.assertTrue(
+            SignalReportTask.objects.filter(
+                report=report, task_id=data["id"], relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            ).exists()
         )
-        self.assertEqual(str(link.task_id), data["id"])
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -1162,7 +1200,8 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("run_source_omitted", None, "full"),
             ("manual", {"run_source": "manual"}, "full"),
-            ("signal_report", {"run_source": "signal_report"}, "read_only"),
+            # signal_report implementation runs log their work as report artefacts (task:write tools).
+            ("signal_report", {"run_source": "signal_report"}, "full"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -5421,6 +5460,149 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
         self.assertIn("after idle gap", content)
 
 
+class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
+    def _stream_url(self, task: Task, run: TaskRun) -> str:
+        return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
+
+    def _mark_stream_complete(self, run: TaskRun) -> None:
+        async def _mark() -> None:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            await redis_stream.mark_complete()
+
+        asyncio.run(_mark())
+
+    def _read_stream_ids(self, run: TaskRun) -> list[str]:
+        async def _read() -> list[str]:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            messages = await redis_stream._redis_client.xrange(get_task_run_stream_key(str(run.id)))
+            return [msg_id.decode("utf-8") if isinstance(msg_id, bytes) else msg_id for msg_id, _ in messages]
+
+        return asyncio.run(_read())
+
+    def _collect_sse_events(self, response: StreamingHttpResponse) -> list[dict]:
+        content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+        events: list[dict] = []
+        for block in [part.strip() for part in content.split("\n\n") if part.strip()]:
+            event_name = None
+            event_id = None
+            data = None
+            for line in block.splitlines():
+                if line.startswith("event: "):
+                    event_name = line[7:]
+                elif line.startswith("id: "):
+                    event_id = line[4:]
+                elif line.startswith("data: "):
+                    data = json.loads(line[6:])
+            events.append({"event": event_name, "id": event_id, "data": data})
+        return events
+
+    @parameterized.expand(
+        [
+            ("after_real_event", False, "before cap"),
+            ("on_keepalive_only_iteration", True, "event: keepalive"),
+        ]
+    )
+    def test_stream_rotates_cleanly_when_connection_cap_elapses(
+        self, _name: str, idle_first: bool, expected_marker: str
+    ) -> None:
+        task = self.create_task()
+        run = task.create_run()
+
+        def _console_event(message: str) -> dict:
+            return {
+                "type": "notification",
+                "timestamp": "2026-01-01T00:00:01Z",
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "_posthog/console",
+                    "params": {"sessionId": str(run.id), "level": "info", "message": message},
+                },
+            }
+
+        async def fake_read_stream_entries(
+            self: TaskRunRedisStream, *args: Any, **kwargs: Any
+        ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:
+            if idle_first:
+                yield None
+            else:
+                yield ("1-0", _console_event("before cap"))
+            yield ("2-0", _console_event("after cap"))
+
+        observe_closed = MagicMock()
+        with (
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+            # A cap of 0 trips the elapsed check on the first yield, so the test
+            # exercises the rotation path without sleeping through real time. The
+            # keepalive case proves the check runs on idle yields too: if it only
+            # ran after real events, an idle stream would never rotate.
+            patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_connection_closed", observe_closed),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Whatever was already delivered is kept; the stream then signals rotation
+        # (so clients can tell it apart from run completion) and ends without an
+        # error event, letting the client resume from its Last-Event-ID cursor.
+        self.assertIn(expected_marker, content)
+        self.assertNotIn("after cap", content)
+        self.assertNotIn("event: error", content)
+        self.assertTrue(content.endswith('event: end\ndata: {"type": "rotated"}\n\n'))
+        observe_closed.assert_called_once()
+        self.assertEqual(observe_closed.call_args.args[1], "rotated")
+
+    def test_stream_resumes_after_rotation_without_gap_or_duplicate(self) -> None:
+        task = self.create_task()
+        run = task.create_run()
+        run.emit_console_event("info", "first message")
+        run.emit_console_event("info", "second message")
+        stream_ids = self._read_stream_ids(run)
+
+        # A cap of 0 rotates the first connection after its first yield, leaving
+        # the two console events for the resumed connection to pick up.
+        with patch("products.tasks.backend.presentation.views.api.TASK_RUN_STREAM_CONNECTION_MAX_SECONDS", 0):
+            first_response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
+            )
+            first_events = self._collect_sse_events(first_response)
+
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        # The rotation marker is the last thing on the wire and carries no id, so
+        # it can't poison the client's resume cursor.
+        self.assertEqual(first_events[-1], {"event": "end", "id": None, "data": {"type": "rotated"}})
+        first_data_events = first_events[:-1]
+        self.assertEqual([event["id"] for event in first_data_events], [stream_ids[0]])
+        # stream_ids[0] is the task_run_state event create_run publishes — the
+        # console events are deliberately left for the resumed connection.
+        self.assertEqual(first_data_events[0]["data"]["type"], "task_run_state")
+
+        self._mark_stream_complete(run)
+
+        second_response = cast(
+            StreamingHttpResponse,
+            self.client.get(
+                self._stream_url(task, run),
+                headers={"accept": "text/event-stream", "last-event-id": first_data_events[0]["id"]},
+            ),
+        )
+
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        second_events = self._collect_sse_events(second_response)
+        # Resuming from the rotated connection's last id delivers the remaining
+        # events exactly once — no gap, no duplicate — then completes without a
+        # rotation marker.
+        self.assertEqual([event["id"] for event in second_events], stream_ids[1:])
+        self.assertEqual(
+            [event["data"]["notification"]["params"]["message"] for event in second_events],
+            ["first message", "second message"],
+        )
+
+
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
@@ -5955,6 +6137,155 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
+    def _create_posthog_ai_task(self, created_by: User | None = None):
+        return Task.objects.create(
+            team=self.team,
+            created_by=created_by or self.user,
+            title="Max session",
+            description="Max session",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+        )
+
+    def _capture_calls_for_event(self, mock_capture, event):
+        return [call for call in mock_capture.call_args_list if call.kwargs.get("event") == event]
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_emits_permission_responded_telemetry_for_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}})
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        calls = self._capture_calls_for_event(mock_capture, "permission_responded")
+        self.assertEqual(len(calls), 1)
+        props = calls[0].kwargs["properties"]
+        self.assertEqual(props["origin_product"], Task.OriginProduct.POSTHOG_AI)
+        self.assertEqual(props["run_id"], str(run.id))
+        self.assertEqual(props["request_id"], "perm-1")
+        self.assertEqual(props["option_id"], "allow")
+        self.assertTrue(props["success"])
+        self.assertEqual(props["surface"], "relay")
+        self.assertIsNone(props["conversation_id"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_emits_task_run_cancelled_telemetry_for_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        calls = self._capture_calls_for_event(mock_capture, "task_run_cancelled")
+        self.assertEqual(len(calls), 1)
+        props = calls[0].kwargs["properties"]
+        self.assertEqual(props["origin_product"], Task.OriginProduct.POSTHOG_AI)
+        self.assertEqual(props["cancel_source"], "user")
+        self.assertEqual(props["surface"], "relay")
+        self.assertIsNone(props["conversation_id"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_no_control_verb_telemetry_for_non_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
+        # USER_CREATED task (e.g. PostHog Code) — the generic relay must not emit PostHog AI funnels.
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "task_run_cancelled"), [])
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "permission_responded"), [])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_permission_telemetry_marks_forward_failure(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"error": "agent rejected"}, status_code=502)
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        calls = self._capture_calls_for_event(mock_capture, "permission_responded")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0].kwargs["properties"]["success"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_cancel_failure_emits_no_telemetry(self, mock_post, mock_capture):
+        # The conversation layer recorded a cancel only when it actually reached the agent;
+        # the relay mirrors that — a failed forward records nothing.
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"error": "agent rejected"}, status_code=502)
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "task_run_cancelled"), [])
+
+    def test_command_denied_for_other_users_posthog_ai_run(self):
+        # Auth equivalence for the relay cutover: a same-team user who did not create the PostHog AI
+        # task cannot command its run (404 via task_visibility_q), matching the conversation layer's
+        # `conversation.user == request.user` check. Removing the conversation-layer check is safe.
+        other_user = self.create_organization_user("victim")
+        task = self._create_posthog_ai_task(created_by=other_user)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_command_fails_without_sandbox_url(self):
         task = self.create_task()

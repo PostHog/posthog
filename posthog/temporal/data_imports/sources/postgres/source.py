@@ -1,6 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import OperationalError as DjangoOperationalError
+
 import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -230,6 +232,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("tenant/user not found"). This usually means the database project is paused or '
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
+            ),
+            # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
+            # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
+            # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
+            # can't identify the project from SNI, so the pooler username must embed the project ref
+            # (e.g. "postgres.<project-ref>"). A plain username like "postgres" leaves the pooler with
+            # nothing to route on — deterministic until the customer fixes the username, so retrying
+            # just re-hits it. Match the stable message and exclude the volatile host/IP/port.
+            "no tenant identifier provided": (
+                "Your Supabase connection pooler rejected the connection because it couldn't "
+                'identify your project ("no tenant identifier provided"). On the shared pooler host '
+                "the username must include your project ref (for example "
+                '"postgres.<project-ref>"). Update the user for this source to the pooler username '
+                "shown in your Supabase dashboard, then re-enable the sync."
             ),
             "error received from server in SCRAM exchange: Wrong password": None,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
@@ -788,13 +804,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 conn.close()
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+        from posthog.temporal.data_imports.sources.postgres.exceptions import (
+            CDCHandledExternally,
+            PostHogDatabaseConnectionError,
+        )
 
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
+        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
+        # the same "Name or service not known" wording a customer host misconfig would, which
+        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
+        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None

@@ -53,7 +53,7 @@ export interface TaskRunErrorResponseApi {
 export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
 
 /**
- * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
+ * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
  */
 export interface TaskUserBasicInfoApi {
     id: number
@@ -297,142 +297,17 @@ export interface PatchedTaskAutomationWriteApi {
 }
 
 /**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
-
-/**
- * * `anthropic` - anthropic
- * * `openai` - openai
- */
-export type TaskRunDetailDTOProviderEnumApi =
-    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
-
-export const TaskRunDetailDTOProviderEnumApi = {
-    Anthropic: 'anthropic',
-    Openai: 'openai',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
-} as const
-
-export interface TaskRunArtifactResponseApi {
-    /** Stable identifier for the artifact within this run */
-    id?: string
-    /** Artifact file name */
-    name: string
-    /** Artifact classification (plan, context, etc.) */
-    type: string
-    /** Source of the artifact, such as agent_output or user_attachment */
-    source?: string
-    /** Artifact size in bytes */
-    size?: number
-    /** Optional MIME type */
-    content_type?: string
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
-    uploaded_at: string
-}
-
-/**
- * @nullable
- */
-export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
-
-export type TaskRunDetailDTOApiState = { [key: string]: unknown }
-
-/**
- * Detail response for a task run.
- *
- * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
- * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
- * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
- * ``latest_run`` shape by the task detail response.
- */
-export interface TaskRunDetailDTOApi {
-    id: string
-    /** Parent task id this run belongs to. */
-    task: string
-    /** @nullable */
-    stage: string | null
-    /** @nullable */
-    branch: string | null
-    status: string
-    environment: string
-    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
-     *
-     * * `claude` - claude
-     * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi | null
-    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
-     *
-     * * `anthropic` - anthropic
-     * * `openai` - openai */
-    provider?: TaskRunDetailDTOProviderEnumApi | null
-    /**
-     * Configured LLM model identifier for this run.
-     * @nullable
-     */
-    model?: string | null
-    /** Configured reasoning effort for this run when the selected model supports it.
-     *
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `xhigh` - xhigh
-     * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi | null
-    /**
-     * Presigned S3 URL for log access (valid for 1 hour).
-     * @nullable
-     */
-    log_url?: string | null
-    /** @nullable */
-    error_message: string | null
-    /** @nullable */
-    output: TaskRunDetailDTOApiOutput
-    state: TaskRunDetailDTOApiState
-    readonly artifacts: readonly TaskRunArtifactResponseApi[]
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    updated_at?: string | null
-    /** @nullable */
-    completed_at?: string | null
-}
-
-/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
 
 /**
- * Detail response for a task.
+ * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
+ * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
+ * avoids presigning a log URL per conversation.
  *
- * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
- * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
- * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ * Read access here follows the conversation (the share-by-link unit), not per-creator task
+ * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
  */
 export interface TaskDetailDTOApi {
     id: string
@@ -457,8 +332,11 @@ export interface TaskDetailDTOApi {
     archived: boolean
     /** @nullable */
     archived_at: string | null
-    /** Latest run details for this task */
-    latest_run?: TaskRunDetailDTOApi | null
+    /**
+     * Id of the latest TaskRun; null when the task has no runs.
+     * @nullable
+     */
+    readonly latest_run: string | null
     /** @nullable */
     created_at?: string | null
     /** @nullable */
@@ -485,6 +363,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `slack` - Slack
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
+ * * `posthog_ai` - PostHog AI
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
@@ -499,6 +378,7 @@ export const OriginProductEnumApi = {
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
+    PosthogAi: 'posthog_ai',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
@@ -540,6 +420,7 @@ export interface TaskWriteApi {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply */
@@ -605,6 +486,7 @@ export interface PatchedTaskWriteApi {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply */
@@ -702,16 +584,33 @@ export const ClaudeRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+/**
  * * `default` - default
  * * `acceptEdits` - acceptEdits
  * * `plan` - plan
  * * `bypassPermissions` - bypassPermissions
  * * `auto` - auto
  */
-export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi =
-    (typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi)[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi]
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
 
-export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi = {
+export const InitialPermissionModeEnumApi = {
     Default: 'default',
     AcceptEdits: 'acceptEdits',
     Plan: 'plan',
@@ -780,7 +679,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `plan` - plan
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto */
-    initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnumApi
+    initial_permission_mode?: InitialPermissionModeEnumApi
 }
 
 /**
@@ -968,6 +867,25 @@ export interface TaskStagedArtifactsFinalizeUploadRequestApi {
     artifacts: TaskStagedArtifactFinalizeUploadApi[]
 }
 
+export interface TaskRunArtifactResponseApi {
+    /** Stable identifier for the artifact within this run */
+    id?: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+}
+
 export interface TaskStagedArtifactsFinalizeUploadResponseApi {
     /** Finalized staged artifacts available for attachment to a new run */
     artifacts: TaskRunArtifactResponseApi[]
@@ -1048,6 +966,96 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
 export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
+}
+
+/**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `anthropic` - anthropic
+ * * `openai` - openai
+ */
+export type TaskRunDetailDTOProviderEnumApi =
+    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
+
+export const TaskRunDetailDTOProviderEnumApi = {
+    Anthropic: 'anthropic',
+    Openai: 'openai',
+} as const
+
+/**
+ * @nullable
+ */
+export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
+
+export type TaskRunDetailDTOApiState = { [key: string]: unknown }
+
+/**
+ * Detail response for a task run.
+ *
+ * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+ * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+ * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+ * ``latest_run`` shape by the task detail response.
+ */
+export interface TaskRunDetailDTOApi {
+    id: string
+    /** Parent task id this run belongs to. */
+    task: string
+    /** @nullable */
+    stage: string | null
+    /** @nullable */
+    branch: string | null
+    status: string
+    environment: string
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+     *
+     * * `anthropic` - anthropic
+     * * `openai` - openai */
+    provider?: TaskRunDetailDTOProviderEnumApi | null
+    /**
+     * Configured LLM model identifier for this run.
+     * @nullable
+     */
+    model?: string | null
+    /** Configured reasoning effort for this run when the selected model supports it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Presigned S3 URL for log access (valid for 1 hour).
+     * @nullable
+     */
+    log_url?: string | null
+    /** @nullable */
+    error_message: string | null
+    /** @nullable */
+    output: TaskRunDetailDTOApiOutput
+    state: TaskRunDetailDTOApiState
+    readonly artifacts: readonly TaskRunArtifactResponseApi[]
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    completed_at?: string | null
 }
 
 export interface PaginatedTaskRunDetailDTOListApi {
@@ -1982,6 +1990,13 @@ export type TasksRunsSessionLogsRetrieveParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type TasksRunsStreamRetrieveParams = {
+    /**
+     * Set to `latest` to skip the event backlog and only receive events published after connecting.
+     */
+    start?: string
 }
 
 export type TasksRepositoryReadinessRetrieveParams = {

@@ -5,6 +5,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { facetRailLogicType } from './facetRailLogicType'
+import { FacetFilterKey } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -27,8 +28,9 @@ export const facetRailLogic = kea<facetRailLogicType>([
     })),
 
     actions({
-        toggleSeverityLevel: (level: LogSeverityLevel) => ({ level }),
-        toggleServiceName: (name: string) => ({ name }),
+        // Generic toggle: the rail is config-driven, so a single action writes a value into whichever
+        // filter field the facet maps to (see FacetConfig.filterKey).
+        toggleFacetValue: (filterKey: FacetFilterKey, value: string) => ({ filterKey, value }),
         toggleFacetCollapsed: (facetKey: string) => ({ facetKey }),
     }),
 
@@ -44,13 +46,16 @@ export const facetRailLogic = kea<facetRailLogicType>([
     }),
 
     listeners(({ props, actions }) => ({
-        toggleSeverityLevel: ({ level }) => {
-            const { severityLevels } = logsViewerFiltersLogic({ id: props.id }).values
-            actions.setSeverityLevels(toggleMembership(severityLevels, level))
-        },
-        toggleServiceName: ({ name }) => {
-            const { serviceNames } = logsViewerFiltersLogic({ id: props.id }).values
-            actions.setServiceNames(toggleMembership(serviceNames, name))
+        toggleFacetValue: ({ filterKey, value }) => {
+            const { severityLevels, serviceNames } = logsViewerFiltersLogic({ id: props.id }).values
+            if (filterKey === 'severityLevels') {
+                actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+            } else if (filterKey === 'serviceNames') {
+                actions.setServiceNames(toggleMembership(serviceNames, value))
+            } else {
+                // Adding a new FacetFilterKey without wiring its setter here is a compile error.
+                filterKey satisfies never
+            }
         },
     })),
 ])

@@ -31,6 +31,31 @@ ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
 PARTITION_PRUNING_INTERVAL = "14 days"
 
 
+def pending_batch_select_columns(status_alias: str) -> str:
+    return f"""
+        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+        b.cumulative_row_count, b.resource_name, b.is_resume,
+        b.is_first_ever_sync, b.metadata,
+        COALESCE({status_alias}.attempt, 0) AS latest_attempt,
+        b.created_at
+    """
+
+
+async def unlock_advisory_locks(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batches: list[PendingBatch],
+    namespace: int,
+) -> None:
+    for batch in batches:
+        await conn.execute(
+            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
+            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
@@ -219,13 +244,7 @@ class BatchQueue:
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
                     LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
@@ -309,10 +328,36 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def verify_advisory_lock(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        """Check if this session still holds the advisory lock for (team_id, schema_id)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_locks
+                    WHERE locktype = 'advisory'
+                      AND classid = {ADVISORY_LOCK_NAMESPACE}
+                      AND objid = hashtext(%(key)s)
+                      AND pid = pg_backend_pid()
+                      AND granted = true
+                )
+                """,
+                {"key": f"{team_id}:{schema_id}"},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
 
@@ -321,19 +366,16 @@ class BatchQueue:
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
+
+        When ``keep_locks`` is True the caller is responsible for releasing the
+        probe locks after it has finished acting on the returned batches.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(s.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("s")}
                     FROM {BATCH_TABLE} b
                     JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                     WHERE
@@ -353,8 +395,8 @@ class BatchQueue:
 
         result = [PendingBatch(**row) for row in rows]
 
-        # Release the locks immediately — we only needed them to detect orphans.
-        await BatchQueue.unlock_for_batches(conn, batches=result)
+        if not keep_locks:
+            await BatchQueue.unlock_for_batches(conn, batches=result)
 
         return result
 
@@ -380,6 +422,34 @@ class BatchQueue:
             {
                 "run_uuid": run_uuid,
                 "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def supersede_other_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> int:
+        """Mark non-terminal batches from older runs of the same job as superseded."""
+        cursor = conn.execute(
+            f"""
+            INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+                AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
+            """,
+            {
+                "job_id": job_id,
+                "current_run_uuid": current_run_uuid,
+                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
         )
         return cursor.rowcount or 0
@@ -412,6 +482,7 @@ class BatchQueue:
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
+                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
                     ORDER BY b.run_uuid, s.created_at DESC
                 ) failed_runs
                 ORDER BY failed_at DESC
@@ -445,8 +516,4 @@ class BatchQueue:
         only acquired on rows that actually appear in the result set, so
         one unlock per row balances the depth exactly.
         """
-        for batch in batches:
-            await conn.execute(
-                "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-                {"ns": ADVISORY_LOCK_NAMESPACE, "key": f"{batch.team_id}:{batch.schema_id}"},
-            )
+        await unlock_advisory_locks(conn, batches=batches, namespace=ADVISORY_LOCK_NAMESPACE)

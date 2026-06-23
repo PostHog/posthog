@@ -18,6 +18,93 @@ tools:
     inbox-processing-pause-update:
         operation: signals_processing_pause_update
         enabled: false
+    inbox-report-artefacts-create:
+        operation: signals_report_artefacts_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{report_id}'
+        title: Append an artefact to a report
+        description: >
+            Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types
+            accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line,
+            end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that
+            has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
+            automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
+            by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
+            always a mistake), `task_run` (associates a tasks.Task with the report — this IS the task↔report
+            association: content.task_id defaults to your own task, product/type label the run and default to
+            tasks/agent_run, and re-associating an already-linked task is idempotent, returning the existing entry),
+            `note` (free-form: note). Status types are latest-wins — appending a new version supersedes the previous one
+            as the report's canonical status: `priority_judgment` (explanation, priority P0–P4),
+            `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice),
+            `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments
+            are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up
+            next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object
+            matching the chosen type and is validated against its schema. Writes are attributed to your task
+            automatically. Returns the created artefact including its id.
+    inbox-report-artefacts-delete:
+        operation: signals_report_artefacts_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete an artefact
+        description: >
+            Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status
+            type (e.g. priority_judgment) reverts the report's canonical status to the previous version.
+    inbox-report-artefacts-list:
+        operation: signals_report_artefacts_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a report's artefacts
+        description: >
+            List every artefact on a signal report — the full picture of why it exists and what has been done about it:
+            `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
+            priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
+            and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
+            adding to the log.
+    inbox-report-artefacts-retrieve:
+        operation: signals_report_artefacts_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.report_id}'
+        title: Get a single artefact
+        description: >
+            Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same
+            way as inbox-report-artefacts-list.
+    inbox-report-artefacts-update:
+        operation: signals_report_artefacts_partial_update
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Replace an artefact's content
+        description: >
+            Replace the `content` of an existing artefact, addressed by its id, when new information supersedes it. The
+            new content is validated against the artefact type's schema. Editing the latest row of a status type changes
+            the report's canonical status; to re-assess while keeping history, append a new artefact instead.
     inbox-reports-bulk-set-state:
         operation: signals_reports_bulk_state_create
         enabled: true
@@ -53,9 +140,22 @@ tools:
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
-            search across title and summary, source_product (e.g. error_tracking, session_replay), and
-            suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by
+            search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers
+            (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see
+            which reports you are already working against). For picking up work, filter to `ready` — earlier statuses
+            are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
+            full work log — signal findings (evidence), judgments, and log entries — is readable via
+            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
             '-is_suggested_reviewer,status,-updated_at' by default.
+        agent_note:
+            "If you do ANY work connected to one of these reports — even pure research or investigation — always first
+            associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {}
+            (your own task id is filled in automatically). That task_run artefact IS the task↔report association —
+            commits you push are recorded on the report through it, and without it your work is invisible to the report.
+            If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's
+            expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only
+            session) ignore the association step entirely — artefact persistence is handled for you. Read the report's
+            work log via inbox-report-artefacts-list before acting."
         response:
             include:
                 - id
@@ -88,8 +188,25 @@ tools:
         description: >
             Get a single signal report by ID. Returns the full report including title, summary, status, priority and
             actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
-            if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
-            query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
+            if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries
+            — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying
+            signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even
+            research — first associate your task with it by appending a `task_run` artefact via
+            inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready`
+            reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than
+            acting on it yourself.
+        agent_note:
+            "If you do ANY work connected to this report — even pure research or investigation — always first associate
+            your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own
+            task id is filled in automatically). That task_run artefact IS the task↔report association — commits you
+            push via git_signed_commit are recorded on the report through it, and without it your work is invisible to
+            the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your
+            own — that's expected, not an error to fix; skip the association and continue. Then log the work as
+            artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch
+            outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a
+            remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version
+            to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for
+            you."
     inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true
@@ -204,6 +321,9 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-report-artefacts-diff:
+        operation: signals_report_artefacts_diff
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -255,7 +375,6 @@ tools:
             Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
             immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned
             configs.
-        requires_ai_consent: true
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
@@ -286,6 +405,9 @@ tools:
             `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
             the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
             Findings should carry `tags` — see the `tags` param for the slug and taxonomy convention.
+    signals-scout-metadata-get:
+        operation: signals_scout_metadata_get
+        enabled: false
     signals-scout-project-profile-get:
         operation: signals_scout_project_profile_get
         enabled: true
