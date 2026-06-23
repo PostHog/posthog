@@ -497,6 +497,7 @@ class TestConversation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_data = response.json()
         self.assertEqual(response_data["detail"], "Cannot continue streaming from an idle conversation")
+        self.assertEqual(response_data["code"], "conversation_idle")
 
     def test_stream_from_nonexistent_conversation_without_content(self):
         """Test that streaming from a non-existent conversation without content returns an error."""

@@ -853,7 +853,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
 
                 if (!(e instanceof DOMException) || e.name !== 'AbortError') {
-                    posthog.captureException(e)
+                    // Both of these are benign outcomes of our own reconnect protocol after a network
+                    // blip mid-stream, not real failures — don't report them as exceptions:
+                    //   • 409 conflict: the turn is still running server-side; we reconnect below.
+                    //   • 400 conversation_idle: the reconnect landed after the turn already finished.
+                    const isReconnectConflict = e instanceof ApiError && e.status === 409 && generationAttempt <= 5
+                    const isIdleReconnectRace =
+                        e instanceof ApiError && e.status === 400 && e.code === 'conversation_idle'
+
+                    if (!isReconnectConflict && !isIdleReconnectRace) {
+                        posthog.captureException(e)
+                    }
                     let releaseException = true
                     // Generic message by default
                     const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() }
@@ -881,23 +891,32 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
-                            // Validation exception for non-retryable errors, such as idempotency conflict
-                            if (!e.data?.attr && e.data?.code === 'invalid_input') {
+                            if (isIdleReconnectRace) {
+                                // The turn already completed server-side. Sync the final state from the
+                                // server and finish quietly instead of surfacing a scary error.
                                 releaseException = false
-                            }
+                                if (values.conversation?.id) {
+                                    actions.loadConversation(values.conversation.id)
+                                }
+                            } else {
+                                // Validation exception for non-retryable errors, such as idempotency conflict
+                                if (!e.data?.attr && e.data?.code === 'invalid_input') {
+                                    releaseException = false
+                                }
 
-                            // Validation exception for the content length
-                            if (e.data?.attr === 'content') {
-                                relevantErrorMessage.content =
-                                    'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
-                            } else if (e.detail) {
-                                relevantErrorMessage.content = e.detail
+                                // Validation exception for the content length
+                                if (e.data?.attr === 'content') {
+                                    relevantErrorMessage.content =
+                                        'Oops! Your message is too long. Ensure it has no more than 40000 characters.'
+                                } else if (e.detail) {
+                                    relevantErrorMessage.content = e.detail
+                                }
                             }
                         }
 
                         // 409 means the conversation is already in progress.
                         // Reconnect to the existing stream instead of resending the message.
-                        if (e.status === 409 && generationAttempt <= 5) {
+                        if (isReconnectConflict) {
                             // Mark that the next stream replay should clear the thread on the
                             // first real event. We defer the clear (rather than doing it now)
                             // so the user keeps seeing the existing thread + loading indicator

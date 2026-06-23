@@ -510,9 +510,13 @@ class ConversationViewSet(
 
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
-        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
+        # A reconnect (no new message, no resume payload) that lands after the turn already finished.
+        # Tag it with a stable code so the client can treat it as a benign race — the turn completed —
+        # rather than surfacing it as an error.
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
-            raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
+            raise exceptions.ValidationError(
+                "Cannot continue streaming from an idle conversation", code="conversation_idle"
+            )
 
         is_impersonated = is_impersonated_session(request)
 
