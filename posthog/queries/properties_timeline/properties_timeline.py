@@ -112,7 +112,7 @@ class PropertiesTimeline:
         # property filters are not applied here (they only feed crucial-property-key extraction), matching
         # the legacy behavior.
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = Action.objects.get(pk=entity.id, team=team)
+            action = Action.objects.get(pk=cast(Union[int, str], entity.id), team=team)
             return action_to_expr(action)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,

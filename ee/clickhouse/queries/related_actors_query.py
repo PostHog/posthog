@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 from django.utils.timezone import now
 
@@ -105,7 +105,7 @@ class RelatedActorsQuery:
                 "before": ast.Constant(value=self._before),
                 "group_filter": ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=self._group_key_field(self.group_type_index),
+                    left=self._group_key_field(cast(int, self.group_type_index)),
                     right=ast.Constant(value=self.id),
                 ),
             },

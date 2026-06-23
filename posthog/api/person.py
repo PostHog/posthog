@@ -37,7 +37,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_target_entity
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET
+from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
 from posthog.metrics import LABEL_TEAM_ID
@@ -1277,6 +1277,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {str(row[0]): row[1] for row in results} if include_value else None
         )
 
+        serialized_actors: list[Any]
         if aggregation_group_type_index is not None:
             _, serialized_actors = get_groups(self.team.pk, aggregation_group_type_index, actor_ids, value_per_actor_id)
         else:
@@ -1321,7 +1322,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def calculate_funnel_persons(
         self, request: request.Request
     ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        from posthog.schema import FunnelsActorsQuery, FunnelsQuery, FunnelVizType  # noqa: PLC0415
+        from posthog.schema import FunnelsActorsQuery, FunnelsQuery  # noqa: PLC0415
 
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
 
