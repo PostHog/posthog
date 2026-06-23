@@ -1,12 +1,13 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
-
-from django.core.cache import cache
 
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.cache import slack_ticket_create_lock
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import (
@@ -468,7 +469,7 @@ class TestSlackTicketCreateLockDedup(BaseTest):
         mock_client.return_value = MagicMock()
         mock_client.return_value.chat_postMessage = MagicMock()
 
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "team": self.team,
             "slack_channel_id": CHANNEL,
             "thread_ts": PARENT_TS,
@@ -498,12 +499,10 @@ class TestSlackTicketCreateLockDedup(BaseTest):
     def test_lock_held_returns_without_creating_duplicate(self, _files, _user, mock_client):
         mock_client.return_value = MagicMock()
 
-        team_id = self.team.id
-        lock_key = f"conversations:slack_ticket_create_lock:{team_id}:{CHANNEL}:{PARENT_TS}"
-        # Pre-acquire the lock to simulate a concurrent worker holding it
-        cache.add(lock_key, True, timeout=30)
+        # Pre-acquire the lock via production code to simulate a concurrent worker holding it
+        with slack_ticket_create_lock(self.team.id, CHANNEL, PARENT_TS) as acquired:
+            assert acquired
 
-        try:
             result = create_or_update_slack_ticket(
                 team=self.team,
                 slack_channel_id=CHANNEL,
@@ -514,14 +513,14 @@ class TestSlackTicketCreateLockDedup(BaseTest):
                 slack_team_id=SLACK_TEAM,
                 channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
             )
-        finally:
-            cache.delete(lock_key)
 
-        # No ticket created — lock was held
-        assert Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS).count() == 0
-        assert result is None
-        # No confirmation posted
-        mock_client.return_value.chat_postMessage.assert_not_called()
+            # No ticket created — lock was held
+            assert (
+                Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS).count() == 0
+            )
+            assert result is None
+            # No confirmation posted
+            mock_client.return_value.chat_postMessage.assert_not_called()
 
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_BOT")
     @patch(f"{MODULE}.get_slack_client")
@@ -541,7 +540,7 @@ class TestSlackTicketCreateLockDedup(BaseTest):
         }
         mock_client.return_value = client
 
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "team": self.team,
             "slack_channel_id": CHANNEL,
             "thread_ts": PARENT_TS,
@@ -560,8 +559,9 @@ class TestSlackTicketCreateLockDedup(BaseTest):
 
         tickets = Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS)
         assert tickets.count() == 1
-        ticket = tickets.first()
+        created_ticket = tickets.first()
+        assert created_ticket is not None
         # One seed comment + one backfilled reply. The duplicate call returns None, so backfill
         # runs only once and comments aren't doubled.
-        comments = Comment.objects.filter(scope="conversations_ticket", item_id=str(ticket.id))
+        comments = Comment.objects.filter(scope="conversations_ticket", item_id=str(created_ticket.id))
         assert comments.count() == 2
