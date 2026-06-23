@@ -22,14 +22,13 @@ def hydrate_and_persist_connection_metadata(
     if source.is_direct_query or source.connection_metadata:
         return
 
+    # Best-effort cache write: neither discovery nor the save may fail a query whose results are
+    # already computed. A failed save just leaves the metadata empty for the next query to retry.
     try:
         metadata = adapter.fetch_connection_metadata(source, team)
+        if not metadata:
+            return
+        source.connection_metadata = metadata
+        source.save(update_fields=["connection_metadata", "updated_at"])
     except Exception as error:
         capture_exception(error)
-        return
-
-    if not metadata:
-        return
-
-    source.connection_metadata = metadata
-    source.save(update_fields=["connection_metadata", "updated_at"])

@@ -1734,10 +1734,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
 
 class TestDirectConnectionMetadataHydration(APIBaseTest):
-    """A5 is forward-looking plumbing: synced sources hydrate metadata on their first direct query,
-    while pure-direct sources (populated at creation) are a no-op. Synced sources only reach the
-    adapter once A6 wires their virtual tables, so the synced path is exercised here with a mocked
-    adapter."""
+    """Synced sources hydrate their connection metadata on the first direct query; pure-direct
+    sources are skipped because they are already populated at creation. The synced path uses a
+    mocked adapter — only pure-direct sources currently reach the adapter end-to-end."""
 
     def _source(self, *, access_method: str, connection_metadata: dict) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -1816,6 +1815,34 @@ class TestDirectConnectionMetadataHydration(APIBaseTest):
         mock_capture_exception.assert_called_once()
         source.refresh_from_db()
         self.assertEqual(source.connection_metadata, {})
+
+    @patch("posthog.hogql.direct_sql.connection_metadata.capture_exception")
+    def test_swallows_save_errors_without_failing_the_query(self, mock_capture_exception: MagicMock):
+        # Persisting metadata is a best-effort cache write; a save failure must not surface to the
+        # caller, whose query already succeeded.
+        source = self._source(access_method=ExternalDataSource.AccessMethod.WAREHOUSE, connection_metadata={})
+        adapter = MagicMock()
+        adapter.fetch_connection_metadata.return_value = {"engine": "postgres"}
+
+        with patch.object(source, "save", side_effect=RuntimeError("db down")):
+            hydrate_and_persist_connection_metadata(source, adapter, self.team)
+
+        mock_capture_exception.assert_called_once()
+        source.refresh_from_db()
+        self.assertEqual(source.connection_metadata, {})
+
+    @patch("posthog.temporal.data_imports.sources.postgres.source.PostgresSource.get_connection_metadata")
+    @patch("posthog.temporal.data_imports.sources.postgres.postgres.source_requires_ssl", return_value=True)
+    def test_postgres_adapter_fetch_forwards_require_ssl(
+        self, _mock_requires_ssl: MagicMock, mock_get_metadata: MagicMock
+    ):
+        mock_get_metadata.return_value = {"engine": "postgres", "available_functions": []}
+        source = self._source(access_method=ExternalDataSource.AccessMethod.DIRECT, connection_metadata={})
+
+        result = PostgresAdapter().fetch_connection_metadata(source, self.team)
+
+        self.assertEqual(result, {"engine": "postgres", "available_functions": []})
+        self.assertIs(mock_get_metadata.call_args.kwargs["require_ssl"], True)
 
     @patch.object(PostgresAdapter, "fetch_connection_metadata")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
