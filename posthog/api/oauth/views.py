@@ -414,8 +414,10 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
-        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+        """Enforce the per-application scope ceiling from the app's grantable set.
 
+        The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
+        using the required/optional split can request its optional scopes too.
         Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
         and the hand-rolled provisioning mint paths share one implementation. The
         only `/authorize`-specific bit kept here is mutating `request.scopes` when
@@ -423,7 +425,7 @@ class OAuthValidator(OAuth2Validator):
         from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
         PostHog Code CLI) but not on the provisioning paths — see the flag.
         """
-        app_scopes = getattr(client, "scopes", None) or []
+        app_scopes = getattr(client, "ceiling_scopes", None) or []
         requested = set(scopes or [])
         if not requested:
             request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
@@ -435,8 +437,8 @@ class OAuthValidator(OAuth2Validator):
 
         DOT's refresh grant copies the prior access token's scopes verbatim and never
         re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
-        keep refreshing into the old, broader set. Intersecting with `application.scopes`
-        means a narrowed app drops the removed scopes on the next refresh.
+        keep refreshing into the old, broader set. Intersecting with the app's
+        `ceiling_scopes` means a narrowed app drops the removed scopes on the next refresh.
 
         Always-allowed scopes (OIDC, introspection) pass through, mirroring
         `validate_scopes`. Resolution when the app has a ceiling:
@@ -448,7 +450,9 @@ class OAuthValidator(OAuth2Validator):
           re-authorizes and gets a token within the current ceiling, rather than
           silently keeping out-of-ceiling access.
 
-        An empty `application.scopes` (no ceiling) is a no-op.
+        An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
+        required floor — a token consented below a later-declared required set keeps
+        its narrower scopes rather than silently widening on refresh.
         """
         original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
         # DOT's base returns the stored scope as a space-delimited string; oauthlib
@@ -461,7 +465,7 @@ class OAuthValidator(OAuth2Validator):
             rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
             application = rt.application if rt else None
 
-        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
@@ -951,8 +955,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        # Check for auto-approval
-        if request.query_params.get("approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT) == "auto":
+        # Check for auto-approval. Skipped when the request omits a required scope:
+        # auto-approving would mint a grant below the app's required floor, so fall
+        # through to the consent screen, which displays and grants the full required set.
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        if request.query_params.get(
+            "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
+        ) == "auto" and required_resource_scopes <= set(scope_str.split()):
             try:
                 tokens = OAuthAccessToken.objects.filter(
                     user=request.user, application=application, expires__gt=timezone.now()
@@ -985,6 +994,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "client_id": application.client_id,
                     "is_verified": application.is_verified,
                     "logo_uri": application.logo_uri,
+                    "required_scopes": application.required_scopes,
+                    # The read-only form of a `*` grant, computed from the same ceiling
+                    # resolution `validate_scopes` enforces — the frontend's scope list
+                    # drifts from the server's (both over- and under-granting otherwise).
+                    "wildcard_read_scopes": sorted(
+                        scope for scope in effective_ceiling(application.ceiling_scopes) if scope.endswith(":read")
+                    ),
                 }
             },
         )
@@ -1023,6 +1039,29 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             scopes = downgrade_scopes_to_read_only(scopes)
 
         if serializer.validated_data["allow"]:
+            # Required scopes can't be deselected at consent. Compare against the same
+            # read-only downgrade applied to the grant, so impersonation doesn't 400.
+            # Filtered to resource scopes to mirror the consent UI, which only renders
+            # and force-includes `object:action` rows (identity scopes always pass).
+            required = {scope for scope in application.required_scopes if ":" in scope}
+            if is_read_only_impersonation(request):
+                required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
+            missing_required = required - set(scopes.split())
+            if missing_required:
+                logger.warning(
+                    "oauth_authorize_missing_required_scopes",
+                    client_id=serializer.validated_data["client_id"],
+                    missing=sorted(missing_required),
+                )
+                return Response(
+                    {
+                        "error": "invalid_scope",
+                        "error_description": "The grant is missing scopes the application requires: "
+                        + ", ".join(sorted(missing_required)),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             if block := _impersonation_ai_processing_block(
                 request,
                 access_level=serializer.validated_data.get("access_level"),
@@ -1087,7 +1126,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             requested_scope = self.request.query_params.get("scope") or ""
             rejected_scopes = scopes_outside_ceiling(
                 requested_scope.split(),
-                application.scopes or [],
+                application.ceiling_scopes,
                 allow_wildcard_under_empty_ceiling=True,
             )
             posthoganalytics.capture(
