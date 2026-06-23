@@ -8467,6 +8467,18 @@ export namespace Schemas {
       resolved_natives: string[];
     }
 
+    /**
+     * * `langgraph` - LangGraph
+     * * `sandbox` - Sandbox
+     */
+    export type AgentRuntimeEnum = typeof AgentRuntimeEnum[keyof typeof AgentRuntimeEnum];
+
+
+    export const AgentRuntimeEnum = {
+      Langgraph: 'langgraph',
+      Sandbox: 'sandbox',
+    } as const;
+
     export interface AgentTableHeader {
       /** Table name. */
       name: string;
@@ -11353,6 +11365,8 @@ export namespace Schemas {
       affected: number;
       /** Total number of users */
       total: number;
+      /** Maximum allowed audience size for batch triggers for this team. */
+      limit: number;
     }
 
     /**
@@ -12300,10 +12314,10 @@ export namespace Schemas {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto
      */
-    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
 
 
-    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+    export const InitialPermissionModeEnum = {
       Default: 'default',
       AcceptEdits: 'acceptEdits',
       Plan: 'plan',
@@ -12372,7 +12386,7 @@ export namespace Schemas {
        * * `plan` - plan
        * * `bypassPermissions` - bypassPermissions
        * * `auto` - auto */
-      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -13154,6 +13168,79 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    /**
+     * @nullable
+     */
+    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+     */
+    export interface TaskUserBasicInfo {
+      id: number;
+      uuid: string;
+      distinct_id: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
+      /** @nullable */
+      role_at_organization?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
+     * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
+     * avoids presigning a log URL per conversation.
+     *
+     * Read access here follows the conversation (the share-by-link unit), not per-creator task
+     * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /**
+         * Id of the latest TaskRun; null when the task has no runs.
+         * @nullable
+         */
+      readonly latest_run: string | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+    }
+
     export interface Conversation {
       readonly id: string;
       readonly status: ConversationStatus;
@@ -13199,12 +13286,18 @@ export namespace Schemas {
       readonly has_unsupported_content: boolean;
       /** @nullable */
       readonly agent_mode: string | null;
+      /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
+      readonly agent_runtime: AgentRuntimeEnum;
       readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
        *
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
+      readonly task: TaskDetailDTO | null;
     }
 
     export interface ConversationMinimal {
@@ -13248,6 +13341,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
+      readonly task: TaskDetailDTO | null;
     }
 
     export interface ConversionGoalSummary {
@@ -13830,6 +13924,8 @@ export namespace Schemas {
       name: string;
       /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
       text: string;
+      /** When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction). */
+      always_include?: boolean;
     }
 
     export interface TileLayoutBox {
@@ -25755,6 +25851,11 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface IdentityMatchingError {
+      /** Human-readable explanation of why the request could not be served. */
+      detail: string;
+    }
+
     /**
      * * `high` - high
      * * `medium` - medium
@@ -26394,6 +26495,7 @@ export namespace Schemas {
       readonly file_content_type: string;
       /** @nullable */
       readonly file_size_bytes: number | null;
+      readonly always_include: boolean;
     }
 
     export interface LLMModelInfo {
@@ -31081,29 +31183,6 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
-     */
-    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
-
-    /**
-     * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
-     */
-    export interface TaskUserBasicInfo {
-      id: number;
-      uuid: string;
-      distinct_id: string;
-      first_name: string;
-      last_name: string;
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
-      /** @nullable */
-      role_at_organization?: string | null;
-    }
-
-    /**
      * List response for sandbox environments (subset of fields).
      */
     export interface SandboxEnvironmentDTO {
@@ -32525,6 +32604,15 @@ export namespace Schemas {
       results: TaskAutomationDTO[];
     }
 
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
     /**
      * * `claude` - claude
      * * `codex` - codex
@@ -32633,61 +32721,6 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
-    }
-
-    /**
-     * @nullable
-     */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
-
-    /**
-     * Detail response for a task.
-     *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-     */
-    export interface TaskDetailDTO {
-      id: string;
-      /** @nullable */
-      task_number: number | null;
-      slug: string;
-      title: string;
-      title_manually_set: boolean;
-      description: string;
-      origin_product: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      /** @nullable */
-      github_user_integration: string | null;
-      /** @nullable */
-      signal_report: string | null;
-      /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
-      internal: boolean;
-      archived: boolean;
-      /** @nullable */
-      archived_at: string | null;
-      /** Latest run details for this task */
-      latest_run?: TaskRunDetailDTO | null;
-      /** @nullable */
-      created_at?: string | null;
-      /** @nullable */
-      updated_at?: string | null;
-      created_by?: TaskUserBasicInfo | null;
-      /** @nullable */
-      ci_prompt: string | null;
-    }
-
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
     }
 
     export interface PaginatedTaskRunDetailDTOList {
@@ -34531,12 +34564,18 @@ export namespace Schemas {
       readonly has_unsupported_content?: boolean;
       /** @nullable */
       readonly agent_mode?: string | null;
+      /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
+      readonly agent_runtime?: AgentRuntimeEnum;
       readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
        *
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
+      readonly task?: TaskDetailDTO | null;
     }
 
     export interface PatchedCoreEvent {
@@ -40122,8 +40161,8 @@ export namespace Schemas {
     }
 
     /**
-     * PATCH payload for text sources. Both fields optional, at least one
-     * required. `text` triggers a re-chunk; `name` alone does not.
+     * PATCH payload for text sources. All fields optional, at least one
+     * required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
      */
     export interface PatchedUpdateTextSource {
       /**
@@ -40133,6 +40172,8 @@ export namespace Schemas {
       name?: string;
       /** Replacement text. Omit to keep the existing content. */
       text?: string;
+      /** When true, this source's content is injected into every support reply prompt as general context. */
+      always_include?: boolean;
     }
 
     /**
@@ -44994,6 +45035,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `action` - action
+     * * `dashboard` - dashboard
+     * * `error_tracking_issue` - error_tracking_issue
+     * * `evaluation` - evaluation
+     * * `event` - event
+     * * `insight` - insight
+     * * `notebook` - notebook
+     * * `text` - text
+     */
+    export type SandboxAttachedContextItemTypeEnum = typeof SandboxAttachedContextItemTypeEnum[keyof typeof SandboxAttachedContextItemTypeEnum];
+
+
+    export const SandboxAttachedContextItemTypeEnum = {
+      Action: 'action',
+      Dashboard: 'dashboard',
+      ErrorTrackingIssue: 'error_tracking_issue',
+      Evaluation: 'evaluation',
+      Event: 'event',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Text: 'text',
+    } as const;
+
+    /**
+     * One typed attachment carried by a sandbox message.
+     */
+    export interface SandboxAttachedContextItem {
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+       *
+       * * `action` - action
+       * * `dashboard` - dashboard
+       * * `error_tracking_issue` - error_tracking_issue
+       * * `evaluation` - evaluation
+       * * `event` - event
+       * * `insight` - insight
+       * * `notebook` - notebook
+       * * `text` - text */
+      type: SandboxAttachedContextItemTypeEnum;
+      /** Entity identifier — integer for `dashboard`/`action`, string short_id/UUID otherwise. Absent for `text`. */
+      id?: unknown;
+      /** Optional human-readable label rendered in the context block. */
+      name?: string;
+      /** Free-text content. Only for `text` attachments. */
+      value?: string;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface SandboxEnvironmentWrite {
@@ -45024,6 +45112,52 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+    }
+
+    /**
+     * Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against.
+     */
+    export interface SandboxMessageResponse {
+      /** The products/tasks Task backing the conversation. */
+      task_id: string;
+      /** The Run the frontend opens SSE against. */
+      run_id: string;
+      /**
+         * Echo of the request trace id, if provided.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Current status of the targeted Run (e.g. `queued`, `in_progress`). */
+      run_status: string;
+      /** True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run. */
+      just_created_run: boolean;
+    }
+
+    /**
+     * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+     * null/absent `content` warms a sandbox that idles awaiting the first message.
+     */
+    export interface SandboxOpen {
+      /**
+         * The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.
+         * @maxLength 40000
+         * @nullable
+         */
+      content?: string | null;
+      /** Client-generated trace id correlated with the resulting Run's SSE stream. */
+      trace_id?: string;
+      /** Typed PostHog entities (and free text) attached to this message. */
+      attached_context?: SandboxAttachedContextItem[];
+      /** Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto */
+      initial_permission_mode?: InitialPermissionModeEnum;
+      /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
+      task_id?: string;
     }
 
     export interface SavedHeatmapListResponse {

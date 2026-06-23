@@ -64,6 +64,7 @@ from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSer
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -135,6 +136,7 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+    limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1341,7 +1343,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(BlastRadiusSerializer(result).data)
+        return Response(
+            BlastRadiusSerializer(
+                {
+                    "affected": result.affected,
+                    "total": result.total,
+                    "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                }
+            ).data
+        )
 
     @extend_schema(
         operation_id="hog_flows_invocation_results_retrieve",
@@ -1578,7 +1588,15 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             reject_flag_conditions_in_audience(team, filters)
             result = get_user_blast_radius(team, filters, group_type_index)
-            return Response(BlastRadiusSerializer(result).data)
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": result.affected,
+                        "total": result.total,
+                        "limit": get_hogflow_batch_trigger_limit(team.id),
+                    }
+                ).data
+            )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:

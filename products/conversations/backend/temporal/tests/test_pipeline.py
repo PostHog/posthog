@@ -484,3 +484,63 @@ class TestValidateActivity:
         assert result.grounded is False
         assert result.confidence == 0.0
         assert "parse_failure" in result.missing
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._persist_reply_sync")
+@patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._draft_async", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._retrieve_sync")
+@patch(f"{PIPELINE_MODULE}._refine_queries", new_callable=AsyncMock)
+@patch(f"{PIPELINE_MODULE}._build_context_sync")
+async def test_always_on_context_plumbed_to_draft(
+    mock_build,
+    mock_refine,
+    mock_retrieve,
+    mock_draft,
+    mock_validate,
+    mock_persist,
+    workflow_input,
+    sample_chunk_ids,
+):
+    from temporalio.testing import WorkflowEnvironment
+    from temporalio.worker import Worker
+
+    mock_build.return_value = BuildContextOutput(
+        ticket_context="ticket text",
+        ticket_title="Help",
+        always_on_context="Be friendly and professional.",
+    )
+    mock_refine.return_value = RefineQueriesOutput(queries=["test query"])
+    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
+    mock_draft.return_value = DraftOutput(
+        reply="Hi!",
+        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+        confidence=0.95,
+    )
+    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.95, confidence=0.95, missing=[])
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[SupportReplyWorkflow],
+            activities=[
+                build_context_activity,
+                refine_queries_activity,
+                retrieve_activity,
+                draft_activity,
+                validate_activity,
+                persist_reply_activity,
+            ],
+        ):
+            await env.client.execute_workflow(
+                SupportReplyWorkflow.run,
+                workflow_input,
+                id="test-always-on",
+                task_queue="test-queue",
+            )
+
+    # always_on_context is the 6th positional arg to _draft_async
+    assert mock_draft.call_args[0][5] == "Be friendly and professional."

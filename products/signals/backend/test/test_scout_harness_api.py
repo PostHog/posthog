@@ -1167,6 +1167,9 @@ _METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.pos
 
 
 class TestScoutHarnessMetadataAPI(APIBaseTest):
+    """Scout metadata endpoint: enrollment, the alpha banner, and the enforced run limits, all
+    resolved from the `signals-scout` flag payload so the UI shows the throttle dispatch applies."""
+
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/metadata/current/"
 
