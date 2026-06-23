@@ -115,8 +115,9 @@ class TestPaystackResources:
         # Full refresh — no verified server-side updated-at filter on Paystack.
         assert resource["write_disposition"] == "replace"
         assert resource["table_format"] == "delta"
-        assert resource["endpoint"]["data_selector"] == "data"
-        assert resource["endpoint"]["path"].startswith("/")
+        endpoint_config = cast(dict[str, Any], resource["endpoint"])
+        assert endpoint_config["data_selector"] == "data"
+        assert endpoint_config["path"].startswith("/")
 
 
 class TestValidateCredentials:
