@@ -38,13 +38,13 @@ const START_REASON_EXPLANATIONS: Record<string, string> = {
 const explainValue = (key: string, value: unknown): string | null => {
     switch (key) {
         case '$recording_status':
-            return typeof value === 'string' ? RECORDING_STATUS_EXPLANATIONS[value] ?? null : null
+            return typeof value === 'string' ? (RECORDING_STATUS_EXPLANATIONS[value] ?? null) : null
         case '$session_recording_start_reason':
-            return typeof value === 'string' ? START_REASON_EXPLANATIONS[value] ?? null : null
+            return typeof value === 'string' ? (START_REASON_EXPLANATIONS[value] ?? null) : null
         case '$sdk_debug_replay_url_trigger_status':
         case '$sdk_debug_replay_event_trigger_status':
         case '$sdk_debug_replay_linked_flag_trigger_status':
-            return typeof value === 'string' ? TRIGGER_STATUS_EXPLANATIONS[value] ?? null : null
+            return typeof value === 'string' ? (TRIGGER_STATUS_EXPLANATIONS[value] ?? null) : null
         case '$sdk_debug_recording_script_not_loaded':
             return 'The SDK reported the recorder script was not loaded on the page — often caused by ad blockers.'
         case '$sdk_debug_rrweb_start_attempted':
