@@ -2962,6 +2962,55 @@ email@example.org,
         self.assertEqual(1, len(response.json()["results"]))
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_static_cohort_from_persons_query_honors_search_term(self, patch_capture):
+        # Regression test for #65303: when a static cohort is created from the persons
+        # list with a free-text `search`, only the persons matching that search should be
+        # added — not every person. The frontend "Save as static cohort" sends the same
+        # ActorsQuery the persons list uses, including its `search` term.
+        _create_person(
+            distinct_ids=["alice@example.com"],
+            team_id=self.team.pk,
+            properties={"email": "alice@example.com", "name": "Alice"},
+        )
+        _create_person(
+            distinct_ids=["bob@example.com"],
+            team_id=self.team.pk,
+            properties={"email": "bob@example.com", "name": "Bob"},
+        )
+        _create_person(
+            distinct_ids=["carol@example.com"],
+            team_id=self.team.pk,
+            properties={"email": "carol@example.com", "name": "Carol"},
+        )
+
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "searched cohort",
+                "is_static": True,
+                "query": {
+                    "kind": "ActorsQuery",
+                    "search": "alice",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        cohort_id = response.json()["id"]
+
+        while response.json()["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        results = response.json()["results"]
+        # Only Alice matches the search term — not all three persons.
+        self.assertEqual(1, len(results), results)
+        self.assertEqual("alice@example.com", results[0]["distinct_ids"][0])
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_creating_update_and_calculating_with_new_cohort_query_dynamic_error(self, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
