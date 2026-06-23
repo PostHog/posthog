@@ -18,6 +18,10 @@
             ],
             "type": "string"
         },
+        "AccessControlLevel": {
+            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
+            "type": "string"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19462,6 +19466,10 @@
                 },
                 "updated_at": {
                     "type": ["string", "null"]
+                },
+                "user_access_level": {
+                    "$ref": "#/definitions/AccessControlLevel",
+                    "description": "Read-only, server-computed effective access level; absent on a not-yet-created holdout."
                 }
             },
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
