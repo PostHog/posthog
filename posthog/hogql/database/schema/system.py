@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.account_aggregates import (
     account_notebooks_lazy_join,
     account_tags_lazy_join,
 )
+from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.parser import parse_expr
 
 from posthog.scopes import APIScopeObject
@@ -1312,6 +1313,7 @@ class SystemTables(TableNode):
         "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "information_schema": information_schema_node(),
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
         "hog_functions": TableNode(name="hog_functions", table=hog_functions),
         "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
