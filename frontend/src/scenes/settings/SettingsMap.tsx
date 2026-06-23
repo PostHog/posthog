@@ -1659,7 +1659,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.legalDocuments(),
         settings: [],
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        flag: 'LEGAL_DOCUMENTS',
     },
     {
         level: 'organization',
