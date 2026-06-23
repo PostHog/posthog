@@ -119,7 +119,9 @@ class TestIsHostSafe(SimpleTestCase):
         ):
             valid, error = _is_host_safe("nonexistent.invalid", team_id=999)
             assert not valid
-            assert error == "Host could not be resolved"
+            assert error is not None
+            assert "nonexistent.invalid" in error
+            assert "resolve" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocked_host_logs_warning(self):

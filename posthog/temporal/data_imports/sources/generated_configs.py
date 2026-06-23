@@ -1860,6 +1860,11 @@ class MetricoolSourceConfig(config.Config):
 
 
 @config.config
+class MetronomeSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MicrosoftDataverseSourceConfig(config.Config):
     pass
 
@@ -2964,9 +2969,9 @@ class SupabaseSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -3808,6 +3813,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.METABASE: MetabaseSourceConfig,
         ExternalDataSourceType.METRICOOL: MetricoolSourceConfig,
+        ExternalDataSourceType.METRONOME: MetronomeSourceConfig,
         ExternalDataSourceType.MICROSOFTDATAVERSE: MicrosoftDataverseSourceConfig,
         ExternalDataSourceType.MICROSOFTENTRAID: MicrosoftEntraIdSourceConfig,
         ExternalDataSourceType.MICROSOFTLISTS: MicrosoftListsSourceConfig,
