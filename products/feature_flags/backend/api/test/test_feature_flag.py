@@ -5033,9 +5033,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     def test_creating_feature_flag_with_cohort_depending_on_static_snapshot_cohort(self) -> None:
-        static_cohort = Cohort.objects.create(
+        behavioral_cohort = Cohort.objects.create(
             team=self.team,
-            is_static=True,
             filters={
                 "properties": {
                     "type": "AND",
@@ -5048,6 +5047,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             "type": "behavioral",
                         }
                     ],
+                }
+            },
+        )
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": behavioral_cohort.id}],
                 }
             },
         )

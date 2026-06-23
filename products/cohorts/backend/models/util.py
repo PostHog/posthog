@@ -956,9 +956,13 @@ def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    stop_at_static: bool = False,
 ) -> list[Cohort]:
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
+
+    if stop_at_static and cohort.is_static:
+        return []
 
     cohorts = []
     seen_cohort_ids = set()
@@ -982,7 +986,8 @@ def get_all_cohort_dependencies(
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                queue.extend(get_nested_cohort_ids(current_cohort))
+                if not (stop_at_static and current_cohort.is_static):
+                    queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:
             seen_cohorts_cache[cohort_id] = ""
