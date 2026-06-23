@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -24,6 +25,30 @@ import {
     isDefaultTrendsLineDisplay,
     LINE_DISPLAYS,
 } from './DisplayOptions'
+
+function SectionHeader({
+    children,
+    tooltip,
+    dataAttr,
+}: {
+    children: ReactNode
+    tooltip?: string
+    dataAttr?: string
+}): JSX.Element {
+    return (
+        <h5 className="mx-2 my-1" data-attr={dataAttr}>
+            {children}
+            {tooltip && (
+                <>
+                    {' '}
+                    <Tooltip title={tooltip}>
+                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                    </Tooltip>
+                </>
+            )}
+        </h5>
+    )
+}
 
 // The "Options" menu in the insight editor's display config bar. `count` is the number of non-default
 // active options, badged on the Options button.
@@ -169,11 +194,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
 
     if (showDisplaySection) {
         items.push({
-            title: (
-                <h5 className="mx-2 my-1" data-attr="options-display-section">
-                    Display
-                </h5>
-            ),
+            title: <SectionHeader dataAttr="options-display-section">Display</SectionHeader>,
             items: getDisplayItems(),
         })
     }
@@ -181,12 +202,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     if (supportsResultCustomizationBy) {
         items.push({
             title: (
-                <h5 className="mx-2 my-1">
-                    Color customization by{' '}
-                    <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                    </Tooltip>
-                </h5>
+                <SectionHeader tooltip="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                    Color customization by
+                </SectionHeader>
             ),
             items: [DisplayOptions.ResultCustomizationBy],
         })
@@ -227,12 +245,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         items.push({ title: 'On dashboards', items: [DisplayOptions.RetentionDashboardDisplay] })
         items.push({
             title: (
-                <h5 className="mx-2 my-1">
-                    Cohort labels start at{' '}
-                    <Tooltip title="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
-                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                    </Tooltip>
-                </h5>
+                <SectionHeader tooltip="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
+                    Cohort labels start at
+                </SectionHeader>
             ),
             items: [DisplayOptions.RetentionCohortLabelStart],
         })
