@@ -5,7 +5,6 @@ import { mswDecorator } from '~/mocks/browser'
 import {
     allReports,
     mockArtefacts,
-    mockReportTasks,
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
@@ -31,10 +30,6 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
-        ],
-        '/api/projects/:id/signals/reports/:reportId/tasks': (req) => [
-            200,
-            mockReportTasks(req.params.reportId as string),
         ],
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string)],
         '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],

@@ -3,12 +3,18 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
+import {
+    deriveTaskPurpose,
+    PURPOSE_ORDER,
+    ReportTaskPurpose,
+    TaskRunArtefactContent,
+} from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
     buildAddReviewerOptions,
@@ -20,13 +26,15 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStatus,
-    SignalReportTask,
-    SignalReportTaskRelationship,
 } from '../types'
 import type { inboxReportDetailLogicType } from './inboxReportDetailLogicType'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+
+// The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
+// gone). Pull a generous page so every association stays visible even on a report with many findings.
+const ARTEFACT_FETCH_LIMIT = 200
 
 export interface InboxReportDetailLogicProps {
     reportId: string
@@ -34,15 +42,13 @@ export interface InboxReportDetailLogicProps {
     report?: SignalReport | null
 }
 
-/** A linked task plus the relationship and when the link was created. Mirrors desktop `ReportTaskData`. */
+/** A linked task plus its derived purpose and when the association was first recorded. Mirrors desktop `ReportTaskData`. */
 export interface ReportTaskEntry {
     task: Task
-    relationship: SignalReportTaskRelationship
+    purpose: ReportTaskPurpose
+    purposeLabel: string
     startedAt: string
 }
-
-// Only these relationships are rendered, implementation-first. Mirrors desktop `useReportTasks`.
-const DISPLAYED_RELATIONSHIPS: SignalReportTaskRelationship[] = ['implementation', 'research']
 
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
 const ACTIVE_STATUSES: SignalReportStatus[] = [
@@ -107,7 +113,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalReportArtefact[] | null,
             {
                 loadReportArtefacts: async () => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId)
+                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
+                        limit: ARTEFACT_FETCH_LIMIT,
+                    })
                     return response.results
                 },
             },
@@ -124,20 +132,56 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportTasks: [
             null as ReportTaskEntry[] | null,
             {
+                // The task↔report association lives in the `task_run` artefact log: each artefact's
+                // `(product, type)` derives the task's purpose. We group by task id (earliest
+                // association wins for `startedAt`), drop `repo_selection` (pipeline plumbing), then
+                // resolve each task. Mirrors desktop `useReportTasks`.
                 loadReportTasks: async () => {
-                    const response: PaginatedResponse<SignalReportTask> = await api.signalReports.tasks(props.reportId)
-                    const relevant = response.results.filter((rt) => DISPLAYED_RELATIONSHIPS.includes(rt.relationship))
+                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
+                        limit: ARTEFACT_FETCH_LIMIT,
+                    })
+                    const associations = new Map<
+                        string,
+                        { purpose: ReportTaskPurpose; purposeLabel: string; startedAt: string }
+                    >()
+                    for (const artefact of response.results) {
+                        if (artefact.type !== 'task_run') {
+                            continue
+                        }
+                        const content = artefact.content as TaskRunArtefactContent
+                        if (!content?.task_id) {
+                            continue
+                        }
+                        const derived = deriveTaskPurpose(content)
+                        if (!derived) {
+                            continue
+                        }
+                        const existing = associations.get(content.task_id)
+                        if (!existing) {
+                            associations.set(content.task_id, { ...derived, startedAt: artefact.created_at })
+                        } else if (artefact.created_at < existing.startedAt) {
+                            // Keep the earliest association's timestamp + purpose for this task.
+                            associations.set(content.task_id, { ...derived, startedAt: artefact.created_at })
+                        }
+                    }
                     const entries = await Promise.all(
-                        relevant.map(async (rt): Promise<ReportTaskEntry> => {
-                            const task = await api.tasks.get(rt.task_id)
-                            return { task, relationship: rt.relationship, startedAt: rt.created_at }
+                        [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
+                            try {
+                                const task = await api.tasks.get(taskId)
+                                return { task, ...meta }
+                            } catch {
+                                // A deleted/inaccessible task drops out of the list rather than failing the load.
+                                return null
+                            }
                         })
                     )
-                    return entries.sort(
-                        (a, b) =>
-                            DISPLAYED_RELATIONSHIPS.indexOf(a.relationship) -
-                            DISPLAYED_RELATIONSHIPS.indexOf(b.relationship)
-                    )
+                    return entries
+                        .filter((entry): entry is ReportTaskEntry => entry !== null)
+                        .sort(
+                            (a, b) =>
+                                PURPOSE_ORDER.indexOf(a.purpose) - PURPOSE_ORDER.indexOf(b.purpose) ||
+                                new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime()
+                        )
                 },
             },
         ],
@@ -263,7 +307,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 if (!reportTasks) {
                     return false
                 }
-                const researchTasks = reportTasks.filter((rt) => rt.relationship === 'research')
+                const researchTasks = reportTasks.filter((rt) => rt.purpose === 'research')
                 if (researchTasks.length < 2) {
                     return false
                 }
@@ -336,7 +380,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setReport: () => {
             if (values.isReportActive) {
                 cache.disposables.add(() => {
-                    const interval = setInterval(() => actions.loadReportTasks(), REPORT_TASKS_POLL_INTERVAL_MS)
+                    // Refresh both the linked tasks and the artefact log (which drives the activity
+                    // timeline + the task associations) while the report is still being worked.
+                    const interval = setInterval(() => {
+                        actions.loadReportTasks()
+                        actions.loadReportArtefacts()
+                    }, REPORT_TASKS_POLL_INTERVAL_MS)
                     return () => clearInterval(interval)
                 }, 'reportTasksPoll')
             } else {

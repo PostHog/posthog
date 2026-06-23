@@ -2,15 +2,6 @@ import clsx from 'clsx'
 
 import { TaskRunStatus } from 'products/tasks/frontend/types'
 
-import { SignalReportTaskRelationship } from '../../types'
-
-/** Human label for a report→task relationship, shown next to a run in the inbox. */
-export const RELATIONSHIP_LABEL: Record<SignalReportTaskRelationship, string> = {
-    research: 'Research',
-    implementation: 'Implementation',
-    repo_selection: 'Repo selection',
-}
-
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus`. */
 export const TERMINAL_STATUSES: TaskRunStatus[] = [
     TaskRunStatus.COMPLETED,
