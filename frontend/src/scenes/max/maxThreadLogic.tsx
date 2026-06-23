@@ -2118,12 +2118,18 @@ export async function onEventImplementation(
                 .find(([m]) => isHumanMessage(m))?.[1]
 
             const lastHumanMessage = lastHumanIndex != null ? values.threadRaw[lastHumanIndex] : null
-            const shouldReplace =
+            // Normally the server echoes back the same trace_id we sent, so we can match the
+            // provisional bubble on it. After a stop + resend, though, the trace_id can be
+            // reassigned, so we also fall back to matching the un-persisted provisional bubble
+            // (no server id yet) by its content. Without this, the echo gets appended at the end
+            // of the thread, landing *below* the assistant's streaming thinking block instead of
+            // above it (the order self-corrects on reload). See bug #65566.
+            const provisionalHumanMatches =
                 isHumanMessage(lastHumanMessage) &&
-                parsedResponse.trace_id &&
-                lastHumanMessage.trace_id === parsedResponse.trace_id
+                ((parsedResponse.trace_id && lastHumanMessage.trace_id === parsedResponse.trace_id) ||
+                    (!lastHumanMessage.id && lastHumanMessage.content === parsedResponse.content))
 
-            if (lastHumanIndex != null && shouldReplace) {
+            if (lastHumanIndex != null && provisionalHumanMatches) {
                 actions.replaceMessage(lastHumanIndex, {
                     ...parsedResponse,
                     status: 'completed',
