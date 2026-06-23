@@ -2,10 +2,16 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/producers'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -25,13 +31,11 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '../config/redis-pools'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {
@@ -40,7 +44,6 @@ import {
     IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
-    PersonHogConfig,
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
@@ -155,6 +158,17 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
+                // Dedicated $feature_flag_called dedup Redis, so its claim keys don't compete
+                // with ingestion's overflow-redirect keys under eviction. Falls back to the
+                // ingestion connection until the dedup host is configured.
+                .add(
+                    'featureFlagCalledDedupRedisPool',
+                    new RedisPoolComponent({
+                        connection: createFeatureFlagCalledDedupRedisConnectionConfig(this.config),
+                        poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                    })
+                )
                 .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
         )
 
@@ -245,6 +259,7 @@ export class IngestionGeneralServer implements NodeServer {
         const ingestionDeps: IngestionConsumerDeps = {
             postgres: this.postgres,
             redisPool: this.redisPool,
+            featureFlagCalledDedupRedisPool: sharedServices.container.featureFlagCalledDedupRedisPool,
             outputs: ingestionOutputs,
             teamManager,
             groupTypeManager,

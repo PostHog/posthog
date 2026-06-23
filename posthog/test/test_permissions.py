@@ -78,7 +78,7 @@ class TestAccessControlPermission(BaseTest):
 
     def _create_real_view(self, action="list", pk=None):
         """Helper to create a real NotebookViewSet instance"""
-        from products.notebooks.backend.api.notebook import NotebookViewSet
+        from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
 
         view = NotebookViewSet()
         view.action = action

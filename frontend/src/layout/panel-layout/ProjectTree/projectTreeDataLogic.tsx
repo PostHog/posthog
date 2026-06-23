@@ -479,7 +479,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
                     // initKea captures the exception so the previously-silent hang is surfaced.
                     const response = await withTimeout(
-                        api.fileSystemShortcuts.list(),
+                        (signal) => api.fileSystemShortcuts.list({ signal }),
                         SHORTCUTS_LOADER_TIMEOUT_MS,
                         'loadShortcuts timed out'
                     )

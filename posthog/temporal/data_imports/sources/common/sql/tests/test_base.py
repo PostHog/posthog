@@ -5,17 +5,21 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
 from posthog.schema import SourceConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.config import Config
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource, reconcile_source_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.implementation import SourceMetadata, SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 @dataclasses.dataclass
@@ -241,3 +245,103 @@ class TestDefaultNonRetryableErrors:
         errors = SQLSource.default_non_retryable_errors()
         assert isinstance(errors, dict)
         assert len(errors) == 2
+
+
+class TestReconcileSourceSchemaMetadata(BaseTest):
+    """The driver-agnostic reconcile helper that `SQLSource` and `ClickHouseSource` share."""
+
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.CLICKHOUSE)
+
+    def _schema(self, source: ExternalDataSource, name: str = "messages", **kwargs: Any) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team=self.team, source=source, name=name, **kwargs)
+
+    @staticmethod
+    def _source_schema(name: str = "messages", **kwargs: Any) -> SourceSchema:
+        return SourceSchema(name=name, supports_incremental=False, supports_append=False, **kwargs)
+
+    def test_persists_columns_foreign_keys_and_source_fields(self) -> None:
+        source = self._source()
+        schema = self._schema(source)
+
+        result = reconcile_source_schema_metadata(
+            source,
+            [
+                self._source_schema(
+                    columns=[("id", "Int64", False), ("ts", "DateTime", True)],
+                    foreign_keys=[("author_id", "users", "id")],
+                    source_catalog="default",
+                    source_schema="public",
+                    source_table_name="messages",
+                )
+            ],
+            self.team.pk,
+        )
+
+        assert result == []
+        schema.refresh_from_db()
+        metadata = schema.sync_type_config["schema_metadata"]
+        assert metadata["columns"] == [
+            {"name": "id", "data_type": "Int64", "is_nullable": False},
+            {"name": "ts", "data_type": "DateTime", "is_nullable": True},
+        ]
+        assert metadata["foreign_keys"] == [{"column": "author_id", "target_table": "users", "target_column": "id"}]
+        assert metadata["source_catalog"] == "default"
+        assert metadata["source_schema"] == "public"
+        assert metadata["source_table_name"] == "messages"
+
+    def test_merges_into_existing_sync_type_config(self) -> None:
+        source = self._source()
+        schema = self._schema(source, sync_type_config={"incremental_field": "ts", "chunk_size_override": 5})
+
+        reconcile_source_schema_metadata(source, [self._source_schema(columns=[("id", "Int64", False)])], self.team.pk)
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field"] == "ts"
+        assert schema.sync_type_config["chunk_size_override"] == 5
+        assert "schema_metadata" in schema.sync_type_config
+
+    def test_prunes_enabled_columns_missing_from_source(self) -> None:
+        source = self._source()
+        schema = self._schema(source, enabled_columns=["id", "dropped"])
+
+        reconcile_source_schema_metadata(
+            source, [self._source_schema(columns=[("id", "Int64", False), ("ts", "DateTime", True)])], self.team.pk
+        )
+
+        schema.refresh_from_db()
+        assert schema.enabled_columns == ["id"]
+
+    def test_keeps_enabled_columns_when_all_present(self) -> None:
+        source = self._source()
+        schema = self._schema(source, enabled_columns=["id", "ts"])
+
+        reconcile_source_schema_metadata(
+            source, [self._source_schema(columns=[("id", "Int64", False), ("ts", "DateTime", True)])], self.team.pk
+        )
+
+        schema.refresh_from_db()
+        assert schema.enabled_columns == ["id", "ts"]
+
+    def test_skips_schema_without_a_matching_source_schema(self) -> None:
+        source = self._source()
+        schema = self._schema(source, name="messages")
+
+        reconcile_source_schema_metadata(
+            source, [self._source_schema(name="other", columns=[("id", "Int64", False)])], self.team.pk
+        )
+
+        schema.refresh_from_db()
+        assert schema.schema_metadata is None
+
+    def test_does_not_touch_schemas_on_a_different_source(self) -> None:
+        source = self._source()
+        other_source = self._source()
+        schema = self._schema(other_source, name="messages")
+
+        reconcile_source_schema_metadata(
+            source, [self._source_schema(name="messages", columns=[("id", "Int64", False)])], self.team.pk
+        )
+
+        schema.refresh_from_db()
+        assert schema.schema_metadata is None

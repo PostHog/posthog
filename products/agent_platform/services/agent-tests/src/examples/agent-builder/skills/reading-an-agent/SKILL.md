@@ -9,13 +9,13 @@ For "what does X do?" / "show me X" / "is X healthy?", in this
 order — DO NOT skip steps because you already have a partial
 mental model from earlier in the session.
 
-1. **Locate the application.** Call `@posthog/agent-applications-list` if
-   you only have a description, or `@posthog/agent-applications-retrieve`
+1. **Locate the application.** Call `posthog__agent-applications-list` if
+   you only have a description, or `posthog__agent-applications-retrieve`
    directly if you have a slug. Capture `id`, `slug`,
    `live_revision_id`, `description`.
 
 2. **Open the live revision.** Call
-   `@posthog/agent-applications-revisions-retrieve` for
+   `posthog__agent-applications-revisions-retrieve` for
    `live_revision_id`. Capture `spec` (the full JSON) and
    `bundle_sha256`.
 
@@ -24,13 +24,13 @@ mental model from earlier in the session.
    now so the user sees the same screen you do.
 
 4. **Read the system prompt.** Call
-   `@posthog/agent-applications-revisions-system-prompt` — returns the
+   `posthog__agent-applications-revisions-system-prompt` — returns the
    fully-rendered prompt (framework preamble + `agent.md` + skills
    index). This is what the model sees on every turn, so it's the
    most informative single artifact.
 
 5. **List recent sessions.** Call
-   `@posthog/agent-applications-sessions-list` with the last 50. Look at:
+   `posthog__agent-applications-sessions-list` with the last 50. Look at:
    - `state` distribution (how many `completed` vs `failed` vs
      `closed`)
    - `started_at` recency — when did this agent last run?
@@ -38,7 +38,7 @@ mental model from earlier in the session.
    - `usage_total` for cost / token signal
 
 6. **If anything stood out in step 5,** retrieve one or two of the
-   outliers (`@posthog/agent-applications-sessions-retrieve` + `@posthog/agent-applications-session-logs`) for a concrete
+   outliers (`posthog__agent-applications-sessions-retrieve` + `posthog__agent-applications-session-logs`) for a concrete
    example. Do not list every session — list the patterns.
 
 ## The summary shape
@@ -102,17 +102,17 @@ Drill in narrowly. Don't repeat the whole summary.
 
 | User asks                      | Right next call                                                                                                                                                |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "show me its prompt"           | `@posthog/agent-applications-revisions-system-prompt` for live revision                                                                                        |
+| "show me its prompt"           | `posthog__agent-applications-revisions-system-prompt` for live revision                                                                                        |
 | "what skills does it have?"    | Already in `spec.skills[]` — render the table                                                                                                                  |
-| "read me skill X"              | `@posthog/agent-applications-revisions-bundle-retrieve` — the skill body is in the returned `skills[]`                                                         |
-| "what was the latest session?" | `@posthog/agent-applications-sessions-list` with `limit: 1`, then `@posthog/agent-applications-sessions-retrieve` + `@posthog/agent-applications-session-logs` |
+| "read me skill X"              | `posthog__agent-applications-revisions-bundle-retrieve` — the skill body is in the returned `skills[]`                                                         |
+| "what was the latest session?" | `posthog__agent-applications-sessions-list` with `limit: 1`, then `posthog__agent-applications-sessions-retrieve` + `posthog__agent-applications-session-logs` |
 | "how much is it costing?"      | Load `skills/cost-and-quota-analysis` and run the standard query                                                                                               |
-| "show me the bundle"           | `@posthog/agent-applications-revisions-manifest-retrieve` — file tree only                                                                                     |
-| "what's its history?"          | `@posthog/agent-applications-revisions-list` — chronological revision states                                                                                   |
+| "show me the bundle"           | `posthog__agent-applications-revisions-manifest-retrieve` — file tree only                                                                                     |
+| "what's its history?"          | `posthog__agent-applications-revisions-list` — chronological revision states                                                                                   |
 
 ## The 'this agent doesn't exist' case
 
-If `@posthog/agent-applications-list` doesn't have a slug the user named,
+If `posthog__agent-applications-list` doesn't have a slug the user named,
 **don't suggest it exists somewhere else and proceed**. Tell them:
 
 > No agent with slug `<x>` in this project. The closest match by name
@@ -124,7 +124,7 @@ Offer to switch context. Don't invent.
 ## When inspecting multiple agents
 
 Common: "show me everything in this team". Call
-`@posthog/agent-applications-list` once and produce a table — slug, name,
+`posthog__agent-applications-list` once and produce a table — slug, name,
 last-session timestamp, live-revision age, archived flag. Don't
 load each one individually; that's a separate request the user can
 make after they see the list.

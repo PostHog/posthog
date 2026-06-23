@@ -188,7 +188,8 @@ def _run_job(cluster: ClickhouseCluster, **config_overrides: Any) -> tuple[dagst
     config = IdentityMatchingConfig(**config_kwargs)
     result = identity_matching_job.execute_in_process(
         run_config=dagster.RunConfig({"prepare_run": config}),
-        resources={"cluster": cluster},
+        # Slack posting is skipped off-Cloud, so a no-op resource satisfies the op requirement.
+        resources={"cluster": cluster, "slack": dagster.ResourceDefinition.none_resource()},
     )
     return result, UUID(result.dagster_run.run_id)
 

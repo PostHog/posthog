@@ -309,34 +309,80 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             ],
             created_at: BASE_DATE,
         },
+        // Task↔report associations now live in the artefact log as `task_run` artefacts; the
+        // detail logic derives the Runs list + purpose from these (no more `/tasks/` endpoint).
+        {
+            id: `${reportId}-tr-research`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-research`,
+                run_id: `${reportId}-task-research-run`,
+                product: 'signals',
+                type: 'research',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
+        },
+        {
+            id: `${reportId}-tr-impl`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-impl`,
+                run_id: `${reportId}-task-impl-run`,
+                product: 'signals',
+                type: 'implementation',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
+        // A handful of log artefacts so the Activity timeline has something to render.
+        {
+            id: `${reportId}-note`,
+            type: 'note',
+            content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-commit`,
+            type: 'commit',
+            content: {
+                repository: 'PostHog/posthog',
+                branch: 'inbox/fix-invites',
+                commit_sha: 'a1b2c3d4e5f6a1b2c3d4e5f6',
+                message: 'fix(invites): reject empty recipient rows before submit',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
     ]
     return { results, count: results.length }
 }
 
-export function mockReportTasks(reportId: string): { results: any[]; count: number; next: null; previous: null } {
+function makeTaskRun(taskId: string, runId: string, status: string): any {
     return {
-        results: [
-            {
-                id: `${reportId}-t1`,
-                relationship: 'research',
-                task_id: `${reportId}-task-research`,
-                created_at: BASE_DATE,
-            },
-            {
-                id: `${reportId}-t2`,
-                relationship: 'implementation',
-                task_id: `${reportId}-task-impl`,
-                created_at: BASE_DATE,
-            },
-        ],
-        count: 2,
-        next: null,
-        previous: null,
+        id: runId,
+        task: taskId,
+        stage: null,
+        branch: 'inbox/fix-invites',
+        status,
+        environment: 'cloud',
+        log_url: null,
+        error_message: null,
+        output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
+        state: {},
+        artifacts: [],
+        created_at: BASE_DATE,
+        updated_at: BASE_DATE,
+        completed_at: status === 'in_progress' ? null : BASE_DATE,
     }
 }
 
-export function mockTask(taskId: string): any {
-    const failed = taskId.includes('research')
+// `runStatus` overrides the linked run's status; defaults keep the research task finished and the
+// implementation task live. Pass a terminal status (e.g. 'completed') to render the run viewer's
+// static replay rather than a live SSE stream.
+export function mockTask(taskId: string, runStatus?: string): any {
+    const status = runStatus ?? (taskId.includes('research') ? 'completed' : 'in_progress')
     return {
         id: taskId,
         task_number: 42,
@@ -348,26 +394,41 @@ export function mockTask(taskId: string): any {
         github_integration: 1,
         json_schema: null,
         internal: false,
-        latest_run: {
-            id: `${taskId}-run`,
-            task: taskId,
-            stage: null,
-            branch: 'inbox/fix-invites',
-            status: failed ? 'completed' : 'in_progress',
-            environment: 'cloud',
-            log_url: null,
-            error_message: null,
-            output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
-            state: {},
-            artifacts: [],
-            created_at: BASE_DATE,
-            updated_at: BASE_DATE,
-            completed_at: failed ? BASE_DATE : null,
-        },
+        latest_run: makeTaskRun(taskId, `${taskId}-run`, status),
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         created_by: null,
     }
+}
+
+/** The run-status payload (`/runs/:runId`) the `SandboxRunViewer` reads before replaying its log. */
+export function mockTaskRun(taskId: string, runId: string): any {
+    return makeTaskRun(taskId, runId, 'completed')
+}
+
+/**
+ * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
+ * bubble instead of the "conversation backing run not found" error.
+ */
+export function mockRunLog(): string {
+    const entry = {
+        type: 'notification',
+        notification: {
+            method: 'session/update',
+            params: {
+                update: {
+                    sessionUpdate: 'agent_message',
+                    messageId: 'inbox-run-msg',
+                    content: {
+                        type: 'text',
+                        text: 'Investigated the invite failures, confirmed the missing-recipient 500, and opened a fix.',
+                    },
+                },
+            },
+        },
+    }
+    return JSON.stringify(entry)
 }
 
 export const mockSourceConfigs = {

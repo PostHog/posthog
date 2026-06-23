@@ -11,8 +11,10 @@ from google.auth.exceptions import RefreshError
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryCredentialsRejectedError,
+    BigQueryDatasetNotFoundError,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
@@ -132,6 +134,24 @@ def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, i
         assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
     else:
         assert error_message in str(exc_info.value)
+
+
+def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
+    """A missing dataset/table surfaces as a raw google `NotFound` from `client.query()`. Schema
+    discovery must re-raise it with actionable wording instead of leaking BigQuery job internals,
+    and that wording must stay registered as non-retryable."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = NotFound(
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7"
+    )
+
+    with pytest.raises(BigQueryDatasetNotFoundError) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert str(exc_info.value) == BIGQUERY_DATASET_NOT_FOUND_ERROR
+    # The raw 404 (job id, location internals) must not survive into the message.
+    assert "Job ID" not in str(exc_info.value)
+    assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
 @pytest.mark.parametrize(
@@ -456,6 +476,21 @@ def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Offline token_uri endpoint error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Corrupted/truncated private key body in the uploaded service account JSON.
+        "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
+        "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
+    ],
+)
+def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Unparseable private key error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 

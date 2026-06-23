@@ -15,7 +15,7 @@ concurrency:
     cancel-in-progress: true
 
 env:
-    DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
@@ -63,10 +63,10 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -97,13 +97,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -155,10 +148,10 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -189,13 +182,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-skills'
-                  workspaces: rust
-                  save-if: false
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli

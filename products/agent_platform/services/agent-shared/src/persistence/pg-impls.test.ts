@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 
-import { reset } from '@posthog/agent-shared/testing'
+import { isReachable, reset } from '@posthog/agent-shared/testing'
 
 import { EncryptedFields } from '../runtime/encryption'
 import { PgSandboxInstanceStore } from '../sandbox/sandbox-instance-store'
@@ -25,18 +25,6 @@ import { PgRevisionStore } from './pg-revision-store'
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 
-async function isReachable(): Promise<boolean> {
-    const probe = new Pool({ connectionString: TEST_DB_URL, max: 1 })
-    try {
-        await probe.query('SELECT 1')
-        return true
-    } catch {
-        return false
-    } finally {
-        await probe.end().catch(() => undefined)
-    }
-}
-
 const maybeDescribe = process.env.SKIP_PG_TESTS === '1' ? describe.skip : describe
 
 maybeDescribe('Postgres impls (real PG)', () => {
@@ -44,7 +32,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
     let reachable = false
 
     beforeAll(async () => {
-        reachable = await isReachable()
+        reachable = await isReachable(TEST_DB_URL)
         if (!reachable) {
             // eslint-disable-next-line no-console
             console.warn(`[pg-impls.test] ${TEST_DB_URL} unreachable — skipping`)
@@ -655,7 +643,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_name: '@posthog/team-delete',
             proposed_args: { team_id: 42, dry_run: false },
             assistant_message: asstMsg,
-            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            approver_scope: { type: 'agent' as const, allow_edit: false },
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 
@@ -740,7 +728,7 @@ maybeDescribe('Postgres impls (real PG)', () => {
             tool_call_id: 'tc_x',
             tool_name: 'tool.dispatch',
             assistant_message: asstMsg,
-            approver_scope: { approvers: ['team_admins'], allow_edit: false, allow_agent_approver: false },
+            approver_scope: { type: 'agent' as const, allow_edit: false },
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         }
 

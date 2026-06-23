@@ -5,6 +5,7 @@ import { LogSeverityLevel } from '~/queries/schema/schema-general'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import type { facetRailLogicType } from './facetRailLogicType'
+import { FacetSource, toggleResourceAttributeFilter } from './facets'
 
 export interface FacetRailLogicProps {
     id: string
@@ -23,12 +24,13 @@ export const facetRailLogic = kea<facetRailLogicType>([
     key((props) => props.id),
 
     connect((props: FacetRailLogicProps) => ({
-        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames']],
+        actions: [logsViewerFiltersLogic({ id: props.id }), ['setSeverityLevels', 'setServiceNames', 'setFilterGroup']],
     })),
 
     actions({
-        toggleSeverityLevel: (level: LogSeverityLevel) => ({ level }),
-        toggleServiceName: (name: string) => ({ name }),
+        // Generic toggle: the rail is config-driven, so a single action writes a value into whichever
+        // filter field/group the facet's source maps to (see FacetConfig.source).
+        toggleFacetValue: (source: FacetSource, value: string) => ({ source, value }),
         toggleFacetCollapsed: (facetKey: string) => ({ facetKey }),
     }),
 
@@ -44,13 +46,19 @@ export const facetRailLogic = kea<facetRailLogicType>([
     }),
 
     listeners(({ props, actions }) => ({
-        toggleSeverityLevel: ({ level }) => {
-            const { severityLevels } = logsViewerFiltersLogic({ id: props.id }).values
-            actions.setSeverityLevels(toggleMembership(severityLevels, level))
-        },
-        toggleServiceName: ({ name }) => {
-            const { serviceNames } = logsViewerFiltersLogic({ id: props.id }).values
-            actions.setServiceNames(toggleMembership(serviceNames, name))
+        toggleFacetValue: ({ source, value }) => {
+            const { severityLevels, serviceNames, filterGroup } = logsViewerFiltersLogic({ id: props.id }).values
+            if (source.type === 'resourceAttribute') {
+                // Selection lives as a log_resource_attribute filter inside the group.
+                actions.setFilterGroup(toggleResourceAttributeFilter(filterGroup, source.key, value), false)
+            } else if (source.filterKey === 'severityLevels') {
+                actions.setSeverityLevels(toggleMembership(severityLevels, value as LogSeverityLevel))
+            } else if (source.filterKey === 'serviceNames') {
+                actions.setServiceNames(toggleMembership(serviceNames, value))
+            } else {
+                // Adding a new column filterKey without wiring its setter here is a compile error.
+                source.filterKey satisfies never
+            }
         },
     })),
 ])

@@ -37,14 +37,14 @@ will throw away.
 ## Phase 1 — discover
 
 ```text
-@posthog/agent-applications-spec-schema       → authoritative spec shape (call before you design)
-@posthog/agent-applications-native-tools-list → built-in tool catalog
-agent-applications-list                       → existing agents (clone target?)
+posthog__agent-resolve-resource               → read this playbook before you design
+posthog__agent-native-tools-list              → built-in tool catalog (valid native tool ids)
+posthog__agent-applications-list              → existing agents (clone target?)
 ```
 
 If the user describes something close to an existing agent,
 **suggest cloning** instead of writing fresh. Use
-`agent-applications-revisions-clone-from-create` to start from
+`posthog__agent-applications-revisions-clone-from-create` to start from
 that bundle. Saves a lot of work.
 
 For platform-level templates (skill templates, custom-tool
@@ -53,9 +53,11 @@ reference them until they exist.
 
 ## Phase 2 — design the spec
 
-Call `@posthog/agent-applications-spec-schema` first — it returns the
-authoritative shape for every field below. Decide the _values_ here; let
-the schema settle the _structure_.
+Re-read this `authoring-new-agents` playbook via
+`posthog__agent-resolve-resource` before you design — it's the
+reference for every field below. Decide the _values_ here; let the
+playbook settle the _structure_, and pin down valid native tool ids
+with `posthog__agent-native-tools-list`.
 
 Sketch the spec in your head / out loud with the user, BEFORE
 calling any create endpoint. Cover:
@@ -89,20 +91,23 @@ calling any create endpoint. Cover:
 Show the proposed spec to the user before creating. They will
 catch things you missed.
 
-### Get the shape from the tool, not from memory
+### Get the shape from the tools, not from memory
 
-`@posthog/agent-applications-spec-schema` is the authoritative source
-for `spec` structure — every field, enum, default, and the
-discriminated unions for `triggers[]` (auth lives per-trigger),
-`tools[]` (`native` vs `custom` vs `client`), and `secrets[]`
-(bare string vs `{name, allowed_hosts}`). Match it instead of
-hand-copying shapes from memory or another agent; guessing the shape
-is what used to cost 5-10 trial-and-error turns per session. Pair it
-with `@posthog/agent-applications-native-tools-list` for valid native
-tool ids (the validator rejects unknown ones).
+Don't guess the `spec` structure from memory or hand-copy it from
+another agent — guessing the shape is what used to cost 5-10
+trial-and-error turns per session. Instead: read this
+`authoring-new-agents` playbook via `posthog__agent-resolve-resource`
+for the field reference (every field, enum, default, and the
+discriminated unions for `triggers[]` with per-trigger auth, `tools[]`
+as `native` vs `custom` vs `client`, and `secrets[]` as bare string vs
+`{name, allowed_hosts}`); pin down valid native tool ids with
+`posthog__agent-native-tools-list` (the validator rejects unknown ones);
+and run `posthog__agent-applications-revisions-validate-create` on a
+draft spec to surface concrete errors rather than guessing whether the
+shape is right.
 
-Two facts the schema can't give you, because they aren't part of the
-spec:
+Two facts the field reference can't give you, because they aren't
+part of the spec:
 
 - **Trigger-required secrets** (`SLACK_SIGNING_SECRET`,
   `SLACK_BOT_TOKEN` for `slack` triggers) are NOT listed in
@@ -111,13 +116,13 @@ spec:
   the promote endpoint refuses if they're missing. See
   `skills/secrets-and-integrations`.
 - **Custom-tool `source.ts` shape** (Phase 5) is the tool's runtime
-  contract, not spec structure — the schema won't describe it.
+  contract, not spec structure — the field reference won't describe it.
 
 ## Phase 3 — create
 
 ```text
-@posthog/agent-applications-create           → returns { id, slug }
-@posthog/agent-applications-revisions-create → empty draft revision (with spec)
+posthog__agent-applications-create           → returns { id, slug }
+posthog__agent-applications-revisions-create → empty draft revision (with spec)
 ```
 
 `revisions-create` accepts the full spec inline — pass the Phase 2
@@ -125,7 +130,7 @@ JSON straight in. Don't create-empty-then-partial-update; that's
 two round-trips for nothing.
 
 **Drive the PostHog Code UI** so the user follows along. Right after
-`agent-applications-create` returns, call:
+`posthog__agent-applications-create` returns, call:
 
 ```text
 focus_tab({ slug: "<new-slug>", tab: "configuration" })
@@ -148,7 +153,7 @@ from the user's current page (they navigate while you think).
 If you need to amend the spec on a draft:
 
 ```text
-@posthog/agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
+posthog__agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
 ```
 
 ## Phase 4 — configure secrets / integrations
@@ -169,19 +174,23 @@ already has that integration installed. If not, tell the user to
 install it from the PostHog integrations UI — you can't do this
 for them.
 
+When the new agent must call PostHog or a third-party API as the
+user, load `skills/authenticating-as-the-user` to wire its identity
+provider + scopes.
+
 ## Phase 5 — write the bundle (typed authoring API)
 
 The authoring surface is **typed resources, not file paths**. You
 never write a path; you upsert a typed object via one of these calls:
 
-| Resource      | Tool                                           | Body shape                                         |
-| ------------- | ---------------------------------------------- | -------------------------------------------------- |
-| System prompt | `agent-applications-revisions-agent-md-update` | `{ content }`                                      |
-| Spec          | `agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools) |
-| One skill     | `agent-applications-revisions-skills-update`   | `{ description, body, files? }`                    |
-| Delete skill  | `agent-applications-revisions-skills-destroy`  | (no body)                                          |
-| One tool      | `agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`             |
-| Delete tool   | `agent-applications-revisions-tools-destroy`   | (no body)                                          |
+| Resource      | Tool                                                    | Body shape                                         |
+| ------------- | ------------------------------------------------------- | -------------------------------------------------- |
+| System prompt | `posthog__agent-applications-revisions-agent-md-update` | `{ content }`                                      |
+| Spec          | `posthog__agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools) |
+| One skill     | `posthog__agent-applications-revisions-skills-update`   | `{ description, body, files? }`                    |
+| Delete skill  | `posthog__agent-applications-revisions-skills-destroy`  | (no body)                                          |
+| One tool      | `posthog__agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`             |
+| Delete tool   | `posthog__agent-applications-revisions-tools-destroy`   | (no body)                                          |
 
 **`spec.skills[]` and `spec.tools[]` are server-derived at freeze.**
 You can't write them via `partial-update`. The janitor scans the typed
@@ -279,7 +288,7 @@ than rewriting the whole bundle.
 
 ## Phase 6 — validate
 
-`agent-applications-revisions-validate-create`. Returns
+`posthog__agent-applications-revisions-validate-create`. Returns
 `{ ok, revision_id, revision_state, errors, resolved_natives }`. Fix
 every error before freeze — they block.
 
@@ -300,7 +309,7 @@ Load `skills/running-and-evaluating-tests`. Write 3-5 test cases
 covering the happy path, the obvious edge cases, and one hostile
 input.
 
-`agent-applications-revisions-freeze-create` then
+`posthog__agent-applications-revisions-freeze-create` then
 `agent-applications-revisions-test-run`. Read the results,
 iterate.
 
@@ -311,7 +320,7 @@ fix, re-freeze, re-test. (Same loop as
 ## Phase 8 — promote
 
 Explicit confirmation, as always.
-`agent-applications-revisions-promote-create`.
+`posthog__agent-applications-revisions-promote-create`.
 
 For high-stakes agents (production-traffic-affecting, customer-
 visible, money-moving), **suggest a preview link first** (per
@@ -329,7 +338,7 @@ revision before promoting.
   assistant for X". Will work for trivial cases, fail for
   anything specific. Push depth into skills.
 - **Premature custom tooling.** User reaches for a custom tool
-  before checking native ones. Cross-check `@posthog/agent-applications-native-tools-list`
+  before checking native ones. Cross-check `posthog__agent-native-tools-list`
   first — half the time the native tool exists.
 - **Secrets in `agent.md`.** Comes up often. Refuse hard, load
   `skills/secrets-and-integrations`.

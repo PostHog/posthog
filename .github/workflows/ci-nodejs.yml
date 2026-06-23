@@ -7,7 +7,7 @@ on:
             - master
 
 env:
-    DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     OBJECT_STORAGE_ENABLED: true
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
@@ -57,6 +57,8 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
+                        - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
@@ -215,10 +217,10 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
@@ -259,16 +261,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -414,10 +408,10 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USER != '' && env.DOCKERHUB_TOKEN != '' }}
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
@@ -458,16 +452,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
